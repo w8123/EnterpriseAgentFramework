@@ -5,6 +5,7 @@ import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowEditingException;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationResult;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowReleaseValidationService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowRevisionConflictException;
@@ -301,7 +302,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
         AtomicReference<RuntimeWorkflowDefinitionEntity> updateRef = new AtomicReference<>();
         when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
-        when(workflowService.update(
+        when(workflowService.updateUserEditable(
                 eq("wf-ai-1"),
                 any(RuntimeWorkflowDefinitionEntity.class),
                 eq("2026-07-01T09:00"))).thenAnswer(inv -> {
@@ -337,7 +338,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         assertTrue(canvasNodeIds(view.proposedCanvas()).contains("tool"));
         assertNotNull(updateRef.get().getGraphSpecJson());
         verify(workflowService).assertRevision(workflow, "2026-07-01T09:00");
-        verify(workflowService).update(
+        verify(workflowService).updateUserEditable(
                 eq("wf-ai-1"),
                 any(RuntimeWorkflowDefinitionEntity.class),
                 eq("2026-07-01T09:00"));
@@ -362,10 +363,26 @@ class RuntimeWorkflowAiCodingServiceTest {
                                 null,
                                 "stale patch")));
 
-        verify(workflowService, never()).update(
+        verify(workflowService, never()).updateUserEditable(
                 eq("wf-ai-1"),
                 any(RuntimeWorkflowDefinitionEntity.class),
                 eq("2026-07-01T08:59"));
+    }
+
+    @Test
+    void patchCannotSaveSdkSystemOrQuickAccessDefinitions() {
+        for (String[] origin : List.of(new String[]{"SDK", "SDK_SYNC"},
+                new String[]{"SYSTEM", "SYSTEM_SEED"}, new String[]{"USER", "AI_QUICK_ACCESS"})) {
+            RuntimeWorkflowDefinitionEntity workflow = workflow("wf-locked");
+            workflow.setDefinitionAuthority(origin[0]);
+            workflow.setCreationChannel(origin[1]);
+            when(workflowService.findById("wf-locked")).thenReturn(Optional.of(workflow));
+            RuntimeWorkflowEditingException failure = assertThrows(RuntimeWorkflowEditingException.class,
+                    () -> service.patchWorkflow("wf-locked", new RuntimeWorkflowAiCodingService.PatchRequest(
+                            "2026-07-01T09:00", false, List.of(), null, "edit")));
+            assertEquals("WORKFLOW_DEFINITION_READ_ONLY", failure.getCode());
+        }
+        verify(workflowService, never()).updateUserEditable(eq("wf-locked"), any(), any());
     }
 
     @Test
@@ -397,7 +414,7 @@ class RuntimeWorkflowAiCodingServiceTest {
         assertEquals(false, view.saved());
         assertEquals(false, view.validation().valid());
         assertEquals(List.of("entry is required"), view.errors());
-        verify(workflowService, never()).update(
+        verify(workflowService, never()).updateUserEditable(
                 eq("wf-ai-1"),
                 any(RuntimeWorkflowDefinitionEntity.class),
                 eq("2026-07-01T09:00"));
@@ -527,7 +544,7 @@ class RuntimeWorkflowAiCodingServiceTest {
     }
 
     @Test
-    void pageAssistantSmokeResolvesTrustedEmbedContextAndFlattensItForRuntime() {
+    void pageAssistantSmokeDoesNotTreatSessionIdAsUserAuthorization() {
         RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
         workflow.setGraphSpecJson("""
                 {"schemaVersion":2,"entryNodeId":"page","exitNodeIds":["page"],
@@ -535,25 +552,6 @@ class RuntimeWorkflowAiCodingServiceTest {
                    "pageKey":"orders.detail","actionKey":"search"}}],"edges":[]}
                 """);
         when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
-        when(controlCatalogClient.resolvePageBridgeContext(any())).thenReturn(
-                new RuntimeControlCatalogClient.PageBridgeContextResolution(
-                        true,
-                        "PAGE_BRIDGE_CONTEXT_RESOLVED",
-                        "resolved",
-                        "embed-1234567890abcdef",
-                        "orders",
-                        "orders-agent",
-                        "orders.list",
-                        "orders-page-1",
-                        "/orders"));
-        AtomicReference<RuntimeWorkflowDebugService.DebugRunRequest> captured = new AtomicReference<>();
-        org.mockito.Mockito.doAnswer(invocation -> {
-            captured.set(invocation.getArgument(0));
-            return new RuntimeWorkflowDebugService.DebugRunResult(
-                    "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "ok", "page",
-                    List.of(), null, List.of(), Map.of(), null, null);
-        }).when(debugService).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
-
         RuntimeWorkflowAiCodingService.RunView view = service.smokeTestPageAssistant(
                 "wf-ai-1",
                 new RuntimeWorkflowAiCodingService.RunRequest(
@@ -562,12 +560,10 @@ class RuntimeWorkflowAiCodingServiceTest {
                         Map.of("embedSessionId", "embed-1234567890abcdef", "pageBridge", Map.of("ignored", true)),
                         true));
 
-        assertEquals("COMPLETED", view.status());
-        assertEquals("embed-1234567890abcdef", captured.get().inputParams().get("sessionId"));
-        assertEquals("orders-agent", captured.get().inputParams().get("agentId"));
-        assertEquals("orders", captured.get().inputParams().get("projectCode"));
-        assertEquals("RESOLVED", ((Map<?, ?>) view.metadata().get("contextResolution")).get("status"));
-        verify(controlCatalogClient).resolvePageBridgeContext(any());
+        assertEquals("CONTEXT_REQUIRED", view.status());
+        assertEquals("PAGE_BRIDGE_USER_AUTHORIZATION_REQUIRED", ((Map<?, ?>) view.metadata().get("contextResolution")).get("code"));
+        verify(controlCatalogClient, never()).resolvePageBridgeContext(any());
+        verify(debugService, never()).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
     }
 
     @Test
@@ -584,10 +580,74 @@ class RuntimeWorkflowAiCodingServiceTest {
                 "wf-ai-1", new RuntimeWorkflowAiCodingService.RunRequest(Map.of(), "search", Map.of(), true));
 
         assertEquals("CONTEXT_REQUIRED", view.status());
-        assertTrue(view.errors().get(0).contains("embedSessionId"));
-        assertEquals("PAGE_BRIDGE_CONTEXT_REQUIRED",
+        assertTrue(view.errors().get(0).contains("用户授权"));
+        assertEquals("PAGE_BRIDGE_USER_AUTHORIZATION_REQUIRED",
                 ((Map<?, ?>) view.metadata().get("contextResolution")).get("code"));
         verify(debugService, never()).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
+    }
+
+    @Test
+    void ordinaryAiCodingRunCannotExecuteEarlierNodesBeforeAnUnauthorizedPageAction() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("""
+                {"entryNodeId":"write","exitNodeIds":["page"],"nodes":[
+                 {"id":"write","type":"TOOL","config":{}},
+                 {"id":"page","type":"PAGE_ACTION","config":{"pageKey":"orders","actionKey":"open"}}
+                ],"edges":[{"from":"write","to":"page"}]}
+                """);
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        var view = service.runWorkflow("wf-ai-1", new RuntimeWorkflowAiCodingService.RunRequest(
+                Map.of(), "run", Map.of("sessionId", "someone-elses-session"), false));
+        assertEquals("CONTEXT_REQUIRED", view.status());
+        assertEquals("PAGE_BRIDGE_USER_AUTHORIZATION_REQUIRED", ((Map<?, ?>) view.metadata().get("contextResolution")).get("code"));
+        verify(debugService, never()).debugRun(any(RuntimeWorkflowDebugService.DebugRunRequest.class));
+    }
+
+    @Test
+    void trustedSmokeUsesAttestedSessionAndUserInsteadOfCallerContext() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("""
+                {"entryNodeId":"page","exitNodeIds":["page"],"nodes":[
+                 {"id":"page","type":"PAGE_ACTION","config":{"pageKey":"orders","actionKey":"open"}}],"edges":[]}
+                """);
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        when(controlCatalogClient.resolvePageBridgeContext(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeContextResolution(true, "OK", "ok", "trusted-session",
+                        "orders", "orders-agent", "orders.list", "page-1", "/orders"));
+        when(debugService.debugRunTrustedEmbed(any(), any())).thenReturn(new RuntimeWorkflowDebugService.DebugRunResult(
+                "run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED", "ok", "page",
+                List.of(), null, List.of(), Map.of(), null, null));
+        var identity = com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromEmbedSession(
+                "tenant-a", 12L, "orders", "real-user");
+        var view = service.smokeTestPageAssistantTrusted("wf-ai-1", new RuntimeWorkflowAiCodingService.RunRequest(
+                Map.of("userId", "forged-user"), "search", Map.of("sessionId", "foreign-session", "embedSessionId", "foreign-session"), false),
+                "orders", "trusted-session", identity);
+        assertEquals("COMPLETED", view.status());
+        var captured = org.mockito.ArgumentCaptor.forClass(RuntimeWorkflowDebugService.DebugRunRequest.class);
+        verify(debugService).debugRunTrustedEmbed(captured.capture(), org.mockito.ArgumentMatchers.eq(identity));
+        assertEquals("trusted-session", captured.getValue().inputParams().get("sessionId"));
+        assertTrue(captured.getValue().graphSpecJson().contains("\"confirm\":true"));
+        verify(controlCatalogClient).resolvePageBridgeContext(org.mockito.ArgumentMatchers.argThat(
+                value -> "trusted-session".equals(value.sessionId()) && "orders".equals(value.projectCode())));
+        assertThrows(IllegalArgumentException.class, () -> service.smokeTestPageAssistantTrusted("wf-ai-1", null,
+                "other-project", "trusted-session", identity));
+        assertThrows(IllegalArgumentException.class, () -> service.smokeTestPageAssistantTrusted("wf-ai-1", null,
+                "orders", "trusted-session", com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.untrustedDebug()));
+    }
+
+    @Test
+    void trustedPageSmokeNeverPretendsRealActionsAreDryRunAndRejectsExternalNodes() {
+        var workflow = workflow("wf-ai-1");
+        workflow.setGraphSpecJson("{\"entryNodeId\":\"page\",\"nodes\":[{\"id\":\"page\",\"type\":\"PAGE_ACTION\",\"config\":{}}],\"edges\":[]}");
+        when(workflowService.findById("wf-ai-1")).thenReturn(Optional.of(workflow));
+        var identity = com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 12L, "orders", "user");
+        var dry = service.smokeTestPageAssistantTrusted("wf-ai-1", null, "orders", "session", identity);
+        assertEquals("PAGE_BRIDGE_DRY_RUN_UNAVAILABLE", ((Map<?, ?>) dry.metadata().get("contextResolution")).get("code"));
+        workflow.setGraphSpecJson("{\"entryNodeId\":\"tool\",\"nodes\":[{\"id\":\"tool\",\"type\":\"TOOL\",\"config\":{}},{\"id\":\"page\",\"type\":\"PAGE_ACTION\",\"config\":{}}],\"edges\":[]}");
+        var unsafe = service.smokeTestPageAssistantTrusted("wf-ai-1", new RuntimeWorkflowAiCodingService.RunRequest(
+                Map.of(), "test", Map.of(), false), "orders", "session", identity);
+        assertEquals("PAGE_BRIDGE_UNSAFE_NODE", ((Map<?, ?>) unsafe.metadata().get("contextResolution")).get("code"));
+        verify(debugService, never()).debugRunTrustedEmbed(any(), any());
     }
 
     @Test

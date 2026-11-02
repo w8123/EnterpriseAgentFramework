@@ -545,7 +545,7 @@ DROP TABLE IF EXISTS `control_context_namespace`;
 
 -- Section 08/10: 平台角色与权限
 -- Consolidated from: sql/upgrade-20261017-platform-roles-redesign.sql
--- Source SHA-256 (UTF-8 LF): 40380932f6e077f31ff3b4c6f8b99412437f893a12fd851daaf9a2eb2f69dd15
+-- Source SHA-256 (UTF-8 LF): d84ad11c293cf058d3384dd154f6afa597a4cf981485a33fdbffca45d28d3bf9
 -- Begin source 08
 -- 2026-10-17 人员角色与权限重设计 R1
 -- 当前身份与权限规则见 docs/security.md。只改 Control 自有的平台角色/权限种子与角色绑定，不改表结构。
@@ -840,7 +840,7 @@ DEALLOCATE PREPARE reachai_run_center_statement;
 
 -- Section 10/10: 知识模块清理
 -- Consolidated from: sql/upgrade-20261018-knowledge-cleanup.sql
--- Source SHA-256 (UTF-8 LF): 8a817877694bd9706c2d97d3bc36912210fc9c7972fbf66470ddb9c868db33b8
+-- Source SHA-256 (UTF-8 LF): b3257e5b3cc83fbefeef961a554dc502c319c32fa7a55e5f323f6ca6cb60717c
 -- Begin source 10
 -- 知识模块整理（MySQL 5.7 / 8，可重复执行）。当前契约见 docs/data.md。
 -- 影响：

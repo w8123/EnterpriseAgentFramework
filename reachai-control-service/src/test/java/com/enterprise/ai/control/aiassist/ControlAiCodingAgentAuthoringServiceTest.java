@@ -31,6 +31,114 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ControlAiCodingAgentAuthoringServiceTest {
+    private static final String REVISION = "a".repeat(64);
+
+    @Test void activeConfigurationComesFromTheRevisionSnapshotInsteadOfAnEarlierHistoryRead() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.versions(7L, "orders", "agent-1")).thenReturn(Map.of("versions", List.of(Map.of("id", 20L, "status", "ACTIVE"))));
+        var active = Map.<String, Object>of("id", 22L, "status", "ACTIVE", "systemPrompt", "current published snapshot");
+        var snapshot = new java.util.LinkedHashMap<>(context(Map.of("id", 23L, "status", "DRAFT"), REVISION));
+        snapshot.put("active", active);
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(snapshot);
+        var result = fixture.service.getAgent(7L, "agent-1");
+        assertEquals(active, result.get("activeConfig"));
+        assertEquals(22L, ((Map<?, ?>) result.get("agent")).get("activeConfigVersionId"));
+        assertEquals(2, ((List<?>) result.get("configVersions")).size());
+        assertEquals(REVISION, result.get("baseRevision"));
+    }
+
+    @Test void readContextReturnsTheActualConfigMatchingItsRevisionEvenIfTheListWasReadEarlier() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.runtimeClient.listAgentConfigVersions("agent-1")).thenReturn(ResponseEntity.ok(
+                List.of(Map.of("id", 23L, "status", "DRAFT", "systemPrompt", "earlier list"))));
+        var current = Map.<String, Object>of("id", 23L, "status", "DRAFT", "systemPrompt", "current snapshot");
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(current, REVISION));
+        var result = fixture.service.getAgent(7L, "agent-1");
+        assertEquals(REVISION, result.get("baseRevision"));
+        assertEquals(current, ((Map<?, ?>) result.get("mutableBase")).get("config"));
+        assertEquals(List.of(current), result.get("configVersions"));
+    }
+
+    @Test void requiresReadRevisionEvenWhenDraftIdIsUnchanged() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(
+                Map.of("id", 23L, "status", "DRAFT"), "b".repeat(64)));
+        var missing = assertThrows(ControlAiCodingAgentException.class, () -> fixture.service.saveConfigDraft(7L, "agent-1",
+                Map.of("baseConfigVersionId", 23L, "systemPrompt", "edit")));
+        assertEquals("AGENT_DRAFT_REVISION_REQUIRED", missing.toBody().get("code"));
+        var stale = assertThrows(ControlAiCodingAgentException.class, () -> fixture.service.saveConfigDraft(7L, "agent-1",
+                Map.of("baseRevision", REVISION, "baseConfigVersionId", 23L, "systemPrompt", "edit")));
+        assertEquals("AGENT_DRAFT_CONFLICT", stale.toBody().get("code"));
+        org.mockito.Mockito.verify(fixture.drafts, never()).save(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), anyMap());
+        verify(fixture.runtimeClient, never()).saveAgentConfigDraft(eq("agent-1"), anyMap());
+    }
+
+    @Test void preservesTheSubmittedRevisionWhenAnotherWriterWinsAfterContextRead() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(Map.of("id", 23L, "status", "DRAFT"), REVISION));
+        when(fixture.drafts.save(eq(7L), eq("orders"), eq("agent-1"), eq(REVISION), anyMap()))
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(HttpStatus.CONFLICT));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class, () -> fixture.service.saveConfigDraft(7L, "agent-1",
+                Map.of("baseRevision", REVISION, "baseConfigVersionId", 23L, "systemPrompt", "edit")));
+        org.mockito.Mockito.verify(fixture.drafts, org.mockito.Mockito.times(1)).context(7L, "orders", "agent-1");
+        org.mockito.Mockito.verify(fixture.drafts, org.mockito.Mockito.times(1)).save(7L, "orders", "agent-1", REVISION, Map.of("systemPrompt", "edit"));
+        org.mockito.Mockito.verifyNoMoreInteractions(fixture.drafts);
+        verify(fixture.runtimeClient, never()).saveAgentConfigDraft(eq("agent-1"), anyMap());
+    }
+
+    @Test void publishesOnlyCurrentReviewedDraftAndNeverAnOlderVersion() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(Map.of("id", 23L, "status", "DRAFT"), REVISION));
+        var failure = assertThrows(ControlAiCodingAgentException.class, () -> fixture.service.publishConfig(7L, "agent-1",
+                Map.of("baseRevision", REVISION, "configVersionId", 20L, "requestedBy", "forged-human")));
+        assertEquals("AGENT_CONFIG_NOT_FOUND", failure.toBody().get("code"));
+        org.mockito.Mockito.verify(fixture.drafts, never()).publish(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test void detachesOnlyTheReviewedSkillAndReturnsTheSaveRevisionForLaterPublication() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(Map.of("id", 23L, "status", "DRAFT",
+                "skills", List.of(Map.of("skillId", 11L, "skillVersionId", 21L))), REVISION));
+        when(fixture.skillSnapshotAssembler.assembleForAiCodingProject(Map.of("skills", List.of()), "orders"))
+                .thenReturn(Map.of("skills", List.of()));
+        when(fixture.drafts.save(7L, "orders", "agent-1", REVISION, Map.of("skills", List.of())))
+                .thenReturn(context(Map.of("id", 23L, "status", "DRAFT", "skills", List.of()), "b".repeat(64)));
+        var result = fixture.service.detachSkill(7L, "agent-1", Map.of("baseRevision", REVISION,
+                "baseConfigVersionId", 23L, "skillId", 11L, "publish", false));
+        assertEquals(true, result.get("removed"));
+        assertEquals(false, result.get("published"));
+        assertEquals("b".repeat(64), result.get("baseRevision"));
+        org.mockito.Mockito.verify(fixture.drafts, never()).publish(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        verify(fixture.runtimeClient, never()).saveAgentConfigDraft(eq("agent-1"), anyMap());
+    }
+
+    @Test void projectPublicationStillRejectsRemoteBindingsBeforeAnyWrite() {
+        Fixture fixture = fixture();
+        when(fixture.capabilityClient.getOnboardingProjectById(7L)).thenReturn(project());
+        when(fixture.runtimeClient.getAgent("agent-1")).thenReturn(ResponseEntity.ok(agent()));
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(Map.of("id", 23L, "status", "DRAFT",
+                "remoteAgents", List.of(Map.of("remoteAgentId", "remote-1"))), REVISION));
+        var failure = assertThrows(ControlAiCodingAgentException.class, () -> fixture.service.publishConfig(7L, "agent-1",
+                Map.of("baseRevision", REVISION, "configVersionId", 23L)));
+        assertEquals("AGENT_A2A_REQUIRES_CONSOLE", failure.toBody().get("code"));
+        org.mockito.Mockito.verify(fixture.drafts, org.mockito.Mockito.times(1)).context(7L, "orders", "agent-1");
+        org.mockito.Mockito.verifyNoMoreInteractions(fixture.drafts);
+    }
 
     @Test
     void createsProjectAgentWithActiveSupervisorConfig() {
@@ -42,14 +150,15 @@ class ControlAiCodingAgentAuthoringServiceTest {
                 "keySlug", "orders-helper", "name", "订单助手")));
         when(fixture.provisioningService.resolveSupervisorModelInstanceId("model-1"))
                 .thenReturn("model-1");
-        when(fixture.runtimeClient.saveAgentConfigDraft(eq("agent-1"), anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+        when(fixture.drafts.context(7L, "orders", "agent-1")).thenReturn(context(null, REVISION));
+        when(fixture.drafts.save(eq(7L), eq("orders"), eq("agent-1"), eq(REVISION), anyMap()))
+                .thenReturn(context(Map.of(
                         "id", 21L, "status", "DRAFT", "skills", List.of(),
-                        "tools", List.of(), "remoteAgents", List.of())));
-        when(fixture.runtimeClient.publishAgentConfigVersion(eq("agent-1"), eq(21L), anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+                        "tools", List.of(), "remoteAgents", List.of()), "b".repeat(64)));
+        when(fixture.drafts.publish(7L, "orders", "agent-1", "b".repeat(64), 21L))
+                .thenReturn(context(Map.of(
                         "id", 21L, "status", "ACTIVE", "skills", List.of(),
-                        "tools", List.of(), "remoteAgents", List.of())));
+                        "tools", List.of(), "remoteAgents", List.of()), "c".repeat(64)));
 
         Map<String, Object> result = fixture.service.createAgent(7L, Map.of(
                 "keySlug", "orders-helper",
@@ -67,12 +176,14 @@ class ControlAiCodingAgentAuthoringServiceTest {
         assertEquals("orders", identity.getValue().get("projectCode"));
         assertEquals("PROJECT", identity.getValue().get("visibility"));
         ArgumentCaptor<Map<String, Object>> config = ArgumentCaptor.forClass(Map.class);
-        verify(fixture.runtimeClient).saveAgentConfigDraft(eq("agent-1"), config.capture());
+        verify(fixture.drafts).save(eq(7L), eq("orders"), eq("agent-1"), eq(REVISION), config.capture());
         assertEquals("AGENTSCOPE", config.getValue().get("runtimeType"));
         assertEquals("model-1", config.getValue().get("modelInstanceId"));
         assertEquals(List.of(), config.getValue().get("skills"));
-        verify(fixture.runtimeClient).publishAgentConfigVersion(
-                "agent-1", 21L, Map.of("publishedBy", "Codex"));
+        verify(fixture.drafts).publish(7L, "orders", "agent-1", "b".repeat(64), 21L);
+        assertEquals("c".repeat(64), result.get("baseRevision"));
+        verify(fixture.runtimeClient, never()).saveAgentConfigDraft(eq("agent-1"), anyMap());
+        verify(fixture.runtimeClient, never()).publishAgentConfigVersion(eq("agent-1"), eq(21L), anyMap());
     }
 
     @Test
@@ -91,27 +202,30 @@ class ControlAiCodingAgentAuthoringServiceTest {
                 "scriptPolicy", "DENY", "required", false, "enabled", true);
         when(fixture.skillSnapshotAssembler.assembleForAiCodingProject(anyMap(), eq("orders")))
                 .thenReturn(Map.of("skills", List.of(canonicalBinding)));
-        when(fixture.runtimeClient.saveAgentConfigDraft(eq("agent-1"), anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+        when(fixture.drafts.save(eq(7L), eq("orders"), eq("agent-1"), org.mockito.ArgumentMatchers.anyString(), anyMap()))
+                .thenReturn(context(Map.of(
                         "id", 22L, "status", "DRAFT", "skills", List.of(canonicalBinding),
-                        "tools", List.of(), "remoteAgents", List.of())));
-        when(fixture.runtimeClient.publishAgentConfigVersion(eq("agent-1"), eq(22L), anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+                        "tools", List.of(), "remoteAgents", List.of()), "b".repeat(64)),
+                        context(Map.of("id", 22L, "status", "DRAFT", "skills", List.of(canonicalBinding),
+                                "tools", List.of(), "remoteAgents", List.of()), "c".repeat(64)));
+        when(fixture.drafts.publish(7L, "orders", "agent-1", "c".repeat(64), 22L))
+                .thenReturn(context(Map.of(
                         "id", 22L, "status", "ACTIVE", "skills", List.of(canonicalBinding),
-                        "tools", List.of(), "remoteAgents", List.of())));
+                        "tools", List.of(), "remoteAgents", List.of()), "d".repeat(64)));
 
         Map<String, Object> result = fixture.service.attachSkill(7L, "agent-1", Map.of(
                 "skillId", 11L,
                 "skillVersionId", 21L,
                 "baseConfigVersionId", 20L,
+                "baseRevision", REVISION,
                 "requestedBy", "Codex"));
 
         assertEquals("agent-skill-attachment.v1", result.get("schema"));
         assertEquals(true, result.get("created"));
         assertEquals(true, result.get("published"));
         verify(fixture.skillAccessPolicy).requireProjectCredentialBind(binding.skill(), "orders");
-        verify(fixture.runtimeClient).publishAgentConfigVersion(
-                "agent-1", 22L, Map.of("publishedBy", "Codex"));
+        verify(fixture.drafts).publish(7L, "orders", "agent-1", "c".repeat(64), 22L);
+        assertEquals("d".repeat(64), result.get("baseRevision"));
     }
 
     @Test
@@ -130,6 +244,7 @@ class ControlAiCodingAgentAuthoringServiceTest {
         ControlAiCodingAgentException failure = assertThrows(ControlAiCodingAgentException.class,
                 () -> fixture.service.attachSkill(7L, "agent-1", Map.of(
                         "skillId", 11L,
+                        "baseRevision", REVISION,
                         "skillVersionId", 21L)));
 
         assertEquals(HttpStatus.CONFLICT, failure.status());
@@ -181,6 +296,7 @@ class ControlAiCodingAgentAuthoringServiceTest {
         ControlAiCodingAgentException failure = assertThrows(ControlAiCodingAgentException.class,
                 () -> fixture.service.attachSkill(7L, "agent-1", Map.of(
                         "skillId", 11L,
+                        "baseRevision", REVISION,
                         "skillVersionId", 21L)));
 
         assertEquals(HttpStatus.FORBIDDEN, failure.status());
@@ -219,11 +335,28 @@ class ControlAiCodingAgentAuthoringServiceTest {
         AgentSkillCatalogService skillCatalogService = mock(AgentSkillCatalogService.class);
         AgentSkillAccessPolicy skillAccessPolicy = mock(AgentSkillAccessPolicy.class);
         AgentSkillBindingSnapshotAssembler skillSnapshotAssembler = mock(AgentSkillBindingSnapshotAssembler.class);
+        ControlAiCodingAgentDraftGateway drafts = mock(ControlAiCodingAgentDraftGateway.class);
+        when(drafts.versions(7L, "orders", "agent-1")).thenAnswer(call -> {
+            var versions = runtimeClient.listAgentConfigVersions("agent-1");
+            return Map.of("versions", versions == null ? List.of() : versions.getBody());
+        });
+        when(drafts.context(7L, "orders", "agent-1")).thenAnswer(call -> {
+            var versions = runtimeClient.listAgentConfigVersions("agent-1");
+            var list = versions == null ? List.of() : (List<?>) versions.getBody();
+            return context(list.isEmpty() ? null : list.get(0), REVISION);
+        });
         ControlAiCodingAgentAuthoringService service = new ControlAiCodingAgentAuthoringService(
                 capabilityClient, runtimeClient, provisioningService, skillCatalogService,
-                skillAccessPolicy, skillSnapshotAssembler, new ObjectMapper());
+                skillAccessPolicy, skillSnapshotAssembler, new ObjectMapper(), drafts);
         return new Fixture(service, capabilityClient, runtimeClient, provisioningService,
-                skillCatalogService, skillAccessPolicy, skillSnapshotAssembler);
+                skillCatalogService, skillAccessPolicy, skillSnapshotAssembler, drafts);
+    }
+
+    private Map<String, Object> context(Object base, String revision) {
+        var result = new java.util.LinkedHashMap<String, Object>();
+        result.put("base", base);
+        result.put("revision", revision);
+        return result;
     }
 
     private Map<String, Object> project() {
@@ -257,6 +390,7 @@ class ControlAiCodingAgentAuthoringServiceTest {
             ControlProjectAgentProvisioningService provisioningService,
             AgentSkillCatalogService skillCatalogService,
             AgentSkillAccessPolicy skillAccessPolicy,
-            AgentSkillBindingSnapshotAssembler skillSnapshotAssembler) {
+            AgentSkillBindingSnapshotAssembler skillSnapshotAssembler,
+            ControlAiCodingAgentDraftGateway drafts) {
     }
 }

@@ -177,7 +177,7 @@ public final class ConnectionConfigSupport {
         try {
             uri = URI.create(baseUrl.trim());
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("connection.baseUrl is invalid: " + e.getMessage());
+            throw new IllegalArgumentException("connection.baseUrl is invalid");
         }
         String scheme = uri.getScheme();
         if (scheme == null

@@ -17,19 +17,24 @@ import static org.mockito.Mockito.when;
 class RuntimeAgentConfigControllerTest {
 
     @Test
-    void copiesPublishedSnapshotToDraftThroughPublicConfigApi() throws Exception {
+    void legacyWritesRefuseWithoutCallingTheOwner() throws Exception {
         RuntimeAgentConfigService service = mock(RuntimeAgentConfigService.class);
         RuntimeAgentConfigController controller = new RuntimeAgentConfigController(service);
-        AgentConfigVersionView draft = view(4L, 4, "DRAFT");
-        when(service.copyToDraft("agent-1", 3L)).thenReturn(draft);
-
         Method route = RuntimeAgentConfigController.class
                 .getDeclaredMethod("copyToDraft", String.class, Long.class);
         assertArrayEquals(
                 new String[] {"/api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft"},
                 route.getAnnotation(PostMapping.class).value());
-        assertEquals(draft, controller.copyToDraft("agent-1", 3L).getBody());
-        verify(service).copyToDraft("agent-1", 3L);
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        for (var command : java.util.List.of(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/agents/agent-1/config-versions/draft"),
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/agents/agent-1/config-versions/31/publish"),
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/api/agents/agent-1/config-versions/31/copy-to-draft"))) {
+            mvc.perform(command.accept("application/json").contentType("application/json").content("not-json"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isConflict())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.code").value("AGENT_DRAFT_REVISION_REQUIRED"));
+        }
+        org.mockito.Mockito.verifyNoInteractions(service);
     }
 
     private AgentConfigVersionView view(Long id, int versionNo, String status) {

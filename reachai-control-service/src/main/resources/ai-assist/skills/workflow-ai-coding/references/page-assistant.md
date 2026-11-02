@@ -80,7 +80,7 @@ Checks:
 
 `POST /api/workflows/{workflowId}/ai-coding/page-assistant/smoke-test`
 
-Default `dryRun=true`.
+An `embedSessionId` alone is not user authorization. The current page smoke path has no dry-run sandbox. A human-controlled client must hold both the platform session with Workflow debug permission and a valid business-page Embed token, and send the page token only in the `X-ReachAI-Embed-Token` request header. Do not ask the user to paste that token into the AI conversation, tool arguments, logs, or artifacts.
 
 Body fields:
 
@@ -89,24 +89,13 @@ Body fields:
 - `input`
 - `runtimeContext`
 
-Bridge context keys accepted by platform:
-
-- `embedSessionId`
-- `pageBridge`
-- `pageContext`
-- `bridgeGlobal`
-
-For a `PAGE_ACTION` smoke test, provide the current business-page
-`embedSessionId`. ReachAI resolves the session's `projectCode`, `agentId`,
-current page and page instance server-side; supplied project/Agent identities
-are not trusted. A missing or expired session returns `CONTEXT_REQUIRED` with
-`metadata.contextResolution` rather than a misleading Page Bridge failure.
+For a real `PAGE_ACTION` smoke test, the human-controlled client supplies `runtimeContext.embedSessionId` and explicitly sets `dryRun` to `false`. Control verifies the token and matching session; Runtime requires the workflow's project to match and forces user confirmation for every page action. Graphs containing TOOL, HTTP_REQUEST, or other unsupported external nodes are rejected before execution. Without page authorization, or with `dryRun=true`, the endpoint returns an actionable `CONTEXT_REQUIRED` instead of running page actions.
 
 Example:
 
 ```json
 {
-  "dryRun": true,
+  "dryRun": false,
   "message": "查询当前班组",
   "runtimeContext": {
     "embedSessionId": "<current embed session id>"
@@ -116,8 +105,7 @@ Example:
 
 Important:
 
-- The smoke-test endpoint reuses the real generic Workflow debug runner. Its `RunView` contains status, node outputs, trace/run ids, errors, warnings, and metadata; it does not manufacture page-specific node statuses.
-- `runtimeContext`, `pageBridge`, `pageContext` and `bridgeGlobal` are normalized into the Runtime's top-level context. This is why a request that follows this Skill works identically in Smoke Test and actual graph execution.
+- The real smoke-test path can change page state after the business user confirms. Its `RunView` contains status, node outputs, trace/run ids, errors, warnings, and metadata; it does not manufacture page-specific node statuses.
 - A successful debug run does not by itself prove real browser behavior. Run the actual page in a browser, verify the visible result and business request, then report acceptance through the current business-page workbench task.
 - Actions with `confirmRequired=true` cannot be treated as fully executed without explicit confirmation policy.
 - For query flows, real browser execution requires more than queued PAGE_ACTION success. Verify that extracted filter values appear in `PAGE_ACTION(setFilters).args`, are visible in current page filters/state after `setFilters`, are included in the real business query request triggered by `search`, and are reflected by the refreshed table read through `readTable`.

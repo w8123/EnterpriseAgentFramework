@@ -261,6 +261,9 @@ final class RuntimeActionNodeHandlers {
         Map<String, Object> args = buildToolInput(node, context);
         int executionTimeoutMs = intValue(
                 context.get("pageBridgeTimeoutMs"), DEFAULT_PAGE_BRIDGE_EXECUTION_TIMEOUT_MS);
+        WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
+        boolean trustedEmbed = identity != null && identity.canResolveUserAcl()
+                && identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION;
         try {
             PageBridgeExecutionResponse response = controlClient.executePageBridge(new PageBridgeExecutionRequest(
                     sessionId,
@@ -274,7 +277,10 @@ final class RuntimeActionNodeHandlers {
                     Boolean.TRUE.equals(config.get("confirm"))
                             || Boolean.TRUE.equals(config.get("confirmRequired")),
                     DEFAULT_PAGE_BRIDGE_CONFIRMATION_TIMEOUT_MS,
-                    executionTimeoutMs));
+                    executionTimeoutMs,
+                    trustedEmbed ? identity.source().name() : null,
+                    trustedEmbed ? firstText(identity.tenantId(), "default") : null,
+                    trustedEmbed ? identity.userId() : null));
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), "PAGE_ACTION");
             }

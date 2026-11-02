@@ -72,6 +72,16 @@
             <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.enterprise.ai</groupId>
+            <artifactId>reachai-spring-boot2-starter</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion><groupId>org.springframework.boot</groupId><artifactId>spring-boot</artifactId></exclusion>
+                <exclusion><groupId>org.springframework.boot</groupId><artifactId>spring-boot-autoconfigure</artifactId></exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
     <build>

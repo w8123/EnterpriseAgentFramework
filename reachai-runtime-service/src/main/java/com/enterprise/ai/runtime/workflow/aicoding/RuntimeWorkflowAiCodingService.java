@@ -8,6 +8,7 @@ import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDebugService;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionEntity;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDefinitionService;
+import com.enterprise.ai.runtime.workflow.RuntimeWorkflowEditingPolicy;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowDocumentCanonicalizer;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputContract;
 import com.enterprise.ai.runtime.workflow.WorkflowSemanticValues;
@@ -219,6 +220,8 @@ public class RuntimeWorkflowAiCodingService {
     public PatchView patchWorkflow(String workflowId, PatchRequest request) {
         RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
         PatchRequest actual = request == null ? PatchRequest.empty() : request;
+        boolean dryRun = actual.dryRun() == null || actual.dryRun();
+        if (!dryRun) RuntimeWorkflowEditingPolicy.requireUserEditable(workflow);
         workflowService.assertRevision(workflow, actual.baseRevision());
         GraphSpec currentGraph = readGraph(workflow.getGraphSpecJson());
         Map<String, Object> canvas = readMap(workflow.getCanvasJson());
@@ -227,16 +230,13 @@ public class RuntimeWorkflowAiCodingService {
         canvas = canvasLayoutService.projectAndLayout(graph, canvas, layoutOptions(actual.layout()));
         graph = documentCanonicalizer.canonicalizeGraphSpec(graph);
         RuntimeWorkflowReleaseValidationResult validation = validationService.validateProposed(workflow, graph);
-        boolean dryRun = actual.dryRun() == null || actual.dryRun();
         boolean saveBlocked = !dryRun && !validation.valid();
         RuntimeWorkflowDefinitionEntity savedWorkflow = workflow;
         if (!dryRun && !saveBlocked) {
             RuntimeWorkflowDefinitionEntity update = new RuntimeWorkflowDefinitionEntity();
             update.setGraphSpecJson(writeJson(graph));
             update.setCanvasJson(writeJsonOrNull(canvas));
-            savedWorkflow = StringUtils.hasText(actual.baseRevision())
-                    ? workflowService.update(workflowId, update, actual.baseRevision())
-                    : workflowService.update(workflowId, update);
+            savedWorkflow = workflowService.updateUserEditable(workflowId, update, actual.baseRevision());
         }
         return new PatchView(
                 dryRun,
@@ -256,6 +256,7 @@ public class RuntimeWorkflowAiCodingService {
 
     public RunView runWorkflow(String workflowId, RunRequest request) {
         RuntimeWorkflowDefinitionEntity workflow = requireWorkflow(workflowId);
+        if (requiresPageBridge(workflow)) return pageBridgeAuthorizationRequired();
         RunRequest actual = request == null ? RunRequest.empty() : request;
         return executeWorkflow(workflow, actual,
                 normalizeRuntimeContext(workflow, actual.runtimeContext(), false));
@@ -264,6 +265,21 @@ public class RuntimeWorkflowAiCodingService {
     private RunView executeWorkflow(RuntimeWorkflowDefinitionEntity workflow,
                                     RunRequest actual,
                                     RuntimeContextNormalization contextNormalization) {
+        return executeWorkflow(workflow, actual, contextNormalization, null);
+    }
+
+    private RunView executeWorkflow(RuntimeWorkflowDefinitionEntity workflow,
+                                    RunRequest actual,
+                                    RuntimeContextNormalization contextNormalization,
+                                    com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity identity) {
+        return executeWorkflow(workflow, actual, contextNormalization, identity, null);
+    }
+
+    private RunView executeWorkflow(RuntimeWorkflowDefinitionEntity workflow,
+                                    RunRequest actual,
+                                    RuntimeContextNormalization contextNormalization,
+                                    com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity identity,
+                                    String safeGraph) {
         Map<String, Object> input = new LinkedHashMap<>();
         if (actual.input() != null) {
             input.putAll(actual.input());
@@ -279,8 +295,7 @@ public class RuntimeWorkflowAiCodingService {
         Map<String, Object> debugOptions = new LinkedHashMap<>();
         debugOptions.put("source", "workflow-ai-coding");
         debugOptions.put("dryRun", actual.dryRun());
-        RuntimeWorkflowDebugService.DebugRunResult result = debugService.debugRun(
-                new RuntimeWorkflowDebugService.DebugRunRequest(
+        var debugRequest = new RuntimeWorkflowDebugService.DebugRunRequest(
                         workflow.getId(),
                         workflow.getKeySlug(),
                         workflow.getName(),
@@ -288,11 +303,13 @@ public class RuntimeWorkflowAiCodingService {
                         workflow.getProjectCode(),
                         workflow.getExecutionEngine(),
                         workflow.getDefaultModelInstanceId(),
-                        workflow.getGraphSpecJson(),
+                        safeGraph == null ? workflow.getGraphSpecJson() : safeGraph,
                         workflow.getCanvasJson(),
                         actual.message(),
                         input,
-                        debugOptions));
+                        debugOptions);
+        RuntimeWorkflowDebugService.DebugRunResult result = identity == null
+                ? debugService.debugRun(debugRequest) : debugService.debugRunTrustedEmbed(debugRequest, identity);
         Map<String, Object> metadata = new LinkedHashMap<>(debugStateArtifact(result));
         metadata.put("contextResolution", contextNormalization.evidence());
         return new RunView(
@@ -407,6 +424,10 @@ public class RuntimeWorkflowAiCodingService {
 
     public RunView smokeTestPageAssistant(String workflowId, RunRequest request) {
         RuntimeWorkflowDefinitionEntity workflow = requirePageAssistantWorkflow(workflowId);
+        // A session id is not proof that the caller owns the business page. Until the
+        // authenticated page grant reaches this debug path, do not execute earlier nodes
+        // that might have side effects before the PAGE_ACTION is rejected.
+        if (requiresPageBridge(workflow)) return pageBridgeAuthorizationRequired();
         RunRequest actual = request == null ? RunRequest.empty() : request;
         RuntimeContextNormalization context = normalizeRuntimeContext(workflow, actual.runtimeContext(), true);
         if (!context.ready()) {
@@ -421,6 +442,70 @@ public class RuntimeWorkflowAiCodingService {
                     Map.of("contextResolution", context.evidence()));
         }
         return executeWorkflow(workflow, actual, context);
+    }
+
+    /** The session and user are attested by Control, not by the caller's runtimeContext. */
+    public RunView smokeTestPageAssistantTrusted(String workflowId, RunRequest request,
+            String trustedProject, String trustedSession,
+            com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity identity) {
+        var workflow = requirePageAssistantWorkflow(workflowId);
+        if (identity == null || identity.source() != com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.Source.EMBED_SESSION
+                || !identity.canResolveUserAcl() || !StringUtils.hasText(trustedSession)
+                || !StringUtils.hasText(trustedProject) || !trustedProject.equals(workflow.getProjectCode())
+                || !trustedProject.equals(identity.projectCode())) {
+            throw new IllegalArgumentException("WORKFLOW_PAGE_IDENTITY_INVALID");
+        }
+        RunRequest actual = request == null ? RunRequest.empty() : request;
+        if (!Boolean.FALSE.equals(actual.dryRun())) {
+            return pageSmokeUnavailable("PAGE_BRIDGE_DRY_RUN_UNAVAILABLE",
+                    "页面动作尚无隔离沙箱；如需真实测试，请明确选择真实执行并在业务页面逐项确认。");
+        }
+        String safeGraph = safePageSmokeGraph(workflow);
+        if (safeGraph == null) {
+            return pageSmokeUnavailable("PAGE_BRIDGE_UNSAFE_NODE",
+                    "当前页面测试包含未受页面确认保护的外部执行节点，暂不能运行。");
+        }
+        Map<String, Object> contextInput = new LinkedHashMap<>(mapValue(actual.runtimeContext()));
+        contextInput.put("embedSessionId", trustedSession);
+        contextInput.put("sessionId", trustedSession);
+        RunRequest safeRequest = new RunRequest(actual.input(), actual.message(), contextInput, actual.dryRun());
+        RuntimeContextNormalization context = normalizeRuntimeContext(workflow, contextInput, true);
+        if (!context.ready() || !trustedSession.equals(context.context().get("sessionId"))
+                || !trustedProject.equals(context.context().get("projectCode"))) {
+            return new RunView("CONTEXT_REQUIRED", null, null, null, List.of(),
+                    List.of("业务页面会话不可用或归属不匹配，请刷新页面后重试。"), List.of(),
+                    Map.of("contextResolution", context.evidence()));
+        }
+        return executeWorkflow(workflow, safeRequest, context, identity, safeGraph);
+    }
+
+    private String safePageSmokeGraph(RuntimeWorkflowDefinitionEntity workflow) {
+        GraphSpec graph = readGraph(workflow.getGraphSpecJson());
+        if (graph.getNodes() == null) return null;
+        Set<String> safeTypes = Set.of("USER_INPUT", "ANSWER", "IF_ELSE", "VARIABLE_ASSIGN", "TEMPLATE",
+                "VARIABLE_AGGREGATOR", "INTENT_CLASSIFIER", "PARAMETER_EXTRACT", "LLM", "KNOWLEDGE_RETRIEVAL",
+                "LOOP", "INTERACTION", "PAGE_ACTION");
+        for (GraphSpec.Node node : graph.getNodes()) {
+            if (node == null || !safeTypes.contains(node.getType())) return null;
+            if ("PAGE_ACTION".equals(node.getType())) {
+                Map<String, Object> config = new LinkedHashMap<>(node.getConfig() == null ? Map.of() : node.getConfig());
+                config.put("confirm", true);
+                node.setConfig(config);
+            }
+        }
+        return writeJson(graph);
+    }
+
+    private RunView pageSmokeUnavailable(String code, String message) {
+        return new RunView("CONTEXT_REQUIRED", null, null, null, List.of(), List.of(message), List.of(),
+                Map.of("contextResolution", Map.of("status", "MISSING", "code", code)));
+    }
+
+    private RunView pageBridgeAuthorizationRequired() {
+        return new RunView("CONTEXT_REQUIRED", null, null, null, List.of(),
+                List.of("页面动作测试需要业务页面用户授权；当前调试入口尚未接入该授权，请通过已登录的业务页面使用助手。"),
+                List.of(), Map.of("contextResolution", Map.of(
+                        "status", "MISSING", "code", "PAGE_BRIDGE_USER_AUTHORIZATION_REQUIRED")));
     }
 
     private PageActionNodeMatch pageActionMatch(

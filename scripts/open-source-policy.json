@@ -1,0 +1,10 @@
+{
+  "publicRepository": "w8123/EnterpriseAgentFramework",
+  "excludedPaths": ["reachai-website"],
+  "requiredFiles": [
+    "scripts/open-source-policy.json",
+    "scripts/check-open-source.mjs",
+    "scripts/sync-open-source.mjs",
+    ".githooks/pre-push"
+  ]
+}

@@ -50,8 +50,15 @@ class AiCodingTaskConsoleManagedExecutionRouteTest {
                 "session-1",
                 LocalDateTime.now().plusMinutes(5),
                 List.of("ADMIN"),
-                List.of(),
-                List.of());
+                List.of("platform:read"),
+                List.of(new com.enterprise.ai.control.identity.PlatformPermissionGrant("platform:read", "PROJECT", "orders")));
+        com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView task =
+                mock(com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView.class);
+        when(task.projectCode()).thenReturn("orders");
+        com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView detail =
+                mock(com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView.class);
+        when(detail.task()).thenReturn(task);
+        when(taskService.detail("task-1")).thenReturn(detail);
 
         MvcResult initial = mvc.perform(get("/api/ai-coding-console/tasks/task-1/managed-execution/events")
                         .accept(MediaType.TEXT_EVENT_STREAM)

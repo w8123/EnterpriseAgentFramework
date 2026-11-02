@@ -28,8 +28,10 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
     private final RuntimeCapabilityCatalogClient projects = mock(RuntimeCapabilityCatalogClient.class);
     private final RuntimeWorkflowDefinitionService workflows = mock(RuntimeWorkflowDefinitionService.class);
     private final RuntimeAgentWorkflowAttachmentService agents = mock(RuntimeAgentWorkflowAttachmentService.class);
+    private final com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService versions =
+            mock(com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService.class);
     private final RuntimeAgentSupervisorWorkflowAttachmentService service =
-            new RuntimeAgentSupervisorWorkflowAttachmentService(projects, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService(workflows, null, null), agents, new ObjectMapper());
+            new RuntimeAgentSupervisorWorkflowAttachmentService(projects, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowManagementService(workflows, versions, null), agents, new ObjectMapper());
 
     @BeforeEach
     void setUp() {
@@ -131,6 +133,65 @@ class RuntimeAgentSupervisorWorkflowAttachmentServiceTest {
                 new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(7L, null, "agent-1", "model-1", "Cursor")));
         assertEquals("WORKFLOW_KIND_NOT_SUPPORTED", error.code());
         verifyNoInteractions(agents);
+    }
+
+    @Test
+    void reviewedPageAssistantSyncRequiresExactlyOneOfRevisionOrInitialization() {
+        when(workflows.findById("wf-page")).thenReturn(Optional.of(workflow("wf-page", "PAGE_ASSISTANT")));
+        for (var request : List.of(
+                new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(7L, "orders", null, null, "platform-user:42", null, null, false),
+                new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(7L, "orders", null, null, "platform-user:42", null, "a".repeat(64), true))) {
+            assertEquals("AGENT_DRAFT_REVISION_REQUIRED", assertThrows(AiCodingAttachmentException.class,
+                    () -> service.attachPageAssistantReviewed("wf-page", request)).code());
+        }
+        verifyNoInteractions(agents);
+    }
+
+    @Test
+    void reviewedPageAssistantSyncForwardsRevisionInitializationAndSignedPublisher() {
+        when(workflows.findById("wf-page")).thenReturn(Optional.of(workflow("wf-page", "PAGE_ASSISTANT")));
+        service.attachPageAssistantReviewed("wf-page", new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(
+                7L, "orders", null, null, "platform-user:42", null, "a".repeat(64), false));
+        var command = command();
+        assertEquals("a".repeat(64), command.expectedRevision());
+        assertFalse(command.createOnly());
+        assertEquals("platform-user:42", command.publishedBy());
+        assertEquals("PAGE_ACTION", command.tool().riskLevel());
+
+        reset(agents);
+        when(agents.attach(any(), any())).thenReturn(new RuntimeAgentWorkflowAttachmentService.Result(
+                "agent-1", "orders-page-copilot", config(), false));
+        service.attachPageAssistantReviewed("wf-page", new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(
+                7L, "orders", null, null, "platform-user:42", null, null, true));
+        var created = command();
+        assertNull(created.expectedRevision());
+        assertTrue(created.createOnly());
+    }
+
+    @Test
+    void pageAssistantContextReportsTargetRevisionAndAttachment() {
+        when(projects.getProjectById(7L)).thenReturn(Map.of("projectId", 7L, "projectCode", "orders"));
+        when(workflows.findById("wf-page")).thenReturn(Optional.of(workflow("wf-page", "PAGE_ASSISTANT")));
+        when(versions.listVersions("wf-page")).thenReturn(List.of());
+        var draft = new com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftEditView(
+                "agent-1", 7L, "orders", "b".repeat(64), config(), config());
+        when(agents.pageCopilotContext(any())).thenReturn(Optional.of(
+                new RuntimeAgentWorkflowAttachmentService.PageCopilot("orders-page-copilot", draft)));
+
+        var context = service.pageAssistantContext("wf-page", 7L, "orders");
+
+        assertTrue(context.targetExists());
+        assertEquals("agent-1", context.agentId());
+        assertEquals("orders-page-copilot", context.agentKeySlug());
+        assertEquals("b".repeat(64), context.revision());
+        assertEquals(2, context.activeConfigVersionNo());
+        assertFalse(context.attached());
+
+        when(agents.pageCopilotContext(any())).thenReturn(Optional.empty());
+        var empty = service.pageAssistantContext("wf-page", 7L, "orders");
+        assertFalse(empty.targetExists());
+        assertNull(empty.revision());
+        assertThrows(AiCodingAttachmentException.class, () -> service.pageAssistantContext("wf-chat", 7L, "orders"));
     }
 
     @Test

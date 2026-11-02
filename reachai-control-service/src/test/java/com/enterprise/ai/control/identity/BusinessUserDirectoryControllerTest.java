@@ -10,6 +10,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -18,6 +19,14 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class BusinessUserDirectoryControllerTest {
+
+    @org.junit.jupiter.api.BeforeAll
+    static void initializeMetadata() {
+        var config = new org.apache.ibatis.session.Configuration();
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(config, "external-role"),
+                ExternalUserRoleBindingEntity.class);
+    }
 
     @Test
     void rejectsDirectoryReadsBeforeQueryingIdentityData() {
@@ -102,6 +111,7 @@ class BusinessUserDirectoryControllerTest {
         ExternalUserBindingEntity binding = binding(11L, 7L, "bzjs12", "jsh");
         when(bindingMapper.selectList(any())).thenReturn(List.of(binding));
         when(bindingMapper.selectOne(any())).thenReturn(binding);
+        when(bindingMapper.selectByIdForUpdate(11L)).thenReturn(binding);
         ExternalUserRoleBindingEntity role = roleBinding(21L, 7L, "APPROVER", "审批人");
         when(roleBindingMapper.selectList(any())).thenReturn(List.of(role));
 
@@ -149,6 +159,51 @@ class BusinessUserDirectoryControllerTest {
                 eq("EXTERNAL_USER_BINDING"),
                 eq("11"),
                 any());
+    }
+
+    @Test
+    void identityIdCannotBeMovedBetweenUsersOrTenants() {
+        var users = mock(BusinessUserMapper.class);
+        var bindings = mock(ExternalUserBindingMapper.class);
+        var roles = mock(ExternalUserRoleBindingMapper.class);
+        var authorization = mock(PlatformRequestAuthorization.class);
+        var audit = mock(PlatformAuthAuditService.class);
+        var request = mock(HttpServletRequest.class);
+        var controller = new BusinessUserDirectoryController(users, bindings, roles, authorization, audit);
+        when(users.selectById(7L)).thenReturn(businessUser(7L, "g", "name"));
+        var foreign = binding(11L, 8L, "erp", "42");
+        when(bindings.selectByIdForUpdate(11L)).thenReturn(foreign);
+        var command = new BusinessUserDirectoryController.ExternalIdentityCommand(11L, "erp", "42", null, null, null, "ACTIVE", List.of());
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> controller.saveBusinessUserIdentity(request, 7L, command)).getStatusCode());
+        foreign.setBusinessUserId(7L); foreign.setTenantId("another-tenant");
+        assertEquals(HttpStatus.NOT_FOUND, assertThrows(ResponseStatusException.class,
+                () -> controller.saveBusinessUserIdentity(request, 7L, command)).getStatusCode());
+        verify(bindings, org.mockito.Mockito.never()).updateById(any());
+        verifyNoInteractions(roles, audit);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void editingIdentityKeyRemovesOldRolesAndUsesTenantScopedNewRoles() {
+        var users = mock(BusinessUserMapper.class);
+        var bindings = mock(ExternalUserBindingMapper.class);
+        var roles = mock(ExternalUserRoleBindingMapper.class);
+        var authorization = mock(PlatformRequestAuthorization.class);
+        var audit = mock(PlatformAuthAuditService.class);
+        var request = mock(HttpServletRequest.class);
+        var controller = new BusinessUserDirectoryController(users, bindings, roles, authorization, audit);
+        when(users.selectById(7L)).thenReturn(businessUser(7L, "g", "name"));
+        var existing = binding(11L, 7L, "old-app", "old-user");
+        when(bindings.selectByIdForUpdate(11L)).thenReturn(existing);
+        when(roles.selectList(any())).thenReturn(List.of());
+        controller.saveBusinessUserIdentity(request, 7L, new BusinessUserDirectoryController.ExternalIdentityCommand(
+                11L, "new-app", "new-user", null, null, null, "ACTIVE", List.of("reader")));
+        var captured = org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
+        verify(roles, org.mockito.Mockito.times(2)).delete(captured.capture());
+        var oldDelete = (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) captured.getAllValues().get(0);
+        oldDelete.getSqlSegment();
+        assertTrue(oldDelete.getParamNameValuePairs().values().containsAll(List.of("default", 7L, "old-app", "old-user")));
     }
 
     private BusinessUserEntity businessUser(Long id, String globalUserId, String displayName) {

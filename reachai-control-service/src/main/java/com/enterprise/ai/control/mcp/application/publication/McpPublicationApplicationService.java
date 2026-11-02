@@ -303,6 +303,9 @@ public class McpPublicationApplicationService {
             view.put("workflowVersionId", tool.workflowVersionId());
         }
         view.put("riskLevel", tool.riskLevel());
+        view.put("minimumRiskLevel", tool.minimumRiskLevel());
+        view.put("riskContractVersion", tool.riskContractVersion());
+        if (tool.capabilityContractHash() != null) view.put("capabilityContractHash", tool.capabilityContractHash());
         return view;
     }
 

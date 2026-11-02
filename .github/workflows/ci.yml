@@ -97,9 +97,14 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - name: 开源文件与提交历史检查
+        if: github.repository == 'w8123/EnterpriseAgentFramework'
+        run: node scripts/check-open-source.mjs
       - name: 安装 ripgrep
         # check-mojibake 用 rg 列出待扫描文件
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ripgrep
@@ -109,6 +114,10 @@ jobs:
           node scripts/check-consolidated-upgrade-sql.mjs
           node scripts/check-mcp-hub-sql.mjs
           node scripts/check-model-center-v2-sql.mjs
+      - name: 安装管理端依赖
+        # 部分盘点脚本用 ai-admin-front 里的 @vue/compiler-sfc 解析页面
+        working-directory: ai-admin-front
+        run: npm ci --no-audit --no-fund
       - name: 检查脚本自身的测试
         run: node --test scripts/*.test.mjs
       - name: Managed Executor Worker

@@ -20,6 +20,7 @@ import type {
   ModelInstanceUpdateRequest,
   ModelTemplate,
   ModelTemplateListParams,
+  ModelType,
 } from '@/types/model'
 import type { ApiResult } from '@/types/import'
 
@@ -74,6 +75,14 @@ export function discoverUpstreamModels(data: ModelInstanceDraftTestRequest) {
 
 export function testModelInstance(id: string) {
   return modelRequest.post<ApiResult<ModelInstanceTestResult>>(`/instances/${id}/test`)
+}
+
+export function testModelWithSavedConnection(id: string, data: { modelType: ModelType; modelName: string }) {
+  return modelRequest.post<ApiResult<ModelInstanceTestResult>>(`/instances/${encodeURIComponent(id)}/test-connection-model`, data)
+}
+
+export function createModelWithSavedConnection(id: string, data: { name: string; modelType: ModelType; modelName: string }) {
+  return modelRequest.post<ApiResult<ModelInstance>>(`/instances/${encodeURIComponent(id)}/connection-models`, data)
 }
 
 export function archiveModelInstance(id: string) {

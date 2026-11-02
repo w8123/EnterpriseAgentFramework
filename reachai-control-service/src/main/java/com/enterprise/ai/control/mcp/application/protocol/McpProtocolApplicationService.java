@@ -115,9 +115,15 @@ public class McpProtocolApplicationService {
     /** tools/list: frozen revision projection narrowed by the client tool scope. */
     public List<Map<String, Object>> visibleTools(McpAuthenticatedSession session) {
         return session.revision().tools().stream()
+                .filter(McpToolProjection::hasTrustedRiskContract)
                 .filter(tool -> visibleTo(session.client(), tool))
                 .map(tool -> toolView(tool, objectMapper))
                 .toList();
+    }
+
+    public String instructions(McpAuthenticatedSession session) {
+        return session.revision().tools().stream().anyMatch(tool -> !tool.hasTrustedRiskContract())
+                ? "部分能力的风险契约需要管理员重新校验并发布 MCP 服务后才能使用。" : null;
     }
 
     /** tools/call enforcement chain: visibility → scope → IRREVERSIBLE → Tool ACL → execution. */
@@ -132,6 +138,10 @@ public class McpProtocolApplicationService {
                 .findFirst()
                 .orElseThrow(() -> new McpDomainException("MCP_TOOL_NOT_VISIBLE",
                         "tool is not projected in the current revision: " + toolName));
+        if (!tool.hasTrustedRiskContract()) {
+            throw new McpDomainException("MCP_TOOL_RISK_REPUBLICATION_REQUIRED",
+                    "MCP 服务的风险契约需要重新发布后才能调用");
+        }
         McpClient client = session.client();
         if (!visibleTo(client, tool)) {
             if (isIrreversible(tool) && !client.toolScope().contains(tool.name())) {

@@ -36,14 +36,17 @@ public class ControlProjectAgentProvisioningService {
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
     private final ControlModelCatalogClient modelCatalogClient;
+    private final ControlProjectAgentProvisioningDraftGateway drafts;
 
     public ControlProjectAgentProvisioningService(
             CapabilityProjectOnboardingClient capabilityClient,
             RuntimeProxyClient runtimeClient,
-            ControlModelCatalogClient modelCatalogClient) {
+            ControlModelCatalogClient modelCatalogClient,
+            ControlProjectAgentProvisioningDraftGateway drafts) {
         this.capabilityClient = capabilityClient;
         this.runtimeClient = runtimeClient;
         this.modelCatalogClient = modelCatalogClient;
+        this.drafts = drafts;
     }
 
     public Map<String, Object> provision(
@@ -51,14 +54,16 @@ public class ControlProjectAgentProvisioningService {
             Map<String, ?> request) {
         Map<String, Object> project =
                 capabilityClient.getOnboardingProjectById(projectId);
+        if (project == null) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_GATEWAY, "Project lookup is unavailable");
         String projectCode = stringValue(project.get("projectCode"));
+        if (projectId == null || projectId < 1 || !Objects.equals(projectId, nullableLongValue(project.get("id")))
+                || !StringUtils.hasText(projectCode)) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_GATEWAY, "Project lookup returned an incomplete or different project");
+        var access = drafts.open(projectId, projectCode);
         String keySlug = pageCopilotKeySlug(projectCode, projectId);
         String modelInstanceId = resolveSupervisorModelInstanceId(
                 stringValue(request == null ? null : request.get("modelInstanceId")));
-        String requestedBy = firstText(
-                stringValue(request == null ? null : request.get("requestedBy")),
-                "project-onboarding");
-
         RuntimeObject agent = findOrCreateAgent(
                 projectId,
                 projectCode,
@@ -67,7 +72,7 @@ public class ControlProjectAgentProvisioningService {
         RuntimeObject supervisorConfig = ensureActiveSupervisorConfig(
                 agent.id(),
                 modelInstanceId,
-                requestedBy);
+                access);
 
         Map<String, Object> provisionedAgent =
                 new LinkedHashMap<>(agent.body());
@@ -115,6 +120,7 @@ public class ControlProjectAgentProvisioningService {
                 .findFirst()
                 .orElse(null);
         if (existing != null) {
+            requireAgentProject(existing, projectId, projectCode);
             return new RuntimeObject(false, existing);
         }
         Map<String, Object> body = new LinkedHashMap<>();
@@ -129,29 +135,36 @@ public class ControlProjectAgentProvisioningService {
                 DEFAULT_PAGE_COPILOT_DESCRIPTION);
         body.put("visibility", "PROJECT");
         body.put("enabled", true);
-        return new RuntimeObject(
-                true,
-                responseMap(runtimeClient.createAgent(body)));
+        Map<String, Object> created = responseMap(runtimeClient.createAgent(body));
+        requireAgentProject(created, projectId, projectCode);
+        return new RuntimeObject(true, created);
     }
 
     private RuntimeObject ensureActiveSupervisorConfig(
             String agentId,
             String modelInstanceId,
-            String publishedBy) {
+            ControlProjectAgentProvisioningDraftGateway.Drafts access) {
         if (!StringUtils.hasText(agentId)) {
             throw new IllegalArgumentException(
                     "Runtime did not return an Agent id");
         }
-        List<Map<String, Object>> versions =
-                responseList(runtimeClient.listAgentConfigVersions(agentId));
+        Map<String, Object> context = access.context(agentId);
+        Map<String, Object> base = context.get("base") instanceof Map<?, ?> map ? stringMap(map) : null;
+        if (base != null && "ACTIVE".equals(base.get("status"))) return new RuntimeObject(false, base);
+        List<Map<String, Object>> versions = base == null ? List.of()
+                : responseList(ResponseEntity.ok(access.versions(agentId).get("versions")));
         Map<String, Object> active = versions.stream()
                 .filter(item -> "ACTIVE".equalsIgnoreCase(
                         stringValue(item.get("status"))))
                 .findFirst()
                 .orElse(null);
         if (active != null) {
+            if (!agentId.equals(active.get("agentId"))) throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.BAD_GATEWAY, "Runtime returned another Agent's active config");
             return new RuntimeObject(false, active);
         }
+        if (base != null) throw new IllegalArgumentException(
+                "Agent already has an unpublished draft; read and review it before saving or publishing. Provisioning never overwrites it.");
 
         Map<String, Object> draftRequest = new LinkedHashMap<>();
         draftRequest.put("runtimeType", "AGENTSCOPE");
@@ -164,24 +177,33 @@ public class ControlProjectAgentProvisioningService {
         draftRequest.put(
                 "configJson",
                 "{\"source\":\"project-onboarding\",\"purpose\":\"page-copilot\",\"routing\":\"supervisor-workflow-tools\"}");
-        Map<String, Object> draft = responseMap(
-                runtimeClient.saveAgentConfigDraft(agentId, draftRequest));
+        Map<String, Object> saved = access.save(agentId, stringValue(context.get("revision")), draftRequest);
+        Map<String, Object> draft = stringMap((Map<?, ?>) saved.get("base"));
         Long configVersionId = nullableLongValue(draft.get("id"));
         if (configVersionId == null) {
             throw new IllegalArgumentException(
                     "Runtime did not return an Agent Supervisor config version id");
         }
-        Map<String, Object> published = responseMap(
-                runtimeClient.publishAgentConfigVersion(
-                        agentId,
-                        configVersionId,
-                        Map.of("publishedBy", publishedBy)));
+        Map<String, Object> publishedContext = access.publish(agentId, stringValue(saved.get("revision")), configVersionId);
+        Map<String, Object> published = stringMap((Map<?, ?>) publishedContext.get("base"));
         if (!"ACTIVE".equalsIgnoreCase(
                 stringValue(published.get("status")))) {
             throw new IllegalArgumentException(
                     "Agent Supervisor config was not activated");
         }
         return new RuntimeObject(true, published);
+    }
+
+    private static Map<String, Object> stringMap(Map<?, ?> value) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        value.forEach((key, item) -> result.put(String.valueOf(key), item));
+        return result;
+    }
+
+    private static void requireAgentProject(Map<String, Object> agent, Long projectId, String code) {
+        if (!StringUtils.hasText(stringValue(agent.get("id"))) || !Objects.equals(projectId, nullableLongValue(agent.get("projectId")))
+                || !Objects.equals(code, agent.get("projectCode"))) throw new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_GATEWAY, "Runtime returned an Agent from an incomplete or different project");
     }
 
     private static String pageCopilotDisplayName(
@@ -221,7 +243,11 @@ public class ControlProjectAgentProvisioningService {
     private static List<Map<String, Object>> responseList(
             ResponseEntity<Object> response) {
         Object body = response == null ? null : response.getBody();
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || !(body instanceof Collection<?>))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Runtime Agent list is unavailable");
         if (body instanceof Collection<?> collection) {
+            if (collection.stream().anyMatch(item -> !(item instanceof Map<?, ?>)))
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Runtime returned a malformed Agent list");
             return collection.stream()
                     .filter(Map.class::isInstance)
                     .map(item -> (Map<String, Object>) item)
@@ -234,6 +260,8 @@ public class ControlProjectAgentProvisioningService {
     private static List<Map<String, Object>> modelDataList(
             ResponseEntity<Map<String, Object>> response) {
         Object body = response == null ? null : response.getBody();
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || !(body instanceof Map<?, ?>))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Model catalog is unavailable");
         Object data = body instanceof Map<?, ?> map
                 ? map.get("data")
                 : null;
@@ -250,6 +278,8 @@ public class ControlProjectAgentProvisioningService {
     private static Map<String, Object> responseMap(
             ResponseEntity<Object> response) {
         Object body = response == null ? null : response.getBody();
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || !(body instanceof Map<?, ?>))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_GATEWAY, "Runtime Agent result is unconfirmed; read current state before retrying");
         return body instanceof Map<?, ?> map
                 ? (Map<String, Object>) map
                 : Map.of();
@@ -261,7 +291,8 @@ public class ControlProjectAgentProvisioningService {
 
     private static Long nullableLongValue(Object value) {
         if (value instanceof Number number) {
-            return number.longValue();
+            try { return new java.math.BigDecimal(number.toString()).longValueExact(); }
+            catch (ArithmeticException | NumberFormatException malformed) { return null; }
         }
         if (value instanceof String text && StringUtils.hasText(text)) {
             return Long.valueOf(text.trim());

@@ -68,7 +68,10 @@ public class KnowledgeRetrievalInternalController {
         KnowledgeRetrievalCoreResponse response = knowledgeRetrievalCore.retrieve(KnowledgeRetrievalCoreRequest.builder()
                 .query(request.query().trim())
                 .knowledgeBaseCodes(request.knowledgeBaseCodes())
-                .userId(userId)
+                // Runtime user IDs do not carry a verified identity domain. Until scoped
+                // grants exist, they must not match a platform or another system's grants.
+                .userId(null)
+                .auditUserId(userId)
                 .topK(requestedTopK)
                 .scoreThreshold(request.similarityThreshold())
                 .searchMode(requestedSearchMode)
@@ -78,6 +81,13 @@ public class KnowledgeRetrievalInternalController {
                 .hitSource(userId == null ? "CONSOLE" : "RUNTIME")
                 .traceId(traceId)
                 .build());
+        // A failed base can make an empty or partial result look authoritative. Do not
+        // turn an infrastructure failure into NO_EVIDENCE or release partial answers.
+        if (response == null || response.getDiagnostics() != null
+                && response.getDiagnostics().get("failedKnowledgeBaseCount") instanceof Number failed
+                && failed.longValue() > 0) {
+            return ApiResult.fail("知识检索暂时不可用，请稍后重试");
+        }
         String searchMode = response != null && StringUtils.hasText(response.getSearchMode())
                 ? response.getSearchMode() : normalizeSearchMode(requestedSearchMode);
 

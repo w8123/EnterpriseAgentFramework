@@ -32,4 +32,22 @@ class MilvusConfigTest {
 
         assertThrows(IllegalStateException.class, config::createConnectParam);
     }
+
+    @Test
+    void unreachableMilvusFailsFastWithActionableMessage() throws Exception {
+        int closedPort;
+        try (java.net.ServerSocket socket = new java.net.ServerSocket(0)) {
+            closedPort = socket.getLocalPort();
+        }
+        MilvusConfig config = new MilvusConfig("127.0.0.1", closedPort, "", "");
+        long started = System.nanoTime();
+
+        com.enterprise.ai.common.exception.BizException failure =
+                assertThrows(com.enterprise.ai.common.exception.BizException.class, config::connect);
+
+        assertEquals(503, failure.getCode());
+        assertTrue(failure.getMessage().startsWith("向量库 Milvus（127.0.0.1:" + closedPort + "）还没连上"));
+        assertTrue(failure.getMessage().contains("MILVUS_HOST"));
+        assertTrue(System.nanoTime() - started < java.time.Duration.ofSeconds(5).toNanos());
+    }
 }

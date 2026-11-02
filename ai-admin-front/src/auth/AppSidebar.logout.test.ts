@@ -61,6 +61,11 @@ function mountSidebar() {
   })
 }
 
+async function openAppearance(wrapper: ReturnType<typeof mountSidebar>) {
+  await wrapper.findAll('.footer-entry')[0].trigger('click')
+  await wrapper.findAll('.profile-link').find(button => button.text().includes('外观设置'))!.trigger('click')
+}
+
 describe('AppSidebar account actions', () => {
   beforeEach(() => {
     mocks.logoutPlatform.mockReset()
@@ -99,7 +104,7 @@ describe('AppSidebar account actions', () => {
     const wrapper = mountSidebar()
 
     expect(wrapper.get('.brand-sub').text()).toBe('企业 AI 能力中台')
-    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    await openAppearance(wrapper)
 
     expect(wrapper.text()).toContain('主题配色')
     expect(wrapper.find('.appearance-mode').exists()).toBe(false)
@@ -111,7 +116,7 @@ describe('AppSidebar account actions', () => {
   it('closes the settings panel on Escape and on a click outside the sidebar footer', async () => {
     const wrapper = mountSidebar()
 
-    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    await openAppearance(wrapper)
     expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(true)
     wrapper.get('.appearance-panel').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await flushPromises()
@@ -120,7 +125,7 @@ describe('AppSidebar account actions', () => {
     await flushPromises()
     expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(false)
 
-    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    await openAppearance(wrapper)
     document.body.dispatchEvent(new Event('pointerdown', { bubbles: true }))
     await flushPromises()
     expect(wrapper.find('.sidebar-footer-popover').exists()).toBe(false)

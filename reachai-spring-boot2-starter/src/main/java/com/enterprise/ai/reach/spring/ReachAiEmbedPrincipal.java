@@ -20,6 +20,8 @@ public class ReachAiEmbedPrincipal {
     private final String userName;
     private final List<String> roles;
     private final Map<String, Object> attributes;
+    private final String businessSessionId;
+    private final Long businessSessionExpiresAt;
 
     public ReachAiEmbedPrincipal(
             String externalUserId,
@@ -27,6 +29,20 @@ public class ReachAiEmbedPrincipal {
             String userName,
             List<String> roles,
             Map<String, Object> attributes) {
+        this(externalUserId, globalUserId, userName, roles, attributes, null);
+    }
+
+    /** businessSessionId must be an opaque, high-entropy identifier unique to one host login. */
+    public ReachAiEmbedPrincipal(String externalUserId, String globalUserId, String userName,
+                                 List<String> roles, Map<String, Object> attributes,
+                                 String businessSessionId) {
+        this(externalUserId, globalUserId, userName, roles, attributes, businessSessionId, null);
+    }
+
+    /** Expiry is a trusted host access-token expiry, in Unix seconds. */
+    public ReachAiEmbedPrincipal(String externalUserId, String globalUserId, String userName,
+                                 List<String> roles, Map<String, Object> attributes,
+                                 String businessSessionId, Long businessSessionExpiresAt) {
         this.externalUserId = externalUserId;
         this.globalUserId = globalUserId;
         this.userName = userName;
@@ -36,6 +52,8 @@ public class ReachAiEmbedPrincipal {
         this.attributes = attributes == null
                 ? Collections.<String, Object>emptyMap()
                 : Collections.unmodifiableMap(new LinkedHashMap<String, Object>(attributes));
+        this.businessSessionId = businessSessionId;
+        this.businessSessionExpiresAt = businessSessionExpiresAt;
     }
 
     public String getExternalUserId() {
@@ -56,5 +74,13 @@ public class ReachAiEmbedPrincipal {
 
     public Map<String, Object> getAttributes() {
         return attributes;
+    }
+
+    public String getBusinessSessionId() {
+        return businessSessionId;
+    }
+
+    public Long getBusinessSessionExpiresAt() {
+        return businessSessionExpiresAt;
     }
 }

@@ -77,7 +77,14 @@ public class PlatformPageBridgeCommandService {
                         .eq(PlatformEmbedSessionEntity::getSessionId, request.sessionId())
                         .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
                         .last("LIMIT 1"));
-        if (session == null) return failure("PAGE_BRIDGE_SESSION_NOT_FOUND", "Active embed session not found", List.of());
+        if (session == null || !request.sessionId().equals(session.getSessionId()))
+            return failure("PAGE_BRIDGE_SESSION_NOT_FOUND", "Active embed session not found", List.of());
+        if (!"EMBED_SESSION".equals(request.identitySource())
+                || !StringUtils.hasText(request.identityTenantId()) || !StringUtils.hasText(request.identityUserId())
+                || !Objects.equals(session.getTenantId(), request.identityTenantId())
+                || !Objects.equals(session.getExternalUserId(), request.identityUserId())) {
+            return failure("PAGE_BRIDGE_IDENTITY_MISMATCH", "Embed session identity mismatch", List.of());
+        }
         if (!Objects.equals(session.getProjectCode(), request.projectCode())
                 || !Objects.equals(session.getAgentId(), request.agentId())) {
             return failure("PAGE_BRIDGE_SESSION_MISMATCH", "Embed session project or Agent mismatch", List.of());
@@ -91,11 +98,12 @@ public class PlatformPageBridgeCommandService {
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));
         if (crossRoute) {
             long navigationDeadline = System.currentTimeMillis()
-                    + normalizedTimeout(request.executionTimeoutMs());
-            LocalDateTime navigationStarted = LocalDateTime.now();
+                    + normalizedTimeout(request.confirmRequired()
+                    ? request.confirmationTimeoutMs() : request.executionTimeoutMs());
             PlatformPageActionEventEntity navigation = enqueue(session, parentRequestId, "NAVIGATE", NAVIGATE_ACTION,
                     request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
-                    Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute())), false);
+                    Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute())),
+                    request.confirmRequired());
             PlatformPageActionEventEntity completedNavigation = await(
                     navigation, navigationDeadline, request.executionTimeoutMs());
             phases.add(phase("NAVIGATE", completedNavigation));
@@ -107,7 +115,8 @@ public class PlatformPageBridgeCommandService {
             // session from the target page. Read the persisted session instead
             // of trusting the navigation acknowledgement payload.
             String targetInstance = awaitRegisteredPageInstance(
-                    session.getSessionId(), request.targetPageKey(), navigationStarted, navigationDeadline);
+                    session, navigation, request.targetPageKey(),
+                    System.currentTimeMillis() + normalizedTimeout(request.executionTimeoutMs()));
             if (!StringUtils.hasText(targetInstance)) {
                 return failure("PAGE_BRIDGE_TARGET_NOT_READY",
                         "Target Page Bridge did not become ready: " + request.targetPageKey(), phases);
@@ -253,19 +262,38 @@ public class PlatformPageBridgeCommandService {
         return Math.max(1_000L, timeoutMs);
     }
 
-    private String awaitRegisteredPageInstance(String sessionId,
-                                               String pageKey,
-                                               LocalDateTime after,
-                                               long deadline) {
+    String awaitRegisteredPageInstance(PlatformEmbedSessionEntity originalSession,
+                                      PlatformPageActionEventEntity navigation,
+                                      String pageKey,
+                                      long deadline) {
         while (System.currentTimeMillis() < deadline) {
+            PlatformPageActionEventEntity currentNavigation = eventMapper.selectById(navigation.getId());
+            Map<String, Object> data = currentNavigation == null ? Map.of() : resultData(currentNavigation);
+            String boundInstance = text(data.get("pageInstanceId"));
+            if (currentNavigation == null || !"SUCCESS".equals(currentNavigation.getStatus())
+                    || !Boolean.TRUE.equals(data.get("ready")) || !StringUtils.hasText(boundInstance)) {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ex) {
+                    Thread.currentThread().interrupt();
+                    return null;
+                }
+                continue;
+            }
             PlatformEmbedSessionEntity current = sessionMapper.selectOne(
                     Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
-                            .eq(PlatformEmbedSessionEntity::getSessionId, sessionId)
+                            .eq(PlatformEmbedSessionEntity::getSessionId, originalSession.getSessionId())
                             .eq(PlatformEmbedSessionEntity::getPageKey, pageKey)
                             .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
-                            .ge(PlatformEmbedSessionEntity::getUpdatedAt, after)
                             .last("LIMIT 1"));
-            if (current != null && StringUtils.hasText(current.getPageInstanceId())) {
+            if (current != null && Objects.equals(current.getSessionId(), originalSession.getSessionId())
+                    && Objects.equals(current.getProjectCode(), originalSession.getProjectCode())
+                    && Objects.equals(current.getTenantId(), originalSession.getTenantId())
+                    && Objects.equals(current.getAppId(), originalSession.getAppId())
+                    && Objects.equals(current.getAgentId(), originalSession.getAgentId())
+                    && Objects.equals(current.getExternalUserId(), originalSession.getExternalUserId())
+                    && Objects.equals(current.getPageKey(), pageKey)
+                    && Objects.equals(current.getPageInstanceId(), boundInstance)) {
                 return current.getPageInstanceId();
             }
             try {
@@ -359,7 +387,10 @@ public class PlatformPageBridgeCommandService {
                                               Map<String, Object> args,
                                               boolean confirmRequired,
                                               int confirmationTimeoutMs,
-                                              int executionTimeoutMs) {
+                                              int executionTimeoutMs,
+                                              String identitySource,
+                                              String identityTenantId,
+                                              String identityUserId) {
     }
 
     public record PageBridgeContextResolutionRequest(String sessionId, String projectCode) {

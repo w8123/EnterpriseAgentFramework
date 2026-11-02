@@ -83,6 +83,30 @@ public class PersonalMemoryIdentityResolver {
             String runtimeUserId,
             Long platformUserId,
             String username,
-            String platformSessionId) {
+            String platformSessionId,
+            String ownerDomain) {
+        public static final String LEGACY_DOMAIN = "LEGACY";
+
+        public PersonalMemoryPrincipal(String tenantId, String runtimeUserId, Long platformUserId,
+                                       String username, String platformSessionId) {
+            this(tenantId, runtimeUserId, platformUserId, username, platformSessionId, LEGACY_DOMAIN);
+        }
+
+        public PersonalMemoryPrincipal {
+            if (!StringUtils.hasText(ownerDomain) || ownerDomain.length() > 128
+                    || !(LEGACY_DOMAIN.equals(ownerDomain) || ownerDomain.matches("BUSINESS:[a-z0-9._:-]{1,96}"))) {
+                throw new IllegalArgumentException("invalid personal memory owner domain");
+            }
+        }
+
+        /** The business-system code must come from an attested session or connection. */
+        public static PersonalMemoryPrincipal business(String tenantId, String runtimeUserId, String projectCode) {
+            if (!StringUtils.hasText(projectCode)) throw new IllegalArgumentException("business system is required");
+            if (!StringUtils.hasText(runtimeUserId) || runtimeUserId.trim().length() > 128) {
+                throw new IllegalArgumentException("business user is required and must fit the owner contract");
+            }
+            return new PersonalMemoryPrincipal(normalizeTenant(tenantId, "default"), runtimeUserId.trim(), null, null, null,
+                    "BUSINESS:" + projectCode.trim().toLowerCase(Locale.ROOT));
+        }
     }
 }

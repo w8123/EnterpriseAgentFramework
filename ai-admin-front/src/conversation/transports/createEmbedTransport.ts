@@ -367,6 +367,22 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     },
     startTurn,
     resumeInteraction,
+    async clearSession() {
+      if (disposed) throw new Error('Embed transport disposed')
+      const sessionId = options.getSessionId()
+      if (!sessionId) return
+      const controller = new AbortController()
+      abortControllers.add(controller)
+      try {
+        const response = await authorizedFetch(
+          resolveUrl(`/chat/sessions/${encodeURIComponent(sessionId)}/context/clear`),
+          { method: 'POST' }, controller.signal,
+        )
+        if (response.status !== 204) throw httpError('Embed context clear failed', response.status)
+      } finally {
+        abortControllers.delete(controller)
+      }
+    },
     /** 供 facade / 测试显式预热会话（带去重） */
     ensureSession,
     async cancelTurn() {

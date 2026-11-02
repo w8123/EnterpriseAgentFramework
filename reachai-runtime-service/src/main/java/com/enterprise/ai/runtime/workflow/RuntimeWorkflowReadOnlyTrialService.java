@@ -5,6 +5,7 @@ import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -98,13 +99,18 @@ public class RuntimeWorkflowReadOnlyTrialService {
                 saved.getExecutionEngine(), saved.getDefaultModelInstanceId(), saved.getGraphSpecJson(),
                 saved.getCanvasJson());
         var audit = new RuntimeWorkflowDebugService.TrialAudit(command.platformActorId(), command.expectedRevision(),
-                command.graphSha256(), List.copyOf(command.inputParams().keySet()), auditTargets);
+                command.graphSha256(), List.copyOf(command.inputParams().keySet()), auditTargets, command.platformTrialTraceId());
         var methodScope = new WorkflowReadOnlyTrialPolicy.BusinessMethodTrialScope(saved.getProjectId(),
                 saved.getProjectCode(), methodOwners, command.deadlineEpochMs());
         long started = System.currentTimeMillis();
-        RuntimeWorkflowDebugService.DebugRunResult run = httpApis.withDraftScope(apiPins, () -> isCurrent(command),
-                () -> capabilities.withBusinessMethodDraftScope(methodScope, () -> isCurrent(command),
-                        () -> debug.runReadOnlyTrial(definition, command.message(), command.inputParams(), identity, audit)));
+        RuntimeWorkflowDebugService.DebugRunResult run;
+        try {
+            run = httpApis.withDraftScope(apiPins, () -> isCurrent(command),
+                    () -> capabilities.withBusinessMethodDraftScope(methodScope, () -> isCurrent(command),
+                            () -> debug.runReadOnlyTrial(definition, command.message(), command.inputParams(), identity, audit)));
+        } catch (RuntimeRunLifecycleService.PlatformTrialAlreadyClaimedException duplicate) {
+            throw conflict("WORKFLOW_TRIAL_ALREADY_EXISTS");
+        }
         long elapsed = Math.max(0L, System.currentTimeMillis() - started);
         boolean fresh = isCurrent(command) && sameFacts(graph, saved, command.expectedRevision(), targets, apiPins, methodOwners);
         Map<String, Object> state = run.stateSnapshot() == null ? Map.of() : run.stateSnapshot();
@@ -278,7 +284,10 @@ public class RuntimeWorkflowReadOnlyTrialService {
 
     private void validate(WorkflowReadOnlyTrialPolicy.TrialCommand command) {
         long now = System.currentTimeMillis();
-        if (command == null || command.contractVersion() != WorkflowReadOnlyTrialPolicy.VERSION
+        if (command == null) throw conflict("WORKFLOW_TRIAL_REQUEST_INVALID");
+        int expectedVersion = command.platformTrialTraceId() == null
+                ? WorkflowReadOnlyTrialPolicy.VERSION : WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION;
+        if (command.contractVersion() != expectedVersion
                 || !StringUtils.hasText(command.workflowId()) || !command.workflowId().matches("[A-Za-z0-9_-]{1,32}")
                 || !StringUtils.hasText(command.expectedRevision())
                 || !StringUtils.hasText(command.graphSha256())
@@ -289,6 +298,7 @@ public class RuntimeWorkflowReadOnlyTrialService {
                 || command.allowedTargets() == null
                 || command.allowedTargets().size() > WorkflowReadOnlyTrialPolicy.MAX_TARGETS
                 || command.allowedTargets().stream().anyMatch(Objects::isNull)
+                || command.platformTrialTraceId() != null && !command.platformTrialTraceId().matches("mcp-trial-[0-9a-f]{32}")
                 || command.message() != null && command.message().length() > WorkflowReadOnlyTrialPolicy.MAX_MESSAGE_LENGTH
                 || command.deadlineEpochMs() <= now
                 || command.deadlineEpochMs() > now + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS

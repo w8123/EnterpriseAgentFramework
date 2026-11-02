@@ -1,7 +1,12 @@
 ##
-## 本地开发基础设施 — 一键拉起 MySQL / Redis / Milvus
-## 使用方法: 先填写 deploy/.env，再执行
-## docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml up -d
+## 本地开发基础设施。日常开发直接运行仓库根目录的 ./dev.sh，它会用这个文件启动 MySQL。
+## 手动使用（配置都在根目录 reachai.env）：
+##   docker compose --env-file reachai.env -f deploy/docker-compose.infra.yml up -d mysql
+## 可选组件按需开启：
+##   --profile milvus   知识库向量检索（Milvus + etcd + MinIO）
+##   --profile redis    Runtime 会话状态改存 Redis 时才需要
+##   --profile docling  知识库解析 PDF / Word 等文档（镜像较大）
+## 表结构不用手动导入：服务首次连上空库时会自动建表。
 ##
 services:
 
@@ -9,18 +14,20 @@ services:
     image: mysql:8.0
     container_name: eaf-mysql
     ports:
-      - "3306:3306"
+      - "${AI_MYSQL_PORT:-3306}:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: "${REACHAI_MYSQL_ROOT_PASSWORD:?Set REACHAI_MYSQL_ROOT_PASSWORD in deploy/.env}"
-      MYSQL_DATABASE: reach_ai
+      MYSQL_ROOT_PASSWORD: "${REACHAI_MYSQL_ROOT_PASSWORD:?请在 reachai.env 填写 REACHAI_MYSQL_ROOT_PASSWORD（./dev.sh 会自动生成）}"
+      MYSQL_DATABASE: "${AI_MYSQL_DATABASE:-reach_ai}"
+      MYSQL_USER: "${AI_MYSQL_USER:-reach_ai}"
+      MYSQL_PASSWORD: "${AI_MYSQL_PASSWORD:?请在 reachai.env 填写 AI_MYSQL_PASSWORD（./dev.sh 会自动生成）}"
       MYSQL_CHARACTER_SET_SERVER: utf8mb4
       MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
     volumes:
       - mysql-data:/var/lib/mysql
-      - ../sql:/docker-entrypoint-initdb.d
-    command: --default-authentication-plugin=mysql_native_password
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
   redis:
+    profiles: ["redis"]
     image: redis:7-alpine
     container_name: eaf-redis
     ports:
@@ -30,6 +37,7 @@ services:
 
   # Milvus 单机模式（etcd + minio + milvus）
   etcd:
+    profiles: ["milvus"]
     image: quay.io/coreos/etcd:v3.5.16
     container_name: eaf-etcd
     environment:
@@ -42,11 +50,12 @@ services:
     command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
 
   minio:
+    profiles: ["milvus"]
     image: minio/minio:RELEASE.2024-04-18T19-09-19Z
     container_name: eaf-minio
     environment:
-      MINIO_ACCESS_KEY: "${REACHAI_MINIO_ACCESS_KEY:?Set REACHAI_MINIO_ACCESS_KEY in deploy/.env}"
-      MINIO_SECRET_KEY: "${REACHAI_MINIO_SECRET_KEY:?Set REACHAI_MINIO_SECRET_KEY in deploy/.env}"
+      MINIO_ACCESS_KEY: "${REACHAI_MINIO_ACCESS_KEY:-reachai-minio}"
+      MINIO_SECRET_KEY: "${REACHAI_MINIO_SECRET_KEY:-reachai-minio-local-only}"
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -60,6 +69,7 @@ services:
       retries: 3
 
   milvus:
+    profiles: ["milvus"]
     image: milvusdb/milvus:v2.4.4
     container_name: eaf-milvus
     ports:
@@ -71,13 +81,12 @@ services:
     environment:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
-      MINIO_ACCESS_KEY_ID: "${REACHAI_MINIO_ACCESS_KEY:?Set REACHAI_MINIO_ACCESS_KEY in deploy/.env}"
-      MINIO_SECRET_ACCESS_KEY: "${REACHAI_MINIO_SECRET_KEY:?Set REACHAI_MINIO_SECRET_KEY in deploy/.env}"
+      MINIO_ACCESS_KEY_ID: "${REACHAI_MINIO_ACCESS_KEY:-reachai-minio}"
+      MINIO_SECRET_ACCESS_KEY: "${REACHAI_MINIO_SECRET_KEY:-reachai-minio-local-only}"
     volumes:
       - milvus-data:/var/lib/milvus
 
-  # Opt-in because the image is large. Start with:
-  # docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml --profile docling up -d
+  # 镜像较大，按需开启：docker compose --env-file reachai.env -f deploy/docker-compose.infra.yml --profile docling up -d
   docling:
     profiles: ["docling"]
     build:
@@ -89,7 +98,7 @@ services:
       - "5001:5001"
     environment:
       DOCLING_SERVE_ENABLE_UI: "false"
-      DOCLING_SERVE_API_KEY: "${REACHAI_DOCLING_API_KEY:?Set REACHAI_DOCLING_API_KEY in deploy/.env}"
+      DOCLING_SERVE_API_KEY: "${REACHAI_DOCLING_API_KEY:-}"
       DOCLING_SERVE_MAX_FILE_SIZE: "52428800"
       DOCLING_SERVE_MAX_NUM_PAGES: "1000"
       DOCLING_SERVE_ENG_KIND: local

@@ -6,71 +6,42 @@
     </header>
     <p class="eaf-memory__hint">{{ t.hint }}</p>
 
-    <div class="eaf-memory__tabs" role="tablist">
+    <div v-if="layerOptions.length > 1" class="eaf-memory__tabs" role="tablist">
       <button
         type="button"
         role="tab"
-        :aria-selected="tab === 'memories'"
-        :class="{ active: tab === 'memories' }"
-        @click="tab = 'memories'"
-      >{{ t.memories }} ({{ memories.total }})</button>
+        :aria-selected="scopeFilter === ''"
+        :class="{ active: scopeFilter === '' }"
+        @click="selectScope('')"
+      >{{ t.all }} ({{ memories.total }})</button>
       <button
+        v-for="layer in layerOptions"
+        :key="layer.scope"
         type="button"
         role="tab"
-        :aria-selected="tab === 'candidates'"
-        :class="{ active: tab === 'candidates' }"
-        @click="tab = 'candidates'"
-      >{{ t.candidates }} ({{ candidates.total }})</button>
+        :aria-selected="scopeFilter === layer.scope"
+        :class="{ active: scopeFilter === layer.scope }"
+        @click="selectScope(layer.scope)"
+      >{{ layer.name }}</button>
     </div>
 
     <div v-if="error" class="eaf-memory__error" role="alert">{{ error }}</div>
 
     <div class="eaf-memory__body">
-      <template v-if="tab === 'memories'">
-        <select
-          v-if="agentOptions.length > 1"
-          v-model="agentFilter"
-          class="eaf-memory__filter"
-          :aria-label="t.source"
-          @change="loadMemories"
-        >
-          <option value="">{{ t.allSources }}</option>
-          <option v-for="agent in agentOptions" :key="agent" :value="agent">{{ agent }}</option>
-        </select>
-        <p v-if="!loading && !memories.items.length" class="eaf-memory__empty">{{ t.emptyMemories }}</p>
-        <article v-for="item in memories.items" :key="item.id" class="eaf-memory__item">
-          <div class="eaf-memory__text">
-            <span class="eaf-memory__tag">{{ typeLabel(item.type) }}</span>
-            <p>{{ item.content }}</p>
-            <small>{{ formatTime(item.updatedAt) }}<template v-if="item.sourceAgentId"> · {{ item.sourceAgentId }}</template></small>
-          </div>
-          <button type="button" class="eaf-memory__link danger" :disabled="busyId === item.id" @click="forget(item.id)">
-            {{ t.delete }}
-          </button>
-        </article>
-      </template>
-
-      <template v-else>
-        <p v-if="!loading && !candidates.items.length" class="eaf-memory__empty">{{ t.emptyCandidates }}</p>
-        <article v-for="item in candidates.items" :key="item.id" class="eaf-memory__item candidate">
-          <div class="eaf-memory__text">
-            <span class="eaf-memory__tag">{{ typeLabel(item.type) }}</span>
-            <p>{{ item.content }}</p>
-            <small v-if="item.conflictMemoryId">{{ t.replaces }}</small>
-          </div>
-          <div class="eaf-memory__actions">
-            <button type="button" class="eaf-memory__link primary" :disabled="busyId === item.id" @click="review(item.id, 'approve')">
-              {{ t.approve }}
-            </button>
-            <button type="button" class="eaf-memory__link" :disabled="busyId === item.id" @click="review(item.id, 'reject')">
-              {{ t.reject }}
-            </button>
-          </div>
-        </article>
-      </template>
+      <p v-if="!loading && !memories.items.length" class="eaf-memory__empty">{{ t.emptyMemories }}</p>
+      <article v-for="item in memories.items" :key="item.id" class="eaf-memory__item">
+        <div class="eaf-memory__text">
+          <span class="eaf-memory__tag">{{ placeLabel(item) }}</span>
+          <p>{{ item.content }}</p>
+          <small>{{ formatTime(item.updatedAt) }}<template v-if="item.sourceAgentId"> · {{ item.sourceAgentId }}</template></small>
+        </div>
+        <button type="button" class="eaf-memory__link danger" :disabled="busyId === item.id" @click="forget(item.id)">
+          {{ t.delete }}
+        </button>
+      </article>
     </div>
 
-    <footer v-if="memories.total || candidates.total" class="eaf-memory__foot">
+    <footer v-if="memories.total" class="eaf-memory__foot">
       <button
         v-if="!confirmingErase"
         type="button"
@@ -91,17 +62,13 @@ import { computed, onMounted, reactive, ref } from 'vue'
 
 interface MemoryItem {
   id: number
-  type: string
   content: string
+  layer?: 'PERSONAL' | 'PROJECT'
+  scope?: string
+  layerName?: string | null
+  groupName?: string | null
   sourceAgentId?: string | null
   updatedAt?: string | null
-}
-
-interface CandidateItem {
-  id: number
-  type: string
-  content: string
-  conflictMemoryId?: number | null
 }
 
 interface Page<T> { items: T[]; total: number }
@@ -118,57 +85,41 @@ const zh = {
   title: '我的记忆',
   close: '关闭',
   hint: '助手会参考这些信息来回答你，只有你自己能看到。删除后立即不再使用。',
-  memories: '已记住',
-  candidates: '待确认',
-  source: '来源',
-  allSources: '全部来源',
+  all: '全部',
+  personal: '个人记忆',
   emptyMemories: '还没有记住任何信息。对助手说“请记住……”即可添加。',
-  emptyCandidates: '没有待确认的信息。',
   delete: '删除',
-  approve: '记住',
-  reject: '忽略',
-  replaces: '确认后会替换一条已有记忆',
   eraseAll: '清空全部记忆',
   eraseConfirm: '清空后无法恢复，确定吗？',
   eraseYes: '确定清空',
   cancel: '取消',
   failed: '操作失败，请稍后重试',
-  types: { FACT: '事实', PREFERENCE: '偏好', RULE: '规则', NOTE: '备注' } as Record<string, string>,
 }
 const en: typeof zh = {
   title: 'My memories',
   close: 'Close',
   hint: 'The assistant uses these to answer you. Only you can see them. Deleted items stop being used at once.',
-  memories: 'Remembered',
-  candidates: 'To confirm',
-  source: 'Source',
-  allSources: 'All sources',
+  all: 'All',
+  personal: 'Personal',
   emptyMemories: 'Nothing remembered yet. Say "remember ..." to add something.',
-  emptyCandidates: 'Nothing to confirm.',
   delete: 'Delete',
-  approve: 'Remember',
-  reject: 'Ignore',
-  replaces: 'Confirming replaces an existing memory',
   eraseAll: 'Erase all memories',
   eraseConfirm: 'This cannot be undone. Continue?',
   eraseYes: 'Erase',
   cancel: 'Cancel',
   failed: 'Something went wrong. Try again later.',
-  types: { FACT: 'Fact', PREFERENCE: 'Preference', RULE: 'Rule', NOTE: 'Note' },
 }
 const t = computed(() => (props.locale === 'en-US' ? en : zh))
 
-const tab = ref<'memories' | 'candidates'>('memories')
 const loading = ref(false)
 const error = ref('')
 const busyId = ref<number | null>(null)
 const confirmingErase = ref(false)
 const erasing = ref(false)
-const agentFilter = ref('')
-const knownAgents = ref<string[]>([])
+const scopeFilter = ref('')
+const knownLayers = ref<Array<{ scope: string; name: string }>>([])
 const memories = reactive<Page<MemoryItem>>({ items: [], total: 0 })
-const candidates = reactive<Page<CandidateItem>>({ items: [], total: 0 })
-const agentOptions = computed(() => knownAgents.value)
+const layerOptions = computed(() => knownLayers.value)
 
 async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = await props.getToken()
@@ -197,25 +148,30 @@ async function guarded(action: () => Promise<void>) {
 
 async function loadMemories() {
   const query = new URLSearchParams({ limit: '100' })
-  if (agentFilter.value) query.set('agentId', agentFilter.value)
+  if (scopeFilter.value) query.set('scope', scopeFilter.value)
   const page = await call<Page<MemoryItem>>(`?${query}`)
   memories.items = page.items
   memories.total = page.total
-  const merged = new Set(knownAgents.value)
-  page.items.forEach((item) => { if (item.sourceAgentId) merged.add(item.sourceAgentId) })
-  knownAgents.value = [...merged].sort()
-}
-
-async function loadCandidates() {
-  const page = await call<Page<CandidateItem>>('/candidates?limit=100')
-  candidates.items = page.items
-  candidates.total = page.total
+  // Layers are learnt from what the unfiltered list shows, so a filtered view keeps every tab.
+  if (!scopeFilter.value) {
+    const layers = new Map<string, string>()
+    page.items.forEach((item) => {
+      if (item.scope) layers.set(item.scope, item.layer === 'PERSONAL' ? t.value.personal : (item.layerName || item.scope))
+    })
+    knownLayers.value = [...layers].map(([scope, name]) => ({ scope, name }))
+      .sort((a, b) => (a.scope === 'personal' ? -1 : b.scope === 'personal' ? 1 : a.name.localeCompare(b.name)))
+  }
 }
 
 async function reload() {
   loading.value = true
-  await guarded(async () => { await Promise.all([loadMemories(), loadCandidates()]) })
+  await guarded(loadMemories)
   loading.value = false
+}
+
+async function selectScope(scope: string) {
+  scopeFilter.value = scope
+  await reload()
 }
 
 async function forget(id: number) {
@@ -223,15 +179,6 @@ async function forget(id: number) {
   await guarded(async () => {
     await call(`/${id}`, { method: 'DELETE' })
     await loadMemories()
-  })
-  busyId.value = null
-}
-
-async function review(id: number, decision: 'approve' | 'reject') {
-  busyId.value = id
-  await guarded(async () => {
-    await call(`/candidates/${id}/${decision}`, { method: 'POST' })
-    await Promise.all([loadCandidates(), decision === 'approve' ? loadMemories() : Promise.resolve()])
   })
   busyId.value = null
 }
@@ -244,13 +191,15 @@ async function eraseAll() {
       body: JSON.stringify({ confirmation: 'ERASE_ALL_PERSONAL_MEMORIES' }),
     })
     confirmingErase.value = false
-    await Promise.all([loadMemories(), loadCandidates()])
+    scopeFilter.value = ''
+    await loadMemories()
   })
   erasing.value = false
 }
 
-function typeLabel(type: string) {
-  return t.value.types[type] || type
+function placeLabel(item: MemoryItem) {
+  const layer = item.layer === 'PROJECT' ? (item.layerName || '') : t.value.personal
+  return item.groupName ? `${layer} · ${item.groupName}` : layer
 }
 
 function formatTime(value?: string | null) {
@@ -397,10 +346,6 @@ defineExpose({ reload })
   border-radius: 8px;
 }
 
-.eaf-memory__item.candidate {
-  border-left: 3px solid var(--reachai-chat-primary, #6366f1);
-}
-
 .eaf-memory__text {
   min-width: 0;
 }
@@ -423,12 +368,6 @@ defineExpose({ reload })
   background: rgb(var(--reachai-chat-primary-rgb, 99 102 241) / 0.1);
   color: var(--reachai-chat-primary, #6366f1);
   font-size: 11px;
-}
-
-.eaf-memory__actions {
-  display: flex;
-  flex-shrink: 0;
-  gap: 6px;
 }
 
 .eaf-memory__link {

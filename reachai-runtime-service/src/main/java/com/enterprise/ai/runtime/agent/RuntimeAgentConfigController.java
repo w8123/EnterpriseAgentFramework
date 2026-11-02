@@ -1,8 +1,6 @@
 package com.enterprise.ai.runtime.agent;
 
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigDraftRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.PublishRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -33,27 +31,21 @@ public class RuntimeAgentConfigController {
     }
 
     @PutMapping("/api/agents/{agentId}/config-versions/draft")
-    public ResponseEntity<AgentConfigVersionView> saveDraft(
-            @PathVariable String agentId,
-            @RequestBody(required = false) AgentConfigDraftRequest request) {
-        return ResponseEntity.ok(configService.saveDraft(agentId, request));
+    public ResponseEntity<Map<String, Object>> saveDraft(@PathVariable String agentId) {
+        return ResponseEntity.status(409).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 
     @PostMapping("/api/agents/{agentId}/config-versions/{configVersionId}/publish")
-    public ResponseEntity<AgentConfigVersionView> publish(
+    public ResponseEntity<Map<String, Object>> publish(
             @PathVariable String agentId,
-            @PathVariable Long configVersionId,
-            @RequestBody(required = false) PublishRequest request) {
-        return ResponseEntity.ok(configService.publish(
-                agentId,
-                configVersionId,
-                request == null ? null : request.publishedBy()));
+            @PathVariable Long configVersionId) {
+        return ResponseEntity.status(409).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 
     @PostMapping("/api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft")
-    public ResponseEntity<AgentConfigVersionView> copyToDraft(
+    public ResponseEntity<Map<String, Object>> copyToDraft(
             @PathVariable String agentId,
             @PathVariable Long configVersionId) {
-        return ResponseEntity.ok(configService.copyToDraft(agentId, configVersionId));
+        return ResponseEntity.status(409).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 }

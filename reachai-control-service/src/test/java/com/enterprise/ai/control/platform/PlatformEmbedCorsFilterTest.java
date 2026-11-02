@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
+import com.enterprise.ai.control.mcp.infrastructure.McpHubProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
@@ -85,6 +86,35 @@ class PlatformEmbedCorsFilterTest {
         policy.invalidate();
         assertTrue(policy.allows("https://a.test"));
         verify(capability, times(2)).listEmbedCredentialPolicies(null, "ACTIVE", 1000);
+    }
+
+    @Test
+    void reachAiOwnPagesBehindAProxyAreTreatedAsSameOrigin() throws Exception {
+        PlatformEmbedCorsFilter filter = new PlatformEmbedCorsFilter(new PlatformEmbedCorsProperties(),
+                new PlatformEmbedOriginPolicy(capabilityWith(List.of(policy("[\"https://yudao.w8123.com\"]"))),
+                        new ObjectMapper()));
+        McpHubProperties hub = new McpHubProperties();
+        hub.setPublicBaseUrl("https://reachai.w8123.com/");
+        filter.setHubProperties(hub);
+
+        // Behind Nginx, Control sees http://127.0.0.1:18603 while the browser sends the public origin.
+        MockHttpServletRequest own = new MockHttpServletRequest("POST", "/api/embed/chat/sessions");
+        own.setServerName("127.0.0.1");
+        own.setServerPort(18603);
+        own.addHeader("Origin", "https://reachai.w8123.com");
+        MockFilterChain chain = new MockFilterChain();
+        filter.doFilter(own, new MockHttpServletResponse(), chain);
+        assertEquals(own, chain.getRequest());
+
+        MockHttpServletRequest other = new MockHttpServletRequest("POST", "/api/embed/chat/sessions");
+        other.setServerName("127.0.0.1");
+        other.setServerPort(18603);
+        other.addHeader("Origin", "https://evil.test");
+        MockHttpServletResponse rejected = new MockHttpServletResponse();
+        MockFilterChain otherChain = new MockFilterChain();
+        filter.doFilter(other, rejected, otherChain);
+        assertEquals(403, rejected.getStatus());
+        assertNull(otherChain.getRequest());
     }
 
     @Test

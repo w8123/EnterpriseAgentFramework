@@ -71,6 +71,8 @@ class CapabilityItemContractResolverTest {
         assertEquals("order_cancel", projection.name());
         assertEquals("AI 取消订单说明", projection.description());
         assertEquals("IRREVERSIBLE", projection.riskLevel());
+        assertEquals("IRREVERSIBLE", projection.minimumRiskLevel());
+        assertTrue(projection.hasTrustedRiskContract());
         assertEquals(McpPublicationItemKind.CAPABILITY, projection.sourceKind());
         assertEquals("orders:order_cancel", projection.sourceRef());
         assertTrue(projection.workflowVersionId() == null);
@@ -99,6 +101,50 @@ class CapabilityItemContractResolverTest {
                 {"type":"object","properties":{"query":{"type":"object","properties":{"keyword":{"type":"string"},"limit":{"type":"integer"}},"required":["keyword"]}},"required":["query"]}""";
         assertEquals(expectedSchema, projection.inputSchemaJson());
         assertEquals("READ", projection.riskLevel());
+    }
+
+    @Test
+    void sdkDottedDtoFieldsAreNestedUnderTheirDeclaredObjectParameter() throws Exception {
+        String parametersJson = """
+                [
+                  {"name":"pageReqVO.name","type":"string","description":"产品名称","required":true},
+                  {"name":"pageReqVO","type":"object","required":true},
+                  {"name":"pageReqVO.categoryId","type":"number"},
+                  {"name":"tags","type":"array","metadata":{"itemsType":"string"}},
+                  {"name":"legacy.key","type":"string"}
+                ]
+                """;
+        when(capabilityProxyClient.getToolDefinition("erp:product.page"))
+                .thenReturn(ResponseEntity.ok(definition("product_page", "查询产品", null,
+                        parametersJson, "READ")));
+
+        var schema = new ObjectMapper().readTree(resolver.resolve("erp:product.page").inputSchemaJson());
+        assertEquals("object", schema.path("properties").path("pageReqVO").path("type").asText());
+        assertEquals("产品名称", schema.path("properties").path("pageReqVO")
+                .path("properties").path("name").path("description").asText());
+        assertEquals("name", schema.path("properties").path("pageReqVO").path("required").get(0).asText());
+        assertTrue(schema.path("properties").path("pageReqVO").path("properties").has("categoryId"));
+        assertTrue(!schema.path("properties").has("pageReqVO.name"));
+        assertTrue(schema.path("properties").has("legacy.key"));
+        assertEquals("string", schema.path("properties").path("tags").path("items").path("type").asText());
+        assertEquals("pageReqVO", schema.path("required").get(0).asText());
+    }
+
+    @Test
+    void arrayOfObjectParametersKeepsItsArrayShapeAndItemRequirements() throws Exception {
+        String parametersJson = """
+                [{"name":"items","type":"array","children":[
+                  {"name":"productId","type":"number","required":true}
+                ]}]
+                """;
+        when(capabilityProxyClient.getToolDefinition("erp:items"))
+                .thenReturn(ResponseEntity.ok(definition("items", "物品", null, parametersJson, "READ")));
+        var items = new ObjectMapper().readTree(resolver.resolve("erp:items").inputSchemaJson())
+                .path("properties").path("items");
+        assertEquals("array", items.path("type").asText());
+        assertEquals("object", items.path("items").path("type").asText());
+        assertEquals("number", items.path("items").path("properties").path("productId").path("type").asText());
+        assertEquals("productId", items.path("items").path("required").get(0).asText());
     }
 
     @Test
@@ -141,12 +187,13 @@ class CapabilityItemContractResolverTest {
     }
 
     @Test
-    void blankSideEffectDefaultsToWrite() {
+    void blankSideEffectCannotEstablishTheRiskFloor() {
         when(capabilityProxyClient.getToolDefinition("orders:order.update"))
                 .thenReturn(ResponseEntity.ok(definition("order_update", "更新订单", null,
                         "[{\"name\":\"id\",\"type\":\"string\",\"required\":true}]", "")));
 
-        assertEquals("WRITE", resolver.resolve("orders:order.update").riskLevel());
+        assertEquals("MCP_CAPABILITY_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve("orders:order.update")).code());
     }
 
     @Test

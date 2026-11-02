@@ -3,6 +3,13 @@ package com.enterprise.ai.runtime.agent;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigDraftRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftEditCommand;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftEditView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftVersionCommand;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentConfigVersionsView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftPublicationView;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftApprovedPublishCommand;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentPublicationIdentity;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentMemoryPolicyView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.SkillBindingRequest;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.SkillBindingView;
@@ -31,6 +38,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Objects;
 import java.util.Set;
 import java.util.regex.Pattern;
 
@@ -62,6 +70,12 @@ public class RuntimeAgentConfigService {
     private final RuntimeAgentMapper agentMapper;
     private final RuntimeWorkflowToolCatalogQuery workflowCatalog;
     private final ObjectMapper objectMapper;
+    private RuntimeAgentDraftRevision draftRevision;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setDraftRevision(RuntimeAgentDraftRevision draftRevision) {
+        this.draftRevision = draftRevision;
+    }
 
     public List<AgentConfigVersionView> list(String agentId) {
         requireAgent(agentId);
@@ -102,6 +116,122 @@ public class RuntimeAgentConfigService {
                         .orderByDesc(RuntimeAgentConfigVersionEntity::getVersionNo)
                         .last("LIMIT 1"));
         return draft == null ? resolveActive(agentId) : Optional.of(draft);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftEditView readEditableDraft(AgentDraftEditCommand command) {
+        // The returned base and its revision must describe the same state even on READ_COMMITTED databases.
+        RuntimeAgentEntity agent = requireExpectedProject(command, true);
+        return draftEditView(agent);
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentConfigVersionsView readVersionsForProject(AgentDraftEditCommand command) {
+        RuntimeAgentEntity agent = requireExpectedProject(command, true);
+        return new AgentConfigVersionsView(agent.getId(), agent.getProjectId(), agent.getProjectCode(), list(agent.getId()));
+    }
+
+    /** The Agent row serializes all draft writers; compare and save inside the same transaction. */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftEditView saveEditableDraft(AgentDraftEditCommand command) {
+        RuntimeAgentEntity agent = requireExpectedProject(command, true);
+        if (command.expectedRevision() == null || !SHA256.matcher(command.expectedRevision()).matches()
+                || command.changes() == null) throw new IllegalArgumentException("Agent draft revision and changes are required");
+        AgentDraftEditView before = draftEditView(agent);
+        if (!before.revision().equals(command.expectedRevision())) throw new RuntimeAgentDraftConflictException();
+        saveDraft(agent.getId(), command.changes());
+        return draftEditView(requireAgent(agent.getId()));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftEditView copyEditableDraft(AgentDraftVersionCommand command) {
+        RuntimeAgentEntity agent = requireExpectedVersion(command);
+        requireMatchingRevision(agent, command.expectedRevision());
+        copyToDraft(agent.getId(), command.configVersionId());
+        return draftEditView(requireAgent(agent.getId()));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftEditView publishEditableDraft(AgentDraftVersionCommand command, String publishedBy) {
+        RuntimeAgentEntity agent = requireExpectedVersion(command);
+        AgentDraftEditView before = requireMatchingRevision(agent, command.expectedRevision());
+        if (before.base() == null || !command.configVersionId().equals(before.base().id())
+                || !"DRAFT".equalsIgnoreCase(before.base().status())) throw new RuntimeAgentDraftConflictException();
+        publish(agent.getId(), command.configVersionId(), publishedBy);
+        return draftEditView(requireAgent(agent.getId()));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftPublicationView previewDraftPublication(AgentDraftVersionCommand command) {
+        RuntimeAgentEntity agent = requireExpectedVersion(command);
+        AgentDraftEditView draft = requireMatchingRevision(agent, command.expectedRevision());
+        if (draft.base() == null || !command.configVersionId().equals(draft.base().id())
+                || !"DRAFT".equals(draft.base().status())) throw new RuntimeAgentDraftConflictException();
+        var target = requireVersion(agent.getId(), command.configVersionId());
+        return new AgentDraftPublicationView(agent.getId(), agent.getProjectId(), agent.getProjectCode(),
+                draft.revision(), draft.base(), agent.getActiveConfigVersionId(), publicationWorkflowVersions(target), publicationIdentity(agent));
+    }
+
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public AgentDraftEditView publishApprovedDraft(AgentDraftApprovedPublishCommand command, String publishedBy) {
+        if (command == null || command.workflowVersions() == null) {
+            throw new IllegalArgumentException("Approved Workflow versions are required");
+        }
+        RuntimeAgentEntity agent = requireExpectedVersion(new AgentDraftVersionCommand(command.agentId(), command.projectId(),
+                command.projectCode(), command.expectedRevision(), command.configVersionId()));
+        AgentDraftEditView draft = requireMatchingRevision(agent, command.expectedRevision());
+        if (draft.base() == null || !command.configVersionId().equals(draft.base().id())
+                || !"DRAFT".equals(draft.base().status())) throw new RuntimeAgentDraftConflictException();
+        publishPrepared(agent, requireVersion(agent.getId(), command.configVersionId()), publishedBy, true, command.workflowVersions());
+        return draftEditView(requireAgent(agent.getId()));
+    }
+
+    private RuntimeAgentEntity requireExpectedVersion(AgentDraftVersionCommand command) {
+        if (command == null || command.configVersionId() == null || command.configVersionId() < 1) {
+            throw new IllegalArgumentException("Agent config version is required");
+        }
+        return requireExpectedProject(new AgentDraftEditCommand(command.agentId(), command.projectId(),
+                command.projectCode(), command.expectedRevision(), null), true);
+    }
+
+    private AgentDraftEditView requireMatchingRevision(RuntimeAgentEntity agent, String revision) {
+        if (revision == null || !SHA256.matcher(revision).matches()) {
+            throw new IllegalArgumentException("Agent draft revision is required");
+        }
+        AgentDraftEditView current = draftEditView(agent);
+        if (!current.revision().equals(revision)) throw new RuntimeAgentDraftConflictException();
+        return current;
+    }
+
+    private RuntimeAgentEntity requireExpectedProject(AgentDraftEditCommand command, boolean lock) {
+        if (command == null || !StringUtils.hasText(command.agentId())) throw new IllegalArgumentException("agentId is required");
+        RuntimeAgentEntity agent = lock ? requireLockedAgent(command.agentId()) : requireAgent(command.agentId());
+        if (!Objects.equals(agent.getProjectId(), command.projectId())
+                || !Objects.equals(agent.getProjectCode(), command.projectCode())) throw new RuntimeAgentDraftConflictException();
+        return agent;
+    }
+
+    private AgentDraftEditView draftEditView(RuntimeAgentEntity agent) {
+        if (draftRevision == null) throw new IllegalStateException("Agent draft revision service is unavailable");
+        RuntimeAgentConfigVersionEntity base = resolveDisplayConfig(agent.getId()).orElse(null);
+        Map<String, Object> material = new LinkedHashMap<>();
+        material.put("agentId", agent.getId()); material.put("projectId", agent.getProjectId());
+        material.put("projectCode", agent.getProjectCode()); material.put("config", base);
+        material.put("activeConfigVersionId", agent.getActiveConfigVersionId());
+        material.put("identity", publicationIdentity(agent));
+        if (base != null) {
+            material.put("tools", snapshotTools(agent.getId(), base.getId()));
+            material.put("skills", skillBindingMapper.selectList(Wrappers.<RuntimeAgentSkillBindingEntity>lambdaQuery()
+                    .eq(RuntimeAgentSkillBindingEntity::getAgentId, agent.getId())
+                    .eq(RuntimeAgentSkillBindingEntity::getAgentConfigVersionId, base.getId())
+                    .orderByAsc(RuntimeAgentSkillBindingEntity::getPriority).orderByAsc(RuntimeAgentSkillBindingEntity::getId)));
+            material.put("remoteAgents", remoteAgentBindingMapper.selectList(Wrappers.<RuntimeAgentRemoteBindingEntity>lambdaQuery()
+                    .eq(RuntimeAgentRemoteBindingEntity::getAgentId, agent.getId())
+                    .eq(RuntimeAgentRemoteBindingEntity::getAgentConfigVersionId, base.getId())
+                    .orderByAsc(RuntimeAgentRemoteBindingEntity::getPriority).orderByAsc(RuntimeAgentRemoteBindingEntity::getId)));
+        }
+        return new AgentDraftEditView(agent.getId(), agent.getProjectId(), agent.getProjectCode(),
+                draftRevision.of(material), base == null ? null : toView(base), resolveActive(agent.getId()).map(this::toView).orElse(null));
     }
 
     @Transactional
@@ -304,6 +434,7 @@ public class RuntimeAgentConfigService {
             Entry latest = staleTargets.get(copy.getWorkflowId());
             if (latest == null || !Boolean.TRUE.equals(copy.getEnabled())) continue;
             assertApiRisk(latest.version().httpApiRiskFloor(), firstText(copy.getRiskLevel(), "READ"), copy.getReadOnly());
+            assertBusinessMethodRisk(latest.version().businessMethodRiskFloor(), firstText(copy.getRiskLevel(), "READ"), copy.getReadOnly());
             Entry before = pinned.get(new Reference(copy.getWorkflowId(), copy.getWorkflowVersionId()));
             updated.add(new WorkflowPinFreshness(
                     copy.getWorkflowId(),
@@ -326,12 +457,18 @@ public class RuntimeAgentConfigService {
 
     private AgentConfigVersionView publishPrepared(RuntimeAgentEntity agent, RuntimeAgentConfigVersionEntity target,
                                                    String publishedBy, boolean refreshAllWorkflowPins) {
+        return publishPrepared(agent, target, publishedBy, refreshAllWorkflowPins, null);
+    }
+
+    private AgentConfigVersionView publishPrepared(RuntimeAgentEntity agent, RuntimeAgentConfigVersionEntity target,
+                                                   String publishedBy, boolean refreshAllWorkflowPins,
+                                                   Map<String, Long> expectedWorkflowVersions) {
         String agentId = agent.getId();
         if (!"DRAFT".equalsIgnoreCase(target.getStatus())) {
             throw new IllegalArgumentException("only DRAFT Agent config can be published");
         }
         validatePublishable(target);
-        if (refreshAllWorkflowPins) pinWorkflowVersions(target);
+        if (refreshAllWorkflowPins) pinWorkflowVersions(target, expectedWorkflowVersions);
         validatePinnedApiRisk(target);
         validateSkillBindings(target, agent.getProjectCode());
         validateRemoteAgentBindings(target);
@@ -684,7 +821,10 @@ public class RuntimeAgentConfigService {
         entity.setOutputSchemaOverrideJson(trimToNull(request.outputSchemaOverrideJson()));
         String ownerFloor = entry.version().httpApiRiskFloor();
         assertApiRisk(ownerFloor, request.riskLevel(), request.readOnly());
-        entity.setRiskLevel(firstText(request.riskLevel(), "WRITE".equals(ownerFloor) || Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
+        String businessFloor = entry.version().businessMethodRiskFloor();
+        assertBusinessMethodRisk(businessFloor, request.riskLevel(), request.readOnly());
+        entity.setRiskLevel(firstText(request.riskLevel(), "IRREVERSIBLE".equals(businessFloor) ? "IRREVERSIBLE"
+                : "WRITE".equals(ownerFloor) || "WRITE".equals(businessFloor) || Boolean.FALSE.equals(request.readOnly()) ? "WRITE" : "READ"));
         entity.setPermissionKey(firstText(request.permissionKey(), "workflow:" + workflow.keySlug()));
         entity.setReadOnly(request.readOnly() == null ? !("WRITE".equalsIgnoreCase(entity.getRiskLevel())
                 || "IRREVERSIBLE".equalsIgnoreCase(entity.getRiskLevel())) : request.readOnly());
@@ -1288,22 +1428,48 @@ public class RuntimeAgentConfigService {
         return entry;
     }
 
-    private void pinWorkflowVersions(RuntimeAgentConfigVersionEntity target) {
+    private List<RuntimeAgentWorkflowToolEntity> enabledPublicationTools(RuntimeAgentConfigVersionEntity target) {
+        return toolMapper.selectList(Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentId, target.getAgentId())
+                .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, target.getId())
+                .eq(RuntimeAgentWorkflowToolEntity::getEnabled, true));
+    }
+
+    private Map<String, Long> publicationWorkflowVersions(RuntimeAgentConfigVersionEntity target) {
+        return publicationWorkflowVersions(enabledPublicationTools(target));
+    }
+
+    private AgentPublicationIdentity publicationIdentity(RuntimeAgentEntity agent) {
+        return new AgentPublicationIdentity(agent.getName(), agent.getKeySlug(), agent.getDescription(), agent.getVisibility(),
+                agent.getAllowedRolesJson(), agent.getEnabled());
+    }
+
+    private Map<String, Long> publicationWorkflowVersions(List<RuntimeAgentWorkflowToolEntity> tools) {
+        Map<String, Entry> catalog = workflowCatalog.current(tools.stream()
+                .map(RuntimeAgentWorkflowToolEntity::getWorkflowId).toList());
+        Map<String, Long> versions = new LinkedHashMap<>();
+        for (var tool : tools) {
+            Entry entry = catalog.get(tool.getWorkflowId());
+            if (entry == null || !entry.activePublishedWorkflow() || !entry.version().executable() || entry.version().id() == null) {
+                throw new IllegalArgumentException("Agent Workflow Tool requires an executable published Workflow version: " + tool.getWorkflowId());
+            }
+            assertApiRisk(entry.version().httpApiRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
+            assertBusinessMethodRisk(entry.version().businessMethodRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
+            versions.put(tool.getWorkflowId(), entry.version().id());
+        }
+        return versions;
+    }
+
+    private void pinWorkflowVersions(RuntimeAgentConfigVersionEntity target, Map<String, Long> expected) {
         List<RuntimeAgentWorkflowToolEntity> tools = toolMapper.selectList(
                 Wrappers.<RuntimeAgentWorkflowToolEntity>lambdaQuery()
                         .eq(RuntimeAgentWorkflowToolEntity::getAgentId, target.getAgentId())
                         .eq(RuntimeAgentWorkflowToolEntity::getAgentConfigVersionId, target.getId())
                         .eq(RuntimeAgentWorkflowToolEntity::getEnabled, true));
-        Map<String, Entry> catalog = workflowCatalog.current(tools.stream()
-                .map(RuntimeAgentWorkflowToolEntity::getWorkflowId).toList());
+        Map<String, Long> versions = publicationWorkflowVersions(tools);
+        if (expected != null && !versions.equals(expected)) throw new RuntimeAgentDraftConflictException();
         for (RuntimeAgentWorkflowToolEntity tool : tools) {
-            Entry entry = catalog.get(tool.getWorkflowId());
-            if (entry == null || !entry.activePublishedWorkflow() || !entry.version().executable()) {
-                throw new IllegalArgumentException(
-                        "Agent Workflow Tool requires an executable published Workflow version: " + tool.getWorkflowId());
-            }
-            tool.setWorkflowVersionId(entry.version().id());
-            assertApiRisk(entry.version().httpApiRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
+            tool.setWorkflowVersionId(versions.get(tool.getWorkflowId()));
             tool.setUpdatedAt(LocalDateTime.now());
             toolMapper.updateById(tool);
         }
@@ -1313,6 +1479,17 @@ public class RuntimeAgentConfigService {
         if ("WRITE".equals(ownerFloor) && (Boolean.TRUE.equals(readOnly)
                 || risk != null && !("WRITE".equalsIgnoreCase(risk) || "IRREVERSIBLE".equalsIgnoreCase(risk)))) {
             throw new HttpApiRiskDowngradeException();
+        }
+    }
+
+    private static void assertBusinessMethodRisk(String ownerFloor, String risk, Boolean readOnly) {
+        if ("IRREVERSIBLE".equals(ownerFloor) && (Boolean.TRUE.equals(readOnly)
+                || risk != null && !"IRREVERSIBLE".equalsIgnoreCase(risk))) {
+            throw new IllegalArgumentException("BUSINESS_METHOD_WORKFLOW_RISK_DOWNGRADE: 不可逆业务方法不能降低风险级别");
+        }
+        if ("WRITE".equals(ownerFloor) && (Boolean.TRUE.equals(readOnly)
+                || risk != null && !("WRITE".equalsIgnoreCase(risk) || "IRREVERSIBLE".equalsIgnoreCase(risk)))) {
+            throw new IllegalArgumentException("BUSINESS_METHOD_WORKFLOW_RISK_DOWNGRADE: 写业务方法的 Workflow 不能标记为只读；旧版本请先重新发布");
         }
     }
 
@@ -1334,6 +1511,7 @@ public class RuntimeAgentConfigService {
                 throw new IllegalArgumentException("Agent Workflow Tool requires an executable pinned Workflow version");
             }
             assertApiRisk(entry.version().httpApiRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
+            assertBusinessMethodRisk(entry.version().businessMethodRiskFloor(), firstText(tool.getRiskLevel(), "READ"), tool.getReadOnly());
         }
     }
 

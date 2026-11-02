@@ -106,7 +106,7 @@ class HttpApiAssetServicePersistenceTest {
         String firstContractHash = first.binding().getSourceContractHash();
         Long assetId = first.asset().getId();
 
-        HttpApiAssetService.Observation second = observe(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN,
+        HttpApiAssetService.Observation second = observe(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find", "src/OrdersController.java:42", "scan-r1", equivalent);
         assertFalse(second.assetCreated());
         assertEquals(assetId, second.asset().getId());
@@ -115,14 +115,14 @@ class HttpApiAssetServicePersistenceTest {
         assertEquals(HttpApiSourceBindingStatus.EQUIVALENT.name(), binding(HttpApiSourceKind.STARTER_MVC,
                 "orders-controller#find").getStatus());
 
-        HttpApiAssetService.Observation replay = observe(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN,
+        HttpApiAssetService.Observation replay = observe(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find", "src/v2/OrdersController.java:59", "scan-r2", equivalent);
         assertFalse(replay.assetCreated());
         assertEquals(assetId, replay.asset().getId(), "source location/revision do not form HTTP API identity");
         assertEquals(2L, bindings.selectCount(null));
-        assertEquals("scan-r2", binding(HttpApiSourceKind.CONTROLLER_SCAN,
+        assertEquals("scan-r2", binding(HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find").getSourceRevision());
-        assertEquals("src/v2/OrdersController.java:59", binding(HttpApiSourceKind.CONTROLLER_SCAN,
+        assertEquals("src/v2/OrdersController.java:59", binding(HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find").getSourceLocation());
         assertEquals("starter-r1", binding(HttpApiSourceKind.STARTER_MVC,
                 "orders-controller#find").getSourceRevision());
@@ -174,7 +174,7 @@ class HttpApiAssetServicePersistenceTest {
     void removalRetainsAssetAndRecomputesEquivalentConflictAndSourceMissingStates() throws Exception {
         HttpApiAssetService.Observation first = observe(ordersProd, HttpApiSourceKind.STARTER_MVC,
                 "orders-controller#find", "OrdersController.java:42", "starter-r1", contract("READ_ONLY"));
-        observe(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN, "scan:orders-controller#find",
+        observe(ordersProd, HttpApiSourceKind.OPENAPI_SCAN, "scan:orders-controller#find",
                 "src/OrdersController.java:42", "scan-r1", contract("READ_ONLY"));
         observe(ordersProd, HttpApiSourceKind.OPENAPI_SCAN, "openapi:/gateway/orders/{id}",
                 "openapi/orders.yaml#/paths/find", "openapi-r1", contract("WRITE"));
@@ -189,17 +189,17 @@ class HttpApiAssetServicePersistenceTest {
         assertNotNull(binding(HttpApiSourceKind.OPENAPI_SCAN, "openapi:/gateway/orders/{id}").getRemovedAt());
         assertTrue(List.of("orders-controller#find", "scan:orders-controller#find").stream()
                 .allMatch(key -> HttpApiSourceBindingStatus.EQUIVALENT.name().equals(
-                        binding(key.startsWith("scan:") ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.STARTER_MVC,
+                        binding(key.startsWith("scan:") ? HttpApiSourceKind.OPENAPI_SCAN : HttpApiSourceKind.STARTER_MVC,
                                 key).getStatus())));
 
         HttpApiAssetService.Removal removeOneEquivalent = remove(ordersProd, HttpApiSourceKind.STARTER_MVC,
                 "orders-controller#find");
         assertTrue(removeOneEquivalent.changed());
         assertEquals(HttpApiAssetStatus.DISCOVERED.name(), removeOneEquivalent.asset().getStatus());
-        assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(), binding(HttpApiSourceKind.CONTROLLER_SCAN,
+        assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(), binding(HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find").getStatus());
 
-        HttpApiAssetService.Removal removeLast = remove(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN,
+        HttpApiAssetService.Removal removeLast = remove(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find");
         assertTrue(removeLast.changed());
         assertEquals(HttpApiAssetStatus.SOURCE_MISSING.name(), removeLast.asset().getStatus());
@@ -208,7 +208,7 @@ class HttpApiAssetServicePersistenceTest {
         assertNull(assets.selectById(first.asset().getId()).getAcceptedContractHash());
         assertNull(assets.selectById(first.asset().getId()).getToolDefinitionId());
 
-        HttpApiAssetService.Removal repeated = remove(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN,
+        HttpApiAssetService.Removal repeated = remove(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                 "scan:orders-controller#find");
         assertFalse(repeated.changed());
         assertEquals(HttpApiAssetStatus.SOURCE_MISSING.name(), repeated.asset().getStatus());
@@ -244,7 +244,7 @@ class HttpApiAssetServicePersistenceTest {
         runConcurrently(concurrent,
                 new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.STARTER_MVC,
                         "starter:concurrent", "OrdersController.java:42", "r1", contract("READ_ONLY")),
-                new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.CONTROLLER_SCAN,
+                new HttpApiAssetService.ObserveRequest(ordersProd, HttpApiSourceKind.OPENAPI_SCAN,
                         "scan:concurrent", "src/OrdersController.java:42", "r1", contract("READ_ONLY")));
 
         assertEquals(1L, assets.selectCount(null));

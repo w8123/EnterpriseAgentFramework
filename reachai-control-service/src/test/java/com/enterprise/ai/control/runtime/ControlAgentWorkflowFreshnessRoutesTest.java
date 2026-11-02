@@ -77,8 +77,11 @@ class ControlAgentWorkflowFreshnessRoutesTest {
         verify(runtime, never()).getAgentWorkflowFreshness(anyString());
 
         grant(new PlatformPermissionGrant(PlatformPermissions.AGENT_READ, "PROJECT", "sales"));
-        when(runtime.getAgentWorkflowFreshness("agent-1")).thenReturn(ResponseEntity.ok(Map.of("staleCount", 1)));
-        assertEquals(Map.of("staleCount", 1), controller.getAgentWorkflowFreshness("agent-1").getBody());
+        Map<String, Object> result = new HashMap<>();
+        result.put("agentId", "agent-1"); result.put("projectId", null);
+        result.put("projectCode", "sales"); result.put("staleCount", 1);
+        when(runtime.getAgentWorkflowFreshness("agent-1")).thenReturn(ResponseEntity.ok(result));
+        assertEquals(result, controller.getAgentWorkflowFreshness("agent-1").getBody());
     }
 
     @Test

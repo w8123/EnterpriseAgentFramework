@@ -211,6 +211,23 @@ class RuntimeGraphSpecPhase1NodesTest {
     }
 
     @Test
+    void knowledgeFailureCannotBeMisreportedAsNoEvidence() {
+        when(knowledgeClient.retrieve(any(KnowledgeRetrievalRequest.class))).thenReturn(
+                new KnowledgeRetrievalResult(500, "知识检索暂时不可用，请稍后重试", null));
+        RuntimeGraphSpecExecutionResult result = executor.execute("""
+                {"entryNodeId":"kr","exitNodeIds":["none"],"nodes":[
+                  {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                    "knowledgeBaseCodes":["kb_demo"],"query":"input","evidencePolicy":"REQUIRED"}},
+                  {"id":"none","type":"ANSWER","config":{"template":"no evidence"}}
+                ],"edges":[{"from":"kr","to":"none","condition":"route:no_evidence"}]}
+                """, Map.of("message", "refund policy"),
+                WorkflowExecutionIdentity.fromAgent(1L, "demo", "u1"));
+        assertFalse(result.success());
+        assertEquals("RUNTIME_KNOWLEDGE_FAILED", result.code());
+        assertFalse(result.answer().contains("no evidence"));
+    }
+
+    @Test
     void requiredKnowledgeCannotFallThroughAlwaysEdgeWhenRouteIsMissing() {
         when(knowledgeClient.retrieve(any(KnowledgeRetrievalRequest.class))).thenReturn(new KnowledgeRetrievalResult(
                 0,

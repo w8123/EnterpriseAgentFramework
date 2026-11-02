@@ -48,6 +48,21 @@ public class ModelInstanceTestService {
         return runTest(runtime, false);
     }
 
+    public ModelInstanceTestResponse testConnectionModel(
+            String id, ModelInstanceController.ConnectionModelTestRequest request) {
+        if (request == null || request.modelType() == null || request.modelName() == null
+                || request.modelName().isBlank() || request.modelName().length() > 256) {
+            throw new IllegalArgumentException("请选择模型类型并填写模型名称");
+        }
+        ModelInstanceEntity entity = modelInstanceService.getEntityForTest(id);
+        ModelInstanceRuntime runtime = modelInstanceService.toRuntime(entity);
+        runtime.setId(null); // The probe must never overwrite the source instance's test status.
+        runtime.setModelType(request.modelType().name());
+        runtime.setModelName(request.modelName().trim());
+        runtime.setDefaultOptions(Map.of()); // Options are model-specific and are not reused across types.
+        return runTest(runtime, false);
+    }
+
     private ModelInstanceTestResponse runTest(ModelInstanceRuntime runtime, boolean persistResult) {
         long start = System.currentTimeMillis();
         try {
@@ -76,7 +91,7 @@ public class ModelInstanceTestService {
                             .options(llmTestOptions(runtime))
                             .build(), LLM_TEST_TIMEOUT);
                     if (response.getContent() == null || response.getContent().isBlank()) {
-                        throw new IllegalStateException("empty model response");
+                        throw new BizException(502, "empty model response");
                     }
                 }
             }
@@ -98,7 +113,7 @@ public class ModelInstanceTestService {
         } catch (Exception e) {
             long latency = System.currentTimeMillis() - start;
             String message = ConnectionConfigSupport.sanitizeError(
-                    e instanceof BizException be ? be.getMessage() : e.getMessage());
+                    e instanceof BizException be ? be.getMessage() : "模型连接测试失败，请检查模型配置后重试。");
             if (persistResult && runtime.getId() != null) {
                 modelInstanceService.updateTestResult(runtime.getId(), false, latency, message);
             }
@@ -151,26 +166,26 @@ public class ModelInstanceTestService {
 
     private static void assertEmbeddingSuccess(EmbeddingResponse response) {
         if (response == null || response.getDimension() <= 0) {
-            throw new IllegalStateException("embedding dimension must be > 0");
+            throw new BizException(502, "embedding dimension must be > 0");
         }
         if (response.getEmbeddings() == null || response.getEmbeddings().isEmpty()) {
-            throw new IllegalStateException("embedding vectors must not be empty");
+            throw new BizException(502, "embedding vectors must not be empty");
         }
         boolean hasNonEmpty = response.getEmbeddings().stream()
                 .anyMatch(vector -> vector != null && !vector.isEmpty());
         if (!hasNonEmpty) {
-            throw new IllegalStateException("embedding must contain at least one non-empty vector");
+            throw new BizException(502, "embedding must contain at least one non-empty vector");
         }
     }
 
     private static void assertRerankSuccess(RerankResponse response) {
         if (response == null || response.getResults() == null || response.getResults().isEmpty()) {
-            throw new IllegalStateException("rerank results must not be empty");
+            throw new BizException(502, "rerank results must not be empty");
         }
         boolean hasValidIndex = response.getResults().stream()
                 .anyMatch(result -> result != null && result.getIndex() >= 0);
         if (!hasValidIndex) {
-            throw new IllegalStateException("rerank must contain at least one result with valid index");
+            throw new BizException(502, "rerank must contain at least one result with valid index");
         }
     }
 

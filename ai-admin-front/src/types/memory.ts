@@ -1,5 +1,9 @@
 export type PersonalMemoryType = 'FACT' | 'PREFERENCE' | 'RULE' | 'NOTE'
-export type PersonalMemorySource = 'MANUAL' | 'CONVERSATION' | 'CANDIDATE'
+/** CANDIDATE is kept for memories confirmed before candidates were removed. */
+export type PersonalMemorySource = 'MANUAL' | 'CONVERSATION' | 'AI_TOOL' | 'CANDIDATE'
+export type PersonalMemoryLayer = 'PERSONAL' | 'PROJECT'
+/** PREFERENCE groups are always handed to the AI; NOTE groups only when relevant. */
+export type PersonalMemoryGroupKind = 'PREFERENCE' | 'NOTE'
 
 export interface PersonalMemory {
   id: number
@@ -7,6 +11,13 @@ export interface PersonalMemory {
   title?: string | null
   content: string
   tags?: string[] | null
+  layer: PersonalMemoryLayer
+  /** `personal` or `project:<code>` */
+  scope: string
+  projectCode?: string | null
+  layerName?: string | null
+  groupId?: number | null
+  groupName?: string | null
   sourceType: PersonalMemorySource
   sourceAgentId?: string | null
   expiresAt?: string | null
@@ -22,20 +33,47 @@ export interface PersonalMemoryPage {
 }
 
 export interface PersonalMemoryListParams {
-  type?: PersonalMemoryType
+  scope?: string
+  groupId?: number
   agentId?: string
   keyword?: string
   limit?: number
   offset?: number
 }
 
+export interface PersonalMemoryGroup {
+  id: number
+  name: string
+  kind: PersonalMemoryGroupKind
+  count: number
+}
+
+export interface PersonalMemoryLayerView {
+  layer: PersonalMemoryLayer
+  scope: string
+  projectCode?: string | null
+  name: string
+  count: number
+  groups: PersonalMemoryGroup[]
+}
+
+export interface PersonalMemoryProjectOption {
+  projectCode: string
+  name: string
+}
+
+export interface PersonalMemoryTree {
+  layers: PersonalMemoryLayerView[]
+  addableProjects: PersonalMemoryProjectOption[]
+  total: number
+}
+
 export interface PersonalMemoryRememberRequest {
-  type: PersonalMemoryType
-  semanticKey?: string
+  type?: PersonalMemoryType
   title?: string
   content: string
-  tags?: string[]
-  expiresAt?: string
+  groupId?: number
+  projectCode?: string
   clientRequestId?: string
 }
 
@@ -47,11 +85,15 @@ export interface PersonalMemoryRememberResult {
 }
 
 export interface PersonalMemoryUpdateRequest {
-  type?: PersonalMemoryType
   title?: string
   content?: string
-  tags?: string[]
-  expiresAt?: string
+  groupId?: number
+}
+
+export interface PersonalMemoryGroupRequest {
+  projectCode?: string | null
+  name: string
+  kind?: PersonalMemoryGroupKind
 }
 
 export interface PersonalMemoryEraseAllRequest {
@@ -61,49 +103,24 @@ export interface PersonalMemoryEraseAllRequest {
 export interface PersonalMemoryEraseAllResult {
   status: string
   memoriesErased: number
-  candidatesErased: number
+  groupsErased: number
   erasedAt: string
   idempotent: boolean
   retainedDomains: string[]
 }
 
-export interface PersonalMemoryCandidate {
-  id: number
-  type: PersonalMemoryType
-  title?: string | null
-  content: string
-  reason?: string | null
-  confidence?: number | null
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
-  conflictMemoryId?: number | null
-  occurrenceCount?: number | null
-  sourceAgentId?: string | null
-  expiresAt?: string | null
-  createdAt?: string | null
-  lastSeenAt?: string | null
-  reviewedAt?: string | null
-  approvedMemoryId?: number | null
-}
-
-export interface PersonalMemoryCandidatePage {
-  items: PersonalMemoryCandidate[]
-  total: number
-  limit: number
-  offset: number
-}
-
-export interface PersonalMemoryCandidateReviewRequest {
-  type?: PersonalMemoryType
-  title?: string
-  content?: string
-}
-
-export interface PersonalMemoryAudit {
-  id: number
-  eventType: string
-  memoryId?: number | null
-  decision?: string | null
-  reason?: string | null
-  agentId?: string | null
-  createdAt: string
+/** The calls a memory page needs; the console and the employee portal each supply their own transport. */
+export interface PersonalMemoryApi {
+  tree(): Promise<PersonalMemoryTree>
+  list(params: PersonalMemoryListParams): Promise<PersonalMemoryPage>
+  remember(data: PersonalMemoryRememberRequest): Promise<PersonalMemoryRememberResult>
+  update(id: number, data: PersonalMemoryUpdateRequest): Promise<PersonalMemory>
+  forget(id: number): Promise<unknown>
+  eraseAll(data: PersonalMemoryEraseAllRequest): Promise<PersonalMemoryEraseAllResult>
+  createGroup(data: PersonalMemoryGroupRequest): Promise<PersonalMemoryGroup>
+  updateGroup(id: number, data: { name?: string; kind?: PersonalMemoryGroupKind }): Promise<PersonalMemoryGroup>
+  deleteGroup(id: number): Promise<unknown>
+  addProject(projectCode: string): Promise<PersonalMemoryLayerView>
+  /** Optional: only the console offers a JSON download. */
+  exportJson?(): Promise<Blob>
 }

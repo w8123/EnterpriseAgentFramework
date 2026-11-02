@@ -17,12 +17,12 @@ public class KnowledgeBaseRequest {
 
     private String description;
 
-    @NotBlank(message = "embeddingModelInstanceId cannot be empty")
+    @NotBlank(message = "请选择向量模型；还没有的话先到模型中心添加一个向量模型")
     private String embeddingModelInstanceId;
 
     private String rerankModelInstanceId;
 
-    @NotBlank(message = "llmModelInstanceId cannot be empty")
+    @NotBlank(message = "请选择对话模型；还没有的话先到模型中心添加一个对话模型")
     private String llmModelInstanceId;
 
     private String workspaceId;

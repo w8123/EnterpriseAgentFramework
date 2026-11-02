@@ -386,7 +386,9 @@ public class WorkflowHttpClient {
                 query.append(URLEncoder.encode(entry.getValue() == null ? "" : entry.getValue(), StandardCharsets.UTF_8));
             }
             String path = uri.getRawPath() == null ? "" : uri.getRawPath();
-            return new URI(uri.getScheme(), uri.getAuthority(), path, query.toString(), uri.getFragment()).toString();
+            // The query is already percent-encoded; the multi-argument URI constructor would encode '%' again.
+            String fragment = uri.getRawFragment() == null ? "" : "#" + uri.getRawFragment();
+            return URI.create(uri.getScheme() + "://" + uri.getRawAuthority() + path + "?" + query + fragment).toString();
         } catch (WorkflowHttpExecutionException ex) {
             throw ex;
         } catch (Exception ex) {

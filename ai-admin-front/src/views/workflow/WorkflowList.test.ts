@@ -59,8 +59,6 @@ function createProject(id: number, projectCode?: string | null): ScanProject {
     projectCode,
     baseUrl: '',
     contextPath: '',
-    scanPath: '',
-    scanType: 'auto',
     toolCount: 0,
     status: 'created',
   }

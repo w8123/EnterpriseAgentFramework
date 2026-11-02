@@ -25,6 +25,9 @@ public @interface ReachCapability {
 
     String[] requiredRoles() default {};
 
+    /** Requires an authenticated business user even when no specific role is declared. */
+    boolean businessIdentityRequired() default false;
+
     int timeoutMs() default 0;
 
     int retryLimit() default -1;

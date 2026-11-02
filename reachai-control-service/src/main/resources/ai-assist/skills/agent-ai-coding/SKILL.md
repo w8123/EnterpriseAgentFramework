@@ -30,7 +30,7 @@ description: Create, inspect, and safely update project-scoped ReachAI Agents; e
 2. 读取项目 manifest：`GET /api/ai-coding/projects/{projectId}/manifest`。
 3. 列出 Agent：`GET /api/ai-coding/projects/{projectId}/agents`。
 4. 新建 Agent，或读取目标 Agent 的完整上下文。
-5. 修改前读取 `mutableBase.configVersionId`。若已有 DRAFT，后续写请求必须显式携带该 DRAFT id；不要覆盖未读草稿。
+5. 修改前读取上下文的 `baseRevision` 和 `mutableBase.configVersionId`。配置保存、发布、Skill attach/detach 均必须携带 `baseRevision`；已有 DRAFT 时还须携带该 DRAFT id。版本 ID 不代表内容未变，不要覆盖未读草稿。
 6. 修改 Supervisor 字段、绑定 Skill、解绑 Skill或附加 Workflow。
 7. 默认让 Skill attach/detach 直接发布；若 `publish=false`，完成全部修改后再显式发布 DRAFT。
 8. 重新读取 Agent，确认 ACTIVE 配置、Skill 精确版本和 Workflow Tool 白名单。
@@ -44,7 +44,7 @@ GET /api/ai-coding/projects/{projectId}/agents
 GET /api/ai-coding/projects/{projectId}/agents/{agentId}
 ```
 
-第二个接口返回 `agent`、`configVersions` 和 `mutableBase`。必须用真实返回的内部 `agent.id` 调用后续 Agent authoring 接口。
+第二个接口返回 `agent`、`configVersions`、`mutableBase`、`activeConfig` 和 `baseRevision`。修改草稿依据使用 `mutableBase.config`，绑定 Workflow 时审阅 `activeConfig` 的线上完整配置；两者与修订来自同一次服务端快照，`configVersions` 中对应版本也替换为此快照。必须用真实返回的内部 `agent.id` 调用后续 Agent authoring 接口。
 
 ### 创建 Agent
 
@@ -73,7 +73,7 @@ Content-Type: application/json
 }
 ```
 
-`modelInstanceId` 必须是 ACTIVE LLM；省略时平台选择第一个可用 ACTIVE LLM。默认 `activate=true`，创建后立即得到 ACTIVE AgentScope Supervisor 配置。不要为占位而创建空 Workflow。
+`modelInstanceId` 必须是 ACTIVE LLM；省略时平台选择第一个可用 ACTIVE LLM。默认 `activate=true`，创建后立即得到 ACTIVE AgentScope Supervisor 配置。不要为占位而创建空 Workflow。`requestedBy` 仅为兼容字段，不能指定实际审计身份；发布者由已验证的项目凭证派生。
 
 ### 更新 Agent 身份字段
 
@@ -92,6 +92,7 @@ PUT /api/ai-coding/projects/{projectId}/agents/{agentId}/config/draft
 ```json
 {
   "baseConfigVersionId": 101,
+  "baseRevision": "从 Agent context 返回值原样复制的 64 位修订值",
   "systemPrompt": "更新后的系统提示词",
   "modelInstanceId": "active-llm-id",
   "maxPlanSteps": 8,
@@ -106,7 +107,7 @@ PUT /api/ai-coding/projects/{projectId}/agents/{agentId}/config/draft
 }
 ```
 
-只发送需要修改的字段。`baseConfigVersionId` 来自最新 Agent context；当 mutable base 是未发布 DRAFT 时必须提供。`AGENT_DRAFT_CONFLICT` 或 `AGENT_CONFIG_BASE_CONFLICT` 表示先重新读取上下文，不能盲目重试。
+只发送需要修改的字段。`baseRevision` 必须来自已阅读的 Agent context；保存结果返回新的 `baseRevision`，后续操作使用它。`baseConfigVersionId` 来自该上下文，当 mutable base 是未发布 DRAFT 时必须提供。缺少修订返回 `AGENT_DRAFT_REVISION_REQUIRED`；`AGENT_DRAFT_CONFLICT` 或 `AGENT_CONFIG_BASE_CONFLICT` 要求重新读取并审阅他人修改，不能盲目刷新修订后重放旧请求。
 
 ### 发布 Supervisor 草稿
 
@@ -117,6 +118,7 @@ POST /api/ai-coding/projects/{projectId}/agents/{agentId}/config/publish
 ```json
 {
   "configVersionId": 102,
+  "baseRevision": "从上下文或上一步保存结果复制的 64 位修订值",
   "requestedBy": "Codex"
 }
 ```
@@ -142,6 +144,7 @@ POST /api/ai-coding/projects/{projectId}/agents/{agentId}/skills/attach
   "skillId": 11,
   "skillVersionId": 21,
   "baseConfigVersionId": 101,
+  "baseRevision": "从 Agent context 返回值原样复制的 64 位修订值",
   "activationMode": "MODEL_SELECTED",
   "required": false,
   "enabled": true,
@@ -162,6 +165,7 @@ POST /api/ai-coding/projects/{projectId}/agents/{agentId}/skills/detach
 {
   "skillId": 11,
   "baseConfigVersionId": 102,
+  "baseRevision": "从 Agent context 返回值原样复制的 64 位修订值",
   "publish": true,
   "requestedBy": "Codex"
 }
@@ -175,10 +179,12 @@ POST /api/ai-coding/projects/{projectId}/agents/{agentId}/skills/detach
 POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach
 ```
 
-发送已发布 `workflowId`，可选使用目标 Agent 的 `agentKeySlug` 或 `agentId`。添加默认是增量操作；只有明确替换一个已附加的前序 Workflow 时才发送精确 `replaceWorkflowId`。Workflow GraphSpec 的创建、修改、验证和发布遵循 `workflow-ai-coding` Skill。
+先供给或创建目标 Agent，再读取其 Agent context。发送已发布 `workflowId`、明确的 `agentKeySlug` 或 `agentId`（二选一），以及该上下文的 `baseRevision`；不能省略目标后自动创建，也不能把 Workflow 的修订当作 Agent 修订。添加默认是增量操作；只有明确替换一个已附加的前序 Workflow 时才发送精确 `replaceWorkflowId`。`409 AGENT_DRAFT_CHANGED` 要求重新读取并审阅变化，不自动刷新修订重发。绑定生成新的 ACTIVE 配置并保留原人工草稿，完成后回读 Agent context。Workflow GraphSpec 的创建、修改、验证和发布遵循 `workflow-ai-coding` Skill。
 
 ## 错误处理与完成证据
 
 Agent authoring 错误使用 `agent-ai-coding-error.v1`，至少包含 `code`、`message`、`requestId` 和可选 `details`。`401` 表示缺少 Key；`403` 表示 Key 无效、已停用或越过项目/Skill 可见性边界；`409` 通常表示草稿基线冲突、状态冲突或必须转人工控制台。
+
+响应缺失、超时或 `502` 时，写结果未确认；先回读实际状态，不自动重试保存或发布。一次创建中的身份创建、配置保存和发布分步完成，后续失败不能当作全部回滚。
 
 完成前至少回读一次 Agent context，并报告：Agent id/keySlug、ACTIVE configVersionId、绑定的 Skill id/version、Workflow Tool 列表、是否发布，以及未执行的运行时或业务验收。只有 HTTP 写入成功但未回读时，不要宣称闭环完成。

@@ -10,6 +10,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.util.StringUtils;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.LinkedHashMap;
@@ -47,6 +48,17 @@ public class ReachCapabilityInvoker {
         }
         try {
             return handler.method.invoke(handler.bean, argumentValues(handler, arguments));
+        } catch (InvocationTargetException e) {
+            // Preserve the host application's business and security exceptions so its existing
+            // exception handlers can distinguish e.g. permission denial from a server failure.
+            Throwable target = e.getTargetException();
+            if (target instanceof RuntimeException) {
+                throw (RuntimeException) target;
+            }
+            if (target instanceof Error) {
+                throw (Error) target;
+            }
+            throw new IllegalStateException("ReachAI capability invocation failed: " + capabilityName, target);
         } catch (Exception e) {
             throw new IllegalStateException("ReachAI capability invocation failed: " + capabilityName, e);
         }
@@ -84,7 +96,7 @@ public class ReachCapabilityInvoker {
         return false;
     }
 
-    private void ensureInitialized() {
+    private synchronized void ensureInitialized() {
         if (initialized) {
             return;
         }
@@ -92,11 +104,13 @@ public class ReachCapabilityInvoker {
         if (beans == null && applicationContext != null) {
             beans = applicationContext.getBeansOfType(Object.class, false, false).values().toArray();
         }
+        Map<String, Handler> discovered = new LinkedHashMap<String, Handler>();
         if (beans != null) {
             for (Object bean : beans) {
-                indexBean(bean);
+                indexBean(bean, discovered);
             }
         }
+        handlers.putAll(discovered);
         initialized = true;
     }
 
@@ -134,7 +148,7 @@ public class ReachCapabilityInvoker {
         return false;
     }
 
-    private void indexBean(Object bean) {
+    private void indexBean(Object bean, Map<String, Handler> discovered) {
         if (bean == null || isInfrastructureBean(bean)) {
             return;
         }
@@ -145,8 +159,11 @@ public class ReachCapabilityInvoker {
                 continue;
             }
             String name = StringUtils.hasText(capability.name()) ? capability.name().trim() : method.getName();
+            if (discovered.containsKey(name)) {
+                throw new IllegalStateException("Duplicate ReachAI capability name: " + name);
+            }
             method.setAccessible(true);
-            handlers.put(name, new Handler(bean, method, capability,
+            discovered.put(name, new Handler(bean, method, capability,
                     parameterNames(method), parameterTypes(method)));
         }
     }

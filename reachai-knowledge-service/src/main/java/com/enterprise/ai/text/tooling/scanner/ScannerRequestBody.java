@@ -6,7 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
 /**
- * POST /ai/scanner/openapi|controller 请求体（与 Feign 契约一致）。
+ * POST /ai/scanner/openapi 请求体（与 Feign 契约一致）。文档内容由调用方上传。
  */
 @Data
 @NoArgsConstructor
@@ -17,8 +17,7 @@ public class ScannerRequestBody {
     private String projectName;
     private String baseUrl;
     private String contextPath;
-    private String scanPath;
-    private String specFile;
+    private String specFileName;
+    private String specContent;
     private ScanOptions options;
-    private Long incrementalSinceEpochMs;
 }

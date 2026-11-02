@@ -31,7 +31,7 @@ public class ScannerHttpApiSingleSourceIntakeService {
 
     public Plan prepare(HttpApiSourceKind kind, ScanProjectEntity project, ScanProjectToolEntity observation,
                         List<CapabilityScannerClient.HttpApiData> inventory) {
-        if (kind != HttpApiSourceKind.CONTROLLER_SCAN && kind != HttpApiSourceKind.OPENAPI_SCAN)
+        if (kind != HttpApiSourceKind.OPENAPI_SCAN)
             throw new IllegalArgumentException("单来源刷新必须使用明确的扫描来源类型");
         if (project == null || observation == null || !Objects.equals(project.getId(), observation.getProjectId())
                 || !"HTTP_API".equals(observation.getAssetType()) || !"scanner".equals(observation.getSource()))

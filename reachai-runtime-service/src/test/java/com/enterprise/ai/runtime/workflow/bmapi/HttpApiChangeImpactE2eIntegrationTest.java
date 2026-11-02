@@ -15,8 +15,8 @@ class HttpApiChangeImpactE2eIntegrationTest {
         Map<String, Object> evidence = new LinkedHashMap<>();
         try (var fixture = new BusinessMethodWorkflowMcpE2eIntegrationTest.Fixture(json)) {
             fixture.start(); fixture.prepareChangeImpactSurface();
-            assertEquals(200, fixture.changeScan("controller").statusCode());
-            assertEquals(200, fixture.changeScan("openapi").statusCode());
+            fixture.observeStarterReport();
+            assertEquals(200, fixture.rescanOpenApi().statusCode());
             var first = fixture.multiSourceDetail(); assertEquals(2, first.summary().activeSourceCount());
             assertTrue(first.summary().sourceConfirmed()); assertEquals("DISCOVERED", first.summary().sourceStatus());
             accept(fixture); assertEquals(200, fixture.saveMultiSourceConnection().statusCode());
@@ -25,18 +25,18 @@ class HttpApiChangeImpactE2eIntegrationTest {
             evidence.put("initial", fixture.changeEvidence());
             var accepted = fixture.multiSourceDetail(); String oldHash = accepted.summary().acceptedContractHash();
 
-            fixture.changeSources("display"); assertEquals(200, fixture.changeScan("openapi").statusCode());
+            fixture.changeSources("display"); assertEquals(200, fixture.rescanOpenApi().statusCode());
             var display = fixture.multiSourceDetail(); assertEquals("ACCEPTED", display.summary().sourceStatus());
             assertEquals(oldHash, display.summary().candidateContractHash());
             // 来源修订按语义事实计算（2026-10-15 起）：只改标题、摘要等展示信息不改变来源修订，已发布固定引用继续有效
             assertEquals(accepted.summary().sourceSetRevision(), display.summary().sourceSetRevision());
             fixture.changeAssertOriginalUntouched(true); evidence.put("displayOnly", fixture.changeEvidence());
 
-            fixture.changeSources("required"); assertEquals(200, fixture.changeScan("openapi").statusCode());
+            fixture.changeSources("required"); assertEquals(200, fixture.rescanOpenApi().statusCode());
             assertEquals("CONFLICT", fixture.multiSourceDetail().summary().sourceStatus());
             assertNull(fixture.multiSourceDetail().summary().candidateContractHash()); fixture.changeRejectPublished();
             evidence.put("crossSourceConflict", fixture.changeEvidence());
-            assertEquals(200, fixture.changeScan("controller").statusCode());
+            fixture.observeStarterReport();
             var drift = fixture.multiSourceDetail(); assertEquals("CONTRACT_DRIFT", drift.summary().sourceStatus());
             assertEquals(oldHash, drift.summary().acceptedContractHash()); assertNotEquals(oldHash, drift.summary().candidateContractHash());
             fixture.changeRejectPublished(); evidence.put("contractDrift", fixture.changeEvidence());
@@ -68,33 +68,33 @@ class HttpApiChangeImpactE2eIntegrationTest {
 
     static void verifySourceRemovalAndIdentity(BusinessMethodWorkflowMcpE2eIntegrationTest.Fixture fixture,
                                                Map<String, Object> evidence) throws Exception {
-        fixture.changeSources("partial"); assertEquals(200, fixture.changeScan("openapi").statusCode());
+        fixture.changeSources("partial"); assertEquals(200, fixture.rescanOpenApi().statusCode());
         var partial = fixture.multiSourceDetail(); assertEquals(2, partial.summary().activeSourceCount());
         assertFalse(partial.summary().sourceConfirmed()); assertEquals("SOURCE_UNCONFIRMED", partial.summary().sourceStatus());
         fixture.changeRejectPublished(); evidence.put("partialInventory", fixture.changeEvidence());
-        fixture.changeSources("failed"); var failed = fixture.changeScan("openapi");
+        fixture.changeSources("failed"); var failed = fixture.rescanOpenApi();
         assertTrue(failed.statusCode() >= 400); assertEquals(2, fixture.multiSourceDetail().summary().activeSourceCount());
         assertFalse(fixture.multiSourceDetail().summary().sourceConfirmed()); fixture.changeRejectPublished();
         evidence.put("failedScanStatus", failed.statusCode()); evidence.put("failedInventory", fixture.changeEvidence());
-        fixture.changeSources("restore"); assertEquals(200, fixture.changeScan("openapi").statusCode());
-        assertEquals(200, fixture.changeScan("controller").statusCode());
+        fixture.changeSources("restore"); assertEquals(200, fixture.rescanOpenApi().statusCode());
+        fixture.observeStarterReport();
         assertEquals("ACCEPTED", fixture.multiSourceDetail().summary().sourceStatus());
-        fixture.changeSources("one-removed"); assertEquals(200, fixture.changeScan("openapi").statusCode());
+        fixture.changeSources("one-removed"); assertEquals(200, fixture.rescanOpenApi().statusCode());
         assertEquals(1, fixture.multiSourceDetail().summary().activeSourceCount());
         assertTrue(fixture.multiSourceDetail().summary().sourceConfirmed());
         assertEquals("ACCEPTED", fixture.multiSourceDetail().summary().sourceStatus());
         fixture.changeRejectPublished(); evidence.put("oneRemoved", fixture.changeEvidence());
-        fixture.changeSources("all-removed"); assertEquals(200, fixture.changeScan("controller").statusCode());
+        fixture.changeSources("all-removed"); fixture.observeStarterReport();
         assertEquals("SOURCE_MISSING", fixture.multiSourceDetail().summary().sourceStatus());
         evidence.put("allRemovedRejections", fixture.changeRejectConsoleAndDraft()); fixture.changeRejectPublished();
         evidence.put("allRemoved", fixture.changeEvidence());
-        fixture.changeSources("restore"); assertEquals(200, fixture.changeScan("controller").statusCode());
-        assertEquals(200, fixture.changeScan("openapi").statusCode());
+        fixture.changeSources("restore"); fixture.observeStarterReport();
+        assertEquals(200, fixture.rescanOpenApi().statusCode());
         // 原样恢复的来源与发布时语义事实一致，旧固定引用重新有效，这里不再断言旧 MCP 被拒
         assertEquals("ACCEPTED", fixture.multiSourceDetail().summary().sourceStatus());
         evidence.put("restoredSource", fixture.changeEvidence());
-        fixture.changeSources("identity"); assertEquals(200, fixture.changeScan("openapi").statusCode());
-        assertEquals(200, fixture.changeScan("controller").statusCode()); fixture.changeAssertIdentityNotMigrated();
+        fixture.changeSources("identity"); assertEquals(200, fixture.rescanOpenApi().statusCode());
+        fixture.observeStarterReport(); fixture.changeAssertIdentityNotMigrated();
         evidence.put("identityRejections", fixture.changeRejectConsoleAndDraft()); fixture.changeRejectPublished();
         evidence.put("newIdentityOldRefsPreserved", fixture.changeEvidence());
         assertEquals(2, evidenceCount(fixture.changeEvidence(), "upstreamRequests"), "only the two explicitly published MCP calls dispatch");

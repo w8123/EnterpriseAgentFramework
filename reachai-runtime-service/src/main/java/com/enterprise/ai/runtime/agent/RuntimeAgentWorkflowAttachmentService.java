@@ -40,12 +40,22 @@ public class RuntimeAgentWorkflowAttachmentService {
 
     @Transactional(isolation = Isolation.READ_COMMITTED)
     public Result attach(ProjectRef project, Command request) {
-        RuntimeAgentEntity agent = resolveAgent(project, request.agentId(), request.agentKeySlug());
+        boolean[] created = new boolean[1];
+        RuntimeAgentEntity agent = resolveAgent(project, request.agentId(), request.agentKeySlug(), created);
+        // Initializing the default page copilot is a separate decision from editing an existing one.
+        if (request.createOnly() && !created[0])
+            throw new Failure("AGENT_DRAFT_CHANGED", "Page copilot already exists; read its context and revision before attaching", HttpStatus.CONFLICT);
         // Refresh after the lock: project validation and model selection must use the same target as publication.
         agentMapper.lockById(agent.getId());
         agent = agentMapper.selectById(agent.getId());
         if (agent == null) throw new Failure("AGENT_NOT_FOUND", "Agent was removed before attachment", HttpStatus.NOT_FOUND);
         validateAgentProject(agent, project);
+        if (request.expectedRevision() != null) {
+            var context = agentConfigService.readEditableDraft(new com.enterprise.ai.runtime.agent.RuntimeAgentConfigViews.AgentDraftEditCommand(
+                    agent.getId(), project.projectId(), project.projectCode(), null, null));
+            if (!request.expectedRevision().matches("[a-f0-9]{64}") || !request.expectedRevision().equals(context.revision()))
+                throw new Failure("AGENT_DRAFT_CHANGED", "Agent changed; read and review its context before attaching a Workflow", HttpStatus.CONFLICT);
+        }
         String model = resolveModelInstanceId(agent, request.modelInstanceId());
         AgentConfigDraftRequest initial = agent.getKeySlug().equals(pageCopilotKeySlug(project.projectCode()))
                 ? new AgentConfigDraftRequest("AGENTSCOPE", DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT, model,
@@ -58,7 +68,19 @@ public class RuntimeAgentWorkflowAttachmentService {
         return new Result(agent.getId(), agent.getKeySlug(), publication.config(), publication.reused());
     }
 
-    private RuntimeAgentEntity resolveAgent(ProjectRef project, String agentId, String agentKeySlug) {
+    /** The default page copilot as people and AI see it before attaching; empty when it is not created yet. */
+    @Transactional(readOnly = true)
+    public Optional<PageCopilot> pageCopilotContext(ProjectRef project) {
+        RuntimeAgentEntity existing = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
+                .eq(RuntimeAgentEntity::getKeySlug, pageCopilotKeySlug(project.projectCode()))
+                .last("LIMIT 1"));
+        if (existing == null) return Optional.empty();
+        validateAgentProject(existing, project);
+        return Optional.of(new PageCopilot(existing.getKeySlug(), agentConfigService.readEditableDraft(new AgentDraftEditCommand(
+                existing.getId(), project.projectId(), project.projectCode(), null, null))));
+    }
+
+    private RuntimeAgentEntity resolveAgent(ProjectRef project, String agentId, String agentKeySlug, boolean[] created) {
         if (StringUtils.hasText(agentId)) {
             RuntimeAgentEntity agent = agentMapper.selectById(agentId.trim());
             if (agent == null) {
@@ -79,10 +101,10 @@ public class RuntimeAgentWorkflowAttachmentService {
             validateAgentProject(agent, project);
             return agent;
         }
-        return findOrCreatePageCopilotAgent(project);
+        return findOrCreatePageCopilotAgent(project, created);
     }
 
-    private RuntimeAgentEntity findOrCreatePageCopilotAgent(ProjectRef project) {
+    private RuntimeAgentEntity findOrCreatePageCopilotAgent(ProjectRef project, boolean[] created) {
         String keySlug = pageCopilotKeySlug(project.projectCode());
         RuntimeAgentEntity existing = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
                 .eq(RuntimeAgentEntity::getKeySlug, keySlug)
@@ -105,6 +127,7 @@ public class RuntimeAgentWorkflowAttachmentService {
         entity.setUpdatedAt(now);
         try {
             agentMapper.insert(entity);
+            created[0] = true;
             return entity;
         } catch (DuplicateKeyException duplicate) {
             RuntimeAgentEntity winner = agentMapper.selectOne(Wrappers.<RuntimeAgentEntity>lambdaQuery()
@@ -203,7 +226,18 @@ public class RuntimeAgentWorkflowAttachmentService {
 
     public record ProjectRef(Long projectId, String projectCode, Object visibility) { }
     public record Command(String agentId, String agentKeySlug, String modelInstanceId, String publishedBy,
-                          WorkflowToolRequest tool, String replaceWorkflowId, boolean preserveToolConfiguration) { }
+                          WorkflowToolRequest tool, String replaceWorkflowId, boolean preserveToolConfiguration, String expectedRevision,
+                          boolean createOnly) {
+        public Command(String agentId, String agentKeySlug, String modelInstanceId, String publishedBy,
+                       WorkflowToolRequest tool, String replaceWorkflowId, boolean preserveToolConfiguration, String expectedRevision) {
+            this(agentId, agentKeySlug, modelInstanceId, publishedBy, tool, replaceWorkflowId, preserveToolConfiguration, expectedRevision, false);
+        }
+        public Command(String agentId, String agentKeySlug, String modelInstanceId, String publishedBy,
+                       WorkflowToolRequest tool, String replaceWorkflowId, boolean preserveToolConfiguration) {
+            this(agentId, agentKeySlug, modelInstanceId, publishedBy, tool, replaceWorkflowId, preserveToolConfiguration, null);
+        }
+    }
+    public record PageCopilot(String keySlug, AgentDraftEditView draft) { }
     public record Result(String agentId, String agentKeySlug, AgentConfigVersionView config, boolean reused) { }
     public static final class Failure extends RuntimeException {
         private final String code;

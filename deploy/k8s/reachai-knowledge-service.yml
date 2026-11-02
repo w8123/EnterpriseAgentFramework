@@ -35,8 +35,6 @@ spec:
                 secretKeyRef:
                   name: ai-secrets
                   key: mysql-password
-            - name: REDIS_HOST
-              value: redis
             - name: MILVUS_HOST
               value: milvus
             - name: MODEL_SERVICE_URL

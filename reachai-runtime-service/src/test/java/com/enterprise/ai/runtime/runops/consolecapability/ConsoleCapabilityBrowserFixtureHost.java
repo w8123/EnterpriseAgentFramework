@@ -279,7 +279,7 @@ public final class ConsoleCapabilityBrowserFixtureHost {
                     "id", 7, "name", "订单项目", "projectCode", PROJECT,
                     "projectKind", "REGISTERED", "environment", "fixture", "owner", "browser-fixture",
                     "visibility", "PROJECT", "baseUrl", "http://127.0.0.1", "contextPath", "",
-                    "scanPath", "", "scanType", "auto", "toolCount", 1, "status", "scanned");
+                    "specFile", null, "openapiDocumentUploaded", false, "toolCount", 1, "status", "scanned");
         }
 
         private Map<String, Object> toolInfo() {
@@ -448,7 +448,7 @@ public final class ConsoleCapabilityBrowserFixtureHost {
         @Override public Map<String, Object> getToolDefinition(String qualifiedName) { throw unsupported(); }
         @Override public CapabilityInvocationResponse invokeTool(String qualifiedName, Map<String, String> headers, byte[] body) { throw unsupported(); }
         @Override public Map<String, Object> getProject(String projectCode) { throw unsupported(); }
-        @Override public Map<String, Object> getProjectById(Long projectId) { throw unsupported(); }
+        @Override public Map<String, Object> getProjectById(Long projectId, Map<String, String> internalAuthHeaders) { throw unsupported(); }
         @Override public List<Map<String, Object>> listProjectTools(Long projectId) { throw unsupported(); }
         @Override public Map<String, Object> projectReadinessFacts(Long projectId) { throw unsupported(); }
         @Override public com.enterprise.ai.common.capability.HttpApiConsoleContracts.ExecutionContext httpApiExecutionContext(

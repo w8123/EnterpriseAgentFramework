@@ -32,6 +32,10 @@ public class ControlAiCodingProjectController {
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
     private final ControlProjectAgentProvisioningService provisioningService;
+    private ControlAiCodingWorkflowAttachmentGateway attachmentGateway;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAttachmentGateway(ControlAiCodingWorkflowAttachmentGateway gateway) { this.attachmentGateway = gateway; }
 
     public ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
                                             RuntimeProxyClient runtimeClient,
@@ -131,8 +135,9 @@ public class ControlAiCodingProjectController {
     public ResponseEntity<Object> attachAgentSupervisorWorkflowTool(
             @PathVariable Long projectId,
             @RequestBody(required = false) Map<String, Object> body) {
+        Map<String, Object> project;
         try {
-            capabilityClient.getOnboardingProjectById(projectId);
+            project = capabilityClient.getOnboardingProjectById(projectId);
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.status(404).body(aiCodingError(
                     "CAPABILITY_PROJECT_NOT_FOUND",
@@ -146,7 +151,9 @@ public class ControlAiCodingProjectController {
         }
         try {
             Map<String, Object> request = body == null ? Map.of() : body;
-            ResponseEntity<Object> response = runtimeClient.attachAgentSupervisorWorkflowTool(projectId, request);
+            if (attachmentGateway == null) throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "signed attachment gateway is unavailable");
+            ResponseEntity<Object> response = attachmentGateway.attach(projectId, project, request);
             return ResponseEntity.status(response.getStatusCode()).body(response.getBody());
         } catch (FeignException ex) {
             return forwardRuntimeAiCodingError(ex);
@@ -253,10 +260,10 @@ public class ControlAiCodingProjectController {
                 List.of(
                         "Download and install the agent-ai-coding skill before authoring project Agents or binding Skills from AI tools.",
                         "Use only the project-key Agent endpoints in this manifest; do not call console /api/agents or /api/skills endpoints with an AI Coding key.",
-                        "Read Agent context and mutableBase before every config or Skill mutation; send the current DRAFT id when one exists.",
+                        "Read Agent context before every config or Skill mutation; send baseRevision and the current DRAFT id when one exists. A conflict requires review, never blind retry.",
                         "Bind only exact published Skill versions returned by bindableSkillsUrl; AI Coding forces scriptPolicy=DENY and cannot access PRIVATE Skills.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
-                        "Attach published Workflows via POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach using agentKeySlug (not internal agentId by default).",
+                        "Read target Agent context, then attach a published Workflow with explicit agentId or agentKeySlug and its baseRevision. Review conflicts before retrying.",
                         "Use replaceWorkflowId only after reading the currently attached catalog and selecting the exact predecessor; omit it when another Workflow should remain available on the same page.",
                         "Publish a new Agent config version after changing Supervisor, Skill, or Workflow bindings.",
                         "Remote A2A bindings and Skill package governance still require the human console."));
@@ -326,7 +333,7 @@ public class ControlAiCodingProjectController {
                         root + "/agents",
                         List.of(
                                 "Create and update only Agents owned by this exact project.",
-                                "Read mutableBase before changing Supervisor config or Skill bindings.",
+                                "Read baseRevision and mutableBase before changing Supervisor config or Skill bindings; include baseRevision in every save or publish.",
                                 "Bind only exact PUBLISHED Skill versions returned by the bindable catalog; scriptPolicy is always DENY.")),
                 new AiCodingCapability(
                         "WORKFLOW_AI_CODING",

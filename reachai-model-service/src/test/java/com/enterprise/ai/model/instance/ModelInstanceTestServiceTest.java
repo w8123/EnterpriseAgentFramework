@@ -73,6 +73,30 @@ class ModelInstanceTestServiceTest {
     }
 
     @Test
+    void testsAnotherModelWithStoredConnectionWithoutChangingSource() {
+        ModelInstanceEntity source = savedEntity("embedding-source", ModelInstanceStatus.ACTIVE);
+        source.setModelType(ModelType.EMBEDDING.name());
+        source.setModelName("embedding-only");
+        source.setDefaultOptionsJson("{\"dimensions\":1024}");
+        when(mapper.selectById("embedding-source")).thenReturn(source);
+        when(client.chat(any(), any(), any(Duration.class))).thenReturn(ChatResponse.builder().content("OK").build());
+
+        ModelInstanceTestResponse response = testService.testConnectionModel("embedding-source",
+                new ModelInstanceController.ConnectionModelTestRequest(ModelType.LLM, "chat-model"));
+
+        assertTrue(response.isSuccess());
+        ArgumentCaptor<ModelInstanceRuntime> runtime = ArgumentCaptor.forClass(ModelInstanceRuntime.class);
+        verify(client).chat(runtime.capture(), any(), any(Duration.class));
+        assertEquals(ModelType.LLM.name(), runtime.getValue().getModelType());
+        assertEquals("chat-model", runtime.getValue().getModelName());
+        assertEquals("https://api.openai.com/v1", runtime.getValue().getConnectionConfig().get("baseUrl"));
+        assertEquals(Map.of(), runtime.getValue().getDefaultOptions());
+        assertEquals(ModelType.EMBEDDING.name(), source.getModelType());
+        assertEquals(ModelTestStatus.UNKNOWN.name(), source.getLastTestStatus());
+        verify(mapper, never()).update(isNull(), any());
+    }
+
+    @Test
     void failureRecordsFailedStatus() {
         ModelInstanceEntity entity = savedEntity("id-1", ModelInstanceStatus.ACTIVE);
         when(mapper.selectById("id-1")).thenReturn(entity);
@@ -88,12 +112,26 @@ class ModelInstanceTestServiceTest {
     }
 
     @Test
+    void unexpectedTestFailureDoesNotExposeOrPersistExceptionText() {
+        ModelInstanceEntity entity = savedEntity("id-1", ModelInstanceStatus.ACTIVE);
+        when(mapper.selectById("id-1")).thenReturn(entity);
+        when(client.chat(any(), any(), any(Duration.class)))
+                .thenThrow(new IllegalStateException("PRIVATE_MODEL_TEST_MARKER"));
+
+        ModelInstanceTestResponse response = testService.testSaved("id-1");
+
+        assertFalse(response.isSuccess());
+        assertFalse(response.getMessage().contains("PRIVATE_MODEL_TEST_MARKER"));
+        assertFalse(entity.getLastTestError().contains("PRIVATE_MODEL_TEST_MARKER"));
+    }
+
+    @Test
     void archivedCannotBeTested() {
         ModelInstanceEntity entity = savedEntity("id-1", ModelInstanceStatus.ARCHIVED);
         when(mapper.selectById("id-1")).thenReturn(entity);
 
         BizException ex = assertThrows(BizException.class, () -> testService.testSaved("id-1"));
-        assertTrue(ex.getMessage().toLowerCase().contains("archived"));
+        assertTrue(ex.getMessage().contains("已归档"));
         verify(client, never()).chat(any(), any(), any(Duration.class));
     }
 

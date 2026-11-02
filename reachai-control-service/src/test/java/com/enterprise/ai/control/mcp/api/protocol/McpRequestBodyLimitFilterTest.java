@@ -56,6 +56,23 @@ class McpRequestBodyLimitFilterTest {
         verify(service, never()).audit(org.mockito.ArgumentMatchers.any());
     }
 
+    @Test
+    void platformEndpointAppliesTheSameLimitToChunkedRequests() throws Exception {
+        McpHubProperties properties = properties(8);
+        McpProtocolApplicationService service = mock(McpProtocolApplicationService.class);
+        McpRequestBodyLimitFilter filter = new McpRequestBodyLimitFilter(
+                properties, new McpProtocolRequestGuard(properties), service);
+        MockHttpServletRequest request = chunkedRequest("123456789");
+        request.setServletPath("/mcp/platform");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter.doFilter(request, response, chain);
+
+        assertEquals(413, response.getStatus());
+        assertNull(chain.getRequest());
+    }
+
     private McpHubProperties properties(int maximum) {
         McpHubProperties properties = new McpHubProperties();
         properties.setEnabled(true);

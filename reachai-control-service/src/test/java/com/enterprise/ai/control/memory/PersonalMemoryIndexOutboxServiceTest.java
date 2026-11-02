@@ -52,6 +52,18 @@ class PersonalMemoryIndexOutboxServiceTest {
     }
 
     @Test
+    void businessMemoryEventsCarryTheirVerifiedOwnerDomain() throws Exception {
+        var mapper = mock(PersonalMemoryOutboxMapper.class);
+        doAnswer(invocation -> { invocation.<PersonalMemoryOutboxEntity>getArgument(0).setId(42L); return 1; })
+                .when(mapper).insert(any(PersonalMemoryOutboxEntity.class));
+        var service = new PersonalMemoryIndexOutboxService(mapper, new ObjectMapper());
+        service.enqueueUpsert(PersonalMemoryPrincipal.business("default", "user-1", "erp-a"), item("内容"));
+        var saved = ArgumentCaptor.forClass(PersonalMemoryOutboxEntity.class);
+        verify(mapper).updateById(saved.capture());
+        assertEquals("BUSINESS:erp-a", new ObjectMapper().readTree(saved.getValue().getPayloadJson()).path("ownerDomain").asText());
+    }
+
+    @Test
     void deleteEventContainsOnlyProjectionRoutingAndNeverForgottenContentOrHash() throws Exception {
         PersonalMemoryOutboxMapper mapper = mock(PersonalMemoryOutboxMapper.class);
         doAnswer(invocation -> {

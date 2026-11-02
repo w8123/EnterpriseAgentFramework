@@ -364,6 +364,7 @@ class RuntimeWorkflowWaitingPersistenceTest {
                 mock(SupervisorApprovalInteractionService.class), json);
         var adapter = new AgentScopeSupervisorRuntimeAdapter(model, null, null, query, executor, waits,
                 RuntimeSessionMemoryService.transientOnly(), policy, trace, json);
+        adapter.setBusinessMethodRiskGuard(mock(com.enterprise.ai.runtime.supervisor.SupervisorBusinessMethodRiskGuard.class));
         var agent = new RuntimeAgentView("agent-a", 7L, "orders", "orders-agent", "申请助手", null,
                 "PROJECT", null, true, 11L, 11L, 1, "ACTIVE", "AGENTSCOPE", 2, null, null);
         var config = RuntimeAgentConfigSnapshot.builder().id(11L).agentId("agent-a").versionNo(1)

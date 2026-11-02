@@ -17,9 +17,13 @@
       </button>
     </div>
     <div
-      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && (memoryPanel || aiToolPanel)"
+      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && (memoryPanel || aiToolPanel || hasSession)"
       class="eaf-chat-tools"
     >
+      <button v-if="hasSession" type="button" class="eaf-chat-memory-toggle"
+        :disabled="clearBlocked" @click="clearConfirm = true">
+        {{ locale === 'en-US' ? 'Clear context' : '清除上下文' }}
+      </button>
       <button
         v-if="aiToolPanel"
         type="button"
@@ -39,6 +43,13 @@
         {{ locale === 'en-US' ? 'Memories' : '我的记忆' }}
       </button>
     </div>
+    <div v-if="clearConfirm" class="eaf-chat-auth" role="group"
+      :aria-label="locale === 'en-US' ? 'Confirm context clear' : '确认清除上下文'">
+      <span>{{ locale === 'en-US' ? 'Clear the current conversation context? Saved memories and audit records remain.' : '清除当前对话上下文？已保存的记忆和审计记录会保留。' }}</span>
+      <button type="button" :disabled="clearing" @click="clearConfirm = false">{{ locale === 'en-US' ? 'Cancel' : '取消' }}</button>
+      <button type="button" :disabled="clearBlocked" @click="onClearContext">{{ clearing ? (locale === 'en-US' ? 'Clearing…' : '清除中…') : (locale === 'en-US' ? 'Clear' : '清除') }}</button>
+    </div>
+    <div v-if="clearError" class="eaf-chat-auth is-error" role="alert">{{ clearError }}</div>
     <EmbedAiToolPanel
       v-if="aiToolOpen"
       :api-base="apiBase"
@@ -61,7 +72,7 @@
       atmosphere
       :snapshot="snapshot"
       :placeholder="placeholder"
-      :force-composer-disabled="authState.status !== 'ready'"
+      :force-composer-disabled="authState.status !== 'ready' || clearing"
       :resolve-status-hint="resolveEmbedStatusHint"
       @send="onSend"
       @stop="onStop"
@@ -73,7 +84,7 @@
 </template>
 
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import {
   ConversationView,
   createConversationController,
@@ -147,6 +158,14 @@ const props = withDefaults(defineProps<{
 const snapshot = ref<ConversationSnapshot>(createEmptySnapshot())
 const memoryOpen = ref(false)
 const aiToolOpen = ref(false)
+const clearConfirm = ref(false)
+const clearError = ref('')
+const clearing = ref(false)
+const sending = ref(false)
+const hasSession = ref(false)
+const pageRebinding = ref(false)
+const clearBlocked = computed(() => clearing.value || sending.value || pageRebinding.value
+  || ['sending', 'streaming', 'waiting'].includes(snapshot.value.turnStatus))
 const authState = ref<EafChatAuthState>({
   phase: 'token',
   status: 'loading',
@@ -166,6 +185,7 @@ let disposed = false
 let tokenAttempt = 0
 let tokenRequest: Promise<string> | null = null
 let tokenAbortController: AbortController | null = null
+let rebindAbortController: AbortController | null = null
 let lastSubmittedMessage = ''
 let pendingSend: {
   resolve: (value: EmbedChatHostMessageResponse) => void
@@ -276,8 +296,16 @@ function safeAuthError(error: EafChatError): Omit<EafChatError, 'cause'> {
   }
 }
 
+function navigationInProgressError(): EafChatError {
+  return tokenError('PAGE_NAVIGATION_IN_PROGRESS', props.locale === 'en-US'
+    ? 'The page is changing. Retry shortly.' : '页面正在切换，请稍后重试')
+}
+
 async function resolveToken(reason: EafChatTokenReason, force = false): Promise<string> {
   if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (pageRebinding.value && reason !== 'page-navigation') {
+    throw navigationInProgressError()
+  }
   const expiring = cachedTokenExpiresAt > 0 && Date.now() + 30_000 >= cachedTokenExpiresAt
   if (cachedToken && !force && !expiring) return cachedToken
   if (tokenRequest) return tokenRequest
@@ -319,17 +347,22 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
   })
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutHandle = setTimeout(() => {
-      controller.abort()
       reject(tokenError(
         'TOKEN_PROVIDER_TIMEOUT',
         props.locale === 'en-US'
           ? 'Connection timed out. Retry.'
           : '连接超时，请重试',
       ))
+      controller.abort()
     }, timeoutMs)
   })
+  let rejectOnAbort: (() => void) | undefined
+  const abortPromise = new Promise<never>((_, reject) => {
+    rejectOnAbort = () => reject(new DOMException('The operation was aborted.', 'AbortError'))
+    controller.signal.addEventListener('abort', rejectOnAbort, { once: true })
+  })
 
-  tokenRequest = Promise.race([providerPromise, timeoutPromise])
+  tokenRequest = Promise.race([providerPromise, timeoutPromise, abortPromise])
     .then((value) => {
       if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
       const next = tokenFromProviderValue(value)
@@ -343,7 +376,7 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
       }
       cachedToken = next.token
       cachedTokenExpiresAt = next.expiresAt
-      props.onTokenChanged?.(next.token)
+      if (requestReason !== 'page-navigation') props.onTokenChanged?.(next.token)
       updateAuthState({
         phase: 'token',
         status: 'ready',
@@ -353,7 +386,7 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
       return next.token
     })
     .catch((error) => {
-      if (error instanceof DOMException && error.name === 'AbortError' && disposed) throw error
+      if (error instanceof DOMException && error.name === 'AbortError' && (disposed || controller.signal.aborted)) throw error
       const normalized = normalizeTokenError(error)
       cachedToken = ''
       cachedTokenExpiresAt = 0
@@ -370,6 +403,7 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
     })
     .finally(() => {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle)
+      if (rejectOnAbort) controller.signal.removeEventListener('abort', rejectOnAbort)
       if (tokenAbortController === controller) tokenAbortController = null
       tokenRequest = null
     })
@@ -378,6 +412,8 @@ async function resolveToken(reason: EafChatTokenReason, force = false): Promise<
 }
 
 async function refreshToken(reason: EafChatTokenReason = 'unauthorized'): Promise<string> {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (pageRebinding.value && reason !== 'page-navigation') throw navigationInProgressError()
   cachedToken = ''
   cachedTokenExpiresAt = 0
   props.onTokenChanged?.('')
@@ -392,6 +428,7 @@ function updateSessionId(nextSessionId: string | null | undefined) {
   const next = String(nextSessionId || '')
   const changed = next !== sessionId
   sessionId = next
+  hasSession.value = Boolean(next)
   if (changed && next) props.onSessionChanged?.(next)
 }
 
@@ -570,18 +607,51 @@ async function sendMessage(message: string): Promise<EmbedChatHostMessageRespons
   }
   const text = message.trim()
   if (!text) return {}
-  if (pendingSend) {
+  if (pendingSend || sending.value || clearing.value) {
     throw new Error('Another message is still in flight')
   }
-  lastSubmittedMessage = text
-  await resolveToken('send')
-  return new Promise<EmbedChatHostMessageResponse>((resolve, reject) => {
-    pendingSend = { resolve, reject, armed: false }
-    void controller.send(text).catch((error) => {
-      if (!pendingSend) return
-      pendingSend = null
-      reject(error)
+  sending.value = true
+  try {
+    lastSubmittedMessage = text
+    await resolveToken('send')
+    if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+    return await new Promise<EmbedChatHostMessageResponse>((resolve, reject) => {
+      pendingSend = { resolve, reject, armed: false }
+      void controller.send(text).catch((error) => {
+        if (!pendingSend) return
+        pendingSend = null
+        reject(error)
+      })
     })
+  } finally {
+    sending.value = false
+  }
+}
+
+async function clearContext() {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (clearBlocked.value) throw new Error('Conversation is busy')
+  clearing.value = true
+  clearError.value = ''
+  try {
+    await resolveToken('send')
+    await controller.clearSession()
+    lastSubmittedMessage = ''
+    clearConfirm.value = false
+  } finally {
+    clearing.value = false
+  }
+}
+
+function onClearContext() {
+  void clearContext().catch((error) => {
+    const status = tokenHttpStatus(error)
+    clearError.value = status === 409
+      ? (props.locale === 'en-US' ? 'The conversation is busy. Try again after it finishes.' : '对话正在处理中，请结束后重试。')
+      : status === 423
+        ? (props.locale === 'en-US' ? 'This conversation is protected and cannot be cleared.' : '该对话受保护，暂时无法清除。')
+        : (props.locale === 'en-US' ? 'Could not clear the context. Try again later.' : '清除上下文失败，请稍后重试。')
+    reportError(error)
   })
 }
 
@@ -616,28 +686,55 @@ async function rebindPage(
   if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
   if (!sessionId) throw new Error('An active Embed chat session is required before page rebinding')
   if (!navigationRequestId) throw new Error('A platform navigation request id is required before page rebinding')
+  if (pageRebinding.value || clearing.value) throw new Error('Page navigation is already in progress')
 
   const previousBridge = activeBridge
   const previousPage = activePage
-  activeBridge = bridge
-  activePage = page
+  pageRebinding.value = true
+  let switched = false
   try {
+    // An in-flight source-page refresh cannot authenticate a target-page rebind.
+    if (tokenRequest) await tokenRequest
+    if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+    activeBridge = bridge
+    activePage = page
+    switched = true
     const token = await refreshToken('page-navigation')
-    const response = await fetch(
-      `${props.apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-bridge/rebind`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          ...buildEafChatSessionPayload(activeBridge, activePage),
-          navigationRequestId,
-        }),
+    if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+    const rebindController = new AbortController()
+    rebindAbortController = rebindController
+    // v2 guarantees replay cannot restore an obsolete page; older Control
+    // versions must fail closed instead of receiving an unsafe retry.
+    const rebindUrl = `${props.apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-bridge/rebind-v2`
+    const targetPayload = buildEafChatSessionPayload(activeBridge, activePage)
+    const rebindRequest: RequestInit = {
+      method: 'POST',
+      signal: rebindController.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
       },
-    )
+      body: JSON.stringify({
+        ...targetPayload,
+        navigationRequestId,
+      }),
+    }
+    let response: Response | undefined
+    try {
+      response = await fetch(rebindUrl, rebindRequest)
+    } catch (error) {
+      // The server may have committed before the connection failed. Replaying
+      // the identical navigation is safe only because Control checks that the
+      // session still belongs to this exact completed target instance.
+      if (!(error instanceof TypeError) || rebindController.signal.aborted) throw error
+    }
+    if ((!response || [502, 503, 504].includes(response.status)) && !rebindController.signal.aborted) {
+      response = await fetch(rebindUrl, rebindRequest)
+    }
+    if (!response) throw new DOMException('The operation was aborted.', 'AbortError')
+    if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
     const payload = await response.json().catch(() => ({}))
+    if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
     if (!response.ok || (payload.code && payload.code !== 200 && payload.code !== 0)) {
       const error = tokenError(
         'PAGE_NAVIGATION_REBIND_FAILED',
@@ -648,10 +745,27 @@ async function rebindPage(
       error.phase = 'page-action'
       throw error
     }
+    const bound = payload.data
+    if (!bound || bound.sessionId !== sessionId || bound.pageKey !== targetPayload.pageKey
+        || bound.pageInstanceId !== targetPayload.pageInstanceId || bound.route !== targetPayload.route) {
+      const error = tokenError('PAGE_NAVIGATION_REBIND_INVALID_RESPONSE',
+        'Page navigation rebind returned an invalid target', undefined, response.status)
+      error.phase = 'page-action'
+      throw error
+    }
+    props.onTokenChanged?.(token)
   } catch (error) {
-    activeBridge = previousBridge
-    activePage = previousPage
+    if (switched) {
+      activeBridge = previousBridge
+      activePage = previousPage
+      cachedToken = ''
+      cachedTokenExpiresAt = 0
+      if (!disposed) props.onTokenChanged?.('')
+    }
     throw error
+  } finally {
+    rebindAbortController = null
+    pageRebinding.value = false
   }
 }
 
@@ -698,11 +812,13 @@ function onStop() {
 }
 
 function onInteractionSubmit(interactionId: string, action: string, values: Record<string, unknown>) {
+  if (clearing.value) return
   void controller.submitInteraction(interactionId, action, values).catch(reportError)
 }
 
 /** 取消交互卡片：只提交 action=cancel，绝不 abort 当前流 / session cancel */
 function onInteractionCancel(interactionId: string) {
+  if (clearing.value) return
   void controller.submitInteraction(interactionId, 'cancel', {}).catch(reportError)
 }
 
@@ -735,8 +851,12 @@ function openAiTools() {
 
 function disposeHost() {
   disposed = true
+  cachedToken = ''
+  cachedTokenExpiresAt = 0
   tokenAbortController?.abort()
   tokenAbortController = null
+  rebindAbortController?.abort()
+  rebindAbortController = null
   if (pendingSend) {
     const waiter = pendingSend
     pendingSend = null
@@ -751,6 +871,7 @@ onUnmounted(() => {
 
 defineExpose({
   sendMessage,
+  clearContext,
   retryAuthentication,
   refreshToken,
   setContext,
@@ -799,6 +920,8 @@ defineExpose({
 }
 
 .eaf-chat-auth button {
+  flex: 0 0 auto;
+  white-space: nowrap;
   border: 1px solid currentColor;
   border-radius: 8px;
   padding: 4px 10px;
@@ -833,6 +956,8 @@ defineExpose({
 .eaf-chat-memory-toggle:hover {
   color: var(--reachai-chat-primary, #6366f1);
 }
+
+.eaf-chat-memory-toggle:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .eaf-chat__conversation {
   flex: 1;

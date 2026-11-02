@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -53,6 +54,7 @@ public class CapabilityCompatibilityProxyController {
     );
 
     private static final Pattern PROJECT_DETAIL_PATH = Pattern.compile("/api/scan-projects/\\d+");
+    private static final Pattern PROJECT_WRITE_PATH = Pattern.compile("/api/scan-projects(/\\d+(/scan-settings|/registry-credential)?)?");
     private static final List<String> PROJECT_SUMMARY_FIELDS = List.of(
             "id", "name", "projectCode", "projectKind", "environment", "status", "description");
 
@@ -114,6 +116,71 @@ public class CapabilityCompatibilityProxyController {
             return sanitizeProjects(response, true);
         }
         return response;
+    }
+
+    /** Same minimal project-picker projection for trusted in-process platform adapters. */
+    ResponseEntity<byte[]> projectPicker() {
+        URI uri = UriComponentsBuilder.fromUriString(capabilityServiceUrl)
+                .path("/api/scan-projects").build().toUri();
+        try {
+            ResponseEntity<byte[]> response = restTemplate.exchange(uri, HttpMethod.GET,
+                    new HttpEntity<>(forwardHeaders(new HttpHeaders())), byte[].class);
+            return response.getStatusCode().is2xxSuccessful() ? sanitizeProjects(response, false) : response;
+        } catch (RestClientResponseException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).build();
+        } catch (ResourceAccessException ex) {
+            return unavailable();
+        }
+    }
+
+    /**
+     * Same console GET, forwarding and project sanitization for trusted in-process platform adapters. The adapter
+     * authorizes the exact path with the console permission policy before calling this.
+     */
+    ResponseEntity<byte[]> consoleGet(String path, Map<String, String> query) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(capabilityServiceUrl).path(path);
+        query.forEach(builder::queryParam);
+        URI uri = builder.encode().build().toUri();
+        ResponseEntity<byte[]> response;
+        try {
+            response = restTemplate.exchange(uri, HttpMethod.GET, new HttpEntity<>(forwardHeaders(new HttpHeaders())), byte[].class);
+        } catch (RestClientResponseException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).build();
+        } catch (ResourceAccessException ex) {
+            return unavailable();
+        }
+        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        return PROJECT_DETAIL_PATH.matcher(path).matches() ? sanitizeProjects(response, true) : response;
+    }
+
+    /** Same console POST forwarding for trusted in-process platform adapters; the adapter authorizes the exact path first. */
+    ResponseEntity<byte[]> consolePost(String path, Map<String, String> query) {
+        return consoleSend(HttpMethod.POST, path, query, null);
+    }
+
+    /**
+     * Console writes for trusted in-process platform adapters (the adapter authorizes the exact method and path first);
+     * project bodies returned by the owner lose the stored API key value exactly as console reads do.
+     */
+    ResponseEntity<byte[]> consoleSend(HttpMethod method, String path, Map<String, String> query, Object body) {
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(capabilityServiceUrl).path(path);
+        query.forEach(builder::queryParam);
+        URI uri = builder.encode().build().toUri();
+        HttpHeaders headers = forwardHeaders(new HttpHeaders());
+        headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
+        ResponseEntity<byte[]> response;
+        try {
+            byte[] payload = body == null ? new byte[0] : objectMapper.writeValueAsBytes(body);
+            response = restTemplate.exchange(uri, method, new HttpEntity<>(payload, headers), byte[].class);
+        } catch (RestClientResponseException ex) {
+            return ResponseEntity.status(ex.getStatusCode()).body(ex.getResponseBodyAsByteArray());
+        } catch (ResourceAccessException ex) {
+            return unavailable();
+        } catch (IOException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null || response.getBody().length == 0) return response;
+        return PROJECT_WRITE_PATH.matcher(path).matches() ? sanitizeProjects(response, true) : response;
     }
 
     /**

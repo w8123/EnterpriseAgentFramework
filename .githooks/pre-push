@@ -1,0 +1,2 @@
+#!/bin/sh
+exec node scripts/check-open-source.mjs --pre-push "$@"

@@ -67,9 +67,8 @@ public class ScannerHttpApiIntakeService {
     }
 
     private String label(HttpApiSourceKind kind) {
-        if (kind == HttpApiSourceKind.CONTROLLER_SCAN) return "Controller";
         if (kind == HttpApiSourceKind.OPENAPI_SCAN) return "OpenAPI";
-        throw new IllegalArgumentException("Scanner intake requires CONTROLLER_SCAN or OPENAPI_SCAN");
+        throw new IllegalArgumentException("Scanner intake requires OPENAPI_SCAN");
     }
 
     public record Plan(boolean supported, boolean inventoryComplete, HttpApiServiceScope scope,

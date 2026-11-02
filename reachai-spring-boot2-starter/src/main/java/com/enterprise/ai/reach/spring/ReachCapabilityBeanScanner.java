@@ -12,6 +12,8 @@ import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandl
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -51,7 +53,7 @@ public class ReachCapabilityBeanScanner {
         List<ReachCapabilityDescriptor> descriptors = new ArrayList<ReachCapabilityDescriptor>();
         List<ReachHttpApiDescriptor> httpApis = new ArrayList<ReachHttpApiDescriptor>();
         if (properties != null && !properties.getCapability().isScanBeans()) {
-            return new ScanResult(descriptors, httpApis);
+            return uniqueResult(descriptors, httpApis);
         }
         if (directBeans != null) {
             for (Object bean : directBeans) {
@@ -64,7 +66,7 @@ public class ReachCapabilityBeanScanner {
                     httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass));
                 }
             }
-            return new ScanResult(descriptors, httpApis);
+            return uniqueResult(descriptors, httpApis);
         }
         List<HttpMessageConverter<?>> converters = new ArrayList<HttpMessageConverter<?>>();
         for (RequestMappingHandlerAdapter adapter : applicationContext.getBeansOfType(RequestMappingHandlerAdapter.class).values()) {
@@ -84,6 +86,16 @@ public class ReachCapabilityBeanScanner {
             if (shouldScanSpringMvcEndpoints(userClass)) {
                 httpApis.addAll(ReachSpringMvcEndpointScanner.scanClass(userClass, converters,
                         pathPrefix(pathPrefixes, userClass)));
+            }
+        }
+        return uniqueResult(descriptors, httpApis);
+    }
+
+    private ScanResult uniqueResult(List<ReachCapabilityDescriptor> descriptors, List<ReachHttpApiDescriptor> httpApis) {
+        Set<String> names = new HashSet<String>();
+        for (ReachCapabilityDescriptor descriptor : descriptors) {
+            if (!names.add(descriptor.getName())) {
+                throw new IllegalStateException("Duplicate ReachAI capability name: " + descriptor.getName());
             }
         }
         return new ScanResult(descriptors, httpApis);

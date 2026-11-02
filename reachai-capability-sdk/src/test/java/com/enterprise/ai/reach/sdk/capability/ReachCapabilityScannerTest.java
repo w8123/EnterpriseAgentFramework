@@ -28,7 +28,7 @@ class ReachCapabilityScannerTest {
                 module = "review",
                 sideEffect = ReachSideEffectLevel.READ,
                 tags = {"contract", "review"},
-                requiredRoles = {"contract_reader"})
+                requiredRoles = {"contract_reader"}, businessIdentityRequired = true)
         ContractDetail query(@ReachParam(description = "请求体", required = true) QueryContractRequest request) {
             return new ContractDetail();
         }
@@ -64,6 +64,7 @@ class ReachCapabilityScannerTest {
         assertEquals(ReachCapabilityAssetType.BUSINESS_METHOD, descriptor.getAssetType());
         assertEquals(ReachSideEffectLevel.READ, descriptor.getSideEffect());
         assertEquals("contract_reader", descriptor.getRequiredRoles().get(0));
+        assertTrue(descriptor.isBusinessIdentityRequired());
         assertEquals("contract", descriptor.getTags().get(0));
 
         assertEquals(3, descriptor.getParameters().size());

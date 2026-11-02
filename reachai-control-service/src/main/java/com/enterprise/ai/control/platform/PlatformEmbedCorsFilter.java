@@ -4,9 +4,12 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import com.enterprise.ai.control.mcp.infrastructure.McpHubProperties;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
@@ -23,6 +26,12 @@ import java.util.List;
  * CORS for the embedded chat API. Origins come from the project embed policies
  * ({@link PlatformEmbedOriginPolicy}); {@code reachai.embed.cors.*} only adds
  * extra origins (for example a gateway) when explicitly enabled.
+ *
+ * <p>ReachAI's own pages (the employee portal's 我的助手) call the embed API from
+ * the platform's public origin. That is a same-origin call, but behind a reverse
+ * proxy Control sees a different scheme and host and would treat it as
+ * cross-origin, so a request whose Origin is the platform's own public origin is
+ * passed through untouched.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -32,6 +41,13 @@ public class PlatformEmbedCorsFilter extends OncePerRequestFilter {
     private final PlatformEmbedCorsProperties properties;
     private final PlatformEmbedOriginPolicy originPolicy;
     private final CorsProcessor processor = new DefaultCorsProcessor();
+    private McpHubProperties hubProperties;
+
+    /** Optional so the filter still works where the MCP hub settings are not wired (tests, slim setups). */
+    @Autowired(required = false)
+    void setHubProperties(McpHubProperties hubProperties) {
+        this.hubProperties = hubProperties;
+    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -40,7 +56,15 @@ public class PlatformEmbedCorsFilter extends OncePerRequestFilter {
         if (context != null && !context.isEmpty() && path.startsWith(context)) {
             path = path.substring(context.length());
         }
-        return !path.startsWith("/api/embed/") || !CorsUtils.isCorsRequest(request);
+        return !path.startsWith("/api/embed/") || !CorsUtils.isCorsRequest(request) || fromPlatformItself(request);
+    }
+
+    private boolean fromPlatformItself(HttpServletRequest request) {
+        if (hubProperties == null) {
+            return false;
+        }
+        String origin = request.getHeader(HttpHeaders.ORIGIN);
+        return origin != null && origin.trim().equalsIgnoreCase(PlatformPublicOrigin.resolve(hubProperties, request));
     }
 
     @Override

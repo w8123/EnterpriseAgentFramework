@@ -22,11 +22,12 @@ import type {
 } from '@/types/skill'
 import {
   createAgent,
-  copyAgentConfigToDraft,
+  copyAgentConfigToDraftIfUnchanged,
   getAgent,
+  getAgentDraftEditContext,
   listAgentConfigVersions,
-  publishAgentConfig,
-  saveAgentConfigDraft,
+  publishAgentConfigIfUnchanged,
+  saveAgentDraftIfUnchanged,
   searchWorkflows,
   updateAgent,
 } from '@/api/workflow'
@@ -181,6 +182,8 @@ export function useAgentEditor() {
   const skillReplaceTargetIndex = ref<number | null>(null)
   const configVersions = ref<AgentConfigVersion[]>([])
   const currentConfig = ref<AgentConfigVersion | null>(null)
+  const draftRevision = ref<string | null>(null)
+  const createdAgentId = ref<string | null>(null)
   const entryConfigText = ref('{}')
   const DEFAULT_TOTAL_TIMEOUT_MS = 300_000
   const DEFAULT_WORKFLOW_TIMEOUT_MS = 180_000
@@ -355,7 +358,7 @@ export function useAgentEditor() {
       const { data } = await publishLatestAgentWorkflowVersions(agentId, expected, 'admin-ui', { errorFeedback: 'local' })
       const hadDraft = Boolean(draftConfig.value)
       await refreshConfigVersions()
-      if (!hadDraft && data.published) loadConfigToForm(data.config)
+      if (!hadDraft && data.published) await loadAgentConfig()
       ElMessage.success(data.published
         ? `已发布配置 v${data.config.versionNo}，开始使用最新 Workflow 版本`
         : '线上配置已在使用最新 Workflow 版本')
@@ -1031,27 +1034,49 @@ export function useAgentEditor() {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return false
     saving.value = true
+    let identitySaved = false
     try {
       const payload = buildPayload()
+      const changes = buildConfigDraft()
       if (isNew) {
-        const { data } = await createAgent(payload)
-        const { data: draft } = await saveAgentConfigDraft(data.id, buildConfigDraft())
-        currentConfig.value = draft
+        if (!createdAgentId.value) {
+          const { data } = await createAgent(payload)
+          createdAgentId.value = data.id
+        }
+        if (!draftRevision.value) {
+          const { data: context } = await getAgentDraftEditContext(createdAgentId.value)
+          if (context.base) throw new Error('Agent 已创建且配置发生变化，请从 Agent 列表重新打开后合并修改。')
+          draftRevision.value = context.revision
+        }
+        const { data } = await saveAgentDraftIfUnchanged(createdAgentId.value, draftRevision.value, changes)
+        if (!data.base) throw new Error('配置保存结果无效，请重新打开 Agent 核对。')
+        draftRevision.value = data.revision
+        currentConfig.value = data.base
         ElMessage.success('Agent 已创建，配置已保存为草稿')
         await router.push('/agent')
       } else {
+        if (!draftRevision.value) throw new Error('尚未读取当前草稿，请重新加载后再保存。')
         await updateAgent(agentId, payload)
-        const { data } = await saveAgentConfigDraft(agentId, buildConfigDraft())
-        currentConfig.value = data
-        await refreshConfigVersions()
+        identitySaved = true
+        const { data } = await saveAgentDraftIfUnchanged(agentId, draftRevision.value, changes)
+        if (!data.base) throw new Error('配置保存结果无效，请重新打开 Agent 核对。')
+        draftRevision.value = data.revision
+        currentConfig.value = data.base
+        try { await refreshConfigVersions() } catch { ElMessage.warning('草稿已保存，但版本列表刷新失败。') }
         if (!options.keepSection) activeSection.value = 'overview'
-        ElMessage.success(`配置草稿 v${data.versionNo} 已保存，线上版本未改变`)
+        ElMessage.success(`配置草稿 v${data.base.versionNo} 已保存，线上版本未改变`)
       }
       return true
     } catch (error) {
       const message = error instanceof Error ? error.message : ''
-      const response = (error as { response?: { data?: { message?: string; error?: string } } })?.response
-      ElMessage.error(message || response?.data?.message || response?.data?.error || '保存失败')
+      const response = (error as { response?: { status?: number; data?: { code?: string; message?: string; error?: string } } })?.response
+      const conflict = response?.data?.code === 'AGENT_DRAFT_CHANGED'
+      if (conflict) {
+        ElMessage.error({ message: `${identitySaved ? 'Agent 基本信息已保存；' : ''}草稿已被其他人或 AI 修改。当前输入尚未保存，请先复制需要保留的内容，再重新加载并合并。`,
+          duration: 0, showClose: true, grouping: true })
+      } else {
+        ElMessage.error(`${isNew && createdAgentId.value ? `Agent 已创建（${createdAgentId.value}），` : ''}${response?.data?.message || response?.data?.error || message || '保存失败'}`)
+      }
       return false
     } finally {
       saving.value = false
@@ -1071,18 +1096,31 @@ export function useAgentEditor() {
         '发布 Agent 配置',
         { type: 'warning', confirmButtonText: '确认发布' },
       )
+      if (!draftRevision.value) throw new Error('尚未读取当前草稿，请重新加载后再发布。')
+      const changes = buildConfigDraft()
       await updateAgent(agentId, buildPayload())
-      const { data: draft } = await saveAgentConfigDraft(agentId, buildConfigDraft())
-      const { data: active } = await publishAgentConfig(agentId, draft.id, 'admin-ui')
+      const { data: saved } = await saveAgentDraftIfUnchanged(agentId, draftRevision.value, changes)
+      if (!saved.base) throw new Error('配置保存结果无效，请重新加载后核对。')
+      draftRevision.value = saved.revision
+      const draft = saved.base
+      const { data: published } = await publishAgentConfigIfUnchanged(agentId, draft.id, saved.revision)
+      if (!published.base || published.base.status !== 'ACTIVE') throw new Error('配置发布结果无效，请重新加载后核对。')
+      const active = published.base
       currentConfig.value = active
-      await refreshConfigVersions()
+      draftRevision.value = null
+      try { await loadAgentConfig() } catch { ElMessage.warning('配置已发布，但编辑器刷新失败，请重新加载。') }
       void refreshWorkflowFreshness()
       activeSection.value = 'overview'
       ElMessage.success(`Agent 配置 v${active.versionNo} 已发布`)
     } catch (error) {
       if (error !== 'cancel' && error !== 'close') {
-        const message = error instanceof Error ? error.message : '发布失败'
-        ElMessage.error(message)
+        const response = (error as { response?: { status?: number; data?: { code?: string } } })?.response
+        if (response?.data?.code === 'AGENT_DRAFT_CHANGED') {
+          ElMessage.error({ message: '草稿已被其他人或 AI 修改，发布已停止。请先复制需要保留的编辑内容，再重新加载并合并。',
+            duration: 0, showClose: true, grouping: true })
+        } else {
+          ElMessage.error(error instanceof Error ? error.message : '发布失败')
+        }
       }
     } finally {
       publishing.value = false
@@ -1170,14 +1208,25 @@ export function useAgentEditor() {
         '复制配置版本',
         { type: 'warning' },
       )
-      const { data } = await copyAgentConfigToDraft(agentId, config.id)
-      loadConfigToForm(data)
-      await refreshConfigVersions()
+      if (!draftRevision.value) throw new Error('尚未读取当前草稿，请重新加载后再复制。')
+      const { data } = await copyAgentConfigToDraftIfUnchanged(agentId, config.id, draftRevision.value)
+      if (!data.base) throw new Error('草稿复制结果无效，请重新加载后核对。')
+      draftRevision.value = data.revision
+      loadConfigToForm(data.base)
+      try { await refreshConfigVersions() } catch { ElMessage.warning('草稿已复制，但版本列表刷新失败。') }
       activeSection.value = 'config'
       activeConfigSection.value = 'decision'
-      ElMessage.success(`已从 v${config.versionNo} 创建草稿 v${data.versionNo}`)
+      ElMessage.success(`已从 v${config.versionNo} 创建草稿 v${data.base.versionNo}`)
     } catch (error) {
-      if (error !== 'cancel' && error !== 'close') ElMessage.error('复制配置版本失败')
+      if (error !== 'cancel' && error !== 'close') {
+        const response = (error as { response?: { data?: { code?: string } } })?.response
+        if (response?.data?.code === 'AGENT_DRAFT_CHANGED') {
+          ElMessage.error({ message: '草稿已被其他人或 AI 修改，未复制版本。当前输入仍保留，请先复制需要保留的内容，再重新加载并合并。',
+            duration: 0, showClose: true, grouping: true })
+        } else {
+          ElMessage.error(error instanceof Error && error.message ? error.message : '复制配置版本失败')
+        }
+      }
     }
   }
 
@@ -1218,8 +1267,9 @@ export function useAgentEditor() {
     if (isNew) return
     await refreshConfigVersions()
     void refreshWorkflowFreshness()
-    const config = configVersions.value.find((item) => item.status === 'DRAFT')
-      || configVersions.value.find((item) => item.status === 'ACTIVE')
+    const { data: context } = await getAgentDraftEditContext(agentId)
+    draftRevision.value = context.revision
+    const config = context.base
       || configVersions.value[0]
     if (!config) return
     loadConfigToForm(config)

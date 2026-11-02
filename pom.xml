@@ -50,7 +50,6 @@
         <!-- Utilities -->
         <hutool.version>5.8.27</hutool.version>
         <lombok.version>1.18.34</lombok.version>
-        <javaparser.version>3.27.1</javaparser.version>
         <minio.version>8.5.17</minio.version>
 
     </properties>

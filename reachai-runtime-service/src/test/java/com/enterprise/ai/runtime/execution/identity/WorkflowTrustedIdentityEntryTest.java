@@ -210,6 +210,7 @@ class WorkflowTrustedIdentityEntryTest {
         var supervisor = new AgentScopeSupervisorRuntimeAdapter(model, null, control,
                 mock(RuntimeWorkflowExecutionQuery.class), executor, interactions,
                 RuntimeSessionMemoryService.transientOnly(), policy, traces, json);
+        supervisor.setBusinessMethodRiskGuard(mock(com.enterprise.ai.runtime.supervisor.SupervisorBusinessMethodRiskGuard.class));
         var tool = RuntimeAgentWorkflowToolSnapshot.builder().agentId("demo-agent").agentConfigVersionId(10L)
                 .workflowId("wf-one").workflowVersionId(11L).toolName("identity_probe")
                 .riskLevel("READ").permissionKey("identity:read").readOnly(true).enabled(true).build();

@@ -102,6 +102,12 @@ describe('modelCenterUi V2 contract helpers', () => {
     expect(modelTestFailureHint('connect timeout to api.example.com')).toBe(
       '模型服务网络不可达或超时，请检查 BaseURL、DNS、代理和防火墙。',
     )
+    expect(modelTestFailureHint('Model list request failed: ConnectException')).toBe(
+      '模型服务网络不可达或超时，请检查 BaseURL、DNS、代理和防火墙。',
+    )
+    expect(modelTestFailureHint('模型供应商拒绝了 API Key（HTTP 401）：Key 不对或已失效。请到模型中心修改这个模型的 API Key。 供应商原文：{"error":"bad key"}')).toBe(
+      '模型供应商拒绝了 API Key（HTTP 401）：Key 不对或已失效。请到模型中心修改这个模型的 API Key。',
+    )
     expect(modelTestFailureHint('provider returned an opaque internal payload')).toBe(
       '模型测试未通过，请进入“管理”查看完整原因并检查连接配置。',
     )

@@ -9,6 +9,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.env.Environment;
+import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import redis.clients.jedis.Connection;
 import redis.clients.jedis.JedisPooled;
 
 import java.net.URI;
@@ -37,7 +39,7 @@ public class RuntimeSessionMemoryConfiguration {
         AgentStateStore delegate = switch (type) {
             case "redis" -> RedisAgentStateStore.builder()
                     .keyPrefix(properties.redisKeyPrefix())
-                    .jedisClient(new JedisPooled(URI.create(properties.redisUri())))
+                    .jedisClient(redisClient(URI.create(properties.redisUri())))
                     .build();
             case "json" -> new JsonFileAgentStateStore(Path.of(expandUserHome(properties.jsonDirectory())));
             case "memory", "in-memory" -> new InMemoryAgentStateStore();
@@ -47,6 +49,14 @@ public class RuntimeSessionMemoryConfiguration {
         // Hard ceiling only: each turn trims to its Agent's published window before saving.
         return new WindowedAgentStateStore(delegate,
                 Math.max(properties.maxContextMessages(), RuntimeAgentMemoryPolicy.MAX_SESSION_WINDOW));
+    }
+
+    static JedisPooled redisClient(URI uri) {
+        GenericObjectPoolConfig<Connection> pool = new GenericObjectPoolConfig<>();
+        // Servers and network devices may close idle sockets without the pool observing it.
+        // Validate before use so a stale socket cannot fail the next user turn.
+        pool.setTestOnBorrow(true);
+        return new JedisPooled(pool, uri);
     }
 
     private static boolean isProduction(Environment environment) {

@@ -37,6 +37,8 @@ import java.util.Set;
  */
 public final class WorkflowReadOnlyTrialPolicy {
     public static final int VERSION = 2;
+    /** Old Runtime versions reject this before dispatch instead of ignoring the deduplication identity. */
+    public static final int PLATFORM_AI_VERSION = 3;
     public static final String HTTP_API = "HTTP_API";
     public static final String BUSINESS_METHOD = "BUSINESS_METHOD";
     public static final String STUDIO_CONSTRAINT = "studioReadOnlyTrial";
@@ -116,7 +118,17 @@ public final class WorkflowReadOnlyTrialPolicy {
     public record TrialCommand(int contractVersion, String workflowId, String expectedRevision,
                                String graphSha256, Long projectId, String projectCode,
                                String platformActorId, List<AllowedTarget> allowedTargets,
-                               String message, Map<String, Object> inputParams, long deadlineEpochMs) { }
+                               String message, Map<String, Object> inputParams, long deadlineEpochMs,
+                               String platformTrialTraceId) {
+        /** Browser callers do not supply a platform-AI trial identity. */
+        public TrialCommand(int contractVersion, String workflowId, String expectedRevision,
+                            String graphSha256, Long projectId, String projectCode,
+                            String platformActorId, List<AllowedTarget> allowedTargets,
+                            String message, Map<String, Object> inputParams, long deadlineEpochMs) {
+            this(contractVersion, workflowId, expectedRevision, graphSha256, projectId, projectCode,
+                    platformActorId, allowedTargets, message, inputParams, deadlineEpochMs, null);
+        }
+    }
 
     /**
      * Request-local only; never persisted as a release pin or placed in GraphSpec. {@code owners} maps each pinned

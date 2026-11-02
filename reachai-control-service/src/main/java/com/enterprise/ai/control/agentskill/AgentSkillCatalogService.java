@@ -196,6 +196,12 @@ public class AgentSkillCatalogService {
                     ensureArtifact(existing, archive);
                     return new ImportResult(summary(skill), versionView(existing), false);
                 }
+                // A built-in repackaged by another JDK or timezone differs only in zip metadata; the
+                // files are what was released, so the stored package stays the published one.
+                if ("BUILTIN".equals(sourceType)
+                        && inspection.contentTreeSha256().equals(existing.getContentTreeSha256())) {
+                    return new ImportResult(summary(skill), versionView(existing), false);
+                }
                 throw AgentSkillException.conflict(
                         "Skill version already exists with different content: " + publisher + "/"
                                 + inspection.name() + "@" + version);

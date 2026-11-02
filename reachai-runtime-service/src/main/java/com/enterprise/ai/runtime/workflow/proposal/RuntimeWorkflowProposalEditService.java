@@ -79,11 +79,11 @@ public class RuntimeWorkflowProposalEditService {
         }
         if (!StringUtils.hasText(request.modelInstanceId())) {
             return failedView(
-                    "modelInstanceId is required",
+                    "还没有选择模型，请先到模型中心添加并测试一个对话模型",
                     "MODEL_INSTANCE_REQUIRED",
                     canvas,
                     originalGraphSpec,
-                    List.of("modelInstanceId is required"),
+                    List.of("还没有选择模型，请先到模型中心添加并测试一个对话模型"),
                     0,
                     UUID.randomUUID().toString());
         }

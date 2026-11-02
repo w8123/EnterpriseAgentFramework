@@ -5,7 +5,7 @@
         <div class="employee-portal__brand">
           <div class="brand-mark">R</div>
           <div>
-            <h1>我的 AI 工具</h1>
+            <h1>AI 工具接入</h1>
             <p v-if="me">{{ me.userName || me.account }} · {{ me.systemName }}</p>
           </div>
         </div>
@@ -25,34 +25,117 @@
 
       <template v-else>
         <p class="employee-portal__intro">
-          在这里管理你接入 Claude Code、Codex 等 AI 工具的连接，看看它们最近替你办了哪些事。你的 AI 工具只能做你在业务系统里本来就有权限做的事。
+          把 Claude Code、Codex 等 AI 工具接进来，让它以你的身份查询和办理业务。它只能做你在业务系统里本来就有权限做的事，写操作要先经过审批。
         </p>
 
-        <LiquidGlassCard class="employee-portal__card employee-portal__card--panel">
-          <EmbedAiToolPanel ref="panel" page api-base="/api/employee-portal" :get-token="getToken" />
+        <AiAccessStatusBar :items="statusItems" />
+
+        <nav class="employee-portal__tabs" role="tablist" aria-label="AI 工具接入">
+          <button
+            v-for="item in tabs"
+            :key="item.key"
+            type="button"
+            role="tab"
+            class="employee-portal__tab"
+            :class="{ active: tab === item.key }"
+            :aria-selected="tab === item.key"
+            :data-portal-tab="item.key"
+            @click="tab = item.key"
+          >{{ item.label }}<span v-if="item.key === 'approvals' && pendingApprovals" class="employee-portal__count">{{ pendingApprovals }}</span></button>
+        </nav>
+
+        <div v-show="tab === 'setup'">
+          <AiAccessSetup
+            v-model:tool-kind="toolKind"
+            scope-title="勾选要让它操作的系统"
+            scope-hint="可以同时接入多个系统，权限和你在各系统里一样。"
+            :prompt="installPrompt"
+            :creating="creating"
+            :can-create="picked.length > 0"
+            :disabled-reason="systems.length ? '请至少勾选一个系统' : ''"
+            :error="createError"
+            :try-phrases="tryPhrases"
+            @create="createCredential"
+            @done="installPrompt = null"
+          >
+            <template #scope>
+              <p v-if="!systemsLoading && !systems.length" class="employee-portal__muted">暂时没有可以接入的系统，请联系管理员开通。</p>
+              <label v-for="system in systems" :key="system.projectCode" class="employee-portal__check">
+                <input v-model="picked" type="checkbox" :value="system.projectCode" :disabled="!!installPrompt">
+                <span>{{ system.name }}</span>
+                <small>{{ system.toolCount }} 项能力<template v-if="system.current"> · 当前系统</template></small>
+              </label>
+            </template>
+          </AiAccessSetup>
+        </div>
+
+        <LiquidGlassCard v-show="tab === 'capabilities'" class="employee-portal__card" data-testid="portal-capabilities">
+          <AiCapabilityList
+            :groups="capabilityGroups"
+            :loading="capabilitiesLoading"
+            :error="capabilitiesError"
+            empty-description="管理员还没有给你开通能让 AI 操作的系统。"
+          />
+          <section v-if="skills.length" class="employee-portal__skills">
+            <h3>同事整理好的做法（Skill）</h3>
+            <p class="employee-portal__muted">下载后解压，放进 ~/.claude/skills/（Claude Code）或 ~/.codex/skills/（Codex），重启 AI 工具后直接说要办的事即可。</p>
+            <article v-for="skill in skills" :key="skill.skillId" class="employee-portal__skill" data-testid="skill-item">
+              <div>
+                <strong>{{ skill.displayName || skill.name }}</strong>
+                <span>{{ skill.description }}</span>
+                <small>{{ skill.systemName || skill.projectCode }} · v{{ skill.version }}</small>
+              </div>
+              <LiquidGlassButton link :loading="downloadingId === skill.skillId" @click="downloadSkill(skill)">下载</LiquidGlassButton>
+            </article>
+          </section>
         </LiquidGlassCard>
 
-        <LiquidGlassCard class="employee-portal__card">
-          <div class="employee-portal__section-head">
-            <h2>最近的调用</h2>
-            <LiquidGlassButton :loading="loadingCalls" @click="loadCalls">刷新</LiquidGlassButton>
-          </div>
-          <p v-if="callsError" class="employee-portal__error" role="alert">{{ callsError }}</p>
-          <p v-else-if="!loadingCalls && !calls.length" class="employee-portal__muted">
-            还没有调用记录。接入后，你的 AI 工具每次查询或办理业务都会记在这里。
-          </p>
-          <ul v-else class="employee-portal__calls">
-            <li v-for="call in calls" :key="call.id" data-testid="portal-call">
-              <span class="employee-portal__status" :class="call.success ? 'is-ok' : 'is-failed'">
-                {{ call.success ? '成功' : '未完成' }}
-              </span>
-              <div class="employee-portal__call-text">
-                <strong>{{ call.toolName || '-' }}</strong>
-                <small>{{ call.businessSystem }} · {{ toolLabel(call.toolKind) }}<template v-if="call.latencyMs != null"> · {{ call.latencyMs }} ms</template></small>
+        <LiquidGlassCard v-show="tab === 'credentials'" class="employee-portal__card">
+          <AiCredentialTable
+            :rows="credentialRows"
+            :loading="connectionsLoading"
+            :error="connectionsError"
+            :busy-id="revokingId"
+            @revoke="revoke"
+          />
+        </LiquidGlassCard>
+
+        <LiquidGlassCard v-show="tab === 'records'" class="employee-portal__card">
+          <AiCallRecords
+            :records="callRecords"
+            :loading="loadingCalls"
+            :error="callsError"
+            show-system
+            @refresh="loadCalls"
+          />
+        </LiquidGlassCard>
+
+        <LiquidGlassCard v-show="tab === 'approvals'" class="employee-portal__card" data-testid="portal-approvals">
+          <p v-if="approvalsError" class="employee-portal__error" role="alert">{{ approvalsError }}</p>
+          <LiquidGlassEmptyState
+            v-else-if="!approvals.length"
+            title="还没有提交过审批"
+            description="AI 替你办写操作（如新建客户）时，会先提交审批，进度显示在这里。"
+          />
+          <ul v-else class="employee-portal__approvals">
+            <li v-for="item in approvals" :key="item.approvalId" data-testid="approval-item">
+              <div>
+                <strong>#{{ item.approvalId }} {{ item.tool }}</strong>
+                <small>{{ item.businessSystem }}<template v-if="item.comment"> · 审批备注：{{ item.comment }}</template></small>
               </div>
-              <time>{{ formatDateTime(call.createdAt) }}</time>
+              <span class="employee-portal__approval-state" :class="`is-${approvalTone(item.approvalStatus)}`">
+                {{ approvalStateLabel(item.approvalStatus) }}
+              </span>
             </li>
           </ul>
+        </LiquidGlassCard>
+
+        <LiquidGlassCard v-if="tab === 'assistant'" class="employee-portal__card" data-testid="portal-assistant">
+          <EmployeeAssistant :get-token="getToken" />
+        </LiquidGlassCard>
+
+        <LiquidGlassCard v-if="tab === 'memories'" class="employee-portal__card" data-testid="portal-memories">
+          <MemoryWorkspace :api="memoryApi" />
         </LiquidGlassCard>
       </template>
     </div>
@@ -60,25 +143,85 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassEmptyState } from '@/components/common/liquid-glass'
-import EmbedAiToolPanel from '@/sdk/EmbedAiToolPanel.vue'
+import MemoryWorkspace from '@/components/memory/MemoryWorkspace.vue'
+import { portalMemoryApi } from '@/api/memory'
+import EmployeeAssistant from './portal/EmployeeAssistant.vue'
+import AiAccessStatusBar from '@/components/ai-access/AiAccessStatusBar.vue'
+import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
+import AiCapabilityList from '@/components/ai-access/AiCapabilityList.vue'
+import AiCredentialTable from '@/components/ai-access/AiCredentialTable.vue'
+import AiCallRecords from '@/components/ai-access/AiCallRecords.vue'
+import {
+  aiToolLabel, buildInstallPrompt, isToday,
+  type AiCallRecord, type AiCapabilityGroup, type AiCredentialRow, type AiToolKind,
+} from '@/components/ai-access/aiAccess'
 
 interface Me { userName?: string; account: string; projectCode: string; systemName: string }
 interface CallView {
   id: number
+  connectionId?: number | null
   toolKind?: string | null
   toolName?: string | null
   businessSystem?: string | null
   success: boolean
   latencyMs?: number | null
+  errorCategory?: string | null
   createdAt?: string | null
+}
+interface SystemOption { projectCode: string; name: string; toolCount: number; current: boolean }
+interface Connection {
+  id: number
+  toolKind: string
+  keyPrefix?: string | null
+  state: string
+  systems: { projectCode: string; name: string }[]
+  createdAt?: string | null
+  lastUsedAt?: string | null
+  expiresAt?: string | null
+}
+interface Created {
+  connection: Connection
+  setup: { endpointUrl: string; kind: string; content: string; hint: string }
+}
+interface SystemCapabilities {
+  projectCode: string
+  name: string
+  current: boolean
+  tools: { name: string; description?: string | null; readOnly: boolean; approvalRequired: boolean }[]
+}
+interface Approval { approvalId: number; approvalStatus: string; tool: string; businessSystem: string; comment?: string }
+interface EmployeeSkill {
+  skillId: number
+  name: string
+  displayName?: string | null
+  description?: string | null
+  projectCode: string
+  systemName?: string | null
+  version: string
 }
 
 const API = '/api/employee-portal'
 const TOKEN_KEY = 'reachai.employee-portal.token'
-const toolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具' }
 
+// 员工的「AI 工具接入」：照宝塔 MCP 面板分成接入与体验、我能办的事、访问凭据、任务记录，外加我的审批、我的助手（全屏对话）和我的记忆。
+const tabs = [
+  { key: 'setup', label: '接入与体验' },
+  { key: 'capabilities', label: '我能办的事' },
+  { key: 'credentials', label: '访问凭据' },
+  { key: 'records', label: '任务记录' },
+  { key: 'approvals', label: '我的审批' },
+  { key: 'assistant', label: '我的助手' },
+  { key: 'memories', label: '我的记忆' },
+] as const
+type PortalTab = typeof tabs[number]['key']
+const approvalStates: Record<string, string> = {
+  PENDING: '等待审批', EXECUTING: '已通过，执行中', SUCCEEDED: '已通过并执行', FAILED: '已通过但执行失败',
+  REJECTED: '已驳回', EXPIRED: '已过期',
+}
+
+const tab = ref<PortalTab>('setup')
 const state = ref<'loading' | 'signedIn' | 'signedOut'>('loading')
 const signedOutReason = ref('')
 const me = ref<Me | null>(null)
@@ -86,9 +229,87 @@ const calls = ref<CallView[]>([])
 const loadingCalls = ref(false)
 const callsError = ref('')
 const signingOut = ref(false)
+const systems = ref<SystemOption[]>([])
+const systemsLoading = ref(false)
+const picked = ref<string[]>([])
+const toolKind = ref<AiToolKind>('CLAUDE_CODE')
+const creating = ref(false)
+const createError = ref('')
+const installPrompt = ref<string | null>(null)
+const connections = ref<Connection[]>([])
+const connectionsLoading = ref(false)
+const connectionsError = ref('')
+const revokingId = ref<number | null>(null)
+const capabilities = ref<SystemCapabilities[]>([])
+const capabilitiesLoading = ref(false)
+const capabilitiesError = ref('')
+const approvals = ref<Approval[]>([])
+const approvalsError = ref('')
+const skills = ref<EmployeeSkill[]>([])
+const downloadingId = ref<number | null>(null)
 let token = ''
 
 class SessionExpired extends Error {}
+
+const toolDescriptions = computed(() => {
+  const descriptions = new Map<string, string>()
+  for (const system of capabilities.value) {
+    for (const tool of system.tools) {
+      if (tool.description) descriptions.set(tool.name, tool.description)
+    }
+  }
+  return descriptions
+})
+
+const capabilityGroups = computed<AiCapabilityGroup[]>(() => capabilities.value.map(system => ({
+  key: system.projectCode,
+  title: system.name,
+  subtitle: system.current ? '当前系统' : undefined,
+  items: system.tools.map(tool => ({
+    name: tool.name,
+    description: tool.description,
+    mode: tool.readOnly ? 'read' : tool.approvalRequired ? 'approval' : 'write',
+  })),
+})))
+
+const credentialRows = computed<AiCredentialRow[]>(() => connections.value.map(connection => ({
+  id: connection.id,
+  name: `${aiToolLabel(connection.toolKind)} 凭据 #${connection.id}`,
+  toolKind: connection.toolKind,
+  keyHint: connection.keyPrefix ? `${connection.keyPrefix}******` : '******',
+  scope: connection.systems.map(system => system.name).join('、') || '-',
+  status: connection.state,
+  createdAt: connection.createdAt,
+  expiresAt: connection.expiresAt,
+  lastUsedAt: connection.lastUsedAt,
+})))
+
+const credentialNames = computed(() => new Map(credentialRows.value.map(row => [row.id, row.name])))
+
+const callRecords = computed<AiCallRecord[]>(() => calls.value.map(call => ({
+  id: call.id,
+  createdAt: call.createdAt,
+  credential: (call.connectionId != null && credentialNames.value.get(call.connectionId)) || aiToolLabel(call.toolKind),
+  action: (call.toolName && toolDescriptions.value.get(call.toolName)) || call.toolName || '-',
+  system: call.businessSystem,
+  success: call.success,
+  latencyMs: call.latencyMs,
+  error: call.errorCategory,
+})))
+
+const pendingApprovals = computed(() => approvals.value.filter(item => item.approvalStatus === 'PENDING').length)
+
+const statusItems = computed(() => [
+  { label: 'AI 接入服务', value: '运行正常', tone: 'ok' as const, dot: true },
+  { label: '使用中的凭据', value: connections.value.filter(item => item.state === 'ACTIVE').length },
+  { label: '今日调用', value: `${calls.value.filter(call => isToday(call.createdAt)).length} 次` },
+  { label: '等待审批', value: pendingApprovals.value, tone: pendingApprovals.value ? 'warn' as const : undefined },
+])
+
+const tryPhrases = computed(() => {
+  const system = systems.value.find(item => picked.value.includes(item.projectCode))?.name ?? me.value?.systemName ?? '业务系统'
+  return [`帮我在${system}里查一下最近的库存`, `在${system}里新建一个客户，名称叫测试客户`, '我提交的审批现在到哪一步了？']
+})
 
 function readStored(): string {
   try {
@@ -127,12 +348,24 @@ function getToken() {
   return Promise.resolve(token)
 }
 
+const memoryApi = portalMemoryApi(getToken, API)
+
 function signedOut(reason = '') {
   token = ''
   store('')
   me.value = null
   signedOutReason.value = reason
   state.value = 'signedOut'
+}
+
+/** Runs a load; a 401 signs the page out, anything else becomes the section's error. */
+async function guarded(action: () => Promise<void>, onError: (message: string) => void, fallback: string) {
+  try {
+    await action()
+  } catch (failure) {
+    if (failure instanceof SessionExpired) signedOut(failure.message)
+    else onError(failure instanceof Error ? failure.message : fallback)
+  }
 }
 
 /** Takes the one-time ticket out of the address bar so it is never bookmarked or shared. */
@@ -164,25 +397,114 @@ async function signIn() {
       me.value = await request<Me>('/me')
     }
     state.value = 'signedIn'
-    void loadCalls()
+    void Promise.all([loadSystems(), loadConnections(), loadCalls(), loadCapabilities(), loadApprovals(), loadSkills()])
   } catch (failure) {
     signedOut(failure instanceof Error ? failure.message : '')
   }
 }
 
+async function loadSystems() {
+  systemsLoading.value = true
+  await guarded(async () => {
+    systems.value = await request<SystemOption[]>('/ai-tool-connections/options')
+    if (!picked.value.length) {
+      const current = systems.value.find(system => system.current) ?? systems.value[0]
+      if (current) picked.value = [current.projectCode]
+    }
+  }, () => { systems.value = [] }, '')
+  systemsLoading.value = false
+}
+
+async function loadConnections() {
+  connectionsLoading.value = true
+  connectionsError.value = ''
+  await guarded(async () => {
+    connections.value = await request<Connection[]>('/ai-tool-connections')
+  }, (message) => { connectionsError.value = message }, '凭据加载失败')
+  connectionsLoading.value = false
+}
+
 async function loadCalls() {
   loadingCalls.value = true
   callsError.value = ''
-  try {
+  await guarded(async () => {
     calls.value = await request<CallView[]>('/calls')
+  }, (message) => { callsError.value = message }, '调用记录加载失败')
+  loadingCalls.value = false
+}
+
+async function loadCapabilities() {
+  capabilitiesLoading.value = true
+  capabilitiesError.value = ''
+  await guarded(async () => {
+    capabilities.value = await request<SystemCapabilities[]>('/capabilities')
+  }, (message) => { capabilitiesError.value = message }, '加载失败')
+  capabilitiesLoading.value = false
+}
+
+async function loadApprovals() {
+  approvalsError.value = ''
+  await guarded(async () => {
+    approvals.value = await request<Approval[]>('/ai-tool-connections/approvals')
+  }, (message) => { approvalsError.value = message }, '审批加载失败')
+}
+
+async function loadSkills() {
+  await guarded(async () => {
+    skills.value = await request<EmployeeSkill[]>('/ai-tool-connections/skills')
+  }, () => { skills.value = [] }, '')
+}
+
+async function createCredential() {
+  if (creating.value || !picked.value.length) return
+  creating.value = true
+  createError.value = ''
+  await guarded(async () => {
+    const created = await request<Created>('/ai-tool-connections', {
+      method: 'POST',
+      body: JSON.stringify({ toolKind: toolKind.value, systems: picked.value }),
+    })
+    installPrompt.value = buildInstallPrompt({
+      toolKind: toolKind.value,
+      target: created.connection.systems.map(system => system.name).join('、'),
+      configHint: created.setup.hint,
+      configContent: created.setup.content,
+    })
+    await loadConnections()
+  }, (message) => { createError.value = message }, '生成失败，请稍后重试')
+  creating.value = false
+}
+
+async function revoke(row: AiCredentialRow) {
+  if (revokingId.value !== null) return
+  if (!window.confirm(`停用「${row.name}」后，这个 AI 工具就不能再替你办事了。确定停用吗？`)) return
+  revokingId.value = row.id
+  await guarded(async () => {
+    await request(`/ai-tool-connections/${row.id}`, { method: 'DELETE' })
+    await loadConnections()
+  }, (message) => { connectionsError.value = message }, '停用失败，请重试')
+  revokingId.value = null
+}
+
+async function downloadSkill(skill: EmployeeSkill) {
+  if (downloadingId.value !== null) return
+  downloadingId.value = skill.skillId
+  try {
+    const response = await fetch(`${API}/ai-tool-connections/skills/${skill.skillId}/package`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 401) throw new SessionExpired('登录已过期')
+    if (!response.ok) throw new Error('下载失败')
+    const url = URL.createObjectURL(await response.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${skill.name}-${skill.version}.zip`
+    link.click()
+    URL.revokeObjectURL(url)
   } catch (failure) {
-    if (failure instanceof SessionExpired) {
-      signedOut(failure.message)
-    } else {
-      callsError.value = failure instanceof Error ? failure.message : '调用记录加载失败'
-    }
+    if (failure instanceof SessionExpired) signedOut(failure.message)
   } finally {
-    loadingCalls.value = false
+    downloadingId.value = null
   }
 }
 
@@ -198,14 +520,13 @@ async function signOut() {
   }
 }
 
-function toolLabel(kind?: string | null) {
-  return (kind && toolLabels[kind]) || 'AI 工具'
+function approvalStateLabel(status: string) {
+  return approvalStates[status] ?? status
 }
 
-function formatDateTime(value?: string | null) {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('zh-CN', { hour12: false })
+function approvalTone(status: string) {
+  return status === 'SUCCEEDED' ? 'ok' : status === 'PENDING' || status === 'EXECUTING' ? 'warn'
+    : status === 'FAILED' || status === 'REJECTED' ? 'danger' : 'muted'
 }
 
 onMounted(signIn)
@@ -222,20 +543,18 @@ onMounted(signIn)
   display: flex;
   flex-direction: column;
   gap: 16px;
-  width: min(760px, 100%);
+  width: min(1040px, 100%);
   margin: 0 auto;
 }
 
 .employee-portal__head,
-.employee-portal__brand,
-.employee-portal__section-head {
+.employee-portal__brand {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-.employee-portal__head,
-.employee-portal__section-head {
+.employee-portal__head {
   justify-content: space-between;
 }
 
@@ -275,90 +594,110 @@ onMounted(signIn)
   padding: 18px 20px;
 }
 
-.employee-portal__card--panel {
-  padding: 0;
+.employee-portal__tabs {
+  display: flex;
+  gap: 4px;
+  align-self: flex-start;
+  max-width: 100%;
+  padding: 4px;
+  overflow-x: auto;
+  border: 1px solid var(--border-glass-edge);
+  border-radius: var(--glass-control-radius);
+  background: var(--surface-glass-navigation);
 }
 
-.employee-portal__section-head h2 {
-  margin: 0;
+.employee-portal__tab {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-height, 32px);
+  padding: 0 16px;
+  border: 1px solid transparent;
+  border-radius: var(--glass-control-radius);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--border-glass-edge);
+    background: var(--surface-glass-inset);
+    color: var(--brand-on-surface, var(--brand-primary));
+    font-weight: 650;
+  }
+}
+
+.employee-portal__count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  color: var(--text-on-brand);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+  background: var(--status-warning);
+}
+
+.employee-portal__check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
+
+  small { color: var(--text-secondary); font-size: 12px; }
 }
 
+/* SDK 面板默认盖在对话框上；在个人页里作为普通区块展示。 */
 .employee-portal__muted,
 .employee-portal__error {
-  margin: 12px 0 0;
+  margin: 0;
   color: var(--text-muted);
   font-size: 13px;
+  line-height: 1.6;
 }
 
 .employee-portal__error {
   color: var(--el-color-danger);
 }
 
-.employee-portal__calls {
+.employee-portal__skills {
   display: flex;
   flex-direction: column;
-  margin: 12px 0 0;
+  gap: 8px;
+  margin-top: 16px;
+
+  h3 { margin: 0; color: var(--text-primary); font-size: 15px; }
+}
+
+.employee-portal__skill,
+.employee-portal__approvals li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-divider);
+
+  div { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  strong { color: var(--text-primary); font-size: 13px; }
+  span, small { color: var(--text-secondary); font-size: 12px; }
+}
+
+.employee-portal__approvals {
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.employee-portal__calls li {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border-subtle, rgb(127 127 127 / 0.18));
-}
-
-.employee-portal__call-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  min-width: 0;
-  gap: 2px;
-
-  strong {
-    overflow: hidden;
-    color: var(--text-primary);
-    font-size: 13px;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  small {
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-}
-
-.employee-portal__calls time {
+.employee-portal__approval-state {
   flex-shrink: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-}
-
-.employee-portal__status {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  border-radius: 999px;
   font-size: 12px;
 
-  &.is-ok {
-    color: var(--el-color-success);
-    background: color-mix(in srgb, var(--el-color-success) 12%, transparent);
-  }
-
-  &.is-failed {
-    color: var(--el-color-warning);
-    background: color-mix(in srgb, var(--el-color-warning) 12%, transparent);
-  }
-}
-
-@media (max-width: 560px) {
-  .employee-portal__calls time {
-    display: none;
-  }
+  &.is-ok { color: var(--status-success) !important; }
+  &.is-warn { color: var(--status-warning) !important; }
+  &.is-danger { color: var(--status-danger) !important; }
 }
 </style>

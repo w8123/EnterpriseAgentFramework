@@ -18,6 +18,26 @@ public final class ConsoleBusinessMethodDeclaration {
         return hasRequiredRoles(tool == null ? null : tool.getCapabilityMetadataJson(), objectMapper);
     }
 
+    public static boolean requiresBusinessIdentity(ToolDefinitionEntity tool, ObjectMapper objectMapper) {
+        return requiresBusinessIdentity(tool == null ? null : tool.getCapabilityMetadataJson(), objectMapper);
+    }
+
+    public static boolean requiresBusinessIdentity(Object metadata, ObjectMapper objectMapper) {
+        if (hasRequiredRoles(metadata, objectMapper)) return true;
+        return explicitlyRequiresBusinessIdentity(metadata, objectMapper);
+    }
+
+    public static boolean explicitlyRequiresBusinessIdentity(Object metadata, ObjectMapper objectMapper) {
+        if (metadata == null || metadata instanceof String text && !StringUtils.hasText(text)) return false;
+        try {
+            JsonNode root = metadata instanceof String text ? objectMapper.readTree(text) : objectMapper.valueToTree(metadata);
+            JsonNode required = root.get("businessIdentityRequired");
+            return required != null && (!required.isBoolean() || required.booleanValue());
+        } catch (Exception invalid) {
+            return true;
+        }
+    }
+
     public static boolean hasRequiredRoles(Object metadata, ObjectMapper objectMapper) {
         if (metadata == null || metadata instanceof String text && !StringUtils.hasText(text)) {
             return false;

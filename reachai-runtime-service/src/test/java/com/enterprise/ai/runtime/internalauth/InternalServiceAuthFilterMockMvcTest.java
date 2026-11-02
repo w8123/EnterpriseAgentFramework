@@ -236,6 +236,30 @@ class InternalServiceAuthFilterMockMvcTest {
         verify(executionService, never()).clearSession(eq("session-2"), any());
     }
 
+    @Test
+    void embedClearRequiresSignedProjectScopeAndRejectsTampering() throws Exception {
+        String path = "/internal/runtime/agents/sessions/session-1";
+        byte[] body = objectMapper.writeValueAsBytes(Map.of("projectCode", "orders"));
+        var headers = signV2("DELETE", path, "EMBED_SESSION", "tenant-a", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        byte[] tampered = objectMapper.writeValueAsBytes(Map.of("projectCode", "other"));
+        mockMvc.perform(signedDelete(path, headers).contentType(MediaType.APPLICATION_JSON).content(tampered))
+                .andExpect(status().isUnauthorized());
+        AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
+        org.mockito.Mockito.doAnswer(invocation -> {
+            captured.set(invocation.getArgument(1));
+            return null;
+        }).when(executionService).clearSession(eq("session-1"), any(WorkflowExecutionIdentity.class));
+        mockMvc.perform(signedDelete(path, headers).contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isNoContent());
+        assertEquals("orders", captured.get().projectCode());
+        assertEquals("tenant-a", captured.get().tenantId());
+        var noScope = signV2("DELETE", path, "EMBED_SESSION", "tenant-a", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), new byte[0]);
+        mockMvc.perform(signedDelete(path, noScope)).andExpect(status().isUnauthorized());
+        verify(executionService, org.mockito.Mockito.times(1)).clearSession(eq("session-1"), any());
+    }
+
     private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder signed(
             Map<String, String> headers, byte[] body) {
         return post(PATH)

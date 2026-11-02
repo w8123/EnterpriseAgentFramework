@@ -126,6 +126,7 @@ const FORBIDDEN_LEGACY_SPACING_TOKENS = [
 const STANDARD_PAGE_FILES = new Set([
   'src/views/dashboard/Dashboard.vue',
   'src/views/NoRoleLanding.vue',
+  'src/views/getting-started/GettingStarted.vue',
   'src/views/agent/AgentList.vue',
   'src/views/agent/AgentEdit.vue',
   'src/views/skill-market/SkillMarket.vue',
@@ -154,7 +155,10 @@ const STANDARD_PAGE_FILES = new Set([
   'src/views/runops/EvalOverview.vue',
   'src/views/runops/AgentEval.vue',
   'src/views/me/MyMemories.vue',
+  'src/views/me/AiToolAccess.vue',
+  'src/views/me/AiApprovals.vue',
   'src/views/compliance/DataErasure.vue',
+  'src/views/usage/AiUsageOverview.vue',
 ])
 
 const PROJECT_WORKBENCH_PAGE_FILES = new Set([
@@ -178,7 +182,6 @@ const LIST_FILL_PAGE_FILES = new Set([
   'src/views/skill/SkillCenter.vue',
   'src/views/automation/AutomationCenter.vue',
   'src/views/registry/RegistryProjectList.vue',
-  'src/views/registry/RegistryProjectDetail.vue',
   'src/views/settings/PlatformUserSettings.vue',
   'src/views/settings/BusinessUserDirectory.vue',
   'src/views/settings/AuthProviderSettings.vue',
@@ -2103,8 +2106,8 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 31, projectWorkbench: 7, exempt: 3 },
-    expectedListFillSize: 15,
+    expectedSetSizes: { standard: 35, projectWorkbench: 7, exempt: 3 },
+    expectedListFillSize: 14,
   }
 }
 

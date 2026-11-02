@@ -118,6 +118,7 @@ class RuntimeAgentConfigServiceTest {
         version.setWorkflowId("wf-1");
         version.setVersion("v1.0.0");
         version.setStatus("ACTIVE");
+        version.setGraphSpecSnapshotJson("{\"nodes\":[]}");
         when(versionMapper.listActive("wf-1")).thenReturn(List.of(version));
 
         RuntimeAgentConfigViews.AgentConfigVersionView result =
@@ -183,7 +184,7 @@ class RuntimeAgentConfigServiceTest {
         activeWorkflowVersion.setWorkflowId("wf-orders");
         activeWorkflowVersion.setVersion("v2.0.0");
         activeWorkflowVersion.setStatus("ACTIVE");
-        activeWorkflowVersion.setGraphSpecSnapshotJson("{\"entryNodeId\":\"start\"}");
+        activeWorkflowVersion.setGraphSpecSnapshotJson("{\"entryNodeId\":\"start\",\"nodes\":[]}");
         when(versionMapper.listActive("wf-orders")).thenReturn(List.of(activeWorkflowVersion));
         when(versionMapper.selectById(42L)).thenReturn(activeWorkflowVersion);
         when(versionMapper.selectBatchIds(any())).thenReturn(List.of(activeWorkflowVersion));
@@ -635,6 +636,7 @@ class RuntimeAgentConfigServiceTest {
         version.setWorkflowId(workflowId);
         version.setVersion("v1.0.0");
         version.setStatus("ACTIVE");
+        version.setGraphSpecSnapshotJson("{\"nodes\":[]}");
         return version;
     }
 }

@@ -34,6 +34,17 @@ class RuntimeConversationSessionMapperContractTest {
         assertFalse(sql.contains("LIMIT"));
     }
 
+    @Test
+    void businessIdentityGuardSearchesAllMatchingSessionsWithoutBatchLimit() throws Exception {
+        String sql = normalized(RuntimeConversationSessionMapper.class.getMethod(
+                "countBusinessOwnerSessions", String.class, String.class));
+        assertTrue(sql.contains("s.tenant_id = #{tenantId}"));
+        assertTrue(sql.contains("s.user_id = #{runtimeUserId}"));
+        assertTrue(sql.contains("'EMBED_SESSION'"));
+        assertTrue(sql.contains("'MCP_EMPLOYEE'"));
+        assertFalse(sql.contains("LIMIT"));
+    }
+
     private static String normalized(Method method) {
         return String.join(" ", method.getAnnotation(Select.class).value())
                 .replaceAll("\\s+", " ")

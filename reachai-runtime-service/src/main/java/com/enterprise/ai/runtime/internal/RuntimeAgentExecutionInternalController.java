@@ -92,10 +92,19 @@ public class RuntimeAgentExecutionInternalController {
 
     @DeleteMapping("/internal/runtime/agents/sessions/{sessionId}")
     public ResponseEntity<Void> clearSession(HttpServletRequest httpRequest,
-                                             @PathVariable String sessionId) {
+                                             @PathVariable String sessionId,
+                                             @RequestBody(required = false) ScopedClearIdentity scope) {
         WorkflowExecutionIdentity identity = requireVerifiedIdentity(httpRequest, null);
         if (identity == null) {
             return ResponseEntity.status(401).build();
+        }
+        if (identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION) {
+            if (scope == null || !StringUtils.hasText(scope.projectCode())
+                    || !scope.projectCode().trim().matches("(?i)[a-z0-9._:-]{1,96}")) {
+                return ResponseEntity.status(401).build();
+            }
+            identity = WorkflowExecutionIdentity.fromEmbedSession(
+                    identity.tenantId(), null, scope.projectCode(), identity.userId());
         }
         try {
             agentExecutionService.clearSession(sessionId, identity);
@@ -104,6 +113,8 @@ public class RuntimeAgentExecutionInternalController {
             return ResponseEntity.status(lifecycle.status()).build();
         }
     }
+
+    public record ScopedClearIdentity(String projectCode) { }
 
     @PostMapping(value = "/internal/runtime/agents/execute/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public ResponseEntity<SseEmitter> executeStream(HttpServletRequest httpRequest,
@@ -276,18 +287,27 @@ public class RuntimeAgentExecutionInternalController {
                 return null;
             }
         }
+        String businessProject = request != null && request.identity() != null
+                && "EMBED_SESSION".equals(verified.identitySource())
+                ? request.identity().projectCode() : null;
+        if (request != null && "EMBED_SESSION".equals(verified.identitySource())
+                && (!StringUtils.hasText(businessProject)
+                    || !businessProject.trim().matches("(?i)[a-z0-9._:-]{1,96}"))) {
+            return null;
+        }
         return resolveIdentity(
-                verified.identitySource(), verified.identityTenantId(), verified.identityUserId());
+                verified.identitySource(), verified.identityTenantId(), verified.identityUserId(), businessProject);
     }
 
-    private static WorkflowExecutionIdentity resolveIdentity(String source, String tenantId, String userId) {
+    private static WorkflowExecutionIdentity resolveIdentity(String source, String tenantId, String userId,
+                                                              String businessProject) {
         if (!StringUtils.hasText(source)) {
             return null;
         }
         String normalized = source.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "EMBED_SESSION" -> StringUtils.hasText(userId)
-                    ? WorkflowExecutionIdentity.fromEmbedSession(tenantId, null, null, userId)
+                    ? WorkflowExecutionIdentity.fromEmbedSession(tenantId, null, businessProject, userId)
                     : null;
             case "AGENT" -> StringUtils.hasText(userId)
                     ? WorkflowExecutionIdentity.fromAgent(tenantId, null, null, userId)
@@ -463,7 +483,8 @@ public class RuntimeAgentExecutionInternalController {
     public record TrustedIdentityPayload(
             String source,
             String tenantId,
-            String userId
+            String userId,
+            String projectCode
     ) {
     }
 }

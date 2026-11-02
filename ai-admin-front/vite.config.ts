@@ -1,12 +1,22 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
+import { embedChatDevMiddleware } from './scripts/embed-chat-dev-middleware.mjs'
 
 export default defineConfig({
   define: {
     __REACHAI_EMBED_SDK__: false,
   },
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: 'reachai-embed-chat-dev-assets',
+      apply: 'serve',
+      configureServer(server) {
+        server.middlewares.use(embedChatDevMiddleware(resolve(__dirname, 'dist-sdk/embed-chat')))
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
@@ -16,6 +26,12 @@ export default defineConfig({
     // 常见排除段：如 2931–3030、5100–5199（本机 netsh 可见），落在段内会 EACCES
     port: 5200,
     proxy: {
+      '^/mcp(/.*)?$': {
+        target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',
+        changeOrigin: true,
+        timeout: 600_000,
+        proxyTimeout: 600_000,
+      },
       /** Knowledge console routes go through Control, which checks the platform session. */
       '/ai': {
         target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',

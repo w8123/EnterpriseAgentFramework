@@ -22,7 +22,7 @@ class PersonalMemoryRecallServiceTest {
         PersonalMemoryService memoryService = mock(PersonalMemoryService.class);
         when(memoryService.query(any(), any())).thenReturn(new PersonalMemoryService.QueryResult(
                 List.of(new PersonalMemoryService.QueryHit(1L, "PREFERENCE", "语言",
-                        "默认使用中文", 4.25, LocalDateTime.now())),
+                        "默认使用中文", 4.25, LocalDateTime.now(), null)),
                 1, 6, 6000, false));
         PersonalMemoryRecallService recall = new PersonalMemoryRecallService(memoryService, 8, 6000);
 

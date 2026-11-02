@@ -11,7 +11,9 @@ import com.enterprise.ai.control.mcp.domain.employee.AiToolConnectionStatus;
 import com.enterprise.ai.control.mcp.domain.employee.AiToolKind;
 import com.enterprise.ai.control.mcp.domain.employee.McpEmployeeAccess;
 import com.enterprise.ai.control.mcp.domain.publication.McpPublication;
+import com.enterprise.ai.control.mcp.domain.publication.McpPublicationRevision;
 import com.enterprise.ai.control.mcp.domain.publication.McpPublicationStatus;
+import com.enterprise.ai.control.mcp.domain.publication.McpToolProjection;
 import com.enterprise.ai.control.mcp.infrastructure.McpHubProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,14 +72,48 @@ public class AiToolConnectionService {
             if (!linked.contains(access.projectCode())) {
                 continue;
             }
-            publishedTools(access).ifPresent(toolCount -> options.add(new SystemOption(
+            liveRevision(access).ifPresent(revision -> options.add(new SystemOption(
                     access.projectCode(),
                     access.label(),
-                    toolCount,
+                    (int) revision.tools().stream().filter(McpToolProjection::hasTrustedRiskContract)
+                            .filter(tool -> !"IRREVERSIBLE".equalsIgnoreCase(tool.riskLevel())).count(),
                     access.projectCode().equals(owner.projectCode()))));
         }
         options.sort((a, b) -> Boolean.compare(b.current(), a.current()));
         return options;
+    }
+
+    /**
+     * 「我能办的事」: what an AI tool may do for this employee in each system they can tick,
+     * as published. IRREVERSIBLE tools are never offered to personal connections; the
+     * employee's call permission in the system is still checked on every call.
+     */
+    public List<SystemCapabilities> capabilities(EmployeeOwner owner) {
+        Set<String> linked = linkedSystems(owner);
+        List<SystemCapabilities> systems = new ArrayList<>();
+        for (McpEmployeeAccess access : accessRepository.findEnabled()) {
+            if (!linked.contains(access.projectCode())) {
+                continue;
+            }
+            liveRevision(access).ifPresent(revision -> {
+                List<CapabilityView> tools = new ArrayList<>();
+                for (McpToolProjection tool : revision.tools()) {
+                    if (!tool.hasTrustedRiskContract()) continue;
+                    String risk = tool.riskLevel() == null || tool.riskLevel().isBlank()
+                            ? "WRITE" : tool.riskLevel().trim().toUpperCase(Locale.ROOT);
+                    if ("IRREVERSIBLE".equals(risk)) {
+                        continue;
+                    }
+                    boolean read = "READ".equals(risk);
+                    tools.add(new CapabilityView(tool.name(), tool.description(), read,
+                            !read && access.writeApprovalRequired()));
+                }
+                systems.add(new SystemCapabilities(access.projectCode(), access.label(),
+                        access.projectCode().equals(owner.projectCode()), tools));
+            });
+        }
+        systems.sort((a, b) -> Boolean.compare(b.current(), a.current()));
+        return systems;
     }
 
     public List<ConnectionView> list(EmployeeOwner owner) {
@@ -144,15 +180,14 @@ public class AiToolConnectionService {
         return linked;
     }
 
-    /** Tool count of the publication's live revision, or empty when it is not published. */
-    private Optional<Integer> publishedTools(McpEmployeeAccess access) {
+    /** The publication's live revision, or empty when it is not published. */
+    private Optional<McpPublicationRevision> liveRevision(McpEmployeeAccess access) {
         Optional<McpPublication> publication = publicationRepository.findById(access.publicationId());
         if (publication.isEmpty() || publication.get().state() != McpPublicationStatus.PUBLISHED
                 || publication.get().currentRevisionId() == null) {
             return Optional.empty();
         }
-        return publicationRepository.findRevision(access.publicationId(), publication.get().currentRevisionId())
-                .map(revision -> revision.tools().size());
+        return publicationRepository.findRevision(access.publicationId(), publication.get().currentRevisionId());
     }
 
     private Map<String, String> systemLabels() {
@@ -210,6 +245,14 @@ public class AiToolConnectionService {
     }
 
     public record SystemOption(String projectCode, String name, int toolCount, boolean current) {
+    }
+
+    public record SystemCapabilities(String projectCode, String name, boolean current,
+                                     List<CapabilityView> tools) {
+    }
+
+    /** One thing the AI may do: {@code readOnly} runs directly, {@code approvalRequired} waits for a reviewer. */
+    public record CapabilityView(String name, String description, boolean readOnly, boolean approvalRequired) {
     }
 
     public record ConnectedSystemView(String projectCode, String name) {

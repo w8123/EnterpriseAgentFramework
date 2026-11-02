@@ -8,9 +8,34 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import static org.junit.jupiter.api.Assertions.*;
 
 class SupervisorWorkflowContinuationTest {
+    @Test void versionFourRestoresRepeatedReadByPositionAndRejectsUnverifiedRepeats() {
+        var value = continuation();
+        value.put("continuationSchemaVersion", 4);
+        value.put("plannedWorkflowToolNames", List.of("first", "first", "second"));
+        value.put("recordedPlan", Map.of("workflowToolNames", List.of("first", "first", "second")));
+        value.put("plannedWorkflowCursor", 1);
+        value.put("completedWorkflowToolNames", List.of("first"));
+        value.put("completedPlanPositions", List.of(0));
+        value.put("executionCallCounts", Map.of("workflow", 2, "a2a", 0, "managed", 0));
+        var parsed = SupervisorWorkflowContinuation.parse(value, tools(), Set.of("first"));
+        assertEquals(List.of(0), parsed.completedPlanPositions());
+        assertEquals(1, parsed.plannedWorkflowCursor());
+        assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(value, tools(), Set.of()));
+        var write = RuntimeAgentWorkflowToolSnapshot.builder().toolName("first").riskLevel("WRITE").readOnly(false).build();
+        assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(
+                value, List.of(write, tool("second")), Set.of("first")));
+        value.remove("completedPlanPositions");
+        assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(value, tools(), Set.of("first")));
+        value.put("completedPlanPositions", List.of(0, 1));
+        assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(value, tools(), Set.of("first")));
+        value.put("completedPlanPositions", List.of(0));
+        value.put("executionCallCounts", Map.of("workflow", 1, "a2a", 0, "managed", 0));
+        assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(value, tools(), Set.of("first")));
+    }
     @Test void rejectsAnOldOrIncompleteCallBudgetSnapshot() {
         var value = continuation(); value.put("continuationSchemaVersion",2);
         assertThrows(IllegalArgumentException.class, () -> SupervisorWorkflowContinuation.parse(value,tools()));
@@ -75,6 +100,6 @@ class SupervisorWorkflowContinuationTest {
     }
 
     private RuntimeAgentWorkflowToolSnapshot tool(String name) {
-        return RuntimeAgentWorkflowToolSnapshot.builder().toolName(name).build();
+        return RuntimeAgentWorkflowToolSnapshot.builder().toolName(name).riskLevel("READ").readOnly(true).build();
     }
 }

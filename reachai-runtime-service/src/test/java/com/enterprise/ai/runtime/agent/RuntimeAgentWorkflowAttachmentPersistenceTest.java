@@ -60,9 +60,11 @@ class RuntimeAgentWorkflowAttachmentPersistenceTest {
             return result;
         });
         var json = new ObjectMapper().findAndRegisterModules();
-        configs = transactional(new RuntimeAgentConfigService(versions, tools,
+        var configTarget = new RuntimeAgentConfigService(versions, tools,
                 database.mapper(RuntimeAgentSkillBindingMapper.class), database.mapper(RuntimeAgentRemoteBindingMapper.class),
-                agents, catalog, json));
+                agents, catalog, json);
+        configTarget.setDraftRevision(new RuntimeAgentDraftRevision(json, "fixture-attachment-revision-secret-at-least-32bytes"));
+        configs = transactional(configTarget);
         var projects = mock(RuntimeCapabilityCatalogClient.class);
         when(projects.getProjectById(7L)).thenReturn(Map.of("projectId", 7L, "projectCode", "orders"));
         models = mock(RuntimeModelCatalogClient.class);
@@ -73,10 +75,12 @@ class RuntimeAgentWorkflowAttachmentPersistenceTest {
             String id = call.getArgument(0);
             var workflow = new RuntimeWorkflowDefinitionEntity();
             workflow.setId(id); workflow.setKeySlug(id); workflow.setProjectId(7L);
-            workflow.setProjectCode("orders"); workflow.setStatus("ACTIVE"); workflow.setWorkflowKind("GENERAL");
+            workflow.setProjectCode("orders"); workflow.setStatus("ACTIVE");
+            workflow.setWorkflowKind(id.startsWith("page_") ? "PAGE_ASSISTANT" : "GENERAL");
             return Optional.of(workflow);
         });
-        attachments = new RuntimeAgentSupervisorWorkflowAttachmentService(projects, new RuntimeWorkflowManagementService(definitions, null, null),
+        var workflowVersions = mock(com.enterprise.ai.runtime.workflow.RuntimeWorkflowVersionService.class);
+        attachments = new RuntimeAgentSupervisorWorkflowAttachmentService(projects, new RuntimeWorkflowManagementService(definitions, workflowVersions, null),
                 transactional(new RuntimeAgentWorkflowAttachmentService(agents, configs, models, json)), json);
         database.jdbc().update("""
                 INSERT INTO runtime_agent (id, key_slug, name, project_id, project_code, enabled)
@@ -88,6 +92,86 @@ class RuntimeAgentWorkflowAttachmentPersistenceTest {
 
     @AfterEach
     void close() { if (database != null) database.close(); }
+
+    @Test void reviewedRevisionCannotPublishOverHumanDraftChanges() {
+        var reviewed = configs.readEditableDraft(new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null));
+        var draft = configs.createInitialDraft("agent-1", "human draft", "draft-model", null);
+        var before = snapshot(draft.id());
+        var failure = assertThrows(com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException.class,
+                () -> attachments.attach(7L, revisionRequest("workflow_one", reviewed.revision())));
+        assertEquals("AGENT_DRAFT_CHANGED", failure.code());
+        assertEquals(before, snapshot(draft.id()));
+        assertEquals(List.of(), workflowIds(agents.selectById("agent-1").getActiveConfigVersionId()));
+        var current = configs.readEditableDraft(new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null));
+        assertEquals("approved prompt", current.active().systemPrompt());
+        assertEquals("human draft", current.base().systemPrompt());
+        assertNotEquals(current.active().id(), current.base().id());
+        var attached = attachments.attach(7L, revisionRequest("workflow_one", current.revision()));
+        assertEquals(before, snapshot(draft.id()));
+        assertEquals(List.of("workflow_one"), workflowIds(attached.activeConfig().id()));
+        assertThrows(com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException.class,
+                () -> attachments.attach(7L, revisionRequest("workflow_two", current.revision())));
+    }
+
+    @Test void reviewedPageAssistantSyncNeedsTheCurrentRevisionAndRecordsTheSignedPublisher() {
+        var read = configs.readEditableDraft(new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null));
+        assertEquals("AGENT_DRAFT_CHANGED", assertThrows(com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException.class,
+                () -> attachments.attachPageAssistantReviewed("page_orders", pageSync(null, true))).code());
+        configs.createInitialDraft("agent-1", "human draft", "draft-model", null);
+        assertEquals("AGENT_DRAFT_CHANGED", assertThrows(com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException.class,
+                () -> attachments.attachPageAssistantReviewed("page_orders", pageSync(read.revision(), false))).code());
+        assertEquals(List.of(), workflowIds(agents.selectById("agent-1").getActiveConfigVersionId()));
+
+        var current = configs.readEditableDraft(new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null));
+        var attached = attachments.attachPageAssistantReviewed("page_orders", pageSync(current.revision(), false));
+        assertEquals(List.of("page_orders"), workflowIds(attached.activeConfig().id()));
+        assertEquals("platform-user:42", versions.selectById(attached.activeConfig().id()).getPublishedBy());
+        assertEquals("human draft", configs.readEditableDraft(
+                new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null)).base().systemPrompt());
+    }
+
+    @Test void pageCopilotInitializationNeverTakesOverAnExistingTarget() {
+        database.jdbc().update("UPDATE runtime_agent SET key_slug = 'custom-agent' WHERE id = 'agent-1'");
+        var created = attachments.attachPageAssistantReviewed("page_orders", pageSync(null, true));
+        assertEquals("orders-page-copilot", created.agent().keySlug());
+        var context = attachments.pageAssistantContext("page_orders", 7L, "orders");
+        assertTrue(context.targetExists());
+        assertTrue(context.attached());
+        assertEquals(created.agent().id(), context.agentId());
+        assertEquals("AGENT_DRAFT_CHANGED", assertThrows(com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException.class,
+                () -> attachments.attachPageAssistantReviewed("page_other", pageSync(null, true))).code());
+        assertEquals(List.of("page_orders"), workflowIds(agents.selectById(created.agent().id()).getActiveConfigVersionId()));
+        assertEquals(2, database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_agent", Integer.class));
+    }
+
+    private RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest pageSync(String revision, boolean createTarget) {
+        return new RuntimeWorkflowAgentAttachmentPort.PageAssistantAttachRequest(7L, "orders", null, null,
+                "platform-user:42", null, revision, createTarget);
+    }
+
+    private AttachRequest revisionRequest(String workflowId, String revision) {
+        return new AttachRequest(workflowId, "agent-1", null, "model-1", "reviewer", null, null,
+                null, null, null, null, null, null, null, revision);
+    }
+
+    @Test void concurrentRevisionBoundAttachmentsHaveOnlyOneWinner() throws Exception {
+        var revision = configs.readEditableDraft(new RuntimeAgentConfigViews.AgentDraftEditCommand("agent-1", 7L, "orders", null, null)).revision();
+        var start = new CountDownLatch(1);
+        var workers = Executors.newFixedThreadPool(2);
+        try {
+            var futures = java.util.stream.IntStream.range(0, 2).mapToObj(index -> workers.submit(() -> {
+                start.await();
+                try { attachments.attach(7L, revisionRequest("workflow_" + index, revision)); return true; }
+                catch (com.enterprise.ai.runtime.workflow.aicoding.AiCodingAttachmentException conflict) {
+                    assertEquals("AGENT_DRAFT_CHANGED", conflict.code()); return false;
+                }
+            })).toList();
+            start.countDown();
+            int winners = 0; for (var future : futures) if (future.get(15, TimeUnit.SECONDS)) winners++;
+            assertEquals(1, winners);
+            assertEquals(1, workflowIds(agents.selectById("agent-1").getActiveConfigVersionId()).size());
+        } finally { workers.shutdownNow(); }
+    }
 
     @Test
     void newAttachmentDoesNotPublishOrModifyAnExistingDraft() {

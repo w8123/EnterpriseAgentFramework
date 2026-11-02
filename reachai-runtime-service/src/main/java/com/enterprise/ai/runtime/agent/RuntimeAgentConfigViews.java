@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.agent;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 public final class RuntimeAgentConfigViews {
 
@@ -215,6 +216,33 @@ public final class RuntimeAgentConfigViews {
                     parallelReadOnly, policyProfile, toolCatalogMode, configJson, tools, null, null);
         }
     }
+
+    /** Editable base and opaque revision returned by Runtime for human/AI collaboration. */
+    public record AgentDraftEditView(String agentId, Long projectId, String projectCode,
+                                     String revision, AgentConfigVersionView base, AgentConfigVersionView active) { }
+
+    public record AgentConfigVersionsView(String agentId, Long projectId, String projectCode,
+                                          List<AgentConfigVersionView> versions) { }
+
+    /** Owner facts are filled by Control after project authorization, never by a browser or model. */
+    public record AgentDraftEditCommand(String agentId, Long projectId, String projectCode,
+                                        String expectedRevision, AgentConfigDraftRequest changes) { }
+
+    /** A version operation bound to the same owner and editable draft revision. */
+    public record AgentDraftVersionCommand(String agentId, Long projectId, String projectCode,
+                                           String expectedRevision, Long configVersionId) { }
+
+    public record AgentDraftPublicationView(String agentId, Long projectId, String projectCode,
+                                             String revision, AgentConfigVersionView base, Long activeConfigVersionId,
+                                             Map<String, Long> workflowVersions, AgentPublicationIdentity identity) { }
+
+    public record AgentPublicationIdentity(String name, String keySlug, String description, String visibility,
+                                            String allowedRolesJson, Boolean enabled) { }
+
+    /** Only Control's owner-reviewed action may provide the frozen publication pins. */
+    public record AgentDraftApprovedPublishCommand(String agentId, Long projectId, String projectCode,
+                                                   String expectedRevision, Long configVersionId,
+                                                   Map<String, Long> workflowVersions) { }
 
     /** Agent memory policy; every field is optional in a draft request and keeps its current value when null. */
     public record AgentMemoryPolicyView(

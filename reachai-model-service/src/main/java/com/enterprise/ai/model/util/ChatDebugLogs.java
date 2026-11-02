@@ -5,15 +5,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 
 /**
- * Chat 请求调试日志：在 DEBUG 级别输出 messages 角色、正文预览及 tools 等摘要。
+ * Chat 请求调试日志只记录结构和长度，不记录对话、推理、工具参数或工具定义。
  */
 public final class ChatDebugLogs {
-
-    private static final int MAX_CONTENT_PREVIEW = 500;
-    private static final int MAX_JSON_PREVIEW = 400;
 
     private ChatDebugLogs() {
     }
@@ -26,12 +23,12 @@ public final class ChatDebugLogs {
             log.debug("{} request=null", prefix);
             return;
         }
-        log.debug("{} modelInstanceId={}, tools={}, toolChoice={}, optionsKeys={}",
+        log.debug("{} modelInstanceId={}, toolCount={}, toolChoiceConfigured={}, optionCount={}",
                 prefix,
                 request.getModelInstanceId(),
-                jsonPreview(request.getTools()),
-                jsonPreview(request.getToolChoice()),
-                optionsKeys(request.getOptions()));
+                arraySize(request.getTools()),
+                request.getToolChoice() != null && !request.getToolChoice().isNull(),
+                request.getOptions() == null ? 0 : request.getOptions().size());
 
         List<ChatRequest.ChatMessage> messages = request.getMessages();
         if (messages == null) {
@@ -44,51 +41,28 @@ public final class ChatDebugLogs {
         }
         for (int i = 0; i < messages.size(); i++) {
             ChatRequest.ChatMessage m = messages.get(i);
+            if (m == null) {
+                log.debug("{} message[{}/{}] is null", prefix, i + 1, messages.size());
+                continue;
+            }
             int contentLen = m.getContent() == null ? 0 : m.getContent().length();
-            log.debug("{} message[{}/{}] role={}, name={}, toolCallId={}, content长度={}, content预览: {}",
+            int reasoningLen = m.getReasoningContent() == null ? 0 : m.getReasoningContent().length();
+            log.debug("{} message[{}/{}] role={}, contentLength={}, reasoningLength={}, toolCallCount={}",
                     prefix, i + 1, messages.size(),
-                    m.getRole(), m.getName(), m.getToolCallId(), contentLen,
-                    previewText(m.getContent()));
-            if (m.getReasoningContent() != null && !m.getReasoningContent().isBlank()) {
-                log.debug("{} message[{}/{}] reasoningContent长度={}, 预览: {}",
-                        prefix, i + 1, messages.size(), m.getReasoningContent().length(),
-                        previewText(m.getReasoningContent()));
-            }
-            if (m.getToolCalls() != null && !m.getToolCalls().isNull()) {
-                log.debug("{} message[{}/{}] tool_calls: {}", prefix, i + 1, messages.size(),
-                        jsonPreview(m.getToolCalls()));
-            }
+                    safeRole(m.getRole()), contentLen, reasoningLen, arraySize(m.getToolCalls()));
         }
     }
 
-    private static String optionsKeys(Map<String, Object> options) {
-        if (options == null || options.isEmpty()) {
-            return "null";
-        }
-        return options.keySet().toString();
+    private static int arraySize(JsonNode node) {
+        return node != null && node.isArray() ? node.size() : 0;
     }
 
-    private static String jsonPreview(JsonNode n) {
-        if (n == null || n.isNull()) {
-            return "null";
-        }
-        String s = n.toString();
-        if (s.length() <= MAX_JSON_PREVIEW) {
-            return s;
-        }
-        return s.substring(0, MAX_JSON_PREVIEW) + "... (总长=" + s.length() + ")";
-    }
-
-    private static String previewText(String t) {
-        if (t == null) {
-            return "null";
-        }
-        String normalized = t.replace("\r\n", "\n").replace('\r', '\n')
-                .replace("\n", "\\n");
-        if (normalized.length() <= MAX_CONTENT_PREVIEW) {
-            return normalized;
-        }
-        return normalized.substring(0, MAX_CONTENT_PREVIEW)
-                + "... (已截断预览，原文长度=" + t.length() + ")";
+    private static String safeRole(String role) {
+        if (role == null) return "unknown";
+        String normalized = role.toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "system", "developer", "user", "assistant", "tool" -> normalized;
+            default -> "unknown";
+        };
     }
 }

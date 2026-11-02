@@ -87,6 +87,50 @@ public class CapabilityInternalAuthVerifier {
                 bodyDigest, signature, body, nowMillis);
     }
 
+    /** Runtime -> Capability V2 project lookup by id. Service identity only; no business user is carried. */
+    public Optional<CapabilityVerifiedInternalServiceAuth> verifyRuntimeProjectLookup(
+            String method, String path,
+            String caller, String source, String tenantId, String userId,
+            String timestamp, String nonce,
+            String bodyDigest, String signature,
+            byte[] body, long nowMillis) {
+        String normalizedSource = normalized(source).toUpperCase(java.util.Locale.ROOT);
+        if (!properties.secretConfigured()
+                || !"GET".equalsIgnoreCase(method)
+                || !CapabilityInternalAuthFilter.isCapabilityProjectLookupPath(path)
+                || !InternalServiceAuthHeaders.CALLER_RUNTIME.equals(normalized(caller))
+                || !InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED.equals(normalizedSource)
+                || StringUtils.hasText(normalized(tenantId)) || StringUtils.hasText(normalized(userId))
+                || (body != null && body.length > 0)
+                || !StringUtils.hasText(timestamp) || !StringUtils.hasText(nonce)
+                || !StringUtils.hasText(bodyDigest) || !StringUtils.hasText(signature)) {
+            return Optional.empty();
+        }
+        long requestMillis;
+        try {
+            requestMillis = Long.parseLong(timestamp.trim());
+        } catch (NumberFormatException invalid) {
+            return Optional.empty();
+        }
+        if (Math.abs(nowMillis - requestMillis) > properties.skewSeconds() * 1000L) {
+            return Optional.empty();
+        }
+        String actualDigest = InternalServiceHmac.bodySha256Hex(body);
+        if (!InternalServiceHmac.digestEqualsConstantTime(actualDigest, bodyDigest)) {
+            return Optional.empty();
+        }
+        String canonical = InternalServiceHmac.canonical(
+                method, path, InternalServiceAuthHeaders.CALLER_RUNTIME, normalizedSource, "", "",
+                timestamp.trim(), nonce.trim(), actualDigest);
+        if (!InternalServiceHmac.verifyAnyConstantTime(properties.verificationSecrets(), canonical, signature)
+                || !nonceStore.tryConsume(InternalServiceAuthHeaders.CALLER_RUNTIME, nonce.trim(), nowMillis,
+                properties.nonceTtlSeconds(), properties.nonceMaxEntries())) {
+            return Optional.empty();
+        }
+        return Optional.of(new CapabilityVerifiedInternalServiceAuth(
+                InternalServiceAuthHeaders.CALLER_RUNTIME, normalizedSource, null, null));
+    }
+
     /** Runtime -> Capability Tool execution protocol (V2 canonical form + body identity binding). */
     public Optional<CapabilityVerifiedInternalServiceAuth> verifyToolExecution(
             String method, String path,

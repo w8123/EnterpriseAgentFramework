@@ -3,7 +3,9 @@ package com.enterprise.ai.control.platform;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import lombok.Data;
+import lombok.ToString;
 
 import java.time.LocalDateTime;
 
@@ -21,6 +23,9 @@ public class PlatformEmbedSessionEntity {
     private String externalUserId;
     private String externalUserName;
     private String globalUserId;
+    @JsonIgnore
+    @ToString.Exclude
+    private String businessSessionId;
     private String pageKey;
     private String pageInstanceId;
     private String route;

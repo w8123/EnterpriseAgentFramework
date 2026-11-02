@@ -37,6 +37,7 @@ class RuntimeAgentWorkflowFreshnessPersistenceTest {
     private RuntimeAgentConfigVersionMapper versions;
     private final Map<String, Long> currentVersions = new HashMap<>();
     private final Map<Long, String> riskFloors = new HashMap<>();
+    private final Map<Long, String> businessRiskFloors = new HashMap<>();
     private Long initialActiveId;
 
     @BeforeEach
@@ -191,6 +192,28 @@ class RuntimeAgentWorkflowFreshnessPersistenceTest {
         assertEquals("ACTIVE", versions.selectById(initialActiveId).getStatus());
     }
 
+    @Test
+    void publishLatestRejectsBusinessMethodWriteDowngradedToRead() {
+        currentVersions.put("workflow_one", 200L);
+        businessRiskFloors.put(200L, "WRITE");
+        int before = countConfigs();
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> configs.publishLatestWorkflowVersions("agent-1", initialActiveId, "admin-ui"));
+        assertTrue(error.getMessage().contains("BUSINESS_METHOD_WORKFLOW_RISK_DOWNGRADE"));
+        assertEquals(before, countConfigs());
+        assertEquals(initialActiveId, agents.selectById("agent-1").getActiveConfigVersionId());
+    }
+
+    @Test
+    void savingWriteBindingCannotDowngradeAnIrreversibleBusinessMethod() {
+        businessRiskFloors.put(100L, "IRREVERSIBLE");
+        var write = new WorkflowToolRequest("workflow_one", "workflow_one", null, null, null,
+                "WRITE", "workflow:workflow_one", false, true, null);
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> configs.upsertWorkflowToolInDraft("agent-1", write));
+        assertTrue(error.getMessage().contains("BUSINESS_METHOD_WORKFLOW_RISK_DOWNGRADE"));
+    }
+
     private int countConfigs() {
         return database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_agent_config_version", Integer.class);
     }
@@ -204,7 +227,7 @@ class RuntimeAgentWorkflowFreshnessPersistenceTest {
         return new RuntimeWorkflowToolCatalogQuery.Entry(
                 new RuntimeWorkflowToolCatalogQuery.Workflow(id, id, id, "Description", true),
                 new RuntimeWorkflowToolCatalogQuery.Version(versionId, "v" + versionId, true, "{}", "{}",
-                        riskFloors.get(versionId)));
+                        riskFloors.get(versionId), businessRiskFloors.get(versionId)));
     }
 
     @SuppressWarnings("unchecked")

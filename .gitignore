@@ -68,6 +68,9 @@ Thumbs.db
 # ---- Environment / Secrets ----
 .env
 .env.local
+# 本机配置和 dev.sh 的运行目录（含自动生成的密钥）
+reachai.env
+.reachai/
 .env.*.local
 **/application-local.yml
 **/application-secret.yml
@@ -94,3 +97,6 @@ OtherOutstandingProjects/
 
 # ---- Local runtime data (knowledge artifacts etc.) ----
 /data/
+
+# Open-source export exclusions (managed by sync-open-source.mjs).
+/reachai-website/

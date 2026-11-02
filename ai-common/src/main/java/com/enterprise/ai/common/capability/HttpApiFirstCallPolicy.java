@@ -6,8 +6,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -18,6 +20,8 @@ import java.util.regex.Pattern;
 public final class HttpApiFirstCallPolicy {
     private static final Pattern ROUTE_PARAMETER = Pattern.compile("\\{([A-Za-z][A-Za-z0-9_.-]*)}");
     private static final int MAX_PARAM_LENGTH = 2048;
+    private static final int MAX_ARRAY_ITEMS = 32;
+    private static final Set<String> SCALAR_TYPES = Set.of("string", "integer", "number", "boolean");
     private HttpApiFirstCallPolicy() { }
 
     public static String unsupportedReason(JsonNode contract) {
@@ -58,13 +62,15 @@ public final class HttpApiFirstCallPolicy {
             String location = parameter.path("location").asText();
             String name = parameter.path("name").asText();
             if (!Set.of("PATH", "QUERY").contains(location)) return "首批仅支持 path/query 参数";
-            if (name.isBlank() || !Set.of("string", "integer", "number", "boolean")
-                    .contains(parameter.path("schema").path("type").asText())) {
+            JsonNode schema = parameter.path("schema");
+            boolean queryArray = "QUERY".equals(location) && "array".equals(schema.path("type").asText());
+            JsonNode valueSchema = queryArray ? schema.path("items") : schema;
+            if (name.isBlank() || !SCALAR_TYPES.contains(valueSchema.path("type").asText())) {
                 return "首批仅支持有明确类型的标量参数";
             }
             // Do not run a source-provided regex on a request thread. Java regex can be
             // catastrophic even for short input; later batches can add a bounded engine.
-            if (parameter.path("schema").has("pattern")) return "首批不支持正则参数约束";
+            if (schema.has("pattern") || valueSchema.has("pattern")) return "首批不支持正则参数约束";
             if ("PATH".equals(location)) declaredPath.add(name);
         }
         Matcher matcher = ROUTE_PARAMETER.matcher(route);
@@ -160,7 +166,9 @@ public final class HttpApiFirstCallPolicy {
                 }
                 continue;
             }
-            String normalized = scalar(value, parameter.path("schema"), name, mapper);
+            String normalized = !isPath && "array".equals(parameter.path("schema").path("type").asText())
+                    ? commaJoined(value, parameter.path("schema").path("items"), name, mapper)
+                    : scalar(value, parameter.path("schema"), name, mapper);
             if (isPath) boundPath.put(name, normalized); else boundQuery.put(name, normalized);
         }
         if (!declaredPath.containsAll(path.keySet()) || !declaredQuery.containsAll(query.keySet())) {
@@ -175,6 +183,23 @@ public final class HttpApiFirstCallPolicy {
             throw new IllegalArgumentException("路径参数尚未填全");
         }
         return new BoundRequest(route, Map.copyOf(boundQuery));
+    }
+
+    // Spring binds "a,b" to an array or list query parameter (for example 芋道 createTime[]).
+    static String commaJoined(Object value, JsonNode items, String name, ObjectMapper mapper) {
+        if (!(value instanceof List<?> list) || list.isEmpty() || list.size() > MAX_ARRAY_ITEMS) {
+            throw new IllegalArgumentException("参数类型错误：" + name + "（需要 1 到 " + MAX_ARRAY_ITEMS + " 个值的数组）");
+        }
+        List<String> parts = new ArrayList<>(list.size());
+        for (Object item : list) {
+            if (item == null) throw new IllegalArgumentException("参数类型错误：" + name);
+            String part = scalar(item, items, name, mapper);
+            if (part.indexOf(',') >= 0) throw new IllegalArgumentException("数组参数的值不能包含逗号：" + name);
+            parts.add(part);
+        }
+        String joined = String.join(",", parts);
+        if (joined.length() > MAX_PARAM_LENGTH) throw new IllegalArgumentException("参数包含不可用字符或过长：" + name);
+        return joined;
     }
 
     static String scalar(Object value, JsonNode schema, String name, ObjectMapper mapper) {

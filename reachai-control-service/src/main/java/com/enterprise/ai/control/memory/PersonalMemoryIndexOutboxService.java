@@ -75,6 +75,9 @@ public class PersonalMemoryIndexOutboxService {
         payload.put("memoryId", memoryId);
         payload.put("tenantId", principal.tenantId());
         payload.put("runtimeUserId", principal.runtimeUserId());
+        if (!PersonalMemoryPrincipal.LEGACY_DOMAIN.equals(principal.ownerDomain())) {
+            payload.put("ownerDomain", principal.ownerDomain());
+        }
         return payload;
     }
 

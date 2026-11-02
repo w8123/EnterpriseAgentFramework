@@ -355,8 +355,6 @@ import {
   Collection,
   Connection,
   DataLine,
-  Refresh,
-  RefreshLeft,
   Search,
   TopRight,
   TrendCharts,
@@ -419,7 +417,6 @@ const tabs = [
 ]
 
 const activeTab = computed(() => apiMarketTab(route.query.marketTab))
-const refreshing = ref(false)
 const loadingEntries = ref(false)
 const loadingIntegrations = ref(false)
 const loadingChanges = ref(false)
@@ -471,10 +468,6 @@ const integrationBlocker = computed(() => {
       || !operation.responseStatus || operation.responseStatus < 200 || operation.responseStatus >= 300) return '目录尚未声明受支持的响应媒体和成功状态，请先补齐来源事实'
   return ''
 })
-
-const hasActiveFilters = computed(() => Boolean(
-  filters.keyword || filters.verificationStatus || filters.source,
-))
 
 onMounted(async () => {
   await Promise.allSettled([
@@ -552,23 +545,6 @@ async function loadChanges() {
 
 function switchTab(tab: ApiMarketTab) {
   void router.push(apiMarketLocation(tab, route.query, undefined, route.hash))
-}
-
-async function refreshCurrentTab() {
-  refreshing.value = true
-  try {
-    if (activeTab.value === 'discover') {
-      await Promise.all([loadEntries(), loadStats()])
-    } else if (activeTab.value === 'integrations') {
-      await Promise.all([loadIntegrations(), loadStats()])
-    } else if (activeTab.value === 'changes') {
-      await loadChanges()
-    } else {
-      await loadSources()
-    }
-  } finally {
-    refreshing.value = false
-  }
 }
 
 function applyFilters() {

@@ -478,6 +478,19 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
     public void beginWorkflowTrial(String traceId, String rootSpanId,
                                    RuntimeRunSnapshots.Workflow workflow, Map<String, Object> safeInput,
                                    WorkflowExecutionIdentity identity, Map<String, Object> audit) {
+        beginWorkflowTrial(traceId, rootSpanId, workflow, safeInput, identity, audit, false);
+    }
+
+    /** Platform AI must persist and uniquely claim the trace before dispatching any node. */
+    public void beginPlatformAiWorkflowTrial(String traceId, String rootSpanId,
+                                             RuntimeRunSnapshots.Workflow workflow, Map<String, Object> safeInput,
+                                             WorkflowExecutionIdentity identity, Map<String, Object> audit) {
+        beginWorkflowTrial(traceId, rootSpanId, workflow, safeInput, identity, audit, true);
+    }
+
+    private void beginWorkflowTrial(String traceId, String rootSpanId,
+                                    RuntimeRunSnapshots.Workflow workflow, Map<String, Object> safeInput,
+                                    WorkflowExecutionIdentity identity, Map<String, Object> audit, boolean requireClaim) {
         if (identity == null || identity.source() != WorkflowExecutionIdentity.Source.STUDIO_PROJECT_TEST
                 || !identity.authorizeProjectCredential(workflow.projectId(), workflow.projectCode())) {
             throw new IllegalArgumentException("HTTP_API_TRIAL_IDENTITY_INVALID");
@@ -501,7 +514,22 @@ public class RuntimeRunLifecycleService implements RuntimeAgentRunLifecyclePort 
         snapshot.put("workflowId", trim(workflow.workflowId()));
         if (audit != null) snapshot.putAll(audit);
         run.setSnapshotJson(json(snapshot));
-        insert(run, "begin Studio read-only trial run");
+        if (!requireClaim) {
+            insert(run, "begin Studio read-only trial run");
+            return;
+        }
+        try {
+            if (runMapper.insert(run) != 1 || run.getId() == null) throw new IllegalStateException("trial claim was not persisted");
+        } catch (DuplicateKeyException duplicate) {
+            throw new PlatformTrialAlreadyClaimedException();
+        } catch (RuntimeException unavailable) {
+            throw new PlatformTrialClaimUnavailableException(unavailable);
+        }
+    }
+
+    public static final class PlatformTrialAlreadyClaimedException extends RuntimeException { }
+    public static final class PlatformTrialClaimUnavailableException extends RuntimeException {
+        public PlatformTrialClaimUnavailableException(Throwable cause) { super(cause); }
     }
 
     /** Begins a non-Studio Workflow run against one immutable published version. */

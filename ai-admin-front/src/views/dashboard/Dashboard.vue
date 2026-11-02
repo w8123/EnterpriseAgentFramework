@@ -137,6 +137,7 @@ import { getAgentStatistics, listAgents, listWorkflows } from '@/api/workflow'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { filterSidebarMenu, sidebarMenu } from '@/components/common/sidebarMenu'
 import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
+import { useSidebarWorkspace } from '@/composables/useSidebarWorkspace'
 import {
   PLATFORM_PERMISSION_AGENT_READ,
   PLATFORM_PERMISSION_RUNOPS_READ,
@@ -182,7 +183,12 @@ interface InternalServicesHealthResponse {
 }
 
 const router = useRouter()
-const repository = createDashboardLayoutLocalRepository(() => platformSessionUser.value?.userId)
+const { currentWorkspace } = useSidebarWorkspace()
+const repository = createDashboardLayoutLocalRepository(
+  () => platformSessionUser.value?.userId,
+  // 只按内置角色的工作台分开保存；「全部功能」和「我的」沿用账号自己的布局。
+  () => (currentWorkspace.value.roleCode ? currentWorkspace.value.key : undefined),
+)
 
 const projects = ref<DashboardDomainState<ScanProject[]>>({ status: 'loading', data: [] })
 const agents = ref<DashboardDomainState<Agent[]>>({ status: 'loading', data: [] })
@@ -231,9 +237,15 @@ const availableTasks = computed(() => filterSidebarMenu(sidebarMenu, platformSes
   .filter(entry => entry.kind === 'item')
   .filter(entry => ['/business-capabilities', '/workflows'].includes(entry.index)))
 
-const editor = useDashboardLayoutEditor({ repository, fallback: () => defaultConsoleLayoutFor(platformSessionUser.value?.permissions ?? [], platformSessionUser.value?.roles ?? []) })
+// 默认快捷入口优先按当前身份挑选，其余角色作为回退。
+const workspaceRoles = computed(() => {
+  const roles = platformSessionUser.value?.roles ?? []
+  const current = currentWorkspace.value.roleCode
+  return current ? [current, ...roles.filter(role => role !== current)] : roles
+})
+const editor = useDashboardLayoutEditor({ repository, fallback: () => defaultConsoleLayoutFor(platformSessionUser.value?.permissions ?? [], workspaceRoles.value) })
 editor.initialize()
-watch(() => platformSessionUser.value?.userId, () => editor.initialize())
+watch(() => [platformSessionUser.value?.userId, currentWorkspace.value.key], () => editor.initialize())
 const visibleLayout = computed(() => overviewDenied.value ? {
   ...editor.layoutForRender.value,
   items: editor.layoutForRender.value.items.filter(item => item.widgetKey === SHORTCUT_WIDGET_KEY),
@@ -645,9 +657,6 @@ const dataWarning = computed(() => {
   if (failedDomains.value.length) warnings.push(`部分数据暂不可用：${failedDomains.value.join('、')}`)
   if (runs.value.status === 'ready' && runs.value.data.length >= DASHBOARD_SAMPLE_LIMIT) {
     warnings.push(`运行记录达到 ${DASHBOARD_SAMPLE_LIMIT} 条接口上限，当前页面仅代表最近样本`)
-  }
-  if (workflows.value.status === 'ready' && workflows.value.data.length === 0) {
-    warnings.push('尚未创建 Workflow')
   }
   return warnings.join('；')
 })

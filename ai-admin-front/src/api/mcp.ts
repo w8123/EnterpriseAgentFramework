@@ -1,5 +1,6 @@
 import { controlRequest } from './request'
 import type {
+  AiUsageReport,
   McpWriteApproval,
   McpWriteApprovalPage,
   McpCallLogEntry,
@@ -161,6 +162,13 @@ export function listMcpEmployeeConnections(params?: {
 
 export function revokeMcpEmployeeConnection(id: number) {
   return controlRequest.post<McpEmployeeConnection>(`${ROOT}/employee-connections/${id}/revoke`)
+}
+
+// ===== AI 使用情况 =====
+
+/** 管理人员看员工的 AI 使用情况：按人、按 AI 工具、办了哪些事、写操作审批。 */
+export function getAiUsageReport(params?: { days?: number; projectCode?: string }, signal?: AbortSignal) {
+  return controlRequest.get<AiUsageReport>(`${ROOT}/usage`, { params, signal, errorFeedback: 'local' })
 }
 
 // ===== 写操作审批（员工 AI 工具发起的写操作） =====

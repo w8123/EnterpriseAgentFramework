@@ -210,6 +210,18 @@ class PlatformAccountRoleControllerTest {
         verify(fixture.auditEventMapper).selectList(any());
     }
 
+    @Test
+    void revokingAllSessionsAlsoRevokesTheUsersAiConnections() {
+        Fixture fixture = fixture();
+        when(fixture.userMapper.selectById(7L)).thenReturn(user(7L, "operator"));
+        when(fixture.sessionMapper.update(any(), any())).thenReturn(2);
+
+        var response = fixture.controller.revokeUserSessions(new MockHttpServletRequest(), 7L);
+
+        assertEquals(2, response.getBody().revokedSessions());
+        verify(fixture.aiConnections).revokeForUser(7L);
+    }
+
     private Fixture fixture() {
         PlatformUserMapper userMapper = mock(PlatformUserMapper.class);
         PlatformRoleMapper roleMapper = mock(PlatformRoleMapper.class);
@@ -217,6 +229,7 @@ class PlatformAccountRoleControllerTest {
         PlatformPermissionMapper permissionMapper = mock(PlatformPermissionMapper.class);
         PlatformRolePermissionMapper rolePermissionMapper = mock(PlatformRolePermissionMapper.class);
         PlatformLoginSessionMapper sessionMapper = mock(PlatformLoginSessionMapper.class);
+        PlatformAiConnectionService aiConnections = mock(PlatformAiConnectionService.class);
         PlatformAuthAuditEventMapper auditEventMapper = mock(PlatformAuthAuditEventMapper.class);
         PlatformRequestAuthorization requestAuthorization = mock(PlatformRequestAuthorization.class);
         PlatformAuthAuditService auditService = mock(PlatformAuthAuditService.class);
@@ -232,13 +245,14 @@ class PlatformAccountRoleControllerTest {
                 permissionMapper,
                 rolePermissionMapper,
                 sessionMapper,
+                aiConnections,
                 auditEventMapper,
                 requestAuthorization,
                 auditService,
                 passwordEncoder,
                 projectClient);
         return new Fixture(controller, userMapper, roleMapper, userRoleMapper, permissionMapper,
-                rolePermissionMapper, sessionMapper, auditEventMapper, auditService,
+                rolePermissionMapper, sessionMapper, aiConnections, auditEventMapper, auditService,
                 passwordEncoder, projectClient);
     }
 
@@ -311,6 +325,7 @@ class PlatformAccountRoleControllerTest {
             PlatformPermissionMapper permissionMapper,
             PlatformRolePermissionMapper rolePermissionMapper,
             PlatformLoginSessionMapper sessionMapper,
+            PlatformAiConnectionService aiConnections,
             PlatformAuthAuditEventMapper auditEventMapper,
             PlatformAuthAuditService auditService,
             PasswordEncoder passwordEncoder,

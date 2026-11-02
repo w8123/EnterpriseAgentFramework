@@ -4,7 +4,6 @@ import type {
   KnowledgeBaseForm,
   FileInfo,
   ChunkDetail,
-  KbConfig,
   RetrievalTestRequest,
   RetrievalTestResponse,
   KnowledgeStats,
@@ -19,16 +18,30 @@ import type { DocumentImportJob } from '@/types/import'
 
 // ==================== 知识库 CRUD ====================
 
+export interface KnowledgeSettingsContext {
+  contractVersion: 1
+  kbCode: string
+  knowledgeBaseId: number
+  revision: string
+  resource: { scope: string; workspaceId: string; projectCode?: string | null }
+  before: Partial<KnowledgeBase>
+}
+
+export function getKnowledgeSettingsContext(kbCode: string) {
+  return request.get<KnowledgeSettingsContext>(`/knowledge/kb/${encodeURIComponent(kbCode)}/settings-context`, { errorFeedback: 'local' })
+}
+
+export function saveKnowledgeSettings(kbCode: string, baseRevision: string, changes: Record<string, unknown>) {
+  return request.put<KnowledgeSettingsContext>(`/knowledge/kb/${encodeURIComponent(kbCode)}/settings-if-unchanged`,
+    { baseRevision, changes }, { errorFeedback: 'local' })
+}
+
 export function getKnowledgeList() {
   return request.get<ApiResult<KnowledgeBase[]>>('/knowledge/base/list')
 }
 
 export function createKnowledge(data: KnowledgeBaseForm) {
   return request.post<ApiResult<void>>('/knowledge/base', data)
-}
-
-export function updateKnowledge(data: KnowledgeBaseForm) {
-  return request.put<ApiResult<void>>('/knowledge/base', data)
 }
 
 export function deleteKnowledge(code: string) {
@@ -39,10 +52,6 @@ export function deleteKnowledge(code: string) {
 
 export function getKbFiles(kbCode: string) {
   return request.get<ApiResult<FileInfo[]>>(`/knowledge/kb/${kbCode}/files`)
-}
-
-export function updateKbConfig(kbCode: string, data: KbConfig) {
-  return request.put<ApiResult<void>>(`/knowledge/kb/${kbCode}/config`, data)
 }
 
 export function getKnowledgeStats(kbCode: string) {
@@ -67,18 +76,20 @@ export function getFileChunks(fileId: string) {
   return request.get<ApiResult<ChunkDetail[]>>(`/file/${fileId}/chunks`)
 }
 
-export function updateChunk(chunkId: number, data: ChunkUpdateForm) {
-  return request.put<ApiResult<ChunkDetail>>(`/knowledge/chunks/${chunkId}`, data)
+// fileId lets Control check knowledge write on the chunk's own knowledge base before forwarding.
+export function updateChunk(fileId: string, chunkId: number, data: ChunkUpdateForm) {
+  return request.put<ApiResult<ChunkDetail>>(`/knowledge/chunks/${chunkId}`, data, { params: { fileId } })
 }
 
-export function toggleChunk(chunkId: number, enabled: number) {
+export function toggleChunk(fileId: string, chunkId: number, enabled: number) {
   return request.post<ApiResult<ChunkDetail>>(`/knowledge/chunks/${chunkId}/toggle`, null, {
-    params: { enabled },
+    params: { enabled, fileId },
   })
 }
 
-export function reembedChunk(chunkId: number) {
+export function reembedChunk(fileId: string, chunkId: number) {
   return request.post<ApiResult<void>>(`/knowledge/chunks/${chunkId}/reembed`, null, {
+    params: { fileId },
     timeout: 120000,
   })
 }
@@ -121,4 +132,17 @@ export function attachKnowledgeToAgent(agentId: string, data: {
 }) {
   return controlRequest.post<KnowledgeQaAttachResult>(
     `/api/agents/${encodeURIComponent(agentId)}/knowledge-qa`, data, { timeout: 60000 })
+}
+
+export interface KnowledgeDependencyState {
+  enabled: boolean
+  address: string
+  reachable: boolean
+}
+
+/** Milvus / Docling 当前是否可用；没有装时页面提前说明哪些功能暂时用不了。 */
+export function getKnowledgeDependencies() {
+  return request.get<Record<'milvus' | 'docling', KnowledgeDependencyState>>('/knowledge/dependencies', {
+    errorFeedback: 'local',
+  })
 }

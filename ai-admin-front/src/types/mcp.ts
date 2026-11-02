@@ -286,3 +286,91 @@ export interface McpWriteApprovalPage {
   limit: number
   offset: number
 }
+
+// ===== AI 使用情况（管理人员：谁、用什么 AI 工具、办了哪些事） =====
+
+/** EMBED 为业务系统里的 AI 对话，其余为员工自己的 AI 工具。 */
+export type AiUsageChannel = 'EMBED' | 'CLAUDE_CODE' | 'CODEX' | 'OTHER'
+
+export interface AiUsageApprovalCounts {
+  submitted: number
+  succeeded: number
+  failed: number
+  rejected: number
+  /** 含正在执行的审批。 */
+  pending: number
+  expired: number
+}
+
+export interface AiUsageOperation {
+  projectCode: string
+  systemName: string
+  toolName: string
+  /** 这件事用中文怎么说（工具说明），没有时为工具名。 */
+  label: string
+  calls: number
+  failed: number
+  writes: number
+  people: number
+}
+
+export interface AiUsagePerson {
+  key: string
+  name: string
+  businessUserId: number | null
+  accounts: string[]
+  channels: AiUsageChannel[]
+  systems: string[]
+  connectionIds: number[]
+  embedRuns: number
+  embedSessions: number
+  embedFailed: number
+  toolCalls: number
+  toolFailed: number
+  approvals: AiUsageApprovalCounts
+  lastActiveAt: string | null
+  topOperations: AiUsageOperation[]
+}
+
+export interface AiUsageChannelRow {
+  channel: AiUsageChannel
+  people: number
+  uses: number
+  failed: number
+  approvals: AiUsageApprovalCounts
+}
+
+export interface AiUsageSkill {
+  skillId: number
+  name: string
+  displayName: string | null
+  version: string
+  status: string
+  projectCode: string | null
+  systemName: string
+  createdBy: string | null
+  createdAt: string | null
+}
+
+export interface AiUsageReport {
+  days: number
+  since: string
+  projectCode: string | null
+  summary: {
+    activePeople: number
+    embedRuns: number
+    embedSessions: number
+    toolCalls: number
+    toolFailedCalls: number
+    activeConnections: number
+    approvals: AiUsageApprovalCounts
+    capturedSkills: number
+  }
+  channels: AiUsageChannelRow[]
+  people: AiUsagePerson[]
+  operations: AiUsageOperation[]
+  skills: AiUsageSkill[]
+  systems: { projectCode: string; name: string }[]
+  embedIncluded: boolean
+  embedNotice: string | null
+}

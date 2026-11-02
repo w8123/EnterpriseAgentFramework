@@ -73,4 +73,12 @@ public interface RuntimeConversationSessionMapper extends BaseMapper<RuntimeConv
     long countOwnerSessions(
             @Param("tenantId") String tenantId,
             @Param("runtimeUserId") String runtimeUserId);
+
+    @Select("""
+            SELECT COUNT(*) FROM runtime_conversation_session s
+            WHERE s.tenant_id = #{tenantId} AND s.user_id = #{runtimeUserId}
+              AND s.identity_source IN ('EMBED_SESSION', 'MCP_EMPLOYEE')
+            """)
+    long countBusinessOwnerSessions(@Param("tenantId") String tenantId,
+                                    @Param("runtimeUserId") String runtimeUserId);
 }

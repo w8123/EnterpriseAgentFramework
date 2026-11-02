@@ -218,6 +218,37 @@ public class HttpApiConsoleController {
         }
     }
 
+    /** Internal preflight for a human-reviewed platform AI write; it uses the same owner and ACL as invoke. */
+    ResponseEntity<Object> platformAiWriteContext(HttpServletRequest request, long id) {
+        PlatformAuthenticatedSession session = authorization.requirePermission(request, PlatformPermissions.PLATFORM_READ);
+        authorization.requirePermission(request, PlatformPermissions.CAPABILITY_INVOKE);
+        OwnerResolution resolved = owner(id, actor(session), CatalogReadAuthorization.resourceBody(session, PlatformPermissions.PLATFORM_READ));
+        if (resolved.failure() != null) return resolved.failure();
+        Owner owner = resolved.owner();
+        ResponseEntity<Object> denied = invokePermission(request, session, owner.projectId(), owner.projectCode(), owner.qualifiedName());
+        if (denied != null) return denied;
+        if (!owner.sourceConfirmed() || !"ACCEPTED".equals(owner.sourceStatus())
+                || owner.acceptedHash() == null || !owner.acceptedHash().matches("[a-f0-9]{64}")
+                || !Objects.equals(owner.candidateHash(), owner.acceptedHash())
+                || owner.sourceSetRevision() == null || !owner.sourceSetRevision().matches("[a-f0-9]{64}")
+                || owner.sideEffect() == null || !Set.of("WRITE", "IDEMPOTENT_WRITE", "IRREVERSIBLE").contains(owner.sideEffect())) {
+            return error(HttpStatus.CONFLICT, "HTTP_API_CONTRACT_CHANGED", "API 写入来源或契约尚未确认");
+        }
+        if (!(resolved.response().getBody() instanceof Map<?, ?> body)
+                || !(body.get("acceptedContract") instanceof Map<?, ?> contract)
+                || !(contract.get("identity") instanceof Map<?, ?> identity)
+                || !(identity.get("method") instanceof String method)
+                || !(identity.get("routeTemplate") instanceof String route)
+                || HttpApiRequestPolicy.unsupportedReason(json.valueToTree(contract)) != null) {
+            return error(HttpStatus.CONFLICT, "HTTP_API_CONTRACT_CHANGED", "API 写入契约不受当前试调用支持");
+        }
+        return ResponseEntity.ok(Map.ofEntries(Map.entry("apiId", owner.id()), Map.entry("qualifiedName", owner.qualifiedName()),
+                Map.entry("projectId", owner.projectId()), Map.entry("projectCode", owner.projectCode()),
+                Map.entry("environment", owner.environment()), Map.entry("sideEffect", owner.sideEffect()),
+                Map.entry("httpMethod", method), Map.entry("routeTemplate", route),
+                Map.entry("acceptedContractHash", owner.acceptedHash()), Map.entry("sourceSetRevision", owner.sourceSetRevision())));
+    }
+
     @GetMapping("/api/api-invocations/{invocationId}")
     public ResponseEntity<Object> getInvocation(HttpServletRequest request, @PathVariable String invocationId,
                                                 @RequestParam String projectCode) {

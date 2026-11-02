@@ -15,10 +15,68 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class RuntimeWorkflowDebugServiceTest {
+
+    @Test
+    void trustedEmbedDebugPassesVerifiedIdentityToTheRealPageActionNode() {
+        var control = mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), new NoopCapabilityClient(), control);
+        var debug = new RuntimeWorkflowDebugService(workflowService, executor,
+                mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), mock(com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper.class)),
+                new ObjectMapper(), new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), new ObjectMapper()),
+                mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService.class));
+        var saved = new RuntimeWorkflowDefinitionEntity(); saved.setId("wf"); saved.setProjectId(7L);
+        saved.setProjectCode("orders"); saved.setWorkflowKind("PAGE_ASSISTANT"); saved.setExecutionEngine("GRAPH_SPEC");
+        when(workflowService.findById("wf")).thenReturn(Optional.of(saved));
+        String graph = """
+                {"schemaVersion":2,"entryNodeId":"page","exitNodeIds":["page"],"nodes":[{"id":"page","type":"PAGE_ACTION",
+                 "config":{"projectCode":"orders","pageKey":"orders.list","actionKey":"orders.open","confirm":true}}],"edges":[]}
+                """;
+        var request = new RuntimeWorkflowDebugService.DebugRunRequest("wf", "key", "name", "PAGE_ASSISTANT", "orders",
+                "GRAPH_SPEC", null, graph, null, "open", Map.of("sessionId", "embed-1", "agentId", "bot", "projectCode", "orders"), Map.of());
+        var identity = com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "orders", "Alice");
+        var result = debug.debugRunTrustedEmbed(request, identity);
+        assertTrue(result.success(), result.errorCode() + ": " + result.errorMessage());
+        var capture = org.mockito.ArgumentCaptor.forClass(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        org.mockito.Mockito.verify(control).executePageBridge(capture.capture());
+        assertEquals("tenant-a", capture.getValue().identityTenantId());
+        assertEquals("Alice", capture.getValue().identityUserId());
+        assertTrue(capture.getValue().confirmRequired());
+        var wrong = com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 8L, "other", "Alice");
+        assertThrows(IllegalArgumentException.class, () -> debug.debugRunTrustedEmbed(request, wrong));
+    }
+
+    @Test
+    void aDuplicatePlatformTrialNeverStartsTheGraphOrAnotherTrace() {
+        var executor = mock(RuntimeGraphSpecExecutor.class);
+        var lifecycle = mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class);
+        var roots = mock(com.enterprise.ai.runtime.trace.RuntimeTraceRootService.class);
+        var guarded = new RuntimeWorkflowDebugService(workflowService, executor, lifecycle,
+                mock(com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter.class), new ObjectMapper(),
+                new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()), roots,
+                mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService.class));
+        doThrow(new com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.PlatformTrialAlreadyClaimedException())
+                .when(lifecycle).beginPlatformAiWorkflowTrial(anyString(), anyString(), any(), anyMap(), any(), anyMap());
+        var definition = new RuntimeWorkflowDebugService.DebugDefinition("wf-1", "orders-flow", "订单流程", "GENERAL",
+                7L, "orders", "GRAPH_SPEC", null,
+                "{\"schemaVersion\":2,\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\"}],\"edges\":[],\"entryNodeId\":\"answer\",\"exitNodeIds\":[\"answer\"]}", null);
+        var actor = com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.fromAttestedStudioProjectTest(7L, "orders", "42");
+        var audit = new RuntimeWorkflowDebugService.TrialAudit("42", "r1", "a".repeat(64), List.of(), List.of(), "mcp-trial-" + "b".repeat(32));
+        assertThrows(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.PlatformTrialAlreadyClaimedException.class,
+                () -> guarded.runReadOnlyTrial(definition, "查询", Map.of(), actor, audit));
+        verifyNoInteractions(executor, roots);
+    }
 
     private final RuntimeWorkflowDefinitionService workflowService = mock(RuntimeWorkflowDefinitionService.class);
     private final RuntimeWorkflowDebugService service = new RuntimeWorkflowDebugService(

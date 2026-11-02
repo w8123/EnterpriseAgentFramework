@@ -29,8 +29,8 @@ public class CapabilityScanRevisionService {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             add(digest, project.getId(), project.getProjectCode(), project.getEnvironment(), project.getName(),
-                    project.getProjectKind(), project.getBaseUrl(), project.getContextPath(), project.getScanPath(),
-                    project.getScanType(), project.getSpecFile(), project.getScanSettings(), project.getStatus(),
+                    project.getProjectKind(), project.getBaseUrl(), project.getContextPath(),
+                    project.getSpecFile(), project.getOpenapiDocumentSha256(), project.getScanSettings(), project.getStatus(),
                     project.getLastScannedAt(), project.getUpdateTime(), project.getAuthType(), project.getAuthApiKeyIn(),
                     project.getAuthApiKeyName(), project.getAuthApiKeyValue());
             for (var row : observations.selectList(Wrappers.<ScanProjectToolEntity>lambdaQuery()

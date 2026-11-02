@@ -72,8 +72,8 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
         if (!StringUtils.hasText(request.modelInstanceId())) {
             String authoringId = UUID.randomUUID().toString();
             log.warn("Workflow authoring rejected: authoringId={}, failureCode=MODEL_INSTANCE_REQUIRED", authoringId);
-            return failed(null, authoringId, "modelInstanceId is required", "MODEL_INSTANCE_REQUIRED", 0,
-                    List.of("modelInstanceId is required"));
+            return failed(null, authoringId, "还没有选择模型，请先到模型中心添加并测试一个对话模型", "MODEL_INSTANCE_REQUIRED", 0,
+                    List.of("还没有选择模型，请先到模型中心添加并测试一个对话模型"));
         }
 
         WorkflowAuthoringSession session = new WorkflowAuthoringSession(request, objectMapper, mutationService);

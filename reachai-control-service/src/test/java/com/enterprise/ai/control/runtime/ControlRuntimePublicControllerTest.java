@@ -115,7 +115,7 @@ class ControlRuntimePublicControllerTest {
         Method validateWorkflowAiCodingPageAssistant = ControlRuntimePublicController.class
                 .getDeclaredMethod("validateWorkflowAiCodingPageAssistant", String.class, Map.class);
         Method smokeTestWorkflowAiCodingPageAssistant = ControlRuntimePublicController.class
-                .getDeclaredMethod("smokeTestWorkflowAiCodingPageAssistant", String.class, Map.class);
+                .getDeclaredMethod("smokeTestWorkflowAiCodingPageAssistant", String.class, Map.class, String.class);
         Method listWorkflowVersions = ControlRuntimePublicController.class
                 .getDeclaredMethod("listWorkflowVersions", String.class);
         Method publishWorkflowVersion = ControlRuntimePublicController.class
@@ -856,7 +856,10 @@ class ControlRuntimePublicControllerTest {
         assertEquals(pending, controller.workflowAiCodingRunDetail("wf-1", "trace-1"));
         assertEquals(pending, controller.workflowAiCodingPageAssistantCatalog("wf-1"));
         assertEquals(pending, controller.validateWorkflowAiCodingPageAssistant("wf-1", request));
-        assertEquals(pending, controller.smokeTestWorkflowAiCodingPageAssistant("wf-1", request));
+        var smokeAccess = mock(RuntimeManagementAccess.class);
+        controller.setRuntimeManagementAccess(smokeAccess);
+        when(runtimeProxyClient.getWorkflow("wf-1")).thenReturn(ResponseEntity.ok(Map.of("projectCode", "orders")));
+        assertEquals(pending, controller.smokeTestWorkflowAiCodingPageAssistant("wf-1", request, null));
         verify(runtimeProxyClient).createWorkflowAiCodingWorkflow(request);
         verify(aiCodingAccessGuard).requireWorkflowCreateAccess(request, "rac_secret");
         verify(runtimeProxyClient).workflowAiCodingContext("wf-1");
@@ -901,24 +904,44 @@ class ControlRuntimePublicControllerTest {
     }
 
     @Test
-    void delegatesPageAssistantWorkflowAttachmentToRuntimeService() {
+    void pageAssistantSyncUsesTheWorkflowProjectAndTheSessionActor() {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
-        Map<String, Object> request = Map.of(
-                "projectCode", "orders",
-                "agentId", "agent-1",
-                "pageKey", "orders.list");
-        ResponseEntity<Object> delegated = ResponseEntity.ok(Map.of(
-                "agentId", "agent-1",
-                "workflowId", "wf-1",
-                "toolName", "orders_page_assistant",
-                "configStatus", "ACTIVE"));
-        when(runtimeProxyClient.attachPageAssistantWorkflowTool("wf-1", request)).thenReturn(delegated);
+        RuntimeManagementAccess access = mock(RuntimeManagementAccess.class);
+        RuntimePageAssistantAttachmentGateway gateway = mock(RuntimePageAssistantAttachmentGateway.class);
+        controller.setRuntimeManagementAccess(access);
+        controller.setPageAssistantAttachmentGateway(gateway);
+        var session = mock(com.enterprise.ai.control.identity.PlatformAuthenticatedSession.class);
+        when(access.require(com.enterprise.ai.control.identity.PlatformPermissions.WORKFLOW_WRITE)).thenReturn(session);
+        ResponseEntity<Object> workflow = ResponseEntity.ok(Map.of("id", "wf-1", "projectId", 7, "projectCode", "orders"));
+        when(runtimeProxyClient.getWorkflow("wf-1")).thenReturn(workflow);
+        Map<String, Object> request = Map.of("baseRevision", "a".repeat(64));
+        ResponseEntity<Object> attached = ResponseEntity.ok(Map.of("workflowId", "wf-1", "published", true));
+        ResponseEntity<Object> context = ResponseEntity.ok(Map.of("workflowId", "wf-1"));
+        when(gateway.attach("wf-1", 7L, "orders", request, session)).thenReturn(attached);
+        when(gateway.context("wf-1", 7L, "orders", session)).thenReturn(context);
 
-        ResponseEntity<Object> attachment = controller.attachPageAssistantWorkflowTool("wf-1", request);
+        assertEquals(attached, controller.attachPageAssistantWorkflowTool("wf-1", request));
+        assertEquals(context.getBody(), controller.pageAssistantAttachContext("wf-1").getBody());
 
-        assertEquals(delegated, attachment);
-        verify(runtimeProxyClient).attachPageAssistantWorkflowTool("wf-1", request);
+        verify(access, times(2)).requireResponseProject(session, com.enterprise.ai.control.identity.PlatformPermissions.WORKFLOW_WRITE, workflow);
+        verify(runtimeProxyClient, never()).attachPageAssistantWorkflowToolSigned(any(), any(), any());
+    }
+
+    @Test
+    void pageAssistantSyncRejectsAWorkflowWithoutProject() {
+        RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
+        ControlRuntimePublicController controller = new ControlRuntimePublicController(runtimeProxyClient);
+        RuntimeManagementAccess access = mock(RuntimeManagementAccess.class);
+        RuntimePageAssistantAttachmentGateway gateway = mock(RuntimePageAssistantAttachmentGateway.class);
+        controller.setRuntimeManagementAccess(access);
+        controller.setPageAssistantAttachmentGateway(gateway);
+        when(runtimeProxyClient.getWorkflow("wf-1")).thenReturn(ResponseEntity.ok(Map.of("id", "wf-1")));
+
+        var failure = org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.attachPageAssistantWorkflowTool("wf-1", Map.of("createTarget", true)));
+        assertEquals(HttpStatus.CONFLICT, failure.getStatusCode());
+        org.mockito.Mockito.verifyNoInteractions(gateway);
     }
 
     @Test

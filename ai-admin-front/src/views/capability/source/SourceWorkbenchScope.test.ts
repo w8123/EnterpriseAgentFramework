@@ -22,7 +22,7 @@ async function setupScope(workspace = 'sources') {
   markPlatformSessionAuthenticated({ sessionId: 'source-scope-fixture', expiresAt: '2030-01-01T00:00:00.000Z', principal: {
     userId: 7, username: 'source-fixture', permissionGrants: [{ permissionCode: PLATFORM_PERMISSION_READ, scopeType: 'PROJECT', scopeValue: 'orders' }] } })
   acknowledgePlatformExplorationNotice()
-  const project = { id: 7, projectCode: 'orders', projectKind: 'REGISTERED', name: '订单', baseUrl: '', contextPath: '', scanPath: '', scanType: 'auto', toolCount: 105, status: 'created' }
+  const project = { id: 7, projectCode: 'orders', projectKind: 'REGISTERED', name: '订单', baseUrl: '', contextPath: '', toolCount: 105, status: 'created' }
   api.projects.mockResolvedValue({ data: [project] }); api.project.mockResolvedValue({ data: project })
   api.page.mockImplementation(async (_owner: number, query: any) => ({ data: { records: [{ projectId: 7, scanToolId: query.current * 20, name: '订单来源' }],
     total: 105, current: query.current, size: 20, stats: { total: 105, removed: 0 }, modules: [] } }))

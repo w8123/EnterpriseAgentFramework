@@ -84,7 +84,10 @@ export async function dispatchPageActionExactlyOnce(options: {
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
+  isActive?: () => boolean
+  signal?: AbortSignal
 }): Promise<void> {
+  if (options.isActive?.() === false) return
   const normalized = normalizePageActionRequest(options.request, pageKeyFromMetadata(options.responseMetadata))
   if (!normalized?.requestId) return
   const requestId = normalized.requestId
@@ -111,16 +114,17 @@ export async function dispatchPageActionExactlyOnce(options: {
     // 先认领，防止并发第二进入 Bridge
     options.handledPageActions.add(requestId)
     options.onRequested?.(normalized)
+    let claimAttempted = false
+    let claimed = false
     try {
       let executionRejected = false
-      let claimAttempted = false
-      let claimed = false
       const beforeExecute: PageActionBeforeExecute = async () => {
+        if (options.isActive?.() === false) { executionRejected = true; return false }
         if (claimAttempted) return claimed
         claimAttempted = true
         claimed = await claimPageActionWithRefresh(options, normalized)
-        executionRejected = !claimed
-        return claimed
+        executionRejected = !claimed || options.isActive?.() === false
+        return !executionRejected
       }
       const result = await runPageActionBridge(
         normalized,
@@ -128,7 +132,10 @@ export async function dispatchPageActionExactlyOnce(options: {
         options.responseMetadata,
         new Set(), // 已认领，内部不再二次 gated
         beforeExecute,
+        options.isActive,
+        options.signal,
       )
+      if (options.isActive?.() === false) return
       if (!result) return
       if (executionRejected) {
         options.onError?.(new Error(`Page action request expired before execution: ${normalized.actionKey}`))
@@ -148,7 +155,13 @@ export async function dispatchPageActionExactlyOnce(options: {
       }
       options.pendingPageActionResults?.delete(requestId)
     } catch (error) {
-      options.onError?.(error)
+      // A failed claim may never have reached Control. Let a later delivery
+      // retry; if Control did receive it, its atomic claim returns 409 and
+      // the handler still cannot run a second time.
+      if (claimAttempted && !claimed && options.isActive?.() !== false) {
+        options.handledPageActions.delete(requestId)
+      }
+      if (options.isActive?.() !== false) options.onError?.(error)
     }
   })()
 
@@ -167,6 +180,7 @@ async function claimPageActionWithRefresh(
     token: string
     refreshToken?: () => Promise<string>
     fetchImpl?: typeof fetch
+    signal?: AbortSignal
   },
   request: PageActionDispatchRequest,
 ): Promise<boolean> {
@@ -178,6 +192,7 @@ async function claimPageActionWithRefresh(
       token,
       request,
       options.fetchImpl,
+      options.signal,
     )
   } catch (error) {
     if (hasStatus(error, 409)) return false
@@ -190,6 +205,7 @@ async function claimPageActionWithRefresh(
         token,
         request,
         options.fetchImpl,
+        options.signal,
       )
     } catch (retryError) {
       if (hasStatus(retryError, 409)) return false
@@ -205,6 +221,7 @@ async function deliverPageActionResult(
     token: string
     refreshToken?: () => Promise<string>
     fetchImpl?: typeof fetch
+    signal?: AbortSignal
   },
   result: PageActionResult,
 ) {
@@ -216,6 +233,7 @@ async function deliverPageActionResult(
       token,
       result,
       options.fetchImpl,
+      options.signal,
     )
   } catch (error) {
     if (!isUnauthorized(error) || !options.refreshToken) throw error
@@ -226,6 +244,7 @@ async function deliverPageActionResult(
       token,
       result,
       options.fetchImpl,
+      options.signal,
     )
   }
 }
@@ -236,27 +255,19 @@ async function runPageActionBridge(
   responseMetadata: Record<string, unknown> | undefined,
   handledPageActions: Set<string>,
   beforeExecute?: PageActionBeforeExecute,
+  isActive?: () => boolean,
+  signal?: AbortSignal,
 ): Promise<PageActionResult | null> {
-  const result = await bridge.handleEvent(normalized, { beforeExecute })
-  if (result && result.status !== 'ACTION_NOT_FOUND') {
-    handledPageActions.add(normalized.requestId)
-    return result
-  }
-  if (beforeExecute && !await beforeExecute(normalized)) {
-    return {
-      protocolVersion: normalized.protocolVersion || '1.0',
-      type: 'page.action.result',
-      requestId: normalized.requestId,
-      actionKey: normalized.actionKey,
-      status: 'TIMEOUT',
-      error: 'Page action request expired before execution',
-    }
-  }
-  const fallback = await executeWindowPageBridgeAction(normalized, responseMetadata)
-  if (fallback) {
-    if (fallback.status !== 'ACTION_NOT_FOUND') handledPageActions.add(normalized.requestId)
-    return fallback
-  }
+  const globalBridge = typeof window !== 'undefined'
+    ? (window as Window & { __REACHAI_PAGE_BRIDGE__?: ReachAiWindowPageBridge }).__REACHAI_PAGE_BRIDGE__
+    : undefined
+  const result = await bridge.handleEvent(normalized, {
+    beforeExecute, isActive, signal,
+    fallbackHandler: typeof globalBridge?.execute === 'function'
+      ? async () => executeWindowPageBridgeAction(normalized, responseMetadata, globalBridge)
+      : undefined,
+  })
+  if (isActive?.() === false) return null
   if (result) {
     handledPageActions.add(normalized.requestId)
   }
@@ -276,6 +287,8 @@ export async function processMessagePageActionQueue(options: {
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
+  isActive?: () => boolean
+  signal?: AbortSignal
 }): Promise<void> {
   const queue = pageActionQueueFromResponse(options.response)
   for (const request of queue) {
@@ -293,6 +306,8 @@ export async function processMessagePageActionQueue(options: {
       onError: options.onError,
       refreshToken: options.refreshToken,
       fetchImpl: options.fetchImpl,
+      isActive: options.isActive,
+      signal: options.signal,
     })
   }
 }
@@ -300,10 +315,8 @@ export async function processMessagePageActionQueue(options: {
 async function executeWindowPageBridgeAction(
   request: PageActionDispatchRequest,
   responseMetadata?: Record<string, unknown>,
+  globalBridge?: ReachAiWindowPageBridge,
 ): Promise<PageActionResult | null> {
-  const globalBridge = typeof window !== 'undefined'
-    ? (window as Window & { __REACHAI_PAGE_BRIDGE__?: ReachAiWindowPageBridge }).__REACHAI_PAGE_BRIDGE__
-    : undefined
   if (!globalBridge || typeof globalBridge.execute !== 'function') return null
   const pageKey = pageKeyFromRequest(request) || pageKeyFromMetadata(responseMetadata)
   if (!pageKey) {
@@ -318,7 +331,7 @@ async function executeWindowPageBridgeAction(
   }
   try {
     const raw = await globalBridge.execute(pageKey, request.actionKey, request.args || {}, {
-      confirmed: true,
+      confirmed: request.confirm === true,
       requestId: request.requestId,
     })
     const record = raw && typeof raw === 'object' ? raw as Record<string, unknown> : { data: raw }
@@ -400,12 +413,14 @@ export async function postPageActionResult(
   token: string,
   result: PageActionResult,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ) {
   await postJson(
     `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
     result,
     token,
     fetchImpl,
+    signal,
   )
 }
 
@@ -415,12 +430,14 @@ export async function claimPageActionExecution(
   token: string,
   request: Pick<PageActionDispatchRequest, 'requestId' | 'actionKey'>,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const response = await postJson<{ claimed?: boolean }>(
     `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(request.requestId)}/claim`,
     { requestId: request.requestId, actionKey: request.actionKey },
     token,
     fetchImpl,
+    signal,
   )
   return response.claimed === true
 }
@@ -439,7 +456,10 @@ export async function pollPendingPageActions(options: {
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
+  isActive?: () => boolean
+  signal?: AbortSignal
 }) {
+  if (options.isActive?.() === false) return
   const fetchImpl = options.fetchImpl || fetch
   const inFlight = options.inFlightPageActions || new Map<string, Promise<void>>()
   const pendingUrl = `${options.apiBase}/chat/sessions/${encodeURIComponent(options.sessionId)}/page-actions/pending?limit=10`
@@ -452,14 +472,15 @@ export async function pollPendingPageActions(options: {
     : undefined
   let requests: PageActionDispatchRequest[]
   try {
-    requests = await getJson(pendingUrl, activeToken, fetchImpl)
+    requests = await getJson(pendingUrl, activeToken, fetchImpl, options.signal)
   } catch (error) {
     if (!isUnauthorized(error) || !refreshToken) throw error
     await refreshToken()
-    requests = await getJson(pendingUrl, activeToken, fetchImpl)
+    requests = await getJson(pendingUrl, activeToken, fetchImpl, options.signal)
   }
   const listedRequestIds = new Set<string>()
   for (const request of requests) {
+    if (options.isActive?.() === false) return
     if (!request?.requestId) continue
     listedRequestIds.add(request.requestId)
     await dispatchPageActionExactlyOnce({
@@ -476,11 +497,14 @@ export async function pollPendingPageActions(options: {
       onError: options.onError,
       refreshToken,
       fetchImpl,
+      isActive: options.isActive,
+      signal: options.signal,
     })
   }
   for (const [requestId, result] of [
     ...(options.pendingPageActionResults?.entries() || []),
   ]) {
+    if (options.isActive?.() === false) return
     if (listedRequestIds.has(requestId)) continue
     options.handledPageActions.add(requestId)
     await dispatchPageActionExactlyOnce({
@@ -500,13 +524,16 @@ export async function pollPendingPageActions(options: {
       onError: options.onError,
       refreshToken,
       fetchImpl,
+      isActive: options.isActive,
+      signal: options.signal,
     })
   }
 }
 
-async function postJson<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch): Promise<T> {
+async function postJson<T>(url: string, body: unknown, token: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<T> {
   const response = await fetchImpl(url, {
     method: 'POST',
+    signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -520,9 +547,10 @@ async function postJson<T>(url: string, body: unknown, token: string, fetchImpl:
   return (payload.data ?? payload) as T
 }
 
-async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch): Promise<T> {
+async function getJson<T>(url: string, token: string, fetchImpl: typeof fetch, signal?: AbortSignal): Promise<T> {
   const response = await fetchImpl(url, {
     method: 'GET',
+    signal,
     headers: {
       Authorization: `Bearer ${token}`,
     },

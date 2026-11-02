@@ -1,0 +1,10 @@
+**/node_modules
+**/target
+**/dist
+.git
+docs
+sql
+!sql/initV2.sql
+deploy/k8s
+managed-executor-worker
+**/*.log

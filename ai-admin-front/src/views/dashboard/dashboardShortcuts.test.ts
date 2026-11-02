@@ -91,10 +91,11 @@ describe('个人快捷入口定制', () => {
     }
   })
 
-  it('目录分别统计各预设，已有运营组件不会显示成已有自定义组件', () => {
-    const layout = defaultConsoleLayoutFor(['*'], ['OPERATOR'])
+  it('目录分别统计各预设，已有管理组件不会显示成已有自定义组件', () => {
+    const layout = defaultConsoleLayoutFor(['*'], ['MANAGER'])
     const wrapper = mount(DashboardWidgetCatalogDrawer, { props: { open: true, items: layout.items, permissions: ['*'] }, global: { stubs: { teleport: true } } })
-    expect(wrapper.find('[data-catalog-preset="operator"]').text()).toContain('已添加 1')
+    expect(wrapper.find('[data-catalog-preset="manager"]').text()).toContain('已添加 1')
+    expect(wrapper.find('[data-catalog-preset="operator"]').exists()).toBe(false)
     expect(wrapper.find('[data-catalog-preset="custom"]').text()).toContain('未添加')
     expect(wrapper.find('[data-catalog-preset="developer"]').text()).toContain('未添加')
     wrapper.unmount()
@@ -103,16 +104,29 @@ describe('个人快捷入口定制', () => {
     let config = shortcutPresetConfig('developer')
     const wrapper = mount(DashboardShortcutEditor, { props: { modelValue: config, permissions: ['*'],
       'onUpdate:modelValue': (next) => { config = next; void wrapper.setProps({ modelValue: next }) } } })
-    await wrapper.find('[data-shortcut-preset="operator"]').trigger('click')
-    expect(config.shortcutIds?.[0]).toBe('workflows')
+    await wrapper.find('[data-shortcut-preset="manager"]').trigger('click')
+    expect(config.shortcutIds?.slice(-2)).toEqual(['agents', 'tool-acl'])
     await wrapper.find('[aria-label="上移Agent"]').trigger('click')
-    expect(config.shortcutIds?.slice(0, 2)).toEqual(['agents', 'workflows'])
+    expect(config.shortcutIds?.slice(-3, -1)).toEqual(['agents', 'employee-connections'])
     expect(config.shortcutPreset).toBe('custom')
     await wrapper.find('[aria-label="移除Agent"]').trigger('click')
     await wrapper.find('select').setValue('projects')
     expect(config.shortcutIds).not.toContain('agents')
     expect(config.shortcutIds?.slice(-1)).toEqual(['projects'])
     wrapper.unmount()
+  })
+
+  it('每个身份工作台各存一份布局，切换身份后按该身份的默认快捷入口展示', () => {
+    let workspace = 'developer'
+    const repository = createDashboardLayoutLocalRepository(() => 21, () => workspace)
+    const developerLayout = defaultConsoleLayoutFor(['*'], ['DEVELOPER'])
+    repository.save(developerLayout)
+    expect(localStorage.getItem('reachai.dashboard.consoleLayout.local.v1.user.21.workspace.developer')).not.toBeNull()
+    workspace = 'manager'
+    expect(repository.load()).toBeNull()
+    expect(defaultConsoleLayoutFor(['*'], ['MANAGER', 'PLATFORM_ADMIN']).items[0].config?.shortcutPreset).toBe('manager')
+    workspace = 'developer'
+    expect(repository.load()?.items[0].config?.shortcutPreset).toBe('developer')
   })
 
   it('按稳定账号 ID 隔离保存；换账号丢弃旧草稿，空布局不会被默认预设覆盖', () => {

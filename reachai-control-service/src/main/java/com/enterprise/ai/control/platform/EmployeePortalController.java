@@ -8,6 +8,7 @@ import com.enterprise.ai.control.mcp.application.calllog.McpCallLogReader;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.ConnectionView;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.EmployeeOwner;
+import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.SystemCapabilities;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.SystemOption;
 import com.enterprise.ai.control.mcp.application.employee.AiToolSetupInstructions;
 import com.enterprise.ai.control.mcp.application.employee.McpWriteApprovalService;
@@ -148,12 +149,19 @@ public class EmployeePortalController {
                 connection.systems().forEach(system -> systemNames.putIfAbsent(system.projectCode(), system.name()));
             }
             return callLogReader.recentByConnections(List.copyOf(tools.keySet()), RECENT_CALL_LIMIT).stream()
-                    .map(entry -> new CallView(entry.id(), tools.get(entry.connectionId()), entry.toolName(),
+                    .map(entry -> new CallView(entry.id(), entry.connectionId(), tools.get(entry.connectionId()), entry.toolName(),
                             systemNames.getOrDefault(entry.projectCode(), entry.projectCode()),
                             Boolean.TRUE.equals(entry.success()), entry.latencyMs(), entry.errorCategory(),
                             entry.createdAt()))
                     .toList();
         });
+    }
+
+    /** 「我能办的事」: what an AI tool can do for this employee, per business system. */
+    @GetMapping("/capabilities")
+    public ResponseEntity<ApiResult<List<SystemCapabilities>>> capabilities(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return handle(authorization, connectionService::capabilities);
     }
 
     @GetMapping("/ai-tool-connections/approvals")
@@ -237,7 +245,7 @@ public class EmployeePortalController {
     public record Me(String userName, String account, String projectCode, String systemName) {
     }
 
-    public record CallView(Long id, String toolKind, String toolName, String businessSystem, boolean success,
+    public record CallView(Long id, Long connectionId, String toolKind, String toolName, String businessSystem, boolean success,
                            Long latencyMs, String errorCategory, LocalDateTime createdAt) {
     }
 }

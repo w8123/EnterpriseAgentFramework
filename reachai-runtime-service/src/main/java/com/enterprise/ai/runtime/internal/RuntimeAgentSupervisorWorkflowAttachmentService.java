@@ -38,7 +38,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
         if (request == null || !StringUtils.hasText(request.workflowId())) {
             throw new AiCodingAttachmentException("WORKFLOW_NOT_FOUND", "workflowId is required");
         }
-        return attach(resolveProject(pathProjectId, null), request);
+        return attach(resolveProject(pathProjectId, null), request, false);
     }
 
     @Override
@@ -50,10 +50,10 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
             throw new AiCodingAttachmentException(
                     "WORKFLOW_PROJECT_MISSING", "projectId and projectCode are required");
         }
-        return attach(new ProjectRef(projectId, projectCode.trim(), null), request);
+        return attach(new ProjectRef(projectId, projectCode.trim(), null), request, false);
     }
 
-    private AttachmentResult attach(ProjectRef project, AttachRequest request) {
+    private AttachmentResult attach(ProjectRef project, AttachRequest request, boolean createTarget) {
         RuntimeWorkflowDefinitionView workflow = workflowDefinitionService.findById(request.workflowId().trim())
                 .orElseThrow(() -> new AiCodingAttachmentException(
                         "WORKFLOW_NOT_FOUND", "workflow not found: " + request.workflowId(), HttpStatus.NOT_FOUND));
@@ -96,7 +96,7 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
                             project.projectId(), project.projectCode(), project.visibility()),
                     new RuntimeAgentWorkflowAttachmentService.Command(request.agentId(), request.agentKeySlug(),
                             request.modelInstanceId(), firstText(request.publishedBy(), "Cursor"), tool,
-                            firstText(request.replaceWorkflowId()), !hasToolOverrides(request)));
+                            firstText(request.replaceWorkflowId()), !hasToolOverrides(request), request.baseRevision(), createTarget));
             return toResult(project, new AgentRef(result.agentId(), result.agentKeySlug()), workflow,
                     result.config(), !result.reused(), result.reused(), firstText(request.replaceWorkflowId()));
         } catch (RuntimeAgentWorkflowAttachmentService.Failure ex) {
@@ -122,6 +122,50 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
             throw new AiCodingAttachmentException("WORKFLOW_PROJECT_MISSING", "request body is required");
         }
         ProjectRef project = resolveProject(request.projectId(), request.projectCode());
+        RuntimeWorkflowDefinitionView workflow = pageAssistantWorkflow(workflowId, project);
+        return attach(project, new AttachRequest(workflow.getId(), request.agentId(), null, request.modelInstanceId(),
+                request.publishedBy(), null, null, null, null, null, null, null, null, request.replaceWorkflowId()), false);
+    }
+
+    @Override
+    public AttachmentResult attachPageAssistantReviewed(String workflowId, PageAssistantAttachRequest request) {
+        if (request == null) {
+            throw new AiCodingAttachmentException("WORKFLOW_PROJECT_MISSING", "request body is required");
+        }
+        ProjectRef project = resolveProject(request.projectId(), request.projectCode());
+        RuntimeWorkflowDefinitionView workflow = pageAssistantWorkflow(workflowId, project);
+        if (StringUtils.hasText(request.baseRevision()) == request.createTarget()) {
+            throw new AiCodingAttachmentException("AGENT_DRAFT_REVISION_REQUIRED",
+                    "Read the page copilot context first: send its baseRevision, or createTarget=true when it does not exist yet");
+        }
+        AttachRequest attach = new AttachRequest(workflow.getId(), request.agentId(), null, request.modelInstanceId(),
+                request.publishedBy(), null, null, null, null, null, null, null, null,
+                request.replaceWorkflowId(), request.baseRevision());
+        return attach(project, attach, request.createTarget());
+    }
+
+    @Override
+    public PageAssistantContext pageAssistantContext(String workflowId, Long projectId, String projectCode) {
+        ProjectRef project = resolveProject(projectId, projectCode);
+        RuntimeWorkflowDefinitionView workflow = pageAssistantWorkflow(workflowId, project);
+        Long activeVersionId = workflowDefinitionService.listVersions(workflow.getId()).stream()
+                .filter(version -> "ACTIVE".equalsIgnoreCase(version.getStatus()))
+                .map(version -> version.getId()).findFirst().orElse(null);
+        var copilot = agentAttachments.pageCopilotContext(new RuntimeAgentWorkflowAttachmentService.ProjectRef(
+                project.projectId(), project.projectCode(), project.visibility())).orElse(null);
+        var draft = copilot == null ? null : copilot.draft();
+        AgentConfigVersionView active = draft == null ? null : draft.active();
+        WorkflowToolView attachedTool = active == null || active.tools() == null ? null : active.tools().stream()
+                .filter(tool -> tool != null && workflow.getId().equals(tool.workflowId())).findFirst().orElse(null);
+        return new PageAssistantContext(1, project.projectId(), project.projectCode(), workflow.getId(), workflow.getKeySlug(),
+                workflow.getName(), workflow.getStatus(), activeVersionId, copilot != null,
+                draft == null ? null : draft.agentId(), copilot == null ? null : copilot.keySlug(),
+                draft == null ? null : draft.revision(), active == null ? null : active.id(),
+                active == null ? null : active.versionNo(), active == null ? null : active.modelInstanceId(),
+                attachedTool != null, attachedTool == null ? null : attachedTool.workflowVersionId());
+    }
+
+    private RuntimeWorkflowDefinitionView pageAssistantWorkflow(String workflowId, ProjectRef project) {
         RuntimeWorkflowDefinitionView workflow = workflowDefinitionService.findById(
                         requireText(workflowId, "WORKFLOW_NOT_FOUND", "workflow id is required"))
                 .orElseThrow(() -> new AiCodingAttachmentException(
@@ -133,21 +177,8 @@ public class RuntimeAgentSupervisorWorkflowAttachmentService implements RuntimeW
                     HttpStatus.BAD_REQUEST,
                     Map.of("workflowKind", String.valueOf(workflow.getWorkflowKind())));
         }
-        return attach(project.projectId(), new AttachRequest(
-                workflow.getId(),
-                request.agentId(),
-                null,
-                request.modelInstanceId(),
-                request.publishedBy(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                request.replaceWorkflowId()));
+        validateWorkflowProject(workflow, project);
+        return workflow;
     }
 
     private AttachmentResult toResult(ProjectRef project,

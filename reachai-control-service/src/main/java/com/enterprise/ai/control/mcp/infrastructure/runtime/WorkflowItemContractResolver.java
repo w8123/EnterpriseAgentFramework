@@ -59,10 +59,73 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
         String toolName = McpDefaultToolNames.sanitize(firstText(
                 text(workflow.get("keySlug")),
                 workflowId));
+        String floor = trustedRiskFloor(activeVersion, workflowId);
+        String declaredRisk = riskLevel(workflow, activeVersion);
+        if ("UNKNOWN".equals(declaredRisk)) declaredRisk = floor;
         return new McpToolProjection(toolName, description, inputSchemaJson,
                 McpPublicationItemKind.WORKFLOW, workflowId,
-                longValue(activeVersion.get("id")), riskLevel(workflow, activeVersion), null,
-                "WRITE".equals(readMap(text(activeVersion.get("snapshotJson"))).get("httpApiRiskFloor")) ? "WRITE" : null);
+                longValue(activeVersion.get("id")), declaredRisk, null, floor, 1);
+    }
+
+    /** Classify only a pinned graph and owner-written release facts, never an editable draft. */
+    private String trustedRiskFloor(Map<String, Object> version, String workflowId) {
+        Map<String, Object> snapshot = readMap(text(version.get("snapshotJson")));
+        String graphJson = firstText(text(version.get("graphSpecSnapshotJson")), text(snapshot.get("graphSpec")));
+        Object rawNodes = readMap(graphJson).get("nodes");
+        if (!(rawNodes instanceof List<?> nodes)) throw unclassified(workflowId);
+        boolean business = false;
+        boolean http = false;
+        Set<String> safe = Set.of("LLM", "USERINPUT", "INTERACTION", "IFELSE", "CONDITION", "VARIABLEASSIGN",
+                "VARIABLE", "TEMPLATE", "ANSWER", "INTENTCLASSIFIER", "CLASSIFIER", "VARIABLEAGGREGATOR",
+                "AGGREGATE", "HUMANAPPROVAL", "APPROVAL", "LOOP", "DOCUMENTEXTRACT", "PARAMETEREXTRACT",
+                "PARAMETER", "KNOWLEDGERETRIEVAL", "KNOWLEDGE");
+        for (Object value : nodes) {
+            if (!(value instanceof Map<?, ?> node)) throw unclassified(workflowId);
+            String type = text(node.get("type"));
+            if (type == null) throw unclassified(workflowId);
+            String key = type.toUpperCase(Locale.ROOT).replace("_", "").replace("-", "");
+            if ("TOOL".equals(key)) {
+                Map<String, Object> ref = mapValue(node.get("ref"));
+                Map<String, Object> config = mapValue(node.get("config"));
+                String assetType = text(ref.get("assetType"));
+                String qualifiedName = firstText(text(ref.get("qualifiedName")), text(ref.get("name")));
+                if (!"HTTP_API".equals(assetType) && !"BUSINESS_METHOD".equals(assetType)) throw unclassified(workflowId);
+                boolean apiReference = qualifiedName != null && qualifiedName.startsWith("http-api:")
+                        || config.containsKey("httpApiAssetId");
+                if ("HTTP_API".equals(assetType) || apiReference) http = true;
+                if ("BUSINESS_METHOD".equals(assetType)) business = true;
+            } else if (!safe.contains(key)) {
+                throw failure("MCP_WORKFLOW_RISK_UNRESOLVABLE", workflowId,
+                        "Workflow 包含无法安全分类的节点，暂不能发布到 MCP: " + type);
+            }
+        }
+        String floor = "READ";
+        if (business) {
+            String businessFloor = text(snapshot.get("businessMethodRiskFloor"));
+            if (!Set.of("READ", "WRITE", "IRREVERSIBLE").contains(businessFloor == null ? "" : businessFloor)) throw unclassified(workflowId);
+            floor = businessFloor;
+        }
+        if (http) {
+            String apiFloor = text(snapshot.get("httpApiRiskFloor"));
+            if (apiFloor != null && !"WRITE".equals(apiFloor)) throw unclassified(workflowId);
+            if (apiFloor == null && !Boolean.TRUE.equals(snapshot.get("httpApiRiskClassified"))) throw unclassified(workflowId);
+            if ("WRITE".equals(apiFloor) && !"IRREVERSIBLE".equals(floor)) floor = "WRITE";
+        }
+        // Any independently recorded owner floor applies even if a malformed graph would
+        // otherwise hide its corresponding node from classification.
+        String recordedBusinessFloor = text(snapshot.get("businessMethodRiskFloor"));
+        String recordedApiFloor = text(snapshot.get("httpApiRiskFloor"));
+        if (recordedBusinessFloor != null && !Set.of("READ", "WRITE", "IRREVERSIBLE").contains(recordedBusinessFloor)
+                || recordedApiFloor != null && !"WRITE".equals(recordedApiFloor)) throw unclassified(workflowId);
+        if ("IRREVERSIBLE".equals(recordedBusinessFloor)) floor = "IRREVERSIBLE";
+        else if (("WRITE".equals(recordedBusinessFloor) || "WRITE".equals(recordedApiFloor))
+                && !"IRREVERSIBLE".equals(floor)) floor = "WRITE";
+        return floor;
+    }
+
+    private McpContractResolutionException unclassified(String workflowId) {
+        return failure("MCP_WORKFLOW_RISK_UNRESOLVABLE", workflowId,
+                "无法核验 Workflow 的固定风险，请先重新发布 Workflow");
     }
 
     /** Risk is version-pinned when present; an absent contract fails publish unless explicitly overridden. */

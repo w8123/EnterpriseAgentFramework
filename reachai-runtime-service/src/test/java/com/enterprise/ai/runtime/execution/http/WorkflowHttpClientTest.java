@@ -302,6 +302,22 @@ class WorkflowHttpClientTest {
     }
 
     @Test
+    void queryValuesAreEncodedExactlyOnce() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> rawQuery = new java.util.concurrent.atomic.AtomicReference<>();
+        server.createContext("/page", exchange -> {
+            rawQuery.set(exchange.getRequestURI().getRawQuery());
+            respond(exchange, 200, "ok");
+        });
+        server.start();
+        WorkflowHttpClient.HttpExecutionResult result = client.execute(new WorkflowHttpClient.HttpExecutionRequest(
+                "GET", url("/page?keep=a%3Ab"), new java.util.LinkedHashMap<>(Map.of(
+                        "createTime", "2020-01-01 00:00:00,2030-12-31 23:59:59")),
+                Map.of(), "none", null, 5000, null, WorkflowExecutionIdentity.untrustedDebug()));
+        assertTrue(result.success());
+        assertEquals("keep=a%3Ab&createTime=2020-01-01+00%3A00%3A00%2C2030-12-31+23%3A59%3A59", rawQuery.get());
+    }
+
+    @Test
     void customHeadersCredentialInjected() throws Exception {
         stubCredential("cred_custom", "CUSTOM_HEADERS", "GLOBAL", null, null,
                 Map.of("headers", Map.of("X-Custom-Token", "secret-marker-custom")));

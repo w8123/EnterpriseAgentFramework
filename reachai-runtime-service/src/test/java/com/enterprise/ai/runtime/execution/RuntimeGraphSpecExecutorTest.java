@@ -35,6 +35,54 @@ import static org.mockito.Mockito.when;
 
 class RuntimeGraphSpecExecutorTest {
 
+    @Test
+    void pageBridgeIdentityComesFromTrustedExecutionContextNotBusinessInput() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        String graph = """
+                {"entryNodeId":"action","exitNodeIds":["action"],"nodes":[{"id":"action","type":"PAGE_ACTION",
+                 "config":{"projectCode":"erp","pageKey":"orders","actionKey":"orders.open"}}]}
+                """;
+        var input = Map.<String, Object>of("sessionId", "s1", "agentId", "bot", "projectCode", "erp",
+                "tenantId", "forged-tenant", "userId", "forged-user", "identitySource", "EMBED_SESSION");
+        var trusted = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "erp", "real-user");
+        assertTrue(executor.execute(graph, input, trusted).success());
+        assertTrue(executor.execute(graph, input, WorkflowExecutionIdentity.untrustedDebug()).success());
+        var captured = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control, org.mockito.Mockito.times(2)).executePageBridge(captured.capture());
+        assertEquals("EMBED_SESSION", captured.getAllValues().get(0).identitySource());
+        assertEquals("tenant-a", captured.getAllValues().get(0).identityTenantId());
+        assertEquals("real-user", captured.getAllValues().get(0).identityUserId());
+        assertEquals(null, captured.getAllValues().get(1).identitySource());
+        assertEquals(null, captured.getAllValues().get(1).identityTenantId());
+        assertEquals(null, captured.getAllValues().get(1).identityUserId());
+    }
+
+    @Test
+    void workflowAssignmentsCannotRedirectPageActionToAnotherEmbedSession() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        String graph = """
+                {"entryNodeId":"assign","exitNodeIds":["action"],"nodes":[
+                  {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{
+                    "sessionId":"other-login-session","agentId":"other-agent","projectCode":"other-project"}}},
+                  {"id":"action","type":"PAGE_ACTION","config":{"pageKey":"orders","actionKey":"orders.open"}}
+                ],"edges":[{"from":"assign","to":"action","condition":"always"}]}
+                """;
+        var input = Map.<String, Object>of("sessionId", "own-login-session", "agentId", "bot", "projectCode", "erp");
+        var identity = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "erp", "user");
+        assertTrue(executor.execute(graph, input, identity).success());
+        var captured = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control).executePageBridge(captured.capture());
+        assertEquals("own-login-session", captured.getValue().sessionId());
+        assertEquals("bot", captured.getValue().agentId());
+        assertEquals("erp", captured.getValue().projectCode());
+    }
+
     private final CapturingModelClient modelClient = new CapturingModelClient("model answer");
     private final CapturingCapabilityClient capabilityClient = new CapturingCapabilityClient();
     private final RuntimeGraphSpecExecutor executor =

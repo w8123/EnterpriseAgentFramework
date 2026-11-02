@@ -49,7 +49,8 @@ public class RagServiceImpl implements RagService {
 
     private KnowledgeRetrievalCoreResponse retrieveEvidence(RagRequest request) {
         return retrieval.retrieve(KnowledgeRetrievalCoreRequest.builder()
-                .query(request.getQuestion()).knowledgeBaseCodes(request.getKnowledgeBaseCodes()).userId(request.getUserId())
+                // This legacy request supplies a bare caller-controlled user ID, not a scoped grant subject.
+                .query(request.getQuestion()).knowledgeBaseCodes(request.getKnowledgeBaseCodes()).userId(null)
                 .topK(request.getTopK()).scoreThreshold(request.getScoreThreshold()).searchMode("vector")
                 .rerankEnabled(false).recordHit(false).build());
     }

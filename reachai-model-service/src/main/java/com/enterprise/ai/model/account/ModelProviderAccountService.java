@@ -232,12 +232,22 @@ public class ModelProviderAccountService {
 
     static String friendlyMessage(Exception e, String detail) {
         int status = e instanceof BizException be ? be.getCode() : 0;
+        // 模型服务已经给出中文原因时不再套一层，只在 404 时换成本场景的提示并保留供应商原文
+        boolean explained = detail != null && detail.startsWith("模型供应商");
         return switch (status) {
-            case 401, 403 -> "API Key 无效或没有权限（HTTP " + status + "）。供应商原文：" + detail;
-            case 404 -> "该服务地址没有提供模型列表接口（HTTP 404），请检查 Base URL。供应商原文：" + detail;
+            case 401, 403 -> explained ? detail : "API Key 无效或没有权限（HTTP " + status + "）。供应商原文：" + detail;
+            case 404 -> "该服务地址没有提供模型列表接口（HTTP 404），请检查 Base URL。"
+                    + (explained ? providerOriginal(detail) : "供应商原文：" + detail);
             default -> detail;
         };
     }
+
+    private static String providerOriginal(String detail) {
+        int index = detail.indexOf(PROVIDER_ORIGINAL);
+        return index < 0 ? "" : detail.substring(index + 1);
+    }
+
+    private static final String PROVIDER_ORIGINAL = " 供应商原文：";
 
     private ProviderModelsResponse failure(String provider, String message) {
         return new ProviderModelsResponse(false, ConnectionConfigSupport.sanitizeError(message),

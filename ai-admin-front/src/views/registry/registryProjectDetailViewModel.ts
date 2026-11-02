@@ -26,9 +26,8 @@ export function emptyRegistryProjectEditForm(): ScanProjectUpsertRequest {
     visibility: 'PRIVATE',
     baseUrl: '',
     contextPath: '',
-    scanPath: '',
-    scanType: 'openapi',
     specFile: '',
+    specContent: '',
   }
 }
 

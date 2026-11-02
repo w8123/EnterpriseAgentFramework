@@ -204,7 +204,6 @@ class CapabilityRegistryServiceTest {
         assertNotNull(project);
         assertEquals("orders-api", project.getProjectCode());
         assertEquals("REGISTERED", project.getProjectKind());
-        assertEquals("auto", project.getScanType());
         assertEquals(true, project.getAiCodingAccessEnabled());
         assertNotNull(project.getAiCodingAccessKey());
         assertTrue(project.getAiCodingAccessKey().matches("aic_[0-9a-f]{48}"));
@@ -232,8 +231,6 @@ class CapabilityRegistryServiceTest {
         project.setVisibility("SHARED");
         project.setBaseUrl("http://orders.local");
         project.setContextPath("/orders");
-        project.setScanPath("");
-        project.setScanType("auto");
         project.setUpdateTime(previousUpdateTime);
         when(scanProjectMapper.selectOne(any())).thenReturn(project);
 

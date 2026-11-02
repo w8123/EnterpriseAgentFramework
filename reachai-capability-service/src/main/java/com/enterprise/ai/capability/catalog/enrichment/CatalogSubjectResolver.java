@@ -343,8 +343,8 @@ public class CatalogSubjectResolver {
         if (observation.getSourceLocation().startsWith("sdk:") || !"scanner".equals(observation.getSource())) {
             return "STARTER_MVC".equals(binding.getSourceKind()) && Objects.equals(binding.getSourceLocation(), observation.getSourceLocation());
         }
-        if (!"CONTROLLER_SCAN".equals(binding.getSourceKind()) && !"OPENAPI_SCAN".equals(binding.getSourceKind())) return false;
-        return ScannerHttpApiSourceIdentity.matches(HttpApiSourceKind.valueOf(binding.getSourceKind()), observation.getSourceLocation(), binding.getSourceLocation());
+        if (!"OPENAPI_SCAN".equals(binding.getSourceKind())) return false;
+        return ScannerHttpApiSourceIdentity.matches(HttpApiSourceKind.OPENAPI_SCAN, observation.getSourceLocation(), binding.getSourceLocation());
     }
 
     private CatalogSubject source(ScanProjectToolEntity row) {

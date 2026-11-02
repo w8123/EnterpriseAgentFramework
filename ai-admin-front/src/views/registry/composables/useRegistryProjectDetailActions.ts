@@ -13,6 +13,7 @@ import {
 } from '@/api/registry'
 import type { ProjectInstance } from '@/types/registry'
 import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
+import { readOpenApiDocumentFile } from '@/utils/openapiDocument'
 import { useProjectStore } from '@/store/project'
 import { platformSessionId } from '@/auth/platformSession'
 import {
@@ -114,9 +115,9 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     deps.editForm.visibility = p.visibility || 'PRIVATE'
     deps.editForm.baseUrl = p.baseUrl
     deps.editForm.contextPath = p.contextPath || ''
-    deps.editForm.scanPath = p.scanPath || ''
-    deps.editForm.scanType = projectKind === 'REGISTERED' ? 'auto' : p.scanType || 'openapi'
     deps.editForm.specFile = p.specFile ?? ''
+    // 文档内容不随项目返回；留空表示保留已上传的文档。
+    deps.editForm.specContent = ''
     // The credential is deliberately write-only: project detail returns only the
     // configured flag, never the stored key/secret. Keep both inputs empty so a
     // plain project edit cannot accidentally replace the credential.
@@ -136,8 +137,13 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
       ElMessage.warning('请填写项目编码')
       return
     }
-    if (!deps.isEditingSdkProject.value && deps.editForm.projectKind !== 'REGISTERED' && !deps.editForm.scanPath.trim()) {
-      ElMessage.warning('非纯 SDK 项目请填写扫描路径')
+    if (
+      !deps.isEditingSdkProject.value
+      && deps.editForm.projectKind !== 'REGISTERED'
+      && !deps.editForm.specContent
+      && !p.openapiDocumentUploaded
+    ) {
+      ElMessage.warning('非纯 SDK 项目请上传 OpenAPI 文档')
       return
     }
     const credentialAppKey = deps.editCredentialForm.appKey.trim()
@@ -159,9 +165,8 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
       const payload: ScanProjectUpsertRequest = {
         ...deps.editForm,
         projectKind: deps.editAccessLockedToSdk.value ? 'REGISTERED' : deps.editForm.projectKind,
-        scanType: deps.isEditingSdkProject.value ? 'auto' : deps.editForm.scanType,
-        scanPath: deps.isEditingSdkProject.value ? '' : deps.editForm.scanPath,
-        specFile: !deps.isEditingSdkProject.value && deps.editForm.scanType === 'openapi' ? deps.editForm.specFile || null : null,
+        specFile: !deps.isEditingSdkProject.value && deps.editForm.specContent ? deps.editForm.specFile || null : null,
+        specContent: !deps.isEditingSdkProject.value ? deps.editForm.specContent || null : null,
         contextPath: deps.isEditingSdkProject.value ? '' : deps.editForm.contextPath || '',
         owner: deps.editForm.owner || '',
       }
@@ -225,7 +230,22 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     }
   }
 
+  async function handleEditOpenApiFile(event: Event) {
+    const input = event.target as HTMLInputElement
+    const file = input.files?.[0]
+    input.value = ''
+    if (!file) return
+    try {
+      const document = await readOpenApiDocumentFile(file)
+      deps.editForm.specFile = document.specFile
+      deps.editForm.specContent = document.specContent
+    } catch (error) {
+      ElMessage.warning((error as Error).message)
+    }
+  }
+
   return {
+    handleEditOpenApiFile,
     purgeOfflineInstances,
     setInstanceStatus,
     openEditDialog,

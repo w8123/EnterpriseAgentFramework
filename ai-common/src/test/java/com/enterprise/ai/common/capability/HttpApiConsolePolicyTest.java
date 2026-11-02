@@ -75,6 +75,37 @@ class HttpApiConsolePolicyTest {
         assertEquals("GET", bound.method()); assertTrue(bound.queryParams().isEmpty()); assertNull(bound.jsonBody());
     }
 
+    @Test void optionalArrayQueryParameterIsCallableAndBindsAsCommaSeparatedValue() throws Exception {
+        var declaration = json.readTree("""
+                {"identity":{"method":"GET","routeTemplate":"/admin-api/erp/product/page"},"sideEffect":"READ_ONLY",
+                "parameters":[{"name":"createTime","location":"QUERY","required":false,"schema":{"type":"array","items":{"type":"string"}}},
+                {"name":"ids","location":"QUERY","required":false,"schema":{"type":"array","items":{"type":"integer"}}}],
+                "responses":[{"status":"200","contentTypes":["application/json"],"schema":{"type":"object"}}],
+                "authentication":{"state":"NONE"}}
+                """);
+        assertNull(HttpApiFirstCallPolicy.unsupportedReason(declaration));
+        assertNull(HttpApiConsolePolicy.unsupportedReason(declaration));
+        assertTrue(HttpApiFirstCallPolicy.bind(declaration, Map.of(), Map.of(), json).queryParams().isEmpty());
+        var bound = HttpApiFirstCallPolicy.bind(declaration, Map.of(),
+                Map.of("createTime", java.util.List.of("2026-01-01 00:00:00", "2026-12-31 23:59:59"), "ids", java.util.List.of(1, 2)), json);
+        assertEquals(Map.of("createTime", "2026-01-01 00:00:00,2026-12-31 23:59:59", "ids", "1,2"), bound.queryParams());
+        for (Object invalid : java.util.List.<Object>of("2026-01-01", java.util.List.of(), java.util.List.of("a,b"),
+                java.util.List.of(1), java.util.Collections.nCopies(33, "x"))) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> HttpApiFirstCallPolicy.bind(declaration, Map.of(), Map.of("createTime", invalid), json));
+        }
+        var nested = (ObjectNode) declaration.deepCopy();
+        ((ObjectNode) nested.at("/parameters/0/schema/items")).put("type", "object");
+        assertNotNull(HttpApiFirstCallPolicy.unsupportedReason(nested));
+        var pathArray = json.readTree("""
+                {"identity":{"method":"GET","routeTemplate":"/orders/{id}"},"sideEffect":"READ_ONLY",
+                "parameters":[{"name":"id","location":"PATH","required":true,"schema":{"type":"array","items":{"type":"string"}}}],
+                "responses":[{"status":"200","contentTypes":["application/json"],"schema":{"type":"object"}}],
+                "authentication":{"state":"NONE"}}
+                """);
+        assertNotNull(HttpApiFirstCallPolicy.unsupportedReason(pathArray));
+    }
+
     @Test void unsupportedDeclarationsAreNotSilentlyDropped() throws Exception {
         for (String method : java.util.List.of("PUT", "PATCH", "DELETE")) {
             var contract = contract(); ((ObjectNode) contract.path("identity")).put("method", method);

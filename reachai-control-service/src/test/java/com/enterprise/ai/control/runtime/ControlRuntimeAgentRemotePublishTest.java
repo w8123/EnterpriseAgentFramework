@@ -32,7 +32,7 @@ class ControlRuntimeAgentRemotePublishTest {
 
         assertEquals(200, fixture.publish().getStatusCode().value());
         verifyNoInteractions(fixture.assembler);
-        verify(fixture.runtime).publishAgentConfigVersion("agent-1", 31L, Map.of());
+        verify(fixture.gateway).publish(eq("agent-1"), eq(7L), eq("orders"), eq(AgentDraftPublishTestAccess.REVISION), eq(31L), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -76,10 +76,11 @@ class ControlRuntimeAgentRemotePublishTest {
 
         assertEquals(200, fixture.publish().getStatusCode().value());
         verify(fixture.assembler).assemble(fixture.request, fixture.config, "agent-1");
-        verify(fixture.runtime).publishAgentConfigVersion("agent-1", 31L, Map.of());
+        verify(fixture.gateway).publish(eq("agent-1"), eq(7L), eq("orders"), eq(AgentDraftPublishTestAccess.REVISION), eq(31L), org.mockito.ArgumentMatchers.any());
     }
 
     private static final class Fixture {
+        final RuntimeAgentDraftGateway gateway;
         final RuntimeProxyClient runtime = mock(RuntimeProxyClient.class);
         final A2aRemoteBindingSnapshotAssembler assembler = mock(A2aRemoteBindingSnapshotAssembler.class);
         final HttpServletRequest request = mock(HttpServletRequest.class);
@@ -91,6 +92,7 @@ class ControlRuntimeAgentRemotePublishTest {
             config.put("status", "DRAFT");
             config.put("remoteAgents", remoteAgents);
             controller.setA2aRemoteBindingSnapshotAssembler(assembler);
+            gateway = AgentDraftPublishTestAccess.configure(controller, runtime, "orders");
             when(runtime.listAgentConfigVersions("agent-1"))
                     .thenReturn(ResponseEntity.ok(List.of(config)));
             when(runtime.publishAgentConfigVersion("agent-1", 31L, Map.of()))
@@ -98,10 +100,11 @@ class ControlRuntimeAgentRemotePublishTest {
         }
 
         ResponseEntity<Object> publish() {
-            return controller.publishAgentConfigVersion(request, "agent-1", 31L, Map.of());
+            return controller.publishAgentDraftIfUnchanged(request, "agent-1", 31L, Map.of("baseRevision", AgentDraftPublishTestAccess.REVISION));
         }
 
         void verifyNotPublished() {
+            org.mockito.Mockito.verifyNoInteractions(gateway);
             verify(runtime, never()).publishAgentConfigVersion(eq("agent-1"), eq(31L), anyMap());
         }
     }

@@ -91,14 +91,18 @@ class PlatformEmbedStreamRelayTest {
         doAnswer(invocation -> {
             SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
             ByteArrayOutputStream downstream = invocation.getArgument(1);
-            handler.handle("execution.error", "{\"code\":\"FAILED\",\"message\":\"boom\"}", downstream);
+            handler.handle("execution.error", "{\"code\":\"FAILED\",\"message\":\"internal detail\",\"answer\":\"internal detail\"}", downstream);
             return null;
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         relay.streamMessage(session, runtimeBody, output);
 
-        assertTrue(output.toString(StandardCharsets.UTF_8).contains("event: error"));
+        String streamed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(streamed.contains("event: error"));
+        assertTrue(streamed.contains("助手暂时无法完成请求"));
+        assertTrue(streamed.contains("FAILED"));
+        assertFalse(streamed.contains("internal detail"));
     }
 
     @Test
@@ -202,20 +206,21 @@ class PlatformEmbedStreamRelayTest {
                 streamProxy, gateway, mock(PlatformEmbedChatEventService.class), new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1");
+        session.setProjectCode("erp");
         session.setExternalUserId("user-1");
         Map<String, Object> runtimeBody = Map.of("agentId", "orders-bot", "userId", "attacker");
         doAnswer(invocation -> {
-            SseStreamRelay.FrameHandler handler = invocation.getArgument(4);
-            ByteArrayOutputStream downstream = invocation.getArgument(3);
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(6);
+            ByteArrayOutputStream downstream = invocation.getArgument(5);
             handler.handle("execution.completed",
                     "{\"sessionId\":\"embed-1\",\"answer\":\"ok\",\"metadata\":{}}",
                     downstream);
             return null;
-        }).when(gateway).streamTrusted(any(), eq("EMBED_SESSION"), eq("user-1"), any(), any());
+        }).when(gateway).streamTrusted(any(), eq("EMBED_SESSION"), eq("default"), eq("user-1"), any(), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         relay.streamMessage(session, runtimeBody, output);
         assertTrue(output.toString(StandardCharsets.UTF_8).contains("event: message.completed"));
-        verify(gateway).streamTrusted(eq(runtimeBody), eq("EMBED_SESSION"), eq("user-1"), any(), any());
+        verify(gateway).streamTrusted(eq(runtimeBody), eq("EMBED_SESSION"), eq("default"), eq("user-1"), any(), any(), any());
     }
 }

@@ -42,7 +42,7 @@ class HttpApiMarketBindingE2eIntegrationTest {
             assertEquals(first.summary().qualifiedName(), f.marketDetail(1).summary().qualifiedName());
             assertEquals(first.summary().sourceSetRevision(), f.marketDetail(1).summary().sourceSetRevision());
             select(f, "beta", 22L, 32L);
-            assertEquals(200, f.changeScan("controller").statusCode());
+            f.observeStarterReport();
             assertEquals(3, assets(f).size());
             assertEquals(1, assets(f).stream().map(row -> row.get("route_template")).distinct().count());
             assertEquals(3, assets(f).stream().map(row -> row.get("qualified_name")).distinct().count());

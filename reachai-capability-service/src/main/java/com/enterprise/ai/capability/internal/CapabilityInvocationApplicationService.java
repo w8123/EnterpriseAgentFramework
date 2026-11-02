@@ -63,7 +63,8 @@ public class CapabilityInvocationApplicationService {
             CapabilityInvocationFailureCategory category = technicalCategory(failure);
             boolean retryable = category == CapabilityInvocationFailureCategory.TIMEOUT
                     || category == CapabilityInvocationFailureCategory.CONNECTIVITY;
-            return failed(request, asset, "CAPABILITY_TOOL_EXECUTION_FAILED", failure.getMessage(),
+            return failed(request, asset, "CAPABILITY_TOOL_EXECUTION_FAILED",
+                    CapabilityFailureMessages.technicalFailure(failure, category),
                     category, retryable, startedAt);
         }
     }
@@ -140,7 +141,8 @@ public class CapabilityInvocationApplicationService {
             return CapabilityInvocationFailureCategory.TIMEOUT;
         }
         if (normalized.contains("connect") || normalized.contains("socket")
-                || normalized.contains("unreachable") || normalized.contains("connection refused")) {
+                || normalized.contains("unreachable") || normalized.contains("connection refused")
+                || normalized.contains("unknownhost")) {
             return CapabilityInvocationFailureCategory.CONNECTIVITY;
         }
         return CapabilityInvocationFailureCategory.INTERNAL;

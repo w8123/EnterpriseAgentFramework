@@ -98,7 +98,7 @@
                 <el-option label="true" value="true" /><el-option label="false" value="false" />
               </el-select>
               <el-input v-else v-model="parameterDraft[`${parameter.location}:${parameter.name}`]"
-                :placeholder="parameter.schema.type === 'integer' || parameter.schema.type === 'number' ? '输入数字' : '输入参数值'"
+                :placeholder="parameter.schema.type === 'array' ? '多个值用英文逗号分隔' : parameter.schema.type === 'integer' || parameter.schema.type === 'number' ? '输入数字' : '输入参数值'"
                 :disabled="invoking || !!invocationId" :aria-label="parameter.name" />
             </el-form-item>
           </div>
@@ -664,7 +664,7 @@ function sourceLabel(value: HttpApiSourceStatus) {
     CONFLICT: '来源冲突', SOURCE_MISSING: '来源缺失', SOURCE_UNCONFIRMED: '来源待确认' } as Record<string, string>)[value] || value
 }
 function sourceTone(value: HttpApiSourceStatus) { return value === 'ACCEPTED' ? 'success' : value === 'DISCOVERED' ? 'warning' : 'danger' }
-function sourceKind(value: string) { return ({ OPENAPI_SCAN: 'OpenAPI 扫描', CONTROLLER_SCAN: 'Controller 扫描',
+function sourceKind(value: string) { return ({ OPENAPI_SCAN: 'OpenAPI 导入',
   STARTER_MVC: 'Starter MVC 同步', API_MARKET_OPERATION: 'API 市场固定 Operation' } as Record<string, string>)[value] || value }
 function authModeLabel(value: string) { return ({ NONE: '不使用凭据', API_KEY_HEADER: '请求头 API Key',
   BEARER: 'Bearer 令牌' } as Record<string, string>)[value] || value }

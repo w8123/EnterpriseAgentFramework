@@ -60,8 +60,6 @@ public class RegistryProjectRegistrationService {
         project.setVisibility(defaultString(request.visibility(), "PRIVATE"));
         project.setBaseUrl(request.baseUrl());
         project.setContextPath(defaultString(request.contextPath(), ""));
-        project.setScanPath("");
-        project.setScanType("auto");
         if (registrationChanged) {
             project.setUpdateTime(LocalDateTime.now());
         }
@@ -84,8 +82,6 @@ public class RegistryProjectRegistrationService {
                     .set(ScanProjectEntity::getVisibility, project.getVisibility())
                     .set(ScanProjectEntity::getBaseUrl, project.getBaseUrl())
                     .set(ScanProjectEntity::getContextPath, project.getContextPath())
-                    .set(ScanProjectEntity::getScanPath, project.getScanPath())
-                    .set(ScanProjectEntity::getScanType, project.getScanType())
                     .set(ScanProjectEntity::getUpdateTime, project.getUpdateTime()));
         }
         if (issuedCredential != null) {
@@ -111,9 +107,7 @@ public class RegistryProjectRegistrationService {
                 || !Objects.equals(project.getOwner(), request.owner())
                 || !Objects.equals(project.getVisibility(), defaultString(request.visibility(), "PRIVATE"))
                 || !Objects.equals(project.getBaseUrl(), request.baseUrl())
-                || !Objects.equals(project.getContextPath(), defaultString(request.contextPath(), ""))
-                || !Objects.equals(project.getScanPath(), "")
-                || !Objects.equals(project.getScanType(), "auto");
+                || !Objects.equals(project.getContextPath(), defaultString(request.contextPath(), ""));
     }
 
     private ScanProjectEntity findProject(String projectCode) {

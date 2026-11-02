@@ -100,13 +100,6 @@
             <artifactId>jackson-dataformat-yaml</artifactId>
         </dependency>
 
-        <!-- Scanner -->
-        <dependency>
-            <groupId>com.github.javaparser</groupId>
-            <artifactId>javaparser-core</artifactId>
-            <version>${javaparser.version}</version>
-        </dependency>
-
         <!-- OpenFeign (璋冪敤 reachai-model-service) -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>

@@ -36,7 +36,10 @@ public class PlatformEmbedStreamRelay {
             trustedExecutionGateway.streamTrusted(
                     runtimeBody,
                     "EMBED_SESSION",
+                    firstText(session.getTenantId(), "default"),
                     trustedUserId.trim(),
+                    com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal.business(
+                            session.getTenantId(), trustedUserId, session.getProjectCode()),
                     outputStream,
                     (eventName, data, downstream) -> relayRuntimeEvent(session, eventName, data, downstream));
             return;
@@ -66,7 +69,14 @@ public class PlatformEmbedStreamRelay {
             return;
         }
         if ("execution.error".equals(normalized)) {
-            SseStreamRelay.writeFrame(downstream, "error", data);
+            Map<String, Object> payload = parseJsonMap(data);
+            String code = text(payload.get("code"));
+            if (code == null || !code.matches("[A-Z0-9_]{1,80}")) {
+                code = "AGENT_EXECUTION_FAILED";
+            }
+            SseStreamRelay.writeFrame(downstream, "error", toJson(Map.of(
+                    "code", code,
+                    "message", PlatformEmbedPublicController.RUNTIME_FAILURE_MESSAGE)));
             return;
         }
         // Embed 公共协议允许的实时事件（不含 supervisor / reasoning / debug）

@@ -29,7 +29,7 @@ export function visibleRunCenterTabs(permissions: readonly string[] | null | und
   return RUN_CENTER_TABS.filter(tab => hasPlatformPermission(permissions, tab.permission))
 }
 
-/** 侧边栏「运行中心」落到当前用户能看的第一个页签；运营人员先看到对话。 */
+/** 侧边栏「运行中心」落到当前用户能看的第一个页签；管理人员先看到对话。 */
 export function firstRunCenterPath(permissions: readonly string[] | null | undefined): string {
   return visibleRunCenterTabs(permissions)[0]?.path ?? '/runops/conversations'
 }

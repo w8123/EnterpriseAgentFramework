@@ -623,26 +623,25 @@
             <el-form-item label="Context Path">
               <el-input v-model="editForm.contextPath" placeholder="/api" />
             </el-form-item>
-            <el-form-item label="扫描路径" :required="editForm.projectKind !== 'REGISTERED'">
-              <el-input v-model="editForm.scanPath" placeholder="服务器上的绝对路径或 OpenAPI 所在目录" />
-              <div v-if="editForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
+            <el-form-item label="OpenAPI 文档" :required="editForm.projectKind !== 'REGISTERED' && !project?.openapiDocumentUploaded">
+              <div class="openapi-document-picker">
+                <input
+                  ref="editOpenapiFileInput"
+                  type="file"
+                  class="openapi-document-input"
+                  :accept="OPENAPI_DOCUMENT_ACCEPT"
+                  aria-label="选择 OpenAPI 文档"
+                  @change="handleEditOpenApiFile"
+                />
+                <LiquidGlassButton @click="editOpenapiFileInput?.click()">
+                  {{ project?.openapiDocumentUploaded ? '更换文件' : '选择文件' }}
+                </LiquidGlassButton>
+                <span class="form-hint">
+                  {{ editForm.specContent ? `待保存：${editForm.specFile}` : (project?.openapiDocumentUploaded ? `已上传：${project?.specFile || 'openapi.yaml'}` : '未上传，支持 .json / .yaml / .yml，最大 5MB') }}
+                </span>
+              </div>
+              <div class="form-hint">更换文档并保存后，到「同步与发现」里重新导入即可更新接口。</div>
             </el-form-item>
-            <el-row class="edit-project-row" :gutter="14">
-              <el-col :span="12">
-                <el-form-item label="扫描方式" required>
-                  <el-select v-model="editForm.scanType" style="width: 100%">
-                    <el-option label="OpenAPI" value="openapi" />
-                    <el-option label="Controller" value="controller" />
-                    <el-option label="自动（SDK）" value="auto" />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col v-if="editForm.scanType === 'openapi'" :span="12">
-                <el-form-item label="规范文件">
-                  <el-input v-model="editForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
-                </el-form-item>
-              </el-col>
-            </el-row>
           </template>
         </section>
       </el-form>
@@ -682,6 +681,7 @@ import PageHeader from '@/components/common/PageHeader.vue'
 import HeaderMetaList, { type HeaderMetaItem } from '@/components/common/HeaderMetaList.vue'
 import { formatInstanceStatusLabel } from '@/utils/registryLabels'
 import { formatRelativeTime } from '@/utils/relativeTime'
+import { OPENAPI_DOCUMENT_ACCEPT } from '@/utils/openapiDocument'
 import {
   LiquidGlassButton,
   LiquidGlassCard,
@@ -709,7 +709,7 @@ import { platformSessionUser } from '@/auth/platformSession'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
 
 const { theme } = useTheme()
-// 运营人员等只读角色能查看项目，但看不到编辑、删除和 AI Coding 秘钥。
+// 管理人员等只读角色能查看项目，但看不到编辑、删除和 AI Coding 秘钥。
 const canWriteProject = computed(() => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, projectCode.value,
 ))
@@ -717,6 +717,7 @@ const canWriteProject = computed(() => hasPlatformResourcePermission(
 const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
 const aiCodingDialogTab = ref<'overview' | 'endpoints' | 'credentials'>('overview')
+const editOpenapiFileInput = ref<HTMLInputElement | null>(null)
 const instancePage = ref(1)
 const instancePageSize = ref(10)
 
@@ -829,6 +830,7 @@ const {
   setInstanceStatus,
   openEditDialog,
   saveEditProject,
+  handleEditOpenApiFile,
   handleDeleteProject,
 } = useRegistryProjectDetailActions({
   project,
@@ -917,6 +919,17 @@ onMounted(refresh)
 
 <style scoped lang="scss">
 @use './styles/RegistryProjectDetail.scss';
+
+.openapi-document-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.openapi-document-input {
+  display: none;
+}
 </style>
 
 <style lang="scss">

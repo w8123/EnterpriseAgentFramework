@@ -70,6 +70,24 @@ public class ModelInstanceController {
         return ApiResult.ok(testService.testSaved(id));
     }
 
+    /** Test another model against this instance's stored connection without returning its credential. */
+    @PostMapping("/{id}/test-connection-model")
+    public ApiResult<ModelInstanceTestResponse> testConnectionModel(@PathVariable("id") String id,
+                                                                    @RequestBody ConnectionModelTestRequest request) {
+        return ApiResult.ok(testService.testConnectionModel(id, request));
+    }
+
+    public record ConnectionModelTestRequest(ModelType modelType, String modelName) { }
+
+    /** Copy a standalone connection into a new model in the same scope; secrets stay server-side. */
+    @PostMapping("/{id}/connection-models")
+    public ApiResult<ModelInstanceResponse> createConnectionModel(@PathVariable("id") String id,
+                                                                  @RequestBody ConnectionModelCreateRequest request) {
+        return ApiResult.ok(service.createConnectionModel(id, request));
+    }
+
+    public record ConnectionModelCreateRequest(String name, ModelType modelType, String modelName) { }
+
     @PostMapping("/{id}/archive")
     public ApiResult<ModelInstanceResponse> archive(@PathVariable("id") String id) {
         return ApiResult.ok(service.archive(id));

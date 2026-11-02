@@ -123,6 +123,8 @@ export interface EafChatClient {
   close(): void
   toggle(): void
   send(message: string): Promise<EafChatMessageResponse>
+  /** 清除当前对话上下文，不删除长期记忆或审计记录。 */
+  clearContext(): Promise<void>
   /** 重新获取 Embed Token；不会自动重发上一条用户消息。 */
   retry(): Promise<void>
   /**
@@ -199,6 +201,7 @@ export interface EafChatMessageResponse {
 type EmbedChatHostInstance = ComponentPublicInstance & {
   sendMessage: (message: string) => Promise<EafChatMessageResponse>
   retryAuthentication: () => Promise<string>
+  clearContext: () => Promise<void>
   refreshToken: (reason?: EafChatTokenReason) => Promise<string>
   setContext: (context: Record<string, unknown>) => void
   getSessionId: () => string | null
@@ -249,10 +252,14 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   let pageCatalogTimer: number | undefined
   let pageCatalogTokenSeen = false
   let destroyed = false
+  const lifetime = new AbortController()
   let chatApp: App | null = null
   let hostInstance: EmbedChatHostInstance | null = null
   let sendInFlight = false
-  let registeredActionCount = activeBridge.registeredActions.length
+  function pollableActionCount(bridge: EafPageBridge) {
+    return bridge.registeredActions.length + (bridge.supportsNavigation ? 1 : 0)
+  }
+  let registeredActionCount = pollableActionCount(activeBridge)
   let pendingNavigation: {
     requestId: string
     targetPageKey?: string
@@ -319,6 +326,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       inFlightPageActions,
       pendingPageActionResults,
       responseMetadata,
+      isActive: () => !destroyed,
+      signal: lifetime.signal,
       onRequested: (req) => publishPageActionRequested(req, { sessionId }),
       onError: reportError,
       refreshToken: async () => {
@@ -401,6 +410,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       handledPageActions,
       inFlightPageActions,
       pendingPageActionResults,
+      isActive: () => !destroyed,
+      signal: lifetime.signal,
       onRequested: (request) => publishPageActionRequested(request, { sessionId }),
       onError: reportError,
       refreshToken: async () => {
@@ -429,6 +440,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       inFlightPageActions,
       pendingPageActionResults,
       context,
+      isActive: () => !destroyed,
+      signal: lifetime.signal,
       // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
       onEvent: (event) => {
         if (event.type === 'page.action.requested') {
@@ -445,7 +458,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   const pendingPollScheduler = createPendingPageActionPollScheduler({
     getSessionId: () => hostInstance?.getExistingSessionId() || null,
-    hasRegisteredActions: () => activeBridge.registeredActions.length > 0,
+    hasRegisteredActions: () => pollableActionCount(activeBridge) > 0,
     isDestroyed: () => destroyed,
     poll: pollPendingPageActionsOnce,
     onError: reportError,
@@ -546,7 +559,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     unregisterPageCatalogChange()
     unregisterPageCatalogChange = activeBridge.onActionDefinitionsChange(() => {
     schedulePageCatalogRegistration()
-    const nextCount = activeBridge.registeredActions.length
+    const nextCount = pollableActionCount(activeBridge)
     pendingPollScheduler.notifyActionsChanged(registeredActionCount, nextCount)
     registeredActionCount = nextCount
     })
@@ -577,7 +590,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   async function refreshTokenForCurrentSession() {
     if (!hostInstance) throw new Error('Embed chat host is not ready')
-    token = await hostInstance.refreshToken('page-action')
+    const refreshed = await hostInstance.refreshToken('page-action')
+    if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
+    token = refreshed
   }
 
   async function send(message: string): Promise<EafChatMessageResponse> {
@@ -622,9 +637,15 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       shell.toggle()
     },
     send,
+    async clearContext() {
+      if (!hostInstance || destroyed) throw new Error('Embed chat client has been destroyed')
+      await hostInstance.clearContext()
+    },
     async retry() {
       if (!hostInstance || destroyed) return
-      token = await hostInstance.retryAuthentication()
+      const refreshed = await hostInstance.retryAuthentication()
+      if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
+      token = refreshed
     },
     async rebindPage(binding: EafChatPageBinding) {
       if (destroyed) throw new Error('Embed chat client has been destroyed')
@@ -641,9 +662,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       }
       const previousActionCount = registeredActionCount
       await hostInstance.rebindPage(binding.bridge, binding.page, navigation.requestId)
+      if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
       activeBridge = binding.bridge
       activePage = binding.page
-      registeredActionCount = activeBridge.registeredActions.length
+      registeredActionCount = pollableActionCount(activeBridge)
       subscribeToActiveBridge()
       pendingNavigation = null
       pendingPollScheduler.notifyActionsChanged(previousActionCount, registeredActionCount)
@@ -657,6 +679,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     },
     destroy() {
       destroyed = true
+      lifetime.abort()
+      token = ''
+      context = {}
       pendingPollScheduler.destroy()
       unregisterPageCatalogChange()
       if (pageCatalogTimer) window.clearTimeout(pageCatalogTimer)

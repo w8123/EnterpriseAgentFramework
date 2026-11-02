@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -124,11 +126,20 @@ public class BusinessUserDirectoryController {
         if (businessUser == null) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
-        ExternalUserBindingEntity entity = resolveIdentity(id, request);
-        entity.setTenantId(StringUtils.hasText(entity.getTenantId()) ? entity.getTenantId() : businessUser.getTenantId());
+        if (request == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "identity is required");
+        String requestedApp = requireText(request.appId(), "appId");
+        String requestedUser = requireText(request.externalUserId(), "externalUserId");
+        ExternalUserBindingEntity entity = resolveIdentity(id, request.id(), requestedApp, requestedUser);
+        String tenant = requireText(businessUser.getTenantId(), "tenantId");
+        if (entity.getId() != null && (!id.equals(entity.getBusinessUserId()) || !tenant.equals(entity.getTenantId()))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "identity not found for this business user");
+        }
+        String oldApp = entity.getAppId();
+        String oldUser = entity.getExternalUserId();
+        entity.setTenantId(tenant);
         entity.setBusinessUserId(id);
-        entity.setAppId(requireText(request.appId(), "appId"));
-        entity.setExternalUserId(requireText(request.externalUserId(), "externalUserId"));
+        entity.setAppId(requestedApp);
+        entity.setExternalUserId(requestedUser);
         entity.setExternalUserName(StringUtils.hasText(request.externalUserName())
                 ? request.externalUserName().trim()
                 : request.externalUserId().trim());
@@ -136,11 +147,19 @@ public class BusinessUserDirectoryController {
         entity.setDeptName(trim(request.deptName()));
         entity.setStatus(StringUtils.hasText(request.status()) ? request.status().trim() : "ACTIVE");
         entity.setUpdatedAt(LocalDateTime.now());
-        if (entity.getId() == null) {
-            entity.setCreatedAt(LocalDateTime.now());
-            externalUserBindingMapper.insert(entity);
-        } else {
-            externalUserBindingMapper.updateById(entity);
+        try {
+            if (entity.getId() == null) {
+                entity.setCreatedAt(LocalDateTime.now());
+                externalUserBindingMapper.insert(entity);
+            } else {
+                externalUserBindingMapper.updateById(entity);
+            }
+        } catch (DuplicateKeyException conflict) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "identity already belongs to a business user");
+        }
+        if (StringUtils.hasText(oldApp) && StringUtils.hasText(oldUser)
+                && (!oldApp.equals(requestedApp) || !oldUser.equals(requestedUser))) {
+            deleteRoleBindings(tenant, id, oldApp, oldUser);
         }
         replaceRoleBindings(id, entity, request.roles());
         long roleCount = request.roles() == null
@@ -159,26 +178,22 @@ public class BusinessUserDirectoryController {
         return ResponseEntity.ok(toExternalIdentityView(entity));
     }
 
-    private ExternalUserBindingEntity resolveIdentity(Long businessUserId, ExternalIdentityCommand request) {
-        if (request.id() != null) {
-            ExternalUserBindingEntity byId = externalUserBindingMapper.selectById(request.id());
-            if (byId != null) {
-                return byId;
-            }
+    private ExternalUserBindingEntity resolveIdentity(Long businessUserId, Long bindingId, String appId, String externalUserId) {
+        if (bindingId != null) {
+            ExternalUserBindingEntity byId = externalUserBindingMapper.selectByIdForUpdate(bindingId);
+            if (byId == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "identity not found");
+            return byId;
         }
         ExternalUserBindingEntity existing = externalUserBindingMapper.selectOne(new LambdaQueryWrapper<ExternalUserBindingEntity>()
                 .eq(ExternalUserBindingEntity::getBusinessUserId, businessUserId)
-                .eq(ExternalUserBindingEntity::getAppId, request.appId())
-                .eq(ExternalUserBindingEntity::getExternalUserId, request.externalUserId())
-                .last("limit 1"));
+                .eq(ExternalUserBindingEntity::getAppId, appId)
+                .eq(ExternalUserBindingEntity::getExternalUserId, externalUserId)
+                .last("limit 1 for update"));
         return existing == null ? new ExternalUserBindingEntity() : existing;
     }
 
     private void replaceRoleBindings(Long businessUserId, ExternalUserBindingEntity identity, List<String> roleCodes) {
-        externalUserRoleBindingMapper.delete(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
-                .eq(ExternalUserRoleBindingEntity::getBusinessUserId, businessUserId)
-                .eq(ExternalUserRoleBindingEntity::getAppId, identity.getAppId())
-                .eq(ExternalUserRoleBindingEntity::getExternalUserId, identity.getExternalUserId()));
+        deleteRoleBindings(identity.getTenantId(), businessUserId, identity.getAppId(), identity.getExternalUserId());
         for (String roleCode : roleCodes == null ? List.<String>of() : roleCodes) {
             if (!StringUtils.hasText(roleCode)) {
                 continue;
@@ -196,6 +211,14 @@ public class BusinessUserDirectoryController {
             role.setUpdatedAt(LocalDateTime.now());
             externalUserRoleBindingMapper.insert(role);
         }
+    }
+
+    private void deleteRoleBindings(String tenantId, Long businessUserId, String appId, String externalUserId) {
+        externalUserRoleBindingMapper.delete(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
+                .eq(ExternalUserRoleBindingEntity::getTenantId, tenantId)
+                .eq(ExternalUserRoleBindingEntity::getBusinessUserId, businessUserId)
+                .eq(ExternalUserRoleBindingEntity::getAppId, appId)
+                .eq(ExternalUserRoleBindingEntity::getExternalUserId, externalUserId));
     }
 
     private BusinessUserView toBusinessUserView(BusinessUserEntity entity) {

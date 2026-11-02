@@ -9,7 +9,7 @@ spring:
     scheduling:
       # @Scheduled methods only coordinate short leases/outboxes. Executions use dedicated bounded pools.
       pool:
-        size: ${REACHAI_RUNTIME_SCHEDULING_POOL_SIZE:4}
+        size: 4
       thread-name-prefix: reachai-runtime-scheduler-
 
   datasource:
@@ -49,11 +49,11 @@ reachai:
     # Verification-only overlap keys for rolling rotation. Never used to sign new requests.
     accepted-service-secrets: ${REACHAI_INTERNAL_SERVICE_ACCEPTED_SECRETS:}
     auth:
-      skew-seconds: ${REACHAI_INTERNAL_AUTH_SKEW_SECONDS:300}
+      skew-seconds: 300
       # Must be >= 2 * skew-seconds so future-skew timestamps stay anti-replayable for the full window.
-      nonce-ttl-seconds: ${REACHAI_INTERNAL_AUTH_NONCE_TTL_SECONDS:600}
-      nonce-max-entries: ${REACHAI_INTERNAL_AUTH_NONCE_MAX_ENTRIES:100000}
-      max-body-bytes: ${REACHAI_INTERNAL_AUTH_MAX_BODY_BYTES:1048576}
+      nonce-ttl-seconds: 600
+      nonce-max-entries: 100000
+      max-body-bytes: 1048576
   runtime:
     eval:
       # Off by default: experiments stay QUEUED and the admin console says the worker is off.
@@ -63,42 +63,42 @@ reachai:
       enabled: ${REACHAI_AUTOMATION_ENABLED:false}
       # db-scheduler is only the cluster clock; callbacks materialize durable occurrences.
       clock-threads: ${REACHAI_AUTOMATION_CLOCK_THREADS:2}
-      clock-polling-interval-ms: ${REACHAI_AUTOMATION_CLOCK_POLLING_INTERVAL_MS:1000}
-      command-initial-delay-ms: ${REACHAI_AUTOMATION_COMMAND_INITIAL_DELAY_MS:3000}
-      command-poll-delay-ms: ${REACHAI_AUTOMATION_COMMAND_POLL_DELAY_MS:1000}
+      clock-polling-interval-ms: 1000
+      command-initial-delay-ms: 3000
+      command-poll-delay-ms: 1000
       # Agent/Workflow execution is isolated from the scheduler clock and shared @Scheduled pool.
       worker-concurrency: ${REACHAI_AUTOMATION_WORKER_CONCURRENCY:4}
-      worker-lease-seconds: ${REACHAI_AUTOMATION_WORKER_LEASE_SECONDS:600}
-      worker-initial-delay-ms: ${REACHAI_AUTOMATION_WORKER_INITIAL_DELAY_MS:5000}
-      worker-poll-delay-ms: ${REACHAI_AUTOMATION_WORKER_POLL_DELAY_MS:1000}
-      worker-heartbeat-ms: ${REACHAI_AUTOMATION_WORKER_HEARTBEAT_MS:30000}
+      worker-lease-seconds: 600
+      worker-initial-delay-ms: 5000
+      worker-poll-delay-ms: 1000
+      worker-heartbeat-ms: 30000
     managed-executor:
       # Fail closed. Enabling requires an explicit project/profile allowlist and non-zero cluster capacity.
       enabled: ${REACHAI_MANAGED_EXECUTOR_ENABLED:false}
       auto-route-enabled: ${REACHAI_MANAGED_EXECUTOR_AUTO_ROUTE_ENABLED:false}
       sandbox-backend: ${REACHAI_MANAGED_EXECUTOR_SANDBOX_BACKEND:disabled}
-      allowed-projects: ${REACHAI_MANAGED_EXECUTOR_ALLOWED_PROJECTS:}
+      allowed-projects: ""
       allowed-profiles: ${REACHAI_MANAGED_EXECUTOR_ALLOWED_PROFILES:ANALYZE_READONLY}
       # Operator-owned JSON maps; neither model prompts nor public requests may supply repository URLs or argv.
       workspace-sources-json: '${REACHAI_MANAGED_EXECUTOR_WORKSPACE_SOURCES_JSON:}'
       acceptance-profiles-json: '${REACHAI_MANAGED_EXECUTOR_ACCEPTANCE_PROFILES_JSON:}'
       max-cluster-concurrency: ${REACHAI_MANAGED_EXECUTOR_MAX_CLUSTER_CONCURRENCY:0}
-      worker-token-ttl-seconds: ${REACHAI_MANAGED_EXECUTOR_WORKER_TOKEN_TTL_SECONDS:14400}
-      worker-lease-seconds: ${REACHAI_MANAGED_EXECUTOR_WORKER_LEASE_SECONDS:90}
-      max-objective-characters: ${REACHAI_MANAGED_EXECUTOR_MAX_OBJECTIVE_CHARACTERS:65535}
-      max-event-batch-size: ${REACHAI_MANAGED_EXECUTOR_MAX_EVENT_BATCH_SIZE:100}
-      max-event-bytes: ${REACHAI_MANAGED_EXECUTOR_MAX_EVENT_BYTES:262144}
-      max-worker-request-bytes: ${REACHAI_MANAGED_EXECUTOR_MAX_WORKER_REQUEST_BYTES:1048576}
-      provision-fixed-delay-ms: ${REACHAI_MANAGED_EXECUTOR_PROVISION_DELAY_MS:1000}
-      provision-initial-delay-ms: ${REACHAI_MANAGED_EXECUTOR_PROVISION_INITIAL_DELAY_MS:5000}
-      cleanup-fixed-delay-ms: ${REACHAI_MANAGED_EXECUTOR_CLEANUP_DELAY_MS:5000}
-      cleanup-initial-delay-ms: ${REACHAI_MANAGED_EXECUTOR_CLEANUP_INITIAL_DELAY_MS:10000}
-      lease-expiry-fixed-delay-ms: ${REACHAI_MANAGED_EXECUTOR_LEASE_EXPIRY_DELAY_MS:5000}
-      lease-expiry-initial-delay-ms: ${REACHAI_MANAGED_EXECUTOR_LEASE_EXPIRY_INITIAL_DELAY_MS:10000}
-      outbox-batch-size: ${REACHAI_MANAGED_EXECUTOR_OUTBOX_BATCH_SIZE:50}
-      outbox-lease-seconds: ${REACHAI_MANAGED_EXECUTOR_OUTBOX_LEASE_SECONDS:60}
-      outbox-fixed-delay-ms: ${REACHAI_MANAGED_EXECUTOR_OUTBOX_DELAY_MS:2000}
-      outbox-initial-delay-ms: ${REACHAI_MANAGED_EXECUTOR_OUTBOX_INITIAL_DELAY_MS:5000}
+      worker-token-ttl-seconds: 14400
+      worker-lease-seconds: 90
+      max-objective-characters: 65535
+      max-event-batch-size: 100
+      max-event-bytes: 262144
+      max-worker-request-bytes: 1048576
+      provision-fixed-delay-ms: 1000
+      provision-initial-delay-ms: 5000
+      cleanup-fixed-delay-ms: 5000
+      cleanup-initial-delay-ms: 10000
+      lease-expiry-fixed-delay-ms: 5000
+      lease-expiry-initial-delay-ms: 10000
+      outbox-batch-size: 50
+      outbox-lease-seconds: 60
+      outbox-fixed-delay-ms: 2000
+      outbox-initial-delay-ms: 5000
       artifact-store:
         # disabled is the safe default. local is single-node development only; deployed workloads use s3.
         type: ${REACHAI_MANAGED_EXECUTOR_ARTIFACT_STORE_TYPE:disabled}
@@ -109,29 +109,29 @@ reachai:
         region: ${REACHAI_MANAGED_EXECUTOR_ARTIFACT_S3_REGION:us-east-1}
         bucket: ${REACHAI_MANAGED_EXECUTOR_ARTIFACT_S3_BUCKET:reachai-managed-executor}
         auto-create-bucket: ${REACHAI_MANAGED_EXECUTOR_ARTIFACT_S3_AUTO_CREATE_BUCKET:false}
-        max-patch-bytes: ${REACHAI_MANAGED_EXECUTOR_MAX_PATCH_BYTES:33554432}
-        max-json-bytes: ${REACHAI_MANAGED_EXECUTOR_MAX_JSON_ARTIFACT_BYTES:4194304}
-        max-event-log-bytes: ${REACHAI_MANAGED_EXECUTOR_MAX_EVENT_LOG_BYTES:16777216}
-        retention-days: ${REACHAI_MANAGED_EXECUTOR_ARTIFACT_RETENTION_DAYS:30}
+        max-patch-bytes: 33554432
+        max-json-bytes: 4194304
+        max-event-log-bytes: 16777216
+        retention-days: 30
       kubernetes:
-        api-server: ${REACHAI_MANAGED_EXECUTOR_K8S_API_SERVER:https://kubernetes.default.svc}
+        api-server: "https://kubernetes.default.svc"
         namespace: ${REACHAI_MANAGED_EXECUTOR_K8S_NAMESPACE:reachai-managed-executor}
-        service-account-token-file: ${REACHAI_MANAGED_EXECUTOR_K8S_TOKEN_FILE:/var/run/secrets/kubernetes.io/serviceaccount/token}
-        cluster-ca-file: ${REACHAI_MANAGED_EXECUTOR_K8S_CA_FILE:/var/run/secrets/kubernetes.io/serviceaccount/ca.crt}
+        service-account-token-file: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+        cluster-ca-file: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
         runtime-base-url: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_BASE_URL:}
         worker-image: ${REACHAI_MANAGED_EXECUTOR_WORKER_IMAGE:}
         git-init-image: ${REACHAI_MANAGED_EXECUTOR_GIT_INIT_IMAGE:}
-        codex-config-map-name: ${REACHAI_MANAGED_EXECUTOR_CODEX_CONFIG_MAP:}
-        runtime-class-name: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_CLASS:}
-        allowed-runtime-classes: ${REACHAI_MANAGED_EXECUTOR_ALLOWED_RUNTIME_CLASSES:gvisor,kata-qemu,kata-fc}
-        worker-service-account-name: ${REACHAI_MANAGED_EXECUTOR_WORKER_SERVICE_ACCOUNT:}
+        codex-config-map-name: ""
+        runtime-class-name: ""
+        allowed-runtime-classes: "gvisor,kata-qemu,kata-fc"
+        worker-service-account-name: ""
         # K8s backend startup fails when this or any explicit egress destination is missing.
         network-policy-enabled: ${REACHAI_MANAGED_EXECUTOR_NETWORK_POLICY_ENABLED:false}
-        static-default-deny-policy-name: ${REACHAI_MANAGED_EXECUTOR_STATIC_DEFAULT_DENY_POLICY:default-deny-all}
-        dns-proxy-ip: ${REACHAI_MANAGED_EXECUTOR_DNS_PROXY_IP:}
+        static-default-deny-policy-name: "default-deny-all"
+        dns-proxy-ip: ""
         dns-proxy-port: ${REACHAI_MANAGED_EXECUTOR_DNS_PROXY_PORT:53}
         runtime-egress-namespace: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_EGRESS_NAMESPACE:}
-        runtime-egress-app: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_EGRESS_APP:}
+        runtime-egress-app: ""
         runtime-egress-port: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_EGRESS_PORT:18604}
         runtime-service-host: ${REACHAI_MANAGED_EXECUTOR_RUNTIME_SERVICE_HOST:}
         model-relay-egress-namespace: ${REACHAI_MANAGED_EXECUTOR_MODEL_RELAY_EGRESS_NAMESPACE:}
@@ -139,44 +139,44 @@ reachai:
         model-relay-egress-port: ${REACHAI_MANAGED_EXECUTOR_MODEL_RELAY_EGRESS_PORT:443}
         model-relay-service-host: ${REACHAI_MANAGED_EXECUTOR_MODEL_RELAY_SERVICE_HOST:}
         git-proxy-egress-namespace: ${REACHAI_MANAGED_EXECUTOR_GIT_PROXY_EGRESS_NAMESPACE:}
-        git-proxy-egress-app: ${REACHAI_MANAGED_EXECUTOR_GIT_PROXY_EGRESS_APP:}
+        git-proxy-egress-app: ""
         git-proxy-egress-port: ${REACHAI_MANAGED_EXECUTOR_GIT_PROXY_EGRESS_PORT:443}
         git-proxy-service-host: ${REACHAI_MANAGED_EXECUTOR_GIT_PROXY_SERVICE_HOST:}
         dependency-proxy-egress-namespace: ${REACHAI_MANAGED_EXECUTOR_DEPENDENCY_PROXY_EGRESS_NAMESPACE:}
-        dependency-proxy-egress-app: ${REACHAI_MANAGED_EXECUTOR_DEPENDENCY_PROXY_EGRESS_APP:}
+        dependency-proxy-egress-app: ""
         dependency-proxy-egress-port: ${REACHAI_MANAGED_EXECUTOR_DEPENDENCY_PROXY_EGRESS_PORT:443}
         dependency-proxy-service-host: ${REACHAI_MANAGED_EXECUTOR_DEPENDENCY_PROXY_SERVICE_HOST:}
         image-pull-policy: ${REACHAI_MANAGED_EXECUTOR_IMAGE_PULL_POLICY:IfNotPresent}
-        ttl-seconds-after-finished: ${REACHAI_MANAGED_EXECUTOR_JOB_TTL_SECONDS:600}
-        termination-grace-period-seconds: ${REACHAI_MANAGED_EXECUTOR_TERMINATION_GRACE_SECONDS:30}
-        cpu-request: ${REACHAI_MANAGED_EXECUTOR_CPU_REQUEST:500m}
-        cpu-limit: ${REACHAI_MANAGED_EXECUTOR_CPU_LIMIT:2}
-        memory-request: ${REACHAI_MANAGED_EXECUTOR_MEMORY_REQUEST:1Gi}
-        memory-limit: ${REACHAI_MANAGED_EXECUTOR_MEMORY_LIMIT:4Gi}
-        ephemeral-storage-request: ${REACHAI_MANAGED_EXECUTOR_EPHEMERAL_REQUEST:1Gi}
-        ephemeral-storage-limit: ${REACHAI_MANAGED_EXECUTOR_EPHEMERAL_LIMIT:10Gi}
-        workspace-size-limit: ${REACHAI_MANAGED_EXECUTOR_WORKSPACE_LIMIT:10Gi}
-        broker-cpu-request: ${REACHAI_MANAGED_EXECUTOR_BROKER_CPU_REQUEST:25m}
-        broker-cpu-limit: ${REACHAI_MANAGED_EXECUTOR_BROKER_CPU_LIMIT:250m}
-        broker-memory-request: ${REACHAI_MANAGED_EXECUTOR_BROKER_MEMORY_REQUEST:64Mi}
-        broker-memory-limit: ${REACHAI_MANAGED_EXECUTOR_BROKER_MEMORY_LIMIT:256Mi}
-        broker-ephemeral-storage-request: ${REACHAI_MANAGED_EXECUTOR_BROKER_EPHEMERAL_REQUEST:64Mi}
-        broker-ephemeral-storage-limit: ${REACHAI_MANAGED_EXECUTOR_BROKER_EPHEMERAL_LIMIT:256Mi}
+        ttl-seconds-after-finished: 600
+        termination-grace-period-seconds: 30
+        cpu-request: "500m"
+        cpu-limit: 2
+        memory-request: "1Gi"
+        memory-limit: "4Gi"
+        ephemeral-storage-request: "1Gi"
+        ephemeral-storage-limit: "10Gi"
+        workspace-size-limit: "10Gi"
+        broker-cpu-request: "25m"
+        broker-cpu-limit: "250m"
+        broker-memory-request: "64Mi"
+        broker-memory-limit: "256Mi"
+        broker-ephemeral-storage-request: "64Mi"
+        broker-ephemeral-storage-limit: "256Mi"
     workflow-checkpoint:
       # Default durable interaction checkpoint limit. The codec enforces a non-configurable 1 MiB hard ceiling.
-      max-bytes: ${RUNTIME_WORKFLOW_CHECKPOINT_MAX_BYTES:262144}
+      max-bytes: 262144
     skills:
       # Content-addressed Runtime cache for immutable, Control-published Agent Skill packages.
       cache-directory: ${RUNTIME_SKILL_CACHE_DIR:${user.home}/.reachai/runtime-skill-cache}
       max-package-bytes: ${RUNTIME_SKILL_MAX_PACKAGE_BYTES:20971520}
-      max-expanded-bytes: ${RUNTIME_SKILL_MAX_EXPANDED_BYTES:104857600}
-      max-single-file-bytes: ${RUNTIME_SKILL_MAX_SINGLE_FILE_BYTES:20971520}
-      max-files: ${RUNTIME_SKILL_MAX_FILES:1024}
+      max-expanded-bytes: 104857600
+      max-single-file-bytes: 20971520
+      max-files: 1024
     business-index:
       # Only explicit agentReferenceEnabled business-index hits enter this path.
       # Resolver failures strip projection text instead of falling back to stale data.
-      max-references: ${RUNTIME_BUSINESS_INDEX_MAX_REFERENCES:8}
-      max-resolution-bytes: ${RUNTIME_BUSINESS_INDEX_MAX_RESOLUTION_BYTES:262144}
+      max-references: 8
+      max-resolution-bytes: 262144
     session-memory:
       enabled: ${RUNTIME_SESSION_MEMORY_ENABLED:true}
       # Production must use redis; local development may use json or in-memory.
@@ -184,65 +184,65 @@ reachai:
       json-directory: ${RUNTIME_SESSION_MEMORY_JSON_DIR:${user.home}/.reachai/runtime-session-state}
       redis-uri: ${RUNTIME_SESSION_MEMORY_REDIS_URI:redis://localhost:6379}
       redis-key-prefix: ${RUNTIME_SESSION_MEMORY_REDIS_KEY_PREFIX:reachai:runtime:session-state:}
-      require-redis-in-production: ${RUNTIME_SESSION_MEMORY_REQUIRE_REDIS_IN_PRODUCTION:true}
-      max-context-messages: ${RUNTIME_SESSION_MEMORY_MAX_CONTEXT_MESSAGES:40}
-      max-stored-content-chars: ${RUNTIME_SESSION_MEMORY_MAX_STORED_CONTENT_CHARS:65535}
-      turn-lease-seconds: ${RUNTIME_SESSION_MEMORY_TURN_LEASE_SECONDS:600}
+      require-redis-in-production: true
+      max-context-messages: 40
+      max-stored-content-chars: 65535
+      turn-lease-seconds: 600
     session-retention:
       # Physical purge is destructive. Enable only after migration, tenant policy,
       # legal-hold, backup-retention and restore procedures have been verified.
       enabled: ${RUNTIME_SESSION_RETENTION_ENABLED:false}
       # Defaults are used only when a tenant has no Runtime-owned policy row.
-      default-active-retention-days: ${RUNTIME_SESSION_RETENTION_ACTIVE_DAYS:30}
-      default-cleared-retention-hours: ${RUNTIME_SESSION_RETENTION_CLEARED_HOURS:24}
-      cleanup-batch-size: ${RUNTIME_SESSION_RETENTION_BATCH_SIZE:100}
-      lifecycle-lease-seconds: ${RUNTIME_SESSION_RETENTION_LEASE_SECONDS:300}
-      cleanup-fixed-delay-ms: ${RUNTIME_SESSION_RETENTION_CLEANUP_DELAY_MS:300000}
-      cleanup-initial-delay-ms: ${RUNTIME_SESSION_RETENTION_INITIAL_DELAY_MS:60000}
+      default-active-retention-days: 30
+      default-cleared-retention-hours: 24
+      cleanup-batch-size: 100
+      lifecycle-lease-seconds: 300
+      cleanup-fixed-delay-ms: 300000
+      cleanup-initial-delay-ms: 60000
     context-engineering:
       # Canary switch. ReachAI keeps ReActAgent, canonical memory, Tool ACL and Runtime state ownership.
       enabled: ${RUNTIME_CONTEXT_ENGINEERING_ENABLED:false}
       compaction-enabled: ${RUNTIME_CONTEXT_COMPACTION_ENABLED:true}
       overflow-recovery-enabled: ${RUNTIME_CONTEXT_OVERFLOW_RECOVERY_ENABLED:true}
-      compaction-trigger-messages: ${RUNTIME_CONTEXT_COMPACTION_TRIGGER_MESSAGES:24}
-      compaction-trigger-tokens: ${RUNTIME_CONTEXT_COMPACTION_TRIGGER_TOKENS:24000}
-      compaction-keep-messages: ${RUNTIME_CONTEXT_COMPACTION_KEEP_MESSAGES:10}
+      compaction-trigger-messages: 24
+      compaction-trigger-tokens: 24000
+      compaction-keep-messages: 10
       # Keep the completed Tool call/result tail while still reducing a minimal 3-message overflow.
-      emergency-keep-messages: ${RUNTIME_CONTEXT_EMERGENCY_KEEP_MESSAGES:2}
-      compaction-timeout-ms: ${RUNTIME_CONTEXT_COMPACTION_TIMEOUT_MS:60000}
+      emergency-keep-messages: 2
+      compaction-timeout-ms: 60000
       # Explicitly opt in after applying the SQL upgrade and provisioning a >=32-char secret.
       tool-result-offload-enabled: ${RUNTIME_TOOL_RESULT_OFFLOAD_ENABLED:false}
-      tool-result-max-chars: ${RUNTIME_TOOL_RESULT_MAX_CHARS:80000}
-      tool-result-preview-chars: ${RUNTIME_TOOL_RESULT_PREVIEW_CHARS:2000}
-      artifact-max-bytes: ${RUNTIME_CONTEXT_ARTIFACT_MAX_BYTES:16777216}
-      artifact-read-chunk-chars: ${RUNTIME_CONTEXT_ARTIFACT_READ_CHUNK_CHARS:12000}
-      artifact-retention-hours: ${RUNTIME_CONTEXT_ARTIFACT_RETENTION_HOURS:24}
-      artifact-cleanup-batch-size: ${RUNTIME_CONTEXT_ARTIFACT_CLEANUP_BATCH_SIZE:200}
-      artifact-cleanup-fixed-delay-ms: ${RUNTIME_CONTEXT_ARTIFACT_CLEANUP_FIXED_DELAY_MS:60000}
+      tool-result-max-chars: 80000
+      tool-result-preview-chars: 2000
+      artifact-max-bytes: 16777216
+      artifact-read-chunk-chars: 12000
+      artifact-retention-hours: 24
+      artifact-cleanup-batch-size: 200
+      artifact-cleanup-fixed-delay-ms: 60000
       artifact-encryption-key-id: ${RUNTIME_CONTEXT_ARTIFACT_KEY_ID:primary}
       artifact-encryption-secret: ${REACHAI_RUNTIME_CONTEXT_ARTIFACT_SECRET:}
     workflow-authoring:
       # One bounded AgentScope authoring turn may include several model/tool rounds.
-      timeout-ms: ${WORKFLOW_AUTHORING_TIMEOUT_MS:240000}
+      timeout-ms: 240000
     interaction-expiry:
       enabled: ${RUNTIME_INTERACTION_EXPIRY_ENABLED:true}
-      fixed-delay-ms: ${RUNTIME_INTERACTION_EXPIRY_FIXED_DELAY_MS:5000}
-      initial-delay-ms: ${RUNTIME_INTERACTION_EXPIRY_INITIAL_DELAY_MS:5000}
-      batch-size: ${RUNTIME_INTERACTION_EXPIRY_BATCH_SIZE:100}
+      fixed-delay-ms: 5000
+      initial-delay-ms: 5000
+      batch-size: 100
       # Per-attempt completion deadline; expiry records an unknown outcome and never replays side effects.
-      resume-timeout-seconds: ${RUNTIME_INTERACTION_RESUME_TIMEOUT_SECONDS:900}
+      resume-timeout-seconds: 900
     agent-stream:
       # SSE transport heartbeat（comment）。浏览器断开后最迟约 1 个 interval + 调度误差内触发上游取消。
-      heartbeat-interval-ms: ${AGENT_STREAM_HEARTBEAT_INTERVAL_MS:8000}
+      heartbeat-interval-ms: 8000
     debug-stream:
-      heartbeat-interval-ms: ${DEBUG_STREAM_HEARTBEAT_INTERVAL_MS:8000}
+      heartbeat-interval-ms: 8000
     debug-session-expiry:
       enabled: ${RUNTIME_DEBUG_SESSION_EXPIRY_ENABLED:true}
-      fixed-delay-ms: ${RUNTIME_DEBUG_SESSION_EXPIRY_FIXED_DELAY_MS:5000}
-      initial-delay-ms: ${RUNTIME_DEBUG_SESSION_EXPIRY_INITIAL_DELAY_MS:5000}
-      batch-size: ${RUNTIME_DEBUG_SESSION_EXPIRY_BATCH_SIZE:100}
+      fixed-delay-ms: 5000
+      initial-delay-ms: 5000
+      batch-size: 100
       # Result admission deadline for each RUNNING / RESUMING attempt, independent of session retention.
-      execution-timeout-seconds: ${RUNTIME_DEBUG_SESSION_EXECUTION_TIMEOUT_SECONDS:900}
+      execution-timeout-seconds: 900
     http:
       egress:
         allow-private-networks: ${RUNTIME_HTTP_EGRESS_ALLOW_PRIVATE:false}

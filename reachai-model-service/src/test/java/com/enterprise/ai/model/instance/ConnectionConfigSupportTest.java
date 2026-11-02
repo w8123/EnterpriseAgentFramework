@@ -59,6 +59,14 @@ class ConnectionConfigSupportTest {
     }
 
     @Test
+    void invalidUrlDoesNotEchoInput() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ConnectionConfigSupport.validateBaseUrl("https://example.invalid/PRIVATE_URL_MARKER with space"));
+        assertTrue(ex.getMessage().contains("baseUrl is invalid"));
+        assertFalse(ex.getMessage().contains("PRIVATE_URL_MARKER"));
+    }
+
+    @Test
     void authorityKeyNormalizesDefaultPorts() {
         assertEquals(
                 ConnectionConfigSupport.authorityKey("https://api.openai.com/v1"),

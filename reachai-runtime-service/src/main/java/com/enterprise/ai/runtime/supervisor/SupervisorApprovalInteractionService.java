@@ -114,7 +114,7 @@ public class SupervisorApprovalInteractionService {
         uiRequest.put("extension", Map.of(
                 "kind", "SUPERVISOR_POLICY_APPROVAL",
                 "resumeVia", "AGENT_EXECUTE",
-                "permissionKey", firstText(permissionKey, ""),
+                "permissionKey", permissionKey == null ? "" : permissionKey.trim(),
                 "riskLevel", firstText(riskLevel, "WRITE")));
 
         Map<String, Object> continuation = new LinkedHashMap<>();
@@ -149,27 +149,40 @@ public class SupervisorApprovalInteractionService {
     }
 
     private Map<String, Object> displayArgs(Map<String, Object> args) {
-        if (args == null || args.isEmpty()) {
-            return Map.of();
-        }
         Map<String, Object> display = new LinkedHashMap<>();
-        for (Map.Entry<String, Object> entry : args.entrySet()) {
-            if (display.size() >= 6 || !StringUtils.hasText(entry.getKey()) || entry.getValue() == null) {
-                continue;
-            }
-            String key = entry.getKey().trim();
-            String lower = key.toLowerCase(Locale.ROOT);
-            Object value = entry.getValue();
-            if (lower.contains("secret") || lower.contains("token") || lower.contains("password")
-                    || lower.contains("authorization") || lower.contains("credential")
-                    || lower.contains("apikey") || lower.contains("api_key") || lower.contains("cookie")) {
-                display.put(key, "[已隐藏]");
-            } else if (value instanceof String || value instanceof Number || value instanceof Boolean) {
-                String rendered = String.valueOf(value);
-                display.put(key, rendered.length() <= 100 ? value : rendered.substring(0, 100) + "…");
-            }
-        }
+        if (args != null) appendDisplayArgs(display, "", args, 0);
         return display;
+    }
+
+    private void appendDisplayArgs(Map<String, Object> display, String path, Object value, int depth) {
+        if (display.size() >= 30) { display.put("其他参数", "[已省略，请核对完整内容]"); return; }
+        if (depth > 5) { display.put(path, "[嵌套过深，已省略]"); return; }
+        if (value instanceof Map<?, ?> map) {
+            if (map.isEmpty() && !path.isEmpty()) display.put(path, "{}");
+            for (var entry : map.entrySet()) {
+                String key = String.valueOf(entry.getKey()).trim();
+                if (!StringUtils.hasText(key)) continue;
+                String child = path.isEmpty() ? key : path + "." + key;
+                String lower = key.toLowerCase(Locale.ROOT);
+                if (lower.contains("secret") || lower.contains("token") || lower.contains("password")
+                        || lower.contains("authorization") || lower.contains("credential")
+                        || lower.contains("apikey") || lower.contains("api_key") || lower.contains("cookie")) {
+                    display.put(child, "[已隐藏]");
+                } else appendDisplayArgs(display, child, entry.getValue(), depth + 1);
+                if (display.size() >= 30) { display.put("其他参数", "[已省略，请核对完整内容]"); break; }
+            }
+        } else if (value instanceof List<?> list) {
+            if (list.isEmpty()) display.put(path, "[]");
+            for (int i = 0; i < list.size(); i++) {
+                appendDisplayArgs(display, path + "[" + i + "]", list.get(i), depth + 1);
+                if (display.size() >= 30) { display.put("其他参数", "[已省略，请核对完整内容]"); break; }
+            }
+        } else if (value == null || value instanceof String || value instanceof Number || value instanceof Boolean) {
+            String rendered = String.valueOf(value);
+            display.put(path, rendered.length() <= 200 ? rendered : rendered.substring(0, 200) + "…[已截断]");
+        } else {
+            display.put(path, "[无法展示的参数]");
+        }
     }
 
     private String confirmationMessage(String reason, Map<String, Object> displayArgs) {

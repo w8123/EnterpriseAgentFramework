@@ -50,7 +50,7 @@ public class ModelRoutingService {
 
     private ModelInstanceRuntime resolveRuntime(String modelInstanceId) {
         if (modelInstanceId == null || modelInstanceId.isBlank()) {
-            throw new BizException(400, "modelInstanceId is required");
+            throw new BizException(400, "还没有选择模型。请先到模型中心添加并测试一个模型，再在这里选择它");
         }
         long started = System.nanoTime();
         ModelInstanceRuntime cached = runtimeCache.getIfPresent(modelInstanceId);

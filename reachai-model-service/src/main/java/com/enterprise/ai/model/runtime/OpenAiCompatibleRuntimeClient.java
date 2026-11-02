@@ -101,11 +101,11 @@ public class OpenAiCompatibleRuntimeClient {
                     .build();
         } catch (TimeoutException e) {
             responseFuture.cancel(true);
-            throw chatTimeout(timeout);
+            throw chatTimeout(runtime, timeout);
         } catch (InterruptedException e) {
             responseFuture.cancel(true);
             Thread.currentThread().interrupt();
-            throw new BizException(502, "OpenAI-compatible model call interrupted");
+            throw new BizException(502, "模型调用被中断，请重试。");
         } catch (ExecutionException e) {
             responseFuture.cancel(true);
             Throwable cause = e.getCause();
@@ -114,20 +114,19 @@ public class OpenAiCompatibleRuntimeClient {
                 cause = cause.getCause();
             }
             if (cause instanceof HttpTimeoutException) {
-                throw chatTimeout(timeout);
+                throw chatTimeout(runtime, timeout);
             }
             if (cause instanceof BizException failure) {
                 throw failure;
             }
-            throw new BizException(502, "OpenAI-compatible model call failed: "
-                    + (cause == null ? "provider transport failure" : cause.getClass().getSimpleName()));
+            throw new BizException(502, ModelProviderErrors.transportFailure("调用模型", baseUrl(runtime), cause));
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
             if (responseFuture != null) {
                 responseFuture.cancel(true);
             }
-            throw new BizException(502, "OpenAI-compatible model call failed: " + e.getMessage());
+            throw new BizException(502, ModelProviderErrors.transportFailure("调用模型", baseUrl(runtime), e));
         }
     }
 
@@ -169,8 +168,8 @@ public class OpenAiCompatibleRuntimeClient {
         return false;
     }
 
-    private BizException chatTimeout(Duration timeout) {
-        return new BizException(504, "OpenAI-compatible model call timed out after " + timeout.toMillis() + " ms");
+    private BizException chatTimeout(ModelInstanceRuntime runtime, Duration timeout) {
+        return new BizException(504, ModelProviderErrors.timeout("调用模型", baseUrl(runtime), timeout));
     }
 
     /**
@@ -187,8 +186,8 @@ public class OpenAiCompatibleRuntimeClient {
                 HttpResponse<java.io.InputStream> response = sendStreamRequest(runtime, httpRequest);
                 if (response.statusCode() < 200 || response.statusCode() >= 300) {
                     String errorBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                    log.warn("Model instance {} stream call failed: HTTP {} body={}",
-                            runtime.getId(), response.statusCode(), truncate(errorBody));
+                    log.warn("Model instance {} stream call failed: HTTP {}",
+                            runtime.getId(), response.statusCode());
                     sink.next(ModelStreamEvent.error(providerErrorMessage(response.statusCode(), errorBody)));
                     sink.error(new BizException(response.statusCode(), providerErrorMessage(response.statusCode(), errorBody)));
                     return;
@@ -201,8 +200,10 @@ public class OpenAiCompatibleRuntimeClient {
                     emitSseTerminal(sink, terminal);
                 }
             } catch (Exception e) {
-                sink.next(ModelStreamEvent.error(e.getMessage()));
-                sink.error(e);
+                String safeMessage = e instanceof BizException ? e.getMessage()
+                        : ModelProviderErrors.transportFailure("调用模型", baseUrl(runtime), e);
+                sink.next(ModelStreamEvent.error(safeMessage));
+                sink.error(e instanceof BizException ? e : new BizException(502, safeMessage));
             }
         }), FluxSink.OverflowStrategy.BUFFER);
     }
@@ -258,7 +259,7 @@ public class OpenAiCompatibleRuntimeClient {
             if (!awaitingUsage) {
                 throw e;
             }
-            log.debug("Model stream tail closed after finish_reason without usage: {}", e.getMessage());
+            log.debug("Model stream tail closed after finish_reason without usage: {}", e.getClass().getSimpleName());
         }
         return SseTerminal.of(receivedDone, parser.finishReason());
     }
@@ -342,7 +343,7 @@ public class OpenAiCompatibleRuntimeClient {
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw new BizException(502, "OpenAI-compatible embedding call failed: " + e.getMessage());
+            throw new BizException(502, ModelProviderErrors.transportFailure("调用向量模型", baseUrl(runtime), e));
         }
     }
 
@@ -382,7 +383,7 @@ public class OpenAiCompatibleRuntimeClient {
         } catch (BizException e) {
             throw e;
         } catch (Exception e) {
-            throw new BizException(502, "OpenAI-compatible rerank call failed: " + e.getMessage());
+            throw new BizException(502, ModelProviderErrors.transportFailure("调用重排模型", baseUrl(runtime), e));
         }
     }
 
@@ -412,8 +413,16 @@ public class OpenAiCompatibleRuntimeClient {
             ObjectNode streamOptions = root.putObject("stream_options");
             streamOptions.put("include_usage", true);
         }
-        if (request.getTools() != null) root.set("tools", request.getTools());
-        if (request.getToolChoice() != null) root.set("tool_choice", request.getToolChoice());
+        JsonNode tools = request.getTools();
+        boolean hasTools = tools != null && !tools.isNull() && (!tools.isArray() || !tools.isEmpty());
+        if (hasTools) root.set("tools", tools);
+        JsonNode choice = request.getToolChoice();
+        // A final-answer round has no tools. Some OpenAI-compatible providers reject even
+        // tool_choice="none" when the tools field is absent; omitting it is equivalent here.
+        if (choice != null && !choice.isNull()
+                && (hasTools || !choice.isTextual() || !"none".equals(choice.asText()))) {
+            root.set("tool_choice", choice);
+        }
         return root;
     }
 
@@ -478,7 +487,7 @@ public class OpenAiCompatibleRuntimeClient {
             HttpResponse<byte[]> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
             if (bytes.length > MODEL_LIST_MAX_BYTES) {
-                throw new BizException(502, "Model list response is too large");
+                throw new BizException(502, "供应商返回的模型列表太大（超过 4MB），请确认接口地址指向的是模型供应商。");
             }
             String body = new String(bytes, StandardCharsets.UTF_8);
             ensureSuccess(response.statusCode(), body, runtime);
@@ -486,14 +495,14 @@ public class OpenAiCompatibleRuntimeClient {
         } catch (BizException e) {
             throw e;
         } catch (HttpTimeoutException e) {
-            throw new BizException(504, "Model list request timed out");
+            throw new BizException(504, ModelProviderErrors.timeout("读取模型列表", baseUrl(runtime), MODEL_LIST_TIMEOUT));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new BizException(502, "Model list request interrupted");
+            throw new BizException(502, "读取模型列表被中断，请重试。");
         } catch (IllegalArgumentException e) {
-            throw new BizException(502, "供应商未返回可识别的模型列表：" + e.getMessage());
+            throw new BizException(502, "供应商未返回可识别的模型列表，请检查接口地址和协议。");
         } catch (Exception e) {
-            throw new BizException(502, "Model list request failed: " + e.getClass().getSimpleName());
+            throw new BizException(502, ModelProviderErrors.transportFailure("读取模型列表", baseUrl(runtime), e));
         }
     }
 
@@ -504,7 +513,7 @@ public class OpenAiCompatibleRuntimeClient {
     private HttpRequest.Builder requestBuilder(ModelInstanceRuntime runtime, String path) {
         String baseUrl = stringConnection(runtime, "baseUrl");
         if (baseUrl == null || baseUrl.isBlank()) {
-            throw new BizException(400, "OpenAI-compatible model requires connectionConfig.baseUrl");
+            throw new BizException(400, ModelProviderErrors.missingBaseUrl());
         }
         String apiKey = stringConnection(runtime, "apiKey");
         String authHeader = stringConnection(runtime, "authHeader");
@@ -518,6 +527,10 @@ public class OpenAiCompatibleRuntimeClient {
                     authPrefix == null ? "Bearer " + apiKey : authPrefix + apiKey);
         }
         return builder;
+    }
+
+    private String baseUrl(ModelInstanceRuntime runtime) {
+        return stringConnection(runtime, "baseUrl");
     }
 
     private String resolvePath(ModelInstanceRuntime runtime, String key, String defaultPath) {
@@ -551,29 +564,21 @@ public class OpenAiCompatibleRuntimeClient {
 
     private void ensureSuccess(int status, String body, ModelInstanceRuntime runtime) {
         if (status < 200 || status >= 300) {
-            log.warn("Model instance {} call failed: HTTP {} body={}", runtime.getId(), status, truncate(body));
+            log.warn("Model instance {} call failed: HTTP {}", runtime.getId(), status);
             throw new BizException(status, providerErrorMessage(status, body));
         }
     }
 
     private String providerErrorMessage(int status, String body) {
-        String detail = truncate(body);
-        if (detail == null || detail.isBlank()) {
-            return "Model provider API error: HTTP " + status;
-        }
-        return "Model provider API error: HTTP " + status + " " + detail;
+        return ModelProviderErrors.providerHttpError(status, body);
     }
 
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
-            throw new BizException(400, "Serialize request body failed: " + e.getMessage());
+            throw new BizException(400, "模型请求无法序列化，请检查模型配置。");
         }
     }
 
-    private String truncate(String value) {
-        if (value == null || value.length() <= 800) return value;
-        return value.substring(0, 800) + "...";
-    }
 }

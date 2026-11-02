@@ -96,7 +96,7 @@ const sdkSyncContractDescription = computed(() =>
         <div class="add-interface-dialog-title-group">
           <div class="add-interface-dialog-title-copy">
             <span :id="titleId" class="add-interface-dialog-title">同步与发现</span>
-            <span class="add-interface-dialog-subtitle">同步当前项目的业务方法与 HTTP API，或按已配置来源重新发现</span>
+            <span class="add-interface-dialog-subtitle">同步当前项目的业务方法与 HTTP API，或按已上传的 OpenAPI 文档重新导入</span>
           </div>
           <el-tag v-if="project?.projectCode" class="add-interface-project-tag" effect="plain">
             {{ project.projectCode }}
@@ -118,8 +118,8 @@ const sdkSyncContractDescription = computed(() =>
 
     <section v-if="scanSettingsVisible" class="scan-rules-panel add-interface-settings-panel">
       <div class="scan-rules-title">
-        <strong>扫描解析设置</strong>
-        <span>用于控制扫描时如何解析接口说明、参数说明和默认开关，不属于接口来源。</span>
+        <strong>来源解析设置</strong>
+        <span>用于控制 SDK 同步和 OpenAPI 导入时如何解析接口说明、参数说明和默认开关，不属于接口来源。</span>
       </div>
       <LiquidGlassNotice
         v-if="project?.projectKind === 'REGISTERED' || project?.projectKind === 'HYBRID'"
@@ -133,7 +133,7 @@ const sdkSyncContractDescription = computed(() =>
         v-if="isOpenApiMode"
         class="scan-settings-mode-alert"
         type="info"
-        title="当前为 OpenAPI/Auto-OpenAPI 方式：描述来源、类名正则等仅对 Controller 代码扫描有效。"
+        title="当前为 OpenAPI 文档导入：接口与参数说明直接取自文档的 summary/description。"
         source="backdrop"
       />
       <el-form novalidate :disabled="!canWrite" label-position="top" class="scan-settings-form drawer-form" @submit.prevent>
@@ -205,14 +205,7 @@ const sdkSyncContractDescription = computed(() =>
               </div>
             </div>
           </div>
-          <span v-else class="el-text is-secondary">此扫描方式不解析 Controller 形参与 DTO，无需配置</span>
-        </el-form-item>
-        <el-form-item
-          label="仅 @RestController"
-          class="settings-form-section settings-switch-section"
-          :class="{ 'is-disabled-form-item': isOpenApiMode }"
-        >
-          <el-switch v-model="scanSettingsForm.onlyRestController" :disabled="isOpenApiMode" />
+          <span v-else class="el-text is-secondary">OpenAPI 文档自带参数说明，无需本项</span>
         </el-form-item>
         <el-form-item label="HTTP 白名单" class="settings-form-section">
           <el-select
@@ -221,7 +214,7 @@ const sdkSyncContractDescription = computed(() =>
             clearable
             filterable
             class="http-method-select"
-            placeholder="留空=全部，OpenAPI/Controller 均会过滤"
+            placeholder="留空=全部"
           >
             <el-option v-for="m in allHttpMethods" :key="m" :label="m" :value="m" />
           </el-select>
@@ -229,22 +222,8 @@ const sdkSyncContractDescription = computed(() =>
         <el-form-item label="跳过 deprecated" class="settings-form-section settings-switch-section">
           <div class="settings-inline-control">
             <el-switch v-model="scanSettingsForm.skipDeprecated" />
-            <span class="el-text is-secondary inline-hint">Controller：@Deprecated/注释；OpenAPI：operation.deprecated</span>
+            <span class="el-text is-secondary inline-hint">按 OpenAPI 的 operation.deprecated 跳过</span>
           </div>
-        </el-form-item>
-        <el-form-item
-          label="类名包含正则"
-          class="settings-form-section"
-          :class="{ 'is-disabled-form-item': isOpenApiMode }"
-        >
-          <el-input v-model="scanSettingsForm.classIncludeRegex" clearable :disabled="isOpenApiMode" placeholder="例如 .*\.controller\..*" />
-        </el-form-item>
-        <el-form-item
-          label="类名排除正则"
-          class="settings-form-section"
-          :class="{ 'is-disabled-form-item': isOpenApiMode }"
-        >
-          <el-input v-model="scanSettingsForm.classExcludeRegex" clearable :disabled="isOpenApiMode" placeholder="留空=不排除" />
         </el-form-item>
         <el-form-item label="新接口默认开关" class="settings-form-section settings-full-section">
           <div class="switch-group settings-switch-group">
@@ -253,13 +232,6 @@ const sdkSyncContractDescription = computed(() =>
               <span>启用</span>
             </label>
           </div>
-        </el-form-item>
-        <el-form-item label="增量扫描" class="settings-form-section settings-full-section">
-          <el-radio-group v-model="scanSettingsForm.incrementalMode" class="incr-radio">
-            <el-radio-button value="OFF">关闭</el-radio-button>
-            <el-radio-button value="MTIME">仅变更文件</el-radio-button>
-            <el-radio-button value="GIT_DIFF">Git 差异</el-radio-button>
-          </el-radio-group>
         </el-form-item>
       </el-form>
       <div class="scan-rules-actions">
@@ -270,10 +242,10 @@ const sdkSyncContractDescription = computed(() =>
           :loading="rescanLoading"
           @click="canWrite && emit('rescan')"
         >
-          重新扫描
+          重新导入 OpenAPI
         </el-button>
         <el-button type="primary" :loading="scanSettingsSaving" :disabled="!canWrite" @click="canWrite && emit('saveScanSettings')">
-          保存扫描设置
+          保存设置
         </el-button>
       </div>
     </section>

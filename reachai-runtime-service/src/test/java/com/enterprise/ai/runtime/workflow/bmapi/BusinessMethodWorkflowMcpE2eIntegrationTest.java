@@ -246,7 +246,6 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.openapi.OpenApiToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
@@ -557,14 +556,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         var projections = fixture.database.jdbc().queryForList("SELECT * FROM capability_tool_definition ORDER BY id");
         var api = fixture.httpApiCatalog.detail(1L);
         int upstreamCalls = fixture.controllerOrderBridge.requestCount();
-        assertEquals(2, sourceRows.size());
+        assertEquals(1, sourceRows.size(), "only the uploaded document keeps a legacy observation row; the starter report does not");
         assertTrue(sourceRows.stream().allMatch(row -> row.get("global_tool_definition_id") == null));
 
         var response = fixture.multiSourcePublicRequest("POST", "/api/scan-projects/41/tools/reconcile", Map.of());
 
         assertEquals(200, response.statusCode(), fixture.controlBridge.lastResponseSummary());
         var summary = fixture.json.readTree(response.body());
-        assertEquals(2, summary.path("notLinked").asInt());
+        assertEquals(1, summary.path("notLinked").asInt());
         assertEquals(0, summary.path("sdkMirrorsEnsured").asInt());
         assertEquals(0, summary.path("sdkReviewPendingRows").asInt());
         assertEquals(sourceRows, fixture.database.jdbc().queryForList("SELECT * FROM capability_scan_project_tool ORDER BY id"));
@@ -690,7 +689,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
     @Test
     void retiredPublicAndDirectEntriesCannotWriteDispatchOrChangeHistoricalDraft() throws Exception {
         fixture.prepareRetirementBrowserSurface();
-        assertEquals(200, fixture.changeScan("controller").statusCode());
+        assertEquals(200, fixture.rescanOpenApi().statusCode());
         Long scanId = fixture.database.jdbc().queryForObject(
                 "SELECT id FROM capability_scan_project_tool WHERE project_id=41 ORDER BY id LIMIT 1", Long.class);
         // This is deliberately historical data, not a shortcut for normal API discovery/acceptance.
@@ -1369,10 +1368,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     session.getMapper(ScanProjectToolMapper.class), json);
             httpApiCatalog.setAdoption(transactions.getBeanProvider(CapabilitySemanticDocumentStore.class));
             CapabilityScannerClient scanner = org.mockito.Mockito.mock(CapabilityScannerClient.class);
-            org.mockito.Mockito.when(scanner.scanController(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
-                    actualScannerManifest(call.getArgument(0), true));
             org.mockito.Mockito.when(scanner.scanOpenApi(org.mockito.ArgumentMatchers.any())).thenAnswer(call ->
-                    actualScannerManifest(call.getArgument(0), false));
+                    actualScannerManifest(call.getArgument(0)));
             var apiScannerIntake = transactional(scannerIntake(apiAssets, apiBindings, apiInventory));
             var subjects = transactions.getBean(CatalogSubjectResolver.class);
             var classification = transactional(new CatalogClassificationService(subjects, grouping, session.getMapper(CatalogGroupMemberMapper.class)));
@@ -1692,15 +1689,12 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         }
 
         private com.enterprise.ai.common.dto.ApiResult<CapabilityScannerClient.ManifestData> actualScannerManifest(
-                CapabilityScannerClient.ScanRequest input, boolean controller) {
+                CapabilityScannerClient.ScanRequest input) {
             var metadata = new ProjectMetadata(input.projectName(), input.baseUrl(), input.contextPath());
             var options = input.options() == null ? null : json.convertValue(input.options(),
                     com.enterprise.ai.text.tooling.scanner.ScanOptions.class);
-            Path root = Path.of(input.scanPath());
-            var manifest = controller ? new ControllerAnnotationToolManifestScanner().scan(root, metadata, options,
-                    input.incrementalSinceEpochMs()) : new OpenApiToolManifestScanner().scan(root,
-                    input.specFile() == null ? null : root.resolve(input.specFile()), metadata, options,
-                    input.incrementalSinceEpochMs());
+            // The parser only sees the uploaded document carried by the request.
+            var manifest = new OpenApiToolManifestScanner().scan(input.specFileName(), input.specContent(), metadata, options);
             // Match the normal scanner wire boundary: actual facts are serialized, not copied contracts.
             return com.enterprise.ai.common.dto.ApiResult.ok(json.copy()
                     .disable(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
@@ -1717,9 +1711,9 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             Files.copy(Path.of("src/test/resources/bmapi3b4", sourceFixture), spec);
             closers.add(() -> { Files.deleteIfExists(spec); Files.deleteIfExists(writeApiRoot); });
             database.jdbc().update("INSERT INTO capability_scan_project "
-                    + "(id,name,project_code,environment,project_kind,base_url,context_path,scan_path,scan_type,spec_file,status) "
-                    + "VALUES (41,'Orders','orders','dev','SCAN','https://not-an-execution-origin.invalid','',?,'openapi','order-notes.yaml','created')",
-                    writeApiRoot.toAbsolutePath().toString());
+                    + "(id,name,project_code,environment,project_kind,base_url,context_path,spec_file,openapi_document,openapi_document_sha256,status) "
+                    + "VALUES (41,'Orders','orders','dev','SCAN','https://not-an-execution-origin.invalid','','order-notes.yaml',?,?,'created')",
+                    Files.readString(spec, StandardCharsets.UTF_8), sha256(Files.readString(spec, StandardCharsets.UTF_8)));
             var session = sessionUnchecked();
             Long roleId = database.jdbc().queryForObject("SELECT id FROM control_platform_role WHERE role_code='bmapi-fixture-role'", Long.class);
             var role = new PlatformUserRoleEntity(); role.setUserId(platformUserId); role.setRoleId(roleId);
@@ -2141,15 +2135,18 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         private MultiSourceBrowserSurface prepareMultiSourceBrowserSurface(String name, String keySlug,
                                                                           boolean seedEditableDraft) throws Exception {
             multiSourceRoot = Files.createTempDirectory("bmapi-3b3-sources-");
-            Path controller = multiSourceRoot.resolve("ControllerOrderFixtureController.java");
-            Files.copy(Path.of("src/test/java/com/enterprise/ai/runtime/runops/consolehttpapi/ControllerOrderFixtureController.java"), controller);
+            // orders.yaml is the uploaded OpenAPI document; starter-orders.yaml stands in for the SDK starter's
+            // MVC report of the same real upstream controller, so the asset keeps two independent sources.
+            Path starter = multiSourceRoot.resolve("starter-orders.yaml");
+            Files.copy(Path.of("src/test/resources/bmapi3b3/orders.yaml"), starter);
             Files.copy(Path.of("src/test/resources/bmapi3b3/orders.yaml"), multiSourceRoot.resolve("orders.yaml"));
-            closers.add(() -> { Files.deleteIfExists(controller); Files.deleteIfExists(multiSourceRoot.resolve("orders.yaml"));
+            closers.add(() -> { Files.deleteIfExists(starter); Files.deleteIfExists(multiSourceRoot.resolve("orders.yaml"));
                 Files.deleteIfExists(multiSourceRoot); });
+            String document = Files.readString(multiSourceRoot.resolve("orders.yaml"), StandardCharsets.UTF_8);
             database.jdbc().update("INSERT INTO capability_scan_project "
-                    + "(id,name,project_code,environment,project_kind,base_url,context_path,scan_path,scan_type,status) "
-                    + "VALUES (41,'Orders','orders','dev','SCAN','https://not-an-execution-origin.invalid','',?,'controller','created')",
-                    multiSourceRoot.toAbsolutePath().toString());
+                    + "(id,name,project_code,environment,project_kind,base_url,context_path,spec_file,openapi_document,openapi_document_sha256,status) "
+                    + "VALUES (41,'Orders','orders','dev','SCAN','https://not-an-execution-origin.invalid','','orders.yaml',?,?,'created')",
+                    document, sha256(document));
             var session = sessionUnchecked();
             var role = new PlatformUserRoleEntity(); role.setUserId(platformUserId);
             role.setRoleId(database.jdbc().queryForObject(
@@ -2201,11 +2198,35 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         }
 
         HttpResponse<byte[]> multiSourcePublicRequest(String method, String path, Map<String, Object> body) throws Exception {
+            if ("POST".equals(method) && path.equals("/api/scan-projects/41/rescan")) syncEditedDocument();
             var request = HttpRequest.newBuilder(URI.create(controlBridge.baseUrl() + path)).timeout(Duration.ofSeconds(20))
                     .header("Authorization", "Bearer " + platformBearer).header("Accept", "application/json");
             if (body != null) request.header("Content-Type", "application/json");
             return HttpClient.newHttpClient().send(request.method(method, body == null ? HttpRequest.BodyPublishers.noBody()
                     : HttpRequest.BodyPublishers.ofByteArray(json.writeValueAsBytes(body))).build(), HttpResponse.BodyHandlers.ofByteArray());
+        }
+
+        /**
+         * Fixtures edit their OpenAPI file on disk; before a rescan the edited bytes become the stored upload,
+         * as if the user had uploaded the new document. The platform itself never reads these files.
+         */
+        private void syncEditedDocument() throws Exception {
+            Path document = writeApiRoot != null ? writeApiRoot.resolve("order-notes.yaml")
+                    : multiSourceRoot != null ? multiSourceRoot.resolve("orders.yaml") : null;
+            if (document == null || !Files.exists(document)) return;
+            String content = Files.readString(document, StandardCharsets.UTF_8);
+            database.jdbc().update("UPDATE capability_scan_project SET openapi_document=?, openapi_document_sha256=? "
+                    + "WHERE id=41 AND (openapi_document_sha256 IS NULL OR openapi_document_sha256<>?)",
+                    content, sha256(content), sha256(content));
+        }
+
+        static String sha256(String value) {
+            try {
+                return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                        .digest(value.getBytes(StandardCharsets.UTF_8)));
+            } catch (java.security.NoSuchAlgorithmException ex) {
+                throw new IllegalStateException(ex);
+            }
         }
 
         MultiSourceBrowserSurface prepareMarketSurface() throws Exception {
@@ -2481,11 +2502,39 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     "variableNode", marketBrowserVariableTrace(String.valueOf(call.get("traceId"))));
         }
 
+        /** Adds the second, independent source: the SDK starter's MVC report for the same upstream. */
         void selectMultiSourceOpenApi() throws Exception {
+            observeStarterReport();
+        }
+
+        void observeStarterReport() throws Exception {
+            var project = sessionUnchecked().getMapper(ScanProjectMapper.class).selectById(41L);
+            var manifest = new OpenApiToolManifestScanner().scan(multiSourceRoot.resolve("starter-orders.yaml"),
+                    new ProjectMetadata("orders", project.getBaseUrl(), ""), null);
+            var bindings = sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class);
+            var assets = new HttpApiAssetService(sessionUnchecked().getMapper(HttpApiAssetMapper.class), bindings,
+                    new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
+            var inventory = new com.enterprise.ai.capability.catalog.httpapi.HttpApiInventoryIntakeService(assets, bindings,
+                    new HttpApiInventoryStateService(sessionUnchecked().getMapper(HttpApiInventoryStateMapper.class),
+                            sessionUnchecked().getMapper(HttpApiInventoryMemberMapper.class)));
+            var adapter = new com.enterprise.ai.capability.catalog.scan.ScannerHttpApiContractAdapter();
+            var scope = new com.enterprise.ai.capability.catalog.httpapi.HttpApiServiceScope(41L, "orders", project.getEnvironment());
+            var prepared = inventory.prepare(scope, HttpApiSourceKind.STARTER_MVC,
+                    manifest.httpApis().stream().map(Fixture::scannerData).toList(), "Starter HTTP API 清单",
+                    item -> new HttpApiAssetService.ObserveRequest(scope, HttpApiSourceKind.STARTER_MVC, "mvc:" + item.sourceKey(),
+                            "mvc:ControllerOrderFixtureController", item.sourceRevision(), adapter.contract(project, item), item.businessGroups()));
+            boolean complete = manifest.httpApiInventoryComplete();
+            tx.execute(status -> inventory.observe(scope, HttpApiSourceKind.STARTER_MVC, true, complete,
+                    prepared.stream().map(item -> item.request()).toList(),
+                    complete ? null : "本次 HTTP API 清单不完整；未报告的旧来源尚未重新确认"));
+        }
+
+        /** Simulates a user re-uploading the edited OpenAPI document before rescanning. */
+        void uploadMultiSourceDocument() throws Exception {
             var updated = multiSourcePublicRequest("PUT", "/api/scan-projects/41", Map.of(
                     "name", "Orders", "projectCode", "orders", "environment", "dev", "projectKind", "SCAN",
-                    "baseUrl", "https://not-an-execution-origin.invalid", "contextPath", "", "scanPath",
-                    multiSourceRoot.toAbsolutePath().toString(), "scanType", "openapi", "specFile", "orders.yaml"));
+                    "baseUrl", "https://not-an-execution-origin.invalid", "contextPath", "", "specFile", "orders.yaml",
+                    "specContent", Files.readString(multiSourceRoot.resolve("orders.yaml"), StandardCharsets.UTF_8)));
             assertEquals(200, updated.statusCode(), new String(updated.body(), StandardCharsets.UTF_8));
         }
 
@@ -2503,14 +2552,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
 
         void grantExpectedMultiSourceBrowserAcl() {
             var project = sessionUnchecked().getMapper(ScanProjectMapper.class).selectById(41L);
-            var manifest = new ControllerAnnotationToolManifestScanner().scan(multiSourceRoot,
-                    new ProjectMetadata("orders", project.getBaseUrl(), ""));
+            var manifest = new OpenApiToolManifestScanner().scan(multiSourceRoot.resolve("orders.yaml"),
+                    new ProjectMetadata("orders", project.getBaseUrl(), ""), null);
             var assets = new HttpApiAssetService(sessionUnchecked().getMapper(HttpApiAssetMapper.class),
                     sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class), new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
             var plan = scannerIntake(assets,
                     sessionUnchecked().getMapper(HttpApiSourceBindingMapper.class),
                     new HttpApiInventoryStateService(sessionUnchecked().getMapper(HttpApiInventoryStateMapper.class),
-                            sessionUnchecked().getMapper(HttpApiInventoryMemberMapper.class))).prepare(HttpApiSourceKind.CONTROLLER_SCAN, project,
+                            sessionUnchecked().getMapper(HttpApiInventoryMemberMapper.class))).prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
                     manifest.httpApis().stream().map(Fixture::scannerData).toList(), manifest.httpApiInventoryComplete());
             String target = assets.validate(plan.operations().get(0).request()).qualifiedName();
             var allow = new ControlToolAclEntity(); allow.setRoleCode("bmapi-fixture-role"); allow.setProjectId(41L);
@@ -2561,21 +2610,18 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
 
         Long changePublicationId() { return changePublicationId; }
 
-        HttpResponse<byte[]> changeScan(String kind) throws Exception {
-            var updated = multiSourcePublicRequest("PUT", "/api/scan-projects/41", Map.of(
-                    "name", "Orders", "projectCode", "orders", "environment", "dev", "projectKind", "SCAN",
-                    "baseUrl", "https://not-an-execution-origin.invalid", "contextPath", "", "scanPath",
-                    multiSourceRoot.toAbsolutePath().toString(), "scanType", kind, "specFile", "orders.yaml"));
-            assertEquals(200, updated.statusCode(), "normal source selection");
+        /** Re-uploads the current OpenAPI document and rescans it through the public route. */
+        HttpResponse<byte[]> rescanOpenApi() throws Exception {
+            uploadMultiSourceDocument();
             return multiSourcePublicRequest("POST", "/api/scan-projects/41/rescan", Map.of());
         }
 
         void changeSources(String phase) throws Exception {
             String yaml = Files.readString(Path.of("src/test/resources/bmapi3b3/orders.yaml"));
-            String java = Files.readString(Path.of("src/test/java/com/enterprise/ai/runtime/runops/consolehttpapi/ControllerOrderFixtureController.java"));
+            String starter = yaml;
             if (!"display".equals(phase)) {
                 yaml = yaml.replace("in: query, required: false", "in: query, required: true");
-                java = java.replace("required = false", "required = true");
+                starter = starter.replace("in: query, required: false", "in: query, required: true");
             }
             controllerOrder.requireDetailLevel(!"display".equals(phase));
             switch (phase) {
@@ -2587,14 +2633,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                 case "one-removed" -> yaml = "openapi: 3.0.3\ninfo: {title: Orders, version: '2'}\npaths: {}\n";
                 case "all-removed" -> {
                     yaml = "openapi: 3.0.3\ninfo: {title: Orders, version: '2'}\npaths: {}\n";
-                    java = java.replace("@GetMapping(path = \"/{orderId}\", produces = \"application/json\")", "");
+                    starter = yaml;
                 }
                 case "identity" -> { yaml = yaml.replace("/orders/{orderId}", "/orders-v2/{orderId}");
-                    java = java.replace("@RequestMapping(\"/orders\")", "@RequestMapping(\"/orders-v2\")"); }
+                    starter = starter.replace("/orders/{orderId}", "/orders-v2/{orderId}"); }
                 default -> throw new IllegalArgumentException("unsupported change-impact phase");
             }
             Files.writeString(multiSourceRoot.resolve("orders.yaml"), yaml, StandardCharsets.UTF_8);
-            Files.writeString(multiSourceRoot.resolve("ControllerOrderFixtureController.java"), java, StandardCharsets.UTF_8);
+            Files.writeString(multiSourceRoot.resolve("starter-orders.yaml"), starter, StandardCharsets.UTF_8);
         }
 
         Map<String, Object> changeWorkingCopy() throws Exception {
@@ -2826,13 +2872,11 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
 
         private void prepareAcceptedControllerApi() throws Exception {
             database.jdbc().update("INSERT INTO capability_scan_project "
-                    + "(id,name,project_code,environment,base_url,scan_path,scan_type,status) "
-                    + "VALUES (41,'Orders','orders','dev','https://not-an-execution-origin.invalid','.',"
-                    + "'controller','scanned')");
-            Path source = Path.of("src/test/java/com/enterprise/ai/runtime/runops/consolehttpapi/"
-                    + "ControllerOrderFixtureController.java");
-            var manifest = new ControllerAnnotationToolManifestScanner().scan(source,
-                    new ProjectMetadata("orders", "https://not-an-execution-origin.invalid", ""));
+                    + "(id,name,project_code,environment,base_url,status) "
+                    + "VALUES (41,'Orders','orders','dev','https://not-an-execution-origin.invalid','scanned')");
+            Path source = Path.of("src/test/resources/bmapi3b3/orders.yaml");
+            var manifest = new OpenApiToolManifestScanner().scan(source,
+                    new ProjectMetadata("orders", "https://not-an-execution-origin.invalid", ""), null);
             assertTrue(manifest.httpApiInventoryComplete());
             assertEquals(1, manifest.httpApis().size());
             HttpApiOperation operation = manifest.httpApis().get(0);
@@ -2846,14 +2890,14 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             var project = new com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity();
             project.setId(41L); project.setProjectCode("orders"); project.setEnvironment("dev");
             project.setContextPath("");
-            var plan = intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, List.of(scannerData(operation)), true);
+            var plan = intake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(scannerData(operation)), true);
             var observed = tx.execute(status -> intake.observe(plan));
             assertNotNull(observed);
             assertTrue(observed.supported() && observed.inventoryComplete());
             assertEquals(1, observed.observed());
             var owner = httpApiCatalog.detail(1L);
             assertNotNull(owner);
-            assertTrue(owner.summary().sourceKinds().contains("CONTROLLER_SCAN"));
+            assertTrue(owner.summary().sourceKinds().contains("OPENAPI_SCAN"));
             assertEquals("orders", owner.summary().projectCode());
             httpApiCatalog.accept(1L, owner.summary().sourceSetRevision(), "fixture:orders");
             assertEquals("ACCEPTED", httpApiCatalog.detail(1L).summary().sourceStatus());
@@ -3459,7 +3503,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
             McpProtocolApplicationService protocol = new McpProtocolApplicationService(
                     clientsRepository, publicationsRepository, callAuditRepository, acl, gateway, json);
             McpEndpointController endpoint = new McpEndpointController(new McpProtocolRequestGuard(properties), protocol,
-                    properties, json, new McpAuditPayloadSanitizer(json, properties), null);
+                    properties, json, new McpAuditPayloadSanitizer(json, properties), null, null);
             LoopbackBridge mcpBridge = LoopbackBridge.start(MockMvcBuilders.standaloneSetup(endpoint)
                     .setControllerAdvice(new McpProtocolExceptionHandler(protocol)).build());
             closers.add(mcpBridge);
@@ -3562,10 +3606,9 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                                 json.writeValueAsBytes(arguments[0]), Map.of());
                         case "getAgent" -> runtimeProxyResponse("/api/agents/" + arguments[0]);
                         case "listAgentConfigVersions" -> runtimeProxyResponse("/api/agents/" + arguments[0] + "/config-versions");
-                        case "saveAgentConfigDraft" -> runtimeProxyResponse("PUT", "/api/agents/" + arguments[0] + "/config-versions/draft",
-                                json.writeValueAsBytes(arguments[1]), Map.of());
-                        case "publishAgentConfigVersion" -> runtimeProxyResponse("POST", "/api/agents/" + arguments[0]
-                                + "/config-versions/" + arguments[1] + "/publish", json.writeValueAsBytes(arguments[2]), Map.of());
+                        case "readAgentDraftContext" -> runtimeProxyResponse("POST", "/internal/runtime/agent-config-drafts/context", (byte[]) arguments[1], (Map<String, String>) arguments[0]);
+                        case "saveAgentDraftIfUnchanged" -> runtimeProxyResponse("POST", "/internal/runtime/agent-config-drafts/save", (byte[]) arguments[1], (Map<String, String>) arguments[0]);
+                        case "publishAgentDraftIfUnchanged" -> runtimeProxyResponse("POST", "/internal/runtime/agent-config-drafts/publish", (byte[]) arguments[1], (Map<String, String>) arguments[0]);
                         case "getWorkflow" -> runtimeProxyResponse("/api/workflows/" + arguments[0]);
                         case "listWorkflows" -> runtimeProxyResponse("GET", queryPath("/api/workflows", queryParameters(
                                 "projectId", arguments[0], "projectCode", arguments[1], "workflowKind", arguments[2],
@@ -3898,7 +3941,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                     new InternalServiceAuthVerifier(runtimeAuth,
                             new JdbcInternalAuthNonceStore(database.jdbc())), runtimeAuth);
             MockMvc runtimeMvc = MockMvcBuilders.standaloneSetup(
-                            writeWorkflowAgent.identities, writeWorkflowAgent.configurations, writeWorkflowAgent.executions,
+                            writeWorkflowAgent.identities, writeWorkflowAgent.configurations, writeWorkflowAgent.drafts, writeWorkflowAgent.executions,
                             new RuntimeWorkflowPublicController(management, studio, debug, null, null),
                             new RuntimeWorkflowVersionPublicController(management),
                             new RuntimeWorkflowCredentialPublicController(workflowCredentials),
@@ -4081,7 +4124,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                             new McpPublicationController(publications, managementAccess, audit),
                             new McpClientController(clients, managementAccess, audit),
                             new McpEndpointController(new McpProtocolRequestGuard(mcpProperties), protocol,
-                                    mcpProperties, json, new McpAuditPayloadSanitizer(json, mcpProperties), null),
+                                    mcpProperties, json, new McpAuditPayloadSanitizer(json, mcpProperties), null, null),
                             new com.enterprise.ai.control.capability.CapabilityInvocationConsoleController(
                                     reviewGateway, new com.enterprise.ai.control.capability.RuntimeConsoleCapabilityInvocationGateway(
                                             runtimeProxy(), new InternalServiceAuthSigner(INTERNAL_SECRET), json),
@@ -4123,6 +4166,8 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                 constructor.setAccessible(true);
                 Object access = constructor.newInstance(requestAuthorization, projects);
                 setPrivateField(controller, "runtimeManagementAccess", access);
+                setPrivateField(controller, "agentDraftGateway", new com.enterprise.ai.control.runtime.RuntimeAgentDraftGateway(
+                        runtimeProxy(), new InternalServiceAuthSigner(INTERNAL_SECRET), json));
                 setPrivateField(controller, "workflowReleaseGateway", new RuntimeWorkflowReleaseGateway(
                         runtimeProxy(), new InternalServiceAuthSigner(INTERNAL_SECRET), json));
                 return access;
@@ -4336,9 +4381,9 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
                                     String projectCode, Long apiId, String authStatePath) {
     }
 
-    static record MultiSourceBrowserSurface(String controlOrigin, String workflowId, String scanPath,
+    static record MultiSourceBrowserSurface(String controlOrigin, String workflowId, String documentDirectory,
                                            String specFile, String upstreamOrigin, String authStatePath) { }
-    static record WriteApiBrowserSurface(String controlOrigin, String scanPath, String specFile,
+    static record WriteApiBrowserSurface(String controlOrigin, String documentDirectory, String specFile,
                                          String upstreamOrigin, String credentialRef, String authStatePath) { }
 
     static record ApiBrowserOutcome(long versionId, String version, String runId,
@@ -4551,7 +4596,7 @@ class BusinessMethodWorkflowMcpE2eIntegrationTest {
         }
 
         @Override
-        public Map<String, Object> getProjectById(Long projectId) {
+        public Map<String, Object> getProjectById(Long projectId, Map<String, String> internalAuthHeaders) {
             throw new UnsupportedOperationException("project lookup is not part of this Runtime graph");
         }
 

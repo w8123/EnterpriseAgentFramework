@@ -1,6 +1,8 @@
 package com.enterprise.ai.reach.spring;
 
 import org.junit.jupiter.api.Test;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.ai.reach.sdk.auth.ReachAiProjectRequestSigner;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -15,6 +17,43 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ReachAiEmbedTokenClientTest {
+
+    @Test
+    void forwardsBusinessSessionResolvedByTheHostInTheSignedBody() {
+        String session = "abcdefghijklmnopqrstuvwxyz0123456789ABCDE";
+        RecordingTransport transport = new RecordingTransport("{\"code\":200,\"data\":{\"token\":\"t\",\"expiresIn\":60,"
+                + "\"businessSessionBound\":true,\"businessSessionExpiryApplied\":true}}");
+        ReachAiEmbedPrincipal principal = new ReachAiEmbedPrincipal("user", null, "User",
+                Collections.<String>emptyList(), Collections.<String, Object>emptyMap(), session, 2000000000L);
+        new ReachAiEmbedTokenClient(properties(), transport).exchange(
+                new ReachAiEmbedTokenRequest("agent", "page", "instance", "/", "http://localhost", principal));
+        assertEquals(session, transport.body.get("businessSessionId"));
+        assertEquals(2000000000, transport.body.get("businessSessionExpiresAt"));
+        assertEquals(ReachAiProjectRequestSigner.bodySha256Hex(transport.bodyBytes),
+                transport.headers.get("X-ReachAI-Body-SHA256"));
+        ReachAiEmbedTokenRequest request = new ReachAiEmbedTokenRequest("agent", "page", "instance", "/", "http://localhost", principal);
+        assertThrows(IllegalStateException.class, () -> new ReachAiEmbedTokenClient(properties(),
+                new RecordingTransport("{\"code\":200,\"data\":{\"token\":\"t\",\"expiresIn\":60}}"))
+                .exchange(request));
+        assertThrows(IllegalStateException.class, () -> new ReachAiEmbedTokenClient(properties(),
+                new RecordingTransport("{\"code\":200,\"data\":{\"token\":\"t\",\"expiresIn\":60,\"businessSessionBound\":true}}"))
+                .exchange(request));
+    }
+
+    @Test
+    void signsRevocationForTheExactEndpointAndRejectsFailedResponse() {
+        String session = "abcdefghijklmnopqrstuvwxyz0123456789ABCDE";
+        RecordingTransport transport = new RecordingTransport("{\"code\":200,\"data\":null}");
+        new ReachAiEmbedTokenClient(properties(), transport).revokeBusinessSession(session);
+        assertEquals("https://reachai.example.com/api/embed/token/business-session/revoke", transport.url);
+        assertEquals(session, transport.body.get("businessSessionId"));
+        assertEquals(ReachAiProjectRequestSigner.sign("demo-key", "demo-secret", "demo", "POST",
+                "/api/embed/token/business-session/revoke", transport.bodyBytes,
+                transport.headers.get("X-ReachAI-Timestamp"), transport.headers.get("X-ReachAI-Nonce"))
+                .getSignature(), transport.headers.get("X-ReachAI-Body-Signature"));
+        assertThrows(IllegalStateException.class, () -> new ReachAiEmbedTokenClient(properties(),
+                new RecordingTransport("{\"code\":403}")).revokeBusinessSession(session));
+    }
 
     @Test
     void exchangesAndParsesWrappedPlatformResponse() {
@@ -46,10 +85,13 @@ class ReachAiEmbedTokenClientTest {
         assertEquals("demo", transport.body.get("projectCode"));
         assertEquals("page-001", transport.body.get("pageInstanceId"));
         assertEquals("/teams", transport.body.get("route"));
-        assertEquals(
-                "user-001",
-                ((ReachAiEmbedPrincipal) transport.body.get("principal"))
-                        .getExternalUserId());
+        assertEquals("user-001", ((Map<?, ?>) transport.body.get("principal")).get("externalUserId"));
+        assertEquals(ReachAiProjectRequestSigner.bodySha256Hex(transport.bodyBytes),
+                transport.headers.get("X-ReachAI-Body-SHA256"));
+        assertEquals(ReachAiProjectRequestSigner.sign("demo-key", "demo-secret", "demo", "POST",
+                        "/api/embed/token/exchange", transport.bodyBytes,
+                        transport.headers.get("X-ReachAI-Timestamp"), transport.headers.get("X-ReachAI-Nonce"))
+                        .getSignature(), transport.headers.get("X-ReachAI-Body-Signature"));
     }
 
     @Test
@@ -172,6 +214,7 @@ class ReachAiEmbedTokenClientTest {
         private String url;
         private Map<String, String> headers;
         private Map<String, Object> body;
+        private byte[] bodyBytes;
 
         private RecordingTransport(String response) {
             this.response = response;
@@ -187,7 +230,8 @@ class ReachAiEmbedTokenClientTest {
             this.method = method;
             this.url = url;
             this.headers = headers;
-            this.body = (Map<String, Object>) body;
+            this.bodyBytes = (byte[]) body;
+            this.body = new ObjectMapper().readValue(bodyBytes, Map.class);
             return response;
         }
     }

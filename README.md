@@ -139,7 +139,7 @@ ReachAI 将任务范围、仓库上下文、修改约束、结构化输出和验
 
 ### 3. 将 Java 接口和业务方法沉淀为可治理的 Capability
 
-对于可修改的 Java 系统，JDK 8 兼容的 SDK 与 Spring Boot 2 Starter 可以主动注册项目、实例和业务能力；对于暂不具备代码改造条件的历史系统，可通过扫描方式完成补充盘点。
+对于可修改的 Java 系统，JDK 8 兼容的 SDK 与 Spring Boot 2 Starter 可以主动注册项目、实例和业务能力；对于暂不具备代码改造条件的历史系统，可上传 Swagger / OpenAPI 文档导入接口。平台不读取服务器上的源码目录。
 
 ```java
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
@@ -378,13 +378,13 @@ flowchart LR
 | 智能体与工作流 | AgentScope 2.0.0、LangGraph4j 1.8.16、GraphSpec |
 | 业务系统接入 | JDK 8 兼容 Capability SDK / Spring Boot 2 Starter、Embed Chat SDK、Page Bridge |
 | 管理端 | Vue 3.5、TypeScript、Element Plus、Pinia、Vue Flow、Vite 6 |
-| 基础设施 | MySQL 8、Redis 7、Milvus 2.4；Docling 可选 |
+| 基础设施 | MySQL 8；Milvus 2.4（知识库向量检索）、Docling（文档解析）、Redis（Runtime 生产多实例）按需 |
 
 <details>
 <summary><strong>当前实现边界</strong></summary>
 
 - 项目处于快速迭代阶段；README 描述的是当前主路径，不代表所有能力都已经达到生产完备状态。
-- 新建或可修改的 Java 系统优先使用 SDK 主动注册；历史扫描用于存量系统盘点和补充接入。
+- 新建或可修改的 Java 系统优先使用 SDK 主动注册；改不了代码的系统上传 OpenAPI 文档导入接口。
 - Workflow 节点按 Runtime 能力注册表分级开放，部分节点仍处于 BETA；发布校验结果优先于画布显示。
 - Tool ACL、Guard、人工确认、开放协议和治理面仍在持续产品化；真实业务系统保留最终鉴权与事务边界。
 - 当前五服务共用一个 MySQL 库，但代码、表所有权和 internal API 必须遵守服务边界。
@@ -394,6 +394,24 @@ flowchart LR
 </details>
 
 ## 快速开始
+
+### 一条命令安装（给自己或团队用）
+
+不用编译源码，下载预构建镜像，装好后打印访问地址和随机生成的管理员密码：
+
+```bash
+# Linux 服务器（给团队用）
+curl -fsSL https://raw.githubusercontent.com/w8123/EnterpriseAgentFramework-dev/dev/deploy/install.sh | sudo bash -s -- --server
+# 自己电脑试用（Linux / macOS）
+curl -fsSL https://raw.githubusercontent.com/w8123/EnterpriseAgentFramework-dev/dev/deploy/install.sh | bash
+```
+
+```powershell
+# Windows（先装好 Docker Desktop）
+irm https://raw.githubusercontent.com/w8123/EnterpriseAgentFramework-dev/dev/deploy/install.ps1 | iex
+```
+
+装好后用 `reachai status / doctor / logs / backup / upgrade` 管理。配置域名和 HTTPS、备份恢复、升级和常见问题见 [部署与运维手册](docs/部署与运维手册.md)。
 
 ### 10 分钟一键体验（Docker）
 
@@ -407,35 +425,31 @@ docker compose up -d --build
 
 打开 http://localhost:48080（芋道）和 http://localhost:18080（ReachAI 管理台），账号都是 `admin / admin123`。详见 [一键体验说明](deploy/quickstart/README.md)。
 
-下面是开发者从源码分别启动各服务的方式。
+下面是开发者从源码启动的方式。
 
 ### 环境要求
 
 - JDK 17 和 Maven
-- Node.js 与 npm
-- Docker Compose
+- Node.js 20+ 和 npm
+- Docker（只用来跑 MySQL；已有 MySQL 可以不装）
 
-### 1. 启动基础设施并初始化数据库
-
-先复制凭据模板并填写本机随机值；`deploy/.env` 已被 Git 忽略，不得提交。PowerShell 可将 `cp` 换成 `Copy-Item`。
+### 一条命令启动
 
 ```bash
-cp deploy/.env.example deploy/.env
-docker compose --env-file deploy/.env -f deploy/docker-compose.infra.yml up -d
-mysql --default-character-set=utf8mb4 -h localhost -u root -p -e "source sql/initV2.sql"
+./dev.sh up          # Windows PowerShell：.\dev.ps1 up
 ```
 
-新库只执行上述初始化；已有数据库按 [SQL 初始化与升级说明](sql/README.md) 选择适用升级，近期变更已合并为一份脚本。
+脚本会依次：生成配置文件 `reachai.env`（并随机生成本机数据库密码）→ 用 Docker 启动 MySQL → 第一次运行时编译后端 → 启动五个服务 → 启动管理端。打开 http://localhost:5200 ，账号 `admin / admin123`。登录后左侧的「开始使用」会带你连模型、接系统、开放能力、让员工连上自己的 AI 工具，旁边的「系统体检」列出服务、安全设置和可选组件的状态以及修复方法。
 
-### 2. 构建后端
+- 空数据库不用手动执行 SQL：第一个启动的服务会按内置的 `sql/initV2.sql` 自动建表。
+- 内部签名、模型凭据加密等密钥不用配置：首次启动自动生成到 `.reachai/secrets.properties`（直接运行 jar 时默认在 `~/.reachai`），之后一直复用，请和数据库一起备份。
+- Milvus、Docling、Redis 都不是启动必需的：没有 Milvus 时知识库向量检索不可用，没有 Docling 时知识库只能导入 txt / md / csv。
 
-```bash
-mvn clean install -DskipTests
-```
+其他命令：`./dev.sh status` 查看状态，`./dev.sh logs control` 看日志，`./dev.sh down` 停止（`--all` 连 MySQL 一起停），代码改了用 `./dev.sh up --build` 重新编译。
 
-### 3. 启动五个服务
+### 用自己的 MySQL 或 IDE 启动
 
-仓库提供 `.run/00-reachai-five-services.run.xml`，可在 IntelliJ IDEA 中一键启动。默认本地模式会为五服务注入公开的开发专用加密/签名值，体验用户无需配置 `MODEL_CREDENTIAL_SECRET`、`AGENT_WORKFLOW_CREDENTIAL_SECRET`、`EAF_EMBED_TOKEN_SECRET`、`REACHAI_AI_CODING_TASK_SECRET_PEPPER` 或内部调用密钥；显式环境变量始终优先。`prod` / `production` profile、Kubernetes 环境以及 `REACHAI_LOCAL_DEVELOPMENT_DEFAULTS_ENABLED=false` 都不会注入这些开发值，正式部署仍必须从 Secret 注入独立密钥。也可以按以下顺序分别执行 `mvn spring-boot:run`：
+把 `reachai.env.example` 复制成 `reachai.env`，只需填写 `AI_MYSQL_*` 几项（数据库要事先建好、可以是空库）。五个服务启动时会自动读取当前目录或上一级目录的 `reachai.env`，所以在 IntelliJ IDEA 里用 `.run/00-reachai-five-services.run.xml` 一键启动、或分别执行 `mvn spring-boot:run` 都不需要再配环境变量。启动顺序与端口：
 
 ```text
 reachai-model-service      18601
@@ -445,21 +459,15 @@ reachai-runtime-service    18604
 reachai-control-service    18603
 ```
 
-### 4. 启动管理端
+管理端单独启动：`cd ai-admin-front && npm ci && npm run dev`。
 
-```bash
-cd ai-admin-front
-npm ci
-npm run dev
-```
-
-本地开源模式默认提供 `admin / admin123` 并在登录页预填，方便首次体验。该账号只用于本地开发；生产环境必须设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 和 `REACHAI_BOOTSTRAP_ADMIN_ENABLED=false`，并接入正式身份体系。
-
-更完整的启动、环境变量和服务检查说明见 [五服务边界与本地启动](docs/development.md#构建与启动)。
+`admin / admin123` 只用于本地体验；对外部署前请修改 `REACHAI_BOOTSTRAP_ADMIN_PASSWORD`，正式环境设置 `REACHAI_LOCAL_AUTH_ENABLED=false` 并接入正式身份体系。更完整的说明见 [开发与验证](docs/development.md#构建与启动) 和 [运维](docs/operations.md)。
 
 ## 给 AI 编程工具的入口
 
 Codex、Trae、Cursor、Claude Code 等工具进入仓库后，请按以下顺序读取事实源：
+
+帮用户部署或排障时，只按 [部署与运维手册](docs/部署与运维手册.md#给-ai-编程工具的部署说明) 的命令操作（`deploy/install.sh`、`reachai doctor` 等），不自己改编排文件。开发时：
 
 1. [AGENTS.md](AGENTS.md)：项目规则、模块边界、SQL 和验证要求。
 2. [docs/README.md](docs/README.md)：当前五服务拓扑与权威文档导航。

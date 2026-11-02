@@ -235,5 +235,7 @@ class ControlRuntimeAgentCookieAuthenticationTest {
         @Bean RuntimeWorkflowReleaseGateway workflowReleases() { return mock(RuntimeWorkflowReleaseGateway.class); }
         @Bean RuntimeManagementAccess management() { return mock(RuntimeManagementAccess.class); }
         @Bean RuntimeTrustedRunOpsReplayGateway runOpsReplays() { return mock(RuntimeTrustedRunOpsReplayGateway.class); }
+        @Bean RuntimeAgentDraftGateway agentDrafts() { return mock(RuntimeAgentDraftGateway.class); }
+        @Bean RuntimePageAssistantAttachmentGateway pageAssistantAttachments() { return mock(RuntimePageAssistantAttachmentGateway.class); }
     }
 }

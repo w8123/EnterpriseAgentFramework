@@ -78,6 +78,11 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
             // ALL_CALLERS bases are readable by any trusted caller; FILE_GRANTS bases keep the per-file filter.
             boolean openBase = accessSnapshot != null && accessSnapshot.isOpen(kb.getId());
             Set<String> kbAllowedFiles = openBase ? null : allowedFiles;
+            // No grant can match this restricted base. Avoid calling external providers
+            // or reporting their failures for data this request cannot access.
+            if (accessSnapshot != null && !openBase && (kbAllowedFiles == null || kbAllowedFiles.isEmpty())) {
+                continue;
+            }
             try {
                 if (!"keyword".equals(searchMode)) {
                     List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuery());

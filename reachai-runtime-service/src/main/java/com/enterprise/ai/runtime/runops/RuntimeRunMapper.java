@@ -46,4 +46,30 @@ public interface RuntimeRunMapper extends BaseMapper<RuntimeRunEntity> {
             """)
     List<RuntimeSessionRunStatsView> selectSessionRunStats(@Param("sessionIds") List<String> sessionIds,
                                                            @Param("since") LocalDateTime since);
+
+    /** 嵌入式对话（业务系统里的 AI 对话）按人汇总，只含计数，不含对话正文。 */
+    @Select("""
+            <script>
+            SELECT r.app_id AS appId,
+                   MAX(r.project_code) AS projectCode,
+                   r.external_user_id AS externalUserId,
+                   MAX(r.global_user_id) AS globalUserId,
+                   COUNT(*) AS runCount,
+                   COUNT(DISTINCT r.session_id) AS sessionCount,
+                   SUM(CASE WHEN r.status IN ('FAILED', 'TIMED_OUT') THEN 1 ELSE 0 END) AS failedCount,
+                   COALESCE(SUM(r.token_cost), 0) AS tokenCost,
+                   MAX(r.started_at) AS lastStartedAt
+            FROM runtime_run r
+            WHERE r.entry_type = 'EMBED'
+              AND r.run_type = 'AGENT'
+              AND r.started_at &gt;= #{since}
+              AND r.external_user_id IS NOT NULL
+              <if test="projectCode != null">AND r.project_code = #{projectCode}</if>
+            GROUP BY r.app_id, r.external_user_id
+            ORDER BY runCount DESC
+            LIMIT 500
+            </script>
+            """)
+    List<RuntimeEmbedUserUsageView> selectEmbedUserUsage(@Param("since") LocalDateTime since,
+                                                         @Param("projectCode") String projectCode);
 }

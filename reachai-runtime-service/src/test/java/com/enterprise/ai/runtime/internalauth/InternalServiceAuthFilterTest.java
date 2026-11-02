@@ -14,6 +14,91 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 
 class InternalServiceAuthFilterTest {
 
+    @Test void pageSmokeInternalPathRequiresSignedUntamperedControlRequest() throws Exception {
+        String secret = "runtime-test-secret";
+        var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
+        var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties,
+                new InMemoryInternalAuthNonceStore()), properties);
+        String path = "/internal/runtime/workflows/ai-coding/page-assistant/smoke-test";
+        byte[] body = "{\"workflowId\":\"wf\"}".getBytes(StandardCharsets.UTF_8);
+        var unsigned = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
+        assertEquals(401, unsigned.getStatus());
+        var chain = new MockFilterChain(); var accepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "smoke-valid", "POST", "EMBED_SESSION", "tenant-a", "Alice"), accepted, chain);
+        assertEquals(200, accepted.getStatus());
+        assertEquals("Alice", assertInstanceOf(VerifiedInternalServiceAuth.class,
+                chain.getRequest().getAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR)).identityUserId());
+        var tampered = signedRequest(secret, path, body, "smoke-tampered", "POST", "EMBED_SESSION", "tenant-a", "Alice");
+        tampered.setContent("{}".getBytes(StandardCharsets.UTF_8));
+        var rejected = new MockHttpServletResponse();
+        filter.doFilter(tampered, rejected, new MockFilterChain());
+        assertEquals(401, rejected.getStatus());
+    }
+    @Test void workflowAttachmentRequiresProjectSignatureAndBindsTheProjectPath() throws Exception {
+        String secret = "fixture-attachment-filter-secret-at-least-32bytes";
+        var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
+        var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties, new InMemoryInternalAuthNonceStore()), properties);
+        String path = "/internal/runtime/projects/7/agent-supervisor/workflow-tools/attach";
+        byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+        var unsigned = new MockHttpServletResponse();
+        filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
+        assertEquals(401, unsigned.getStatus());
+        var accepted = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "attach-ok", "POST", InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL,
+                "orders", "ai-coding-" + "a".repeat(64)), accepted, new MockFilterChain());
+        assertEquals(200, accepted.getStatus());
+        var platform = new MockHttpServletResponse();
+        filter.doFilter(signedRequest(secret, path, body, "attach-platform", "POST", InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION,
+                "orders", "42"), platform, new MockFilterChain());
+        assertEquals(401, platform.getStatus());
+        var changed = signedRequest(secret, path, body, "attach-path", "POST", InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL,
+                "orders", "ai-coding-" + "a".repeat(64));
+        changed.setRequestURI(path.replace("/7/", "/8/"));
+        var refused = new MockHttpServletResponse(); filter.doFilter(changed, refused, new MockFilterChain());
+        assertEquals(401, refused.getStatus());
+    }
+
+    @Test void projectAgentDraftsRequireIndependentProjectHmacAndRejectReplayTamperAndPlatformSource() throws Exception {
+        String secret = "project-agent-draft-test-secret-at-least-32-bytes";
+        var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
+        var filter = new InternalServiceAuthFilter(new InternalServiceAuthVerifier(properties,
+                new InMemoryInternalAuthNonceStore()), properties);
+        byte[] body = "{\"projectCode\":\"orders\"}".getBytes(StandardCharsets.UTF_8);
+        String actor = "ai-coding-" + "a".repeat(64);
+        for (String action : java.util.List.of("context", "versions", "save", "publish")) {
+            String path = "/internal/runtime/project-agent-config-drafts/" + action;
+            var unsigned = new MockHttpServletResponse();
+            filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
+            assertEquals(401, unsigned.getStatus());
+            var accepted = new MockHttpServletResponse();
+            var chain = new MockFilterChain();
+            filter.doFilter(signedRequest(secret, path, body, "project-" + action, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "orders", actor), accepted, chain);
+            assertEquals(200, accepted.getStatus());
+            assertEquals(actor, assertInstanceOf(VerifiedInternalServiceAuth.class,
+                    chain.getRequest().getAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR)).identityUserId());
+            var replay = new MockHttpServletResponse();
+            filter.doFilter(signedRequest(secret, path, body, "project-" + action, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "orders", actor), replay, new MockFilterChain());
+            assertEquals(401, replay.getStatus());
+            var tampered = signedRequest(secret, path, body, "tamper-" + action, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "orders", actor);
+            tampered.setContent("{}".getBytes(StandardCharsets.UTF_8));
+            var rejected = new MockHttpServletResponse();
+            filter.doFilter(tampered, rejected, new MockFilterChain());
+            assertEquals(401, rejected.getStatus());
+            var platform = new MockHttpServletResponse();
+            filter.doFilter(signedRequest(secret, path, body, "platform-" + action, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION, "orders", "42"), platform, new MockFilterChain());
+            assertEquals(401, platform.getStatus());
+            var wrongDomain = new MockHttpServletResponse();
+            filter.doFilter(signedRequest(secret, "/internal/runtime/agent-config-drafts/" + action, body, "wrong-" + action, "POST",
+                    InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL, "orders", actor), wrongDomain, new MockFilterChain());
+            assertEquals(401, wrongDomain.getStatus());
+        }
+    }
+
     @Test void workflowReleaseRoutesRequirePlatformHmacAndRejectTamperedCommands() throws Exception {
         String secret = "workflow-release-test-secret-at-least-32-bytes";
         var properties = new InternalServiceAuthProperties(secret, "", 300, 600, 1000, 1024 * 1024);
@@ -23,7 +108,16 @@ class InternalServiceAuthFilterTest {
         for (String path : java.util.List.of("/api/workflows/wf-1/versions/publish",
                 "/api/workflows/wf-1/versions/7/rollback",
                 "/internal/runtime/runops/traces/trace-1/replay",
-                "/internal/runtime/workflows/studio/read-only-trials")) {
+                "/internal/runtime/workflows/studio/read-only-trials",
+                "/internal/runtime/agent-config-drafts/context",
+                "/internal/runtime/agent-config-drafts/versions",
+                "/internal/runtime/agent-config-drafts/save",
+                "/internal/runtime/agent-config-drafts/copy",
+                "/internal/runtime/agent-config-drafts/publish",
+                "/internal/runtime/agent-config-drafts/publication-context",
+                "/internal/runtime/agent-config-drafts/publish-approved",
+                "/internal/runtime/workflow-releases/context",
+                "/internal/runtime/workflow-releases/publish")) {
             var unsigned = new MockHttpServletResponse();
             filter.doFilter(new MockHttpServletRequest("POST", path), unsigned, new MockFilterChain());
             assertEquals(401, unsigned.getStatus());

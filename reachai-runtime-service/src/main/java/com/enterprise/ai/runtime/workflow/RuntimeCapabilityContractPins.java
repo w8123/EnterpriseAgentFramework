@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.graph.GraphSpecToolContract;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,7 +40,7 @@ public class RuntimeCapabilityContractPins {
         GraphSpec graph = parse(graphJson);
         boolean changed = false;
         for (GraphSpec.Node node : graph.getNodes() == null ? List.<GraphSpec.Node>of() : graph.getNodes()) {
-            if (!"TOOL".equals(node.getType())) continue;
+            if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
             String reference = GraphSpecToolContract.resolve(node);
             if (isHttpApi(node, reference)) {
                 if (httpApis == null) throw new IllegalArgumentException("HTTP_API_WORKFLOW_PROJECTION_UNAVAILABLE");
@@ -104,31 +105,57 @@ public class RuntimeCapabilityContractPins {
     public void validatePinned(String graphJson) {
         GraphSpec graph = parse(graphJson);
         for (GraphSpec.Node node : graph.getNodes() == null ? List.<GraphSpec.Node>of() : graph.getNodes()) {
-            if (!"TOOL".equals(node.getType())) continue;
+            if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
             if (isHttpApi(node, GraphSpecToolContract.resolve(node))) {
                 if (httpApis == null) throw new IllegalArgumentException("HTTP_API_WORKFLOW_PROJECTION_UNAVAILABLE");
                 httpApis.validatePinned(node);
                 continue;
             }
-            GraphSpec.CapabilityRef ref = node.getRef();
-            Map<String, Object> definition = requireDefinition(GraphSpecToolContract.resolve(node));
-            if (ref == null || !"BUSINESS_METHOD".equals(ref.getAssetType())
-                    || !Objects.equals(ref.getAssetId(), ((Number) definition.get("assetId")).longValue())
-                    || !Objects.equals(ref.getAcceptedRevisionId(), ((Number) definition.get("acceptedRevisionId")).longValue())
-                    || !Objects.equals(ref.getProjectCode(), definition.get("projectCode"))
-                    || !Objects.equals(ref.getBusinessContractHash(), definition.get("businessContractHash"))
-                    || !Objects.equals(ref.getBindingHash(), definition.get("bindingHash"))
-                    || !Objects.equals(ref.getExecutionRevision(), definition.get("executionRevision"))
-                    || !Objects.equals(ref.getContractHash(), definition.get("contractHash"))) {
-                throw new IllegalArgumentException("已发布能力契约不再匹配，请校验并重新发布 Workflow");
-            }
+            assertBusinessMethodPin(node, requireDefinition(GraphSpecToolContract.resolve(node)));
         }
+    }
+
+    private void assertBusinessMethodPin(GraphSpec.Node node, Map<String, Object> definition) {
+        GraphSpec.CapabilityRef ref = node.getRef();
+        if (ref == null || !"BUSINESS_METHOD".equals(ref.getAssetType())
+                || !Objects.equals(ref.getAssetId(), ((Number) definition.get("assetId")).longValue())
+                || !Objects.equals(ref.getAcceptedRevisionId(), ((Number) definition.get("acceptedRevisionId")).longValue())
+                || !Objects.equals(ref.getProjectCode(), definition.get("projectCode"))
+                || !Objects.equals(ref.getBusinessContractHash(), definition.get("businessContractHash"))
+                || !Objects.equals(ref.getBindingHash(), definition.get("bindingHash"))
+                || !Objects.equals(ref.getExecutionRevision(), definition.get("executionRevision"))
+                || !Objects.equals(ref.getContractHash(), definition.get("contractHash"))) {
+            throw new IllegalArgumentException("已发布能力契约不再匹配，请校验并重新发布 Workflow");
+        }
+    }
+
+    /** Owner declarations are trusted only while every published business-method pin still matches. */
+    public String businessMethodRiskFloor(String graphJson) {
+        boolean found = false;
+        boolean write = false;
+        boolean irreversible = false;
+        GraphSpec graph = parse(graphJson);
+        for (GraphSpec.Node node : graph.getNodes()) {
+            if (node == null) throw new IllegalArgumentException("WORKFLOW_NODE_INVALID");
+            if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
+            String reference = GraphSpecToolContract.resolve(node);
+            if (isHttpApi(node, reference)) continue;
+            Map<String, Object> definition = requireDefinition(reference);
+            assertBusinessMethodPin(node, definition);
+            found = true;
+            String sideEffect = String.valueOf(definition.getOrDefault("sideEffect", ""));
+            if ("IRREVERSIBLE".equalsIgnoreCase(sideEffect)) irreversible = true;
+            else if ("WRITE".equalsIgnoreCase(sideEffect) || "IDEMPOTENT_WRITE".equalsIgnoreCase(sideEffect)) write = true;
+            else if (!"READ".equalsIgnoreCase(sideEffect) && !"READ_ONLY".equalsIgnoreCase(sideEffect)
+                    && !"NONE".equalsIgnoreCase(sideEffect)) throw new IllegalArgumentException("BUSINESS_METHOD_SIDE_EFFECT_UNKNOWN");
+        }
+        return !found ? null : irreversible ? "IRREVERSIBLE" : write ? "WRITE" : "READ";
     }
 
     public void bindPublishedGraph(String graphJson, long versionId) {
         GraphSpec graph = parse(graphJson);
         for (GraphSpec.Node node : graph.getNodes() == null ? List.<GraphSpec.Node>of() : graph.getNodes()) {
-            if (!"TOOL".equals(node.getType())) continue;
+            if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
             if (isHttpApi(node, GraphSpecToolContract.resolve(node))) {
                 if (httpApis == null) throw new IllegalArgumentException("HTTP_API_WORKFLOW_PROJECTION_UNAVAILABLE");
                 httpApis.bindVersion(node, versionId);
@@ -140,7 +167,7 @@ public class RuntimeCapabilityContractPins {
     public String httpApiRiskFloor(String graphJson) {
         GraphSpec graph = parse(graphJson);
         for (GraphSpec.Node node : graph.getNodes()) {
-            if ("TOOL".equals(node.getType()) && isHttpApi(node, GraphSpecToolContract.resolve(node))) {
+            if ("TOOL".equals(AgentGraphNodeType.normalize(node.getType())) && isHttpApi(node, GraphSpecToolContract.resolve(node))) {
                 if (httpApis == null) throw new IllegalArgumentException("HTTP_API_WORKFLOW_PROJECTION_UNAVAILABLE");
                 if ("WRITE".equals(httpApis.publishedRiskFloor(node))) return "WRITE";
             }

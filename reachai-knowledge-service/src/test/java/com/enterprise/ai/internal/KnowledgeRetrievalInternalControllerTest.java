@@ -17,6 +17,7 @@ import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -57,7 +58,9 @@ class KnowledgeRetrievalInternalControllerTest {
         KnowledgeRetrievalCoreRequest request = captor.getValue();
         assertEquals("keyword", request.getSearchMode());
         assertFalse(Boolean.TRUE.equals(request.getRerankEnabled()));
-        assertEquals("u1", request.getUserId());
+        assertNull(request.getUserId(), "a bare runtime user ID must not authorize file grants");
+        assertEquals("u1", request.getAuditUserId());
+        assertEquals("RUNTIME", request.getHitSource());
         assertEquals(1, result.getData().hitCount());
         assertEquals("hello", result.getData().hits().get(0).content());
         assertEquals("HIT", result.getData().outcome());
@@ -68,6 +71,7 @@ class KnowledgeRetrievalInternalControllerTest {
     @Test
     void returnsEmptyWhenUserHasNoAccessibleFiles() {
         KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
+        when(core.retrieve(any())).thenReturn(KnowledgeRetrievalCoreResponse.builder().items(List.of()).build());
         KnowledgeRetrievalInternalController controller =
                 new KnowledgeRetrievalInternalController(core);
 
@@ -80,6 +84,25 @@ class KnowledgeRetrievalInternalControllerTest {
         assertEquals("NO_EVIDENCE", result.getData().outcome());
         assertTrue(result.getData().empty());
         assertEquals(0, result.getData().diagnostics().get("returnedContentChars"));
+    }
+
+    @Test
+    void failedOrPartiallyFailedRetrievalIsNotReportedAsNoEvidence() {
+        KnowledgeRetrievalCore core = mock(KnowledgeRetrievalCore.class);
+        var controller = new KnowledgeRetrievalInternalController(core);
+        var request = new KnowledgeRetrievalInternalController.RetrievalRequest(
+                "q", List.of("kb1"), "u1", 5, null, "vector", false);
+        var partialHit = KnowledgeRetrievalCoreResponse.RetrievalItem.builder()
+                .chunkId("c1").fileId("f1").content("partial evidence").score(1f).build();
+        for (var items : List.of(List.<KnowledgeRetrievalCoreResponse.RetrievalItem>of(), List.of(partialHit))) {
+            when(core.retrieve(any())).thenReturn(KnowledgeRetrievalCoreResponse.builder()
+                    .items(items).diagnostics(java.util.Map.of("failedKnowledgeBaseCount", 1)).build());
+            var response = controller.retrieve(request);
+            assertEquals(500, response.getCode());
+            assertNull(response.getData(), "partial results must not be returned as a complete answer");
+        }
+        when(core.retrieve(any())).thenReturn(null);
+        assertEquals(500, controller.retrieve(request).getCode());
     }
 
     @Test

@@ -52,7 +52,7 @@ class OpenAiCompatibleRuntimeClientDeadlineTest {
 
             long elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
             assertEquals(504, failure.getCode());
-            assertTrue(failure.getMessage().contains("timed out"));
+            assertTrue(failure.getMessage().contains("超时"));
             assertTrue(provider.headersSent.await(1, TimeUnit.SECONDS), "must have started reading the response body");
             assertTrue(elapsedMs < 1500, "the complete body deadline must precede the delayed body");
             assertTrue(provider.disconnected.await(2, TimeUnit.SECONDS),
@@ -111,7 +111,7 @@ class OpenAiCompatibleRuntimeClientDeadlineTest {
                     () -> fixture.client.chat(mockRuntime(), request(), Duration.ofSeconds(1)));
 
             assertEquals(502, failure.getCode());
-            assertTrue(failure.getMessage().contains("interrupted"));
+            assertTrue(failure.getMessage().contains("中断"));
             assertTrue(Thread.currentThread().isInterrupted());
             assertTrue(original.isCancelled());
         } finally {
@@ -127,7 +127,7 @@ class OpenAiCompatibleRuntimeClientDeadlineTest {
                 () -> fixture.client.chat(mockRuntime(), request(), Duration.ofSeconds(1)));
 
         assertEquals(504, failure.getCode());
-        assertTrue(failure.getMessage().contains("timed out"));
+        assertTrue(failure.getMessage().contains("超时"));
     }
 
     @Test

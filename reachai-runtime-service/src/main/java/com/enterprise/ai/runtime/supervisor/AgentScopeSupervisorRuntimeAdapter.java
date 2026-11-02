@@ -63,6 +63,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -79,6 +80,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private static final String PLAN_INCOMPLETE_CODE = "SUPERVISOR_PLAN_INCOMPLETE";
     private static final String PLAN_INCOMPLETE_MESSAGE =
             "Supervisor stopped before all structured execution-tool plan steps completed";
+    private static final int MAX_UNPLANNED_TOOL_ATTEMPTS = 3;
 
     private final RuntimeModelServiceClient modelClient;
     private final RuntimeModelStreamHttpClient modelStreamClient;
@@ -95,6 +97,31 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private RuntimeA2aDelegationService a2aDelegationService;
     private ManagedExecutorAgentDelegationService managedExecutorDelegationService;
     private com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService workflowInputProtection;
+    private SupervisorBusinessMethodRiskGuard businessMethodRiskGuard;
+    private SupervisorRepeatableReadPolicy repeatableReadPolicy;
+
+    @Autowired
+    public void setRepeatableReadPolicy(SupervisorRepeatableReadPolicy policy) {
+        this.repeatableReadPolicy = policy;
+    }
+
+    private Set<String> repeatableToolNames(List<RuntimeResolvedWorkflowTarget> targets) {
+        Set<String> names = new LinkedHashSet<>();
+        if (repeatableReadPolicy != null && targets != null) {
+            for (RuntimeResolvedWorkflowTarget target : targets) {
+                if (target != null && target.tool() != null && StringUtils.hasText(target.tool().getToolName())
+                        && repeatableReadPolicy.isRepeatable(target.tool(), target)) {
+                    names.add(target.tool().getToolName().trim());
+                }
+            }
+        }
+        return names;
+    }
+
+    @Autowired
+    public void setBusinessMethodRiskGuard(SupervisorBusinessMethodRiskGuard guard) {
+        this.businessMethodRiskGuard = guard;
+    }
 
     @Autowired
     public void setWorkflowInputProtection(com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService service) {
@@ -290,7 +317,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             + request.remoteAgents().size() + 4))
                     .generateOptions(options)
                     .hook(publicFinalHook)
-                    .hook(new SupervisorInteractionPauseHook(state::confirmationPending))
+                    .hook(new SupervisorInteractionPauseHook(() -> state.confirmationPending()
+                            || state.unplannedToolAttemptLimitReached()
+                            || state.deterministicKnowledgeAnswer != null))
                     .defaultSessionId(agentStateStore == null ? state.sessionId() : agentStateStore.defaultSessionId())
                     .stateStore(agentStateStore);
                 if (preparedSkills.enabled()) {
@@ -325,11 +354,30 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 boolean directTerminal = isDirectTerminalResponse(state, answer, model);
                 boolean incompletePlan = !state.confirmationPending()
                         && state.finalAnswerBlockReason() != null;
+                if (!state.confirmationPending() && !incompletePlan && state.deterministicKnowledgeAnswer == null
+                        && !model.didStreamContent()) {
+                    String deterministic = state.singleKnowledgeNoEvidenceAnswer();
+                    if (deterministic != null) {
+                        state.deterministicKnowledgeAnswer = deterministic;
+                        if (!state.answerPhase.enterPublicFinal()) {
+                            cancellation.throwIfCancelled();
+                            throw new IllegalStateException("Cannot deliver knowledge answer from phase "
+                                    + state.answerPhase.get().name());
+                        }
+                        state.forcedFinalAnswer = true;
+                        state.phases.emit("final-answer", "final_answer", "started", "workflow_runtime",
+                                "生成最终回答", "正在交付知识检索结果");
+                    }
+                }
                 if (state.confirmationPending()) {
                     // interaction waiting：不强制最终回答阶段
                 } else if (incompletePlan) {
                     state.answerPhase.markFailed();
                     state.phases.terminateActive("failed", "执行计划尚未完成");
+                } else if (state.deterministicKnowledgeAnswer != null) {
+                    // The fixed no-evidence ANSWER is the public result, not another model draft.
+                    answer = state.deterministicKnowledgeAnswer;
+                    model.publishBufferedDirect(answer);
                 } else if (directTerminal) {
                     // 无 Workflow / 无 Plan 的 terminal 正文：一次模型请求即可，禁止 forcePublicFinalPass
                     answer = acceptDirectTerminalAnswer(model, state, answer);
@@ -384,6 +432,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     return finish(state, false, "SUPERVISOR_CONFIRMATION_REQUIRED", state.pendingReason, responseMeta);
                 }
                 if (incompletePlan) {
+                    if (state.unresolvedUnplannedToolAttempts()) {
+                        return finish(state, false, "SUPERVISOR_PLAN_REQUIRED",
+                                "未能完成执行规划，本次没有执行业务操作，请重试。", responseMeta);
+                    }
                     return finish(state, false, PLAN_INCOMPLETE_CODE, PLAN_INCOMPLETE_MESSAGE, responseMeta);
                 }
                 if (directTerminal) {
@@ -469,9 +521,22 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 textObj(requestInput.get("interactionId")), UUID.randomUUID().toString());
         String userMessage = continuationUserMessage(requestInput);
         SupervisorWorkflowContinuation structured;
+        boolean positional = Integer.valueOf(SupervisorWorkflowContinuation.POSITION_SCHEMA_VERSION)
+                .equals(cont.get("continuationSchemaVersion"));
+        Set<String> repeatable = positional ? repeatableToolNames(resolveTargetsOnce(request)) : Set.of();
         try {
-            structured = SupervisorWorkflowContinuation.parse(cont, request.workflowTools());
+            structured = SupervisorWorkflowContinuation.parse(cont, request.workflowTools(), repeatable);
             structured.executionCallCounts().validateBudget(request.config().getMaxWorkflowCalls());
+            if (positional) {
+                Set<String> allowed = new LinkedHashSet<>();
+                if (request.workflowTools() != null) request.workflowTools().stream()
+                        .filter(Objects::nonNull).map(RuntimeAgentWorkflowToolSnapshot::getToolName)
+                        .filter(StringUtils::hasText).map(String::trim).forEach(allowed::add);
+                if (!(cont.get("blockedWorkflowToolNames") instanceof List<?>)
+                        || !allowed.containsAll(SupervisorExecutionPlanState.toolNames(cont.get("blockedWorkflowToolNames")))) {
+                    throw new IllegalArgumentException("blocked Workflow tools are invalid");
+                }
+            }
         } catch (IllegalArgumentException ex) {
             return finishContinuationTrace(request, memoryKey, turnId, userMessage, traceId, false,
                     "RUNTIME_INTERACTION_CONTINUATION_INVALID",
@@ -501,7 +566,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         }
         int nextCursor = structured.plannedWorkflowCursor() + 1;
         while (nextCursor < structured.plannedWorkflowToolNames().size()
-                && allCompleted.contains(structured.plannedWorkflowToolNames().get(nextCursor))) {
+                && (positional ? structured.completedPlanPositions().contains(nextCursor)
+                               : allCompleted.contains(structured.plannedWorkflowToolNames().get(nextCursor)))) {
             nextCursor++;
         }
         if (nextCursor == structured.plannedWorkflowToolNames().size()) {
@@ -517,6 +583,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         Map<String, Object> nextContinuation = new LinkedHashMap<>(cont);
         nextContinuation.put("plannedWorkflowCursor", nextCursor);
         nextContinuation.put("completedWorkflowToolNames", List.copyOf(allCompleted));
+        if (positional) {
+            List<Integer> positions = new ArrayList<>(structured.completedPlanPositions());
+            positions.add(structured.plannedWorkflowCursor());
+            nextContinuation.put("completedPlanPositions", List.copyOf(positions));
+        }
         nextContinuation.remove("waitingToolName");
         nextContinuation.remove("toolName");
         String nextToolName = structured.plannedWorkflowToolNames().get(nextCursor);
@@ -529,14 +600,17 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         resumeInput.put("traceId", traceId);
         resumeInput.put("__resumeExistingTrace", true);
         resumeInput.put("__supervisorContinuation", nextContinuation);
-        resumeInput.put("__blockedWorkflowTools", allCompleted);
+        Set<String> blocked = new LinkedHashSet<>(positional
+                ? SupervisorExecutionPlanState.toolNames(cont.get("blockedWorkflowToolNames")) : allCompleted);
+        if (positional) allCompleted.stream().filter(name -> !repeatable.contains(name)).forEach(blocked::add);
+        resumeInput.put("__blockedWorkflowTools", List.copyOf(blocked));
         resumeInput.put("__memoryTurnId", turnId);
         resumeInput.put("__memoryUserMessage", userMessage);
         resumeInput.put("message",
                 "Continue the saved supervisor plan after Workflow tool '"
                         + (waitingTool == null ? "" : waitingTool)
                         + "' completed successfully. Result: " + answer
-                        + ". Do not re-call completed Workflow tools: " + allCompleted
+                        + ". Do not repeat completed side-effecting Workflow tools: " + blocked
                         + ". Do not record a new plan. The next required Workflow tool is exactly '"
                         + nextToolName + "'. Call it before producing the final answer.");
         return execute(request.withInput(resumeInput), structured.executionCallCounts());
@@ -664,6 +738,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                         "description", "Ordered executable plan steps"),
                                 "workflowToolNames", Map.of("type", "array", "items", Map.of("type", "string"),
                                         "description", "Exact ordered Workflow or A2A remote-Agent tool names to execute; use only permitted names. "
+                                                + "A verified read-only Workflow may appear more than once for distinct queries; never repeat a write. "
                                                 + "May be empty only in a revised plan that abandons a failed Workflow path"),
                                 "reason", Map.of("type", "string", "description", "Why this plan or replan is needed")),
                         "required", List.of("summary", "steps", "workflowToolNames"),
@@ -695,6 +770,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     String blockReason = state.finalAnswerBlockReason();
                     if (blockReason != null) {
                         return ToolResultBlock.error(blockReason);
+                    }
+                    String deterministic = state.singleKnowledgeNoEvidenceAnswer();
+                    if (deterministic != null) {
+                        state.deterministicKnowledgeAnswer = deterministic;
+                        state.answerPhase.enterPublicFinal();
+                        state.phases.emit("final-answer", "final_answer", "started", "workflow_runtime",
+                                "生成最终回答", "正在交付知识检索结果");
+                        return ToolResultBlock.text("The verified no-evidence result will be delivered directly.");
                     }
                     state.answerPhase.enterPublicFinal();
                     state.phases.emit("final-answer", "final_answer", "started", "agentscope_tool",
@@ -1022,7 +1105,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("If one or more execution tools are needed: call record_supervisor_plan immediately before the first tool call. ")
                 .append("The plan must have no more than ")
                 .append(config.getMaxPlanSteps()).append(" steps. ")
-                .append("workflowToolNames is the structured execution-tool list and must contain exact permitted Workflow, A2A, or Managed Executor tool names in order; every planned tool call must appear exactly once. ")
+                .append("workflowToolNames is the structured execution-tool list and must contain exact permitted Workflow, A2A, or Managed Executor tool names in order; include one entry for each call. A verified read-only Workflow may occur more than once; never repeat a write. ")
                 .append("record_supervisor_plan is only allowed when you are about to call an execution tool, except that after a failed tool you may record an empty workflowToolNames list to abandon the failed path safely.\n")
                 .append("After a tool failure, call record_supervisor_plan again with a revised plan before another tool. At most ")
                 .append(config.getMaxReplans()).append(" replans and ")
@@ -1031,6 +1114,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("A non-read-only Workflow or A2A delegation is never automatically retryable after failure because its side-effect outcome may be ambiguous. Never include that same tool in a revised plan; explain the outcome or use a different safe read-only tool.\n")
                 .append("Use page navigation or page actions for page requests. A request for data, counts, filters, visible rows, or details belonging to the current page is a page request even when the user does not explicitly say open, navigate, or operate; natural-language phrases such as 查、查询、统计、多少、哪些、筛选 are sufficient. If a matching page Workflow is permitted, use it instead of refusing the request. Only prefer an API/data Workflow for a page-independent factual query when such an API/data Workflow is actually permitted; never refuse solely because the user did not describe the internal page action.\n")
                 .append("Never invent tool results. If required arguments are missing, ask one concise clarification question.\n")
+                .append("Business capabilities in the Agent description can be aspirational or unavailable to this run. "
+                        + "For a request that needs current business data or an action, rely only on execution tools actually permitted in this run or verified results. "
+                        + "If none can fulfill it, say that this assistant cannot perform the request with its current access. "
+                        + "Do not infer that the business system lacks the feature, and do not suggest that this assistant can perform other specific business queries or actions unless a permitted tool supports them. "
+                        + "When appropriate, suggest asking an administrator to enable the needed access.\n")
                 .append("Check that the records a tool returned are about the exact thing the user asked for (product, customer, order, name). If they are about something else, or the tool found nothing, say plainly that no matching record was found and name what the user asked for; never present a different item as the answer.\n")
                 .append(personalMemoryInstruction(RuntimeAgentMemoryPolicy.of(config)))
                 .append("A2A tools are governed delegations, not local Workflows. Use only a declared protocol AgentSkill. Never invent contextId or taskId: send them only when an earlier A2A tool result supplied those exact ReachAI ids for continuation. WORKING, INPUT_REQUIRED, and AUTH_REQUIRED are not completed results; report the state and required next action accurately.\n")
@@ -1143,6 +1231,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         metadata.put("workflowCallCount", state.workflowCallCount.get());
         metadata.put("a2aDelegationCount", state.a2aCallCount.get());
         metadata.put("managedExecutorCallCount", state.managedExecutorCallCount.get());
+        metadata.put("unplannedToolAttemptCount", state.unplannedToolAttemptCount.get());
         metadata.put("plannedWorkflowToolNames", planSnapshot.plannedToolNames());
         metadata.put("plannedExecutionToolNames", planSnapshot.plannedToolNames());
         metadata.put("plannedWorkflowCursor", planSnapshot.cursor());
@@ -1286,6 +1375,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private final AtomicInteger workflowCallCount = new AtomicInteger();
         private final AtomicInteger a2aCallCount = new AtomicInteger();
         private final AtomicInteger managedExecutorCallCount = new AtomicInteger();
+        private final AtomicInteger unplannedToolAttemptCount = new AtomicInteger();
         private final AtomicInteger guardDenyCount = new AtomicInteger();
         private final AtomicInteger approvalCount = new AtomicInteger();
         private final SupervisorExecutionPhases phases;
@@ -1313,6 +1403,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile Object displayUiRequest;
         /** Safe normalized evidence from the latest completed Workflow, never raw business rows. */
         private volatile Map<String, Object> lastWorkflowResultSummary = Map.of();
+        private volatile String knowledgeNoEvidenceCandidate;
+        private volatile String knowledgeUnavailableCandidate;
+        private volatile String deterministicKnowledgeAnswer;
         private volatile boolean unconfirmedHttpApiWrite;
         private String approvalResultHint;
         private boolean approvalConsumed;
@@ -1359,7 +1452,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             if (resolvedTargets != null && !resolvedTargets.isEmpty()) {
                 targets.addAll(resolvedTargets);
             }
-            this.executionPlan = new SupervisorExecutionPlanState(permittedExecutionToolNames(),
+            this.executionPlan = new SupervisorExecutionPlanState(permittedExecutionToolNames(), repeatableToolNames(targets),
                     request.config().getMaxReplans(), request.config().getMaxPlanSteps(), request.config().getMaxWorkflowCalls());
             seedContinuation(request.input());
             // Only the owner-validated continuation path supplies these counts, never request input.
@@ -1452,6 +1545,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             }
         }
 
+        private String singleKnowledgeNoEvidenceAnswer() {
+            var plan = executionPlan.snapshot();
+            return knowledgeNoEvidenceCandidate != null && workflowCallCount.get() == 1
+                    && a2aCallCount.get() == 0 && managedExecutorCallCount.get() == 0
+                    && plan.planCount() == 1 && plan.plannedToolNames().size() == 1 && plan.cursor() == 1
+                    && !confirmationPending() && displayUiRequest == null && request.approvalGrant() == null
+                    ? knowledgeNoEvidenceCandidate : null;
+        }
+
         private String userFacingResultHint() {
             if (approvalResultHint != null) return approvalResultHint;
             Map<String, Object> pageAction = schemaFromObject(lastWorkflowResultSummary.get("pageAction"));
@@ -1503,13 +1605,42 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             phases.emit(stepId, planNo == 1 ? "plan" : "replan", "completed", "agentscope_tool", title, safeDetail);
             // State admission is atomic; Trace and public phase I/O retain their existing failure semantics.
             traceService.plan(trace, request.agent(), request.config(), request.input(), planNo, normalized);
+            if (decision.abandonedFailedPath() && knowledgeUnavailableCandidate != null
+                    && workflowCallCount.get() == 1 && a2aCallCount.get() == 0
+                    && managedExecutorCallCount.get() == 0 && !confirmationPending()
+                    && displayUiRequest == null && request.approvalGrant() == null) {
+                request.cancellation().throwIfCancelled();
+                if (!answerPhase.enterPublicFinal()) {
+                    request.cancellation().throwIfCancelled();
+                    throw new IllegalStateException("Cannot deliver knowledge error from phase " + answerPhase.get().name());
+                }
+                deterministicKnowledgeAnswer = knowledgeUnavailableCandidate;
+                forcedFinalAnswer = true;
+                phases.emit("final-answer", "final_answer", "started", "workflow_runtime",
+                        "生成最终回答", "正在交付知识检索状态");
+            }
             return ToolResultBlock.text(decision.abandonedFailedPath()
                     ? "Failed Workflow path abandoned. Call begin_final_answer and explain the outcome without retrying the denied tool."
                     : "Plan recorded. Continue with the permitted Workflow tools or answer directly.");
         }
 
         private boolean hasUnfinishedPlannedWorkflows() { return executionPlan.hasUnfinished(); }
-        private String finalAnswerBlockReason() { return executionPlan.finalAnswerBlockReason(); }
+        private boolean unresolvedUnplannedToolAttempts() {
+            return executionPlan.planCount() == 0 && unplannedToolAttemptCount.get() > 0;
+        }
+        private boolean unplannedToolAttemptLimitReached() {
+            return executionPlan.planCount() == 0
+                    && unplannedToolAttemptCount.get() >= MAX_UNPLANNED_TOOL_ATTEMPTS;
+        }
+        private ToolResultBlock rejectUnplannedTool(String kind) {
+            unplannedToolAttemptCount.incrementAndGet();
+            return ToolResultBlock.error("Call record_supervisor_plan before any " + kind + " tool");
+        }
+        private String finalAnswerBlockReason() {
+            return unresolvedUnplannedToolAttempts()
+                    ? "An execution tool was requested before a plan was recorded"
+                    : executionPlan.finalAnswerBlockReason();
+        }
         private String reservePlannedWorkflow(String toolName) { return executionPlan.reserve(toolName); }
         private void releasePlannedWorkflow(String toolName) { executionPlan.release(toolName); }
         private void completePlannedWorkflow(String toolName) { executionPlan.complete(toolName); }
@@ -1576,8 +1707,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         "Managed Executor tool is non-retryable after failure in this run: " + toolName));
             }
             if (executionPlan.planCount() == 0) {
-                return Mono.just(ToolResultBlock.error(
-                        "Call record_supervisor_plan before any Managed Executor tool"));
+                return Mono.just(rejectUnplannedTool("Managed Executor"));
             }
             if (executionPlan.failed()) {
                 return Mono.just(ToolResultBlock.error(
@@ -1704,8 +1834,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         "A2A remote-Agent tool already completed in this run: " + toolName));
             }
             if (executionPlan.planCount() == 0) {
-                return Mono.just(ToolResultBlock.error(
-                        "Call record_supervisor_plan before any A2A remote-Agent tool"));
+                return Mono.just(rejectUnplannedTool("A2A remote-Agent"));
             }
             if (executionPlan.failed()) {
                 return Mono.just(ToolResultBlock.error(
@@ -1883,17 +2012,26 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 return Mono.just(ToolResultBlock.error(
                         "Workflow tool is non-retryable after an ambiguous side-effect failure: " + toolName));
             }
-            if (StringUtils.hasText(toolName) && executionPlan.isCompleted(toolName)) {
+            if (StringUtils.hasText(toolName) && executionPlan.isCompleted(toolName)
+                    && (executionPlan.isBlocked(toolName) || repeatableReadPolicy == null
+                        || !repeatableReadPolicy.isRepeatable(tool, target))) {
                 return Mono.just(ToolResultBlock.error(
                         "Workflow tool already completed in this run; do not re-execute: " + toolName));
             }
             if (executionPlan.planCount() == 0) {
-                return Mono.just(ToolResultBlock.error("Call record_supervisor_plan before any Workflow tool"));
+                return Mono.just(rejectUnplannedTool("Workflow"));
             }
             if (executionPlan.failed()) {
                 return Mono.just(ToolResultBlock.error("The previous Workflow failed; record a revised plan before continuing"));
             }
             Map<String, Object> safeArgs = args == null ? Map.of() : new LinkedHashMap<>(args);
+            try {
+                if (businessMethodRiskGuard == null) throw new IllegalArgumentException("BUSINESS_METHOD_WORKFLOW_RISK_UNVERIFIED");
+                businessMethodRiskGuard.requireCompatible(tool, target);
+            } catch (IllegalArgumentException denied) {
+                guardDenyCount.incrementAndGet();
+                return Mono.just(ToolResultBlock.error("业务方法风险无法验证或与只读配置不符，请管理员校验并重新发布 Workflow 和 Agent。"));
+            }
             // A confirmation must describe the next stable step, never a later step while its
             // predecessors are still running. Read-only parallel admission remains in reserve().
             if (policyService.requiresWorkflowConfirmation(request.config(), tool)) {
@@ -2082,6 +2220,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 }
                 Map<String, Object> payload = workflowPayload(callNo, tool, target, args, result);
                 rememberWorkflowResultSummary(schemaFromObject(payload.get("resultSummary")));
+                if (callNo == 1) {
+                    knowledgeNoEvidenceCandidate = SupervisorKnowledgeTerminalAnswer.from(result, Boolean.TRUE.equals(tool.getReadOnly()),
+                            published.graphSpecJson(), objectMapper);
+                    knowledgeUnavailableCandidate = SupervisorKnowledgeTerminalAnswer.unavailableFrom(result,
+                            Boolean.TRUE.equals(tool.getReadOnly()));
+                }
                 traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
                         target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
                         result.success(), result.code(), result.answer(), elapsed, payload, identity);
@@ -2097,6 +2241,21 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     executionPlan.fail(Boolean.TRUE.equals(tool.getReadOnly()) ? null : tool.getToolName());
                 } else if (StringUtils.hasText(tool.getToolName())) {
                     completePlannedWorkflow(tool.getToolName());
+                }
+                // Stop before another model round can add an invented answer to persistent
+                // conversation state. The pause hook will end the agent after this tool result.
+                String directAnswer = singleKnowledgeNoEvidenceAnswer();
+                if (directAnswer != null) {
+                    scope.throwIfCancelled();
+                    if (!answerPhase.enterPublicFinal()) {
+                        scope.throwIfCancelled();
+                        throw new IllegalStateException("Cannot deliver knowledge answer from phase "
+                                + answerPhase.get().name());
+                    }
+                    deterministicKnowledgeAnswer = directAnswer;
+                    forcedFinalAnswer = true;
+                    phases.emit("final-answer", "final_answer", "started", "workflow_runtime",
+                            "生成最终回答", "正在交付知识检索结果");
                 }
                 return result.success()
                         ? ToolResultBlock.text(json(payload))
@@ -2137,10 +2296,20 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             continuation.put("originalInput", continuitySafeInput(request.input()));
             continuation.put("runId", firstText(text(workflowInput.get("runId")), trace.traceId()));
             continuation.put("traceId", trace.traceId());
-            continuation.put("continuationSchemaVersion", SupervisorWorkflowContinuation.SCHEMA_VERSION);
             continuation.put("executionCallCounts", new SupervisorExecutionCallCounts(
                     workflowCallCount.get(), a2aCallCount.get(), managedExecutorCallCount.get()).snapshot());
             SupervisorExecutionPlanState.Snapshot planSnapshot = executionPlan.snapshot();
+            Set<String> repeatable = repeatableToolNames(targets);
+            boolean positional = new LinkedHashSet<>(planSnapshot.plannedToolNames()).size()
+                    != planSnapshot.plannedToolNames().size()
+                    || planSnapshot.completedToolNames().stream().anyMatch(name -> repeatable.contains(name)
+                            && planSnapshot.plannedToolNames().contains(name));
+            continuation.put("continuationSchemaVersion", positional
+                    ? SupervisorWorkflowContinuation.POSITION_SCHEMA_VERSION : SupervisorWorkflowContinuation.SCHEMA_VERSION);
+            if (positional) {
+                continuation.put("completedPlanPositions", planSnapshot.completedPlanPositions());
+                continuation.put("blockedWorkflowToolNames", planSnapshot.blockedToolNames());
+            }
             continuation.put("planNo", planSnapshot.planCount());
             continuation.put("completedWorkflowToolNames", planSnapshot.completedToolNames());
             continuation.put("plannedWorkflowToolNames", planSnapshot.plannedToolNames());

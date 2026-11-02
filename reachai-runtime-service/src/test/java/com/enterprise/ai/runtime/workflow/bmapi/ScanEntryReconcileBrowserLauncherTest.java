@@ -40,7 +40,7 @@ class ScanEntryReconcileBrowserLauncherTest {
             state.put("status", "READY_FOR_READ_ONLY_RECONCILE");
             state.put("controlOrigin", surface.controlOrigin());
             state.put("authStatePath", surface.authStatePath());
-            state.put("scanPath", surface.scanPath());
+            state.put("documentDirectory", surface.documentDirectory());
             Files.writeString(manifest, json.writeValueAsString(state));
             System.out.println("BMAPI_5A_RECONCILE_BROWSER_READY");
             await(root, "reconciled", deadline);

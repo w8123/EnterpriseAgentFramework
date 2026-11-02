@@ -45,17 +45,17 @@ public class ControlAiCodingAgentAuthoringService {
     private static final Set<String> IDENTITY_FIELDS = Set.of(
             "name", "description", "enabled", "allowedRoles");
     private static final Set<String> CONFIG_FIELDS = Set.of(
-            "baseConfigVersionId", "systemPrompt", "modelInstanceId",
+            "baseRevision", "baseConfigVersionId", "systemPrompt", "modelInstanceId",
             "maxPlanSteps", "maxWorkflowCalls", "maxReplans", "totalTimeoutMs",
             "workflowTimeoutMs", "pageBridgeTimeoutMs", "parallelReadOnly",
             "policyProfile", "config");
     private static final Set<String> PUBLISH_FIELDS = Set.of(
-            "configVersionId", "requestedBy");
+            "baseRevision", "configVersionId", "requestedBy");
     private static final Set<String> SKILL_ATTACH_FIELDS = Set.of(
-            "skillId", "skillVersionId", "baseConfigVersionId", "activationMode",
+            "baseRevision", "skillId", "skillVersionId", "baseConfigVersionId", "activationMode",
             "required", "enabled", "publish", "requestedBy");
     private static final Set<String> SKILL_DETACH_FIELDS = Set.of(
-            "skillId", "baseConfigVersionId", "publish", "requestedBy");
+            "baseRevision", "skillId", "baseConfigVersionId", "publish", "requestedBy");
 
     private final CapabilityProjectOnboardingClient capabilityClient;
     private final RuntimeProxyClient runtimeClient;
@@ -64,6 +64,7 @@ public class ControlAiCodingAgentAuthoringService {
     private final AgentSkillAccessPolicy skillAccessPolicy;
     private final AgentSkillBindingSnapshotAssembler skillSnapshotAssembler;
     private final ObjectMapper objectMapper;
+    private final ControlAiCodingAgentDraftGateway drafts;
 
     public Map<String, Object> listAgents(Long projectId) {
         ProjectRef project = resolveProject(projectId);
@@ -79,13 +80,30 @@ public class ControlAiCodingAgentAuthoringService {
     public Map<String, Object> getAgent(Long projectId, String agentId) {
         ProjectRef project = resolveProject(projectId);
         Map<String, Object> agent = requireAgent(project, agentId);
-        List<Map<String, Object>> configs = configVersions(agentId(agent));
+        List<Map<String, Object>> configs = new ArrayList<>(responseList(
+                drafts.versions(project.id(), project.code(), agentId(agent)).get("versions")));
+        Map<String, Object> context = drafts.context(project.id(), project.code(), agentId(agent));
+        Object activeConfig = context.get("active");
+        if (activeConfig instanceof Map<?, ?> raw) {
+            Map<String, Object> active = responseMap(raw);
+            configs.removeIf(config -> "ACTIVE".equals(config.get("status")));
+            configs.add(0, active);
+            agent = new LinkedHashMap<>(agent);
+            agent.put("activeConfigVersionId", active.get("id"));
+        }
+        if (context.get("base") != null) {
+            Map<String, Object> base = contextBase(context);
+            configs.removeIf(config -> Objects.equals(longValue(config.get("id")), longValue(base.get("id"))));
+            configs.add(0, base);
+        }
         return ordered(
                 "schema", "agent-ai-coding-context.v1",
                 "project", project.toMap(),
                 "agent", agent,
                 "configVersions", configs,
-                "mutableBase", mutableBaseView(configs));
+                "activeConfig", activeConfig,
+                "baseRevision", context.get("revision"),
+                "mutableBase", mutableBaseView(contextBases(context)));
     }
 
     public Map<String, Object> createAgent(Long projectId, Map<String, ?> request) {
@@ -132,18 +150,19 @@ public class ControlAiCodingAgentAuthoringService {
                 "AGENT_CREATE_FAILED", "Runtime Agent creation failed"));
         requireBelongsToProject(agent, project);
         String createdAgentId = agentId(agent);
-        Map<String, Object> draft = responseMap(callRuntime(
-                () -> runtimeClient.saveAgentConfigDraft(createdAgentId, draftRequest),
-                "AGENT_CONFIG_SAVE_FAILED", "Initial Agent Supervisor config could not be saved"));
+        Map<String, Object> initial = drafts.context(project.id(), project.code(), createdAgentId);
+        if (!contextBases(initial).isEmpty()) throw new ControlAiCodingAgentException(
+                "AGENT_DRAFT_CONFLICT", "New Agent already has a config; read its context before editing", HttpStatus.CONFLICT);
+        Map<String, Object> saved = drafts.save(project.id(), project.code(), createdAgentId,
+                text(initial.get("revision")), draftRequest);
         boolean activate = booleanValue(input.get("activate"), true, "activate");
-        Map<String, Object> config = activate
-                ? publishRuntimeConfig(createdAgentId, draft, requestedBy(input))
-                : draft;
+        Map<String, Object> result = activate ? publishAttestedConfig(project, createdAgentId, saved) : saved;
         return ordered(
                 "schema", "agent-ai-coding-create.v1",
                 "project", project.toMap(),
                 "agent", agent,
-                "supervisorConfig", config,
+                "supervisorConfig", contextBase(result),
+                "baseRevision", result.get("revision"),
                 "activated", activate);
     }
 
@@ -181,22 +200,22 @@ public class ControlAiCodingAgentAuthoringService {
         Map<String, Object> agent = requireAgent(project, agentId);
         Map<String, ?> input = request == null ? Map.of() : request;
         rejectUnknownFields(input, CONFIG_FIELDS, "Agent Supervisor config");
-        List<Map<String, Object>> versions = configVersions(agentId(agent));
+        Map<String, Object> context = requireRevisionContext(project, agentId(agent), input);
+        List<Map<String, Object>> versions = contextBases(context);
         Map<String, Object> base = requireMutableBase(
                 versions, nullableLong(input.get("baseConfigVersionId"), "baseConfigVersionId"), true);
         Map<String, Object> update = supervisorConfigUpdate(input);
         if (update.isEmpty()) {
             throw invalid("AGENT_CONFIG_UPDATE_EMPTY", "At least one Supervisor config field is required");
         }
-        Map<String, Object> draft = responseMap(callRuntime(
-                () -> runtimeClient.saveAgentConfigDraft(agentId(agent), update),
-                "AGENT_CONFIG_SAVE_FAILED", "Agent Supervisor config draft could not be saved"));
+        Map<String, Object> saved = drafts.save(project.id(), project.code(), agentId(agent), text(context.get("revision")), update);
         return ordered(
                 "schema", "agent-ai-coding-config-draft.v1",
                 "project", project.toMap(),
                 "agent", agent,
                 "baseConfigVersionId", longValue(base.get("id")),
-                "draft", draft);
+                "draft", contextBase(saved),
+                "baseRevision", saved.get("revision"));
     }
 
     public Map<String, Object> publishConfig(
@@ -207,8 +226,9 @@ public class ControlAiCodingAgentAuthoringService {
         Map<String, Object> agent = requireAgent(project, agentId);
         Map<String, ?> input = request == null ? Map.of() : request;
         rejectUnknownFields(input, PUBLISH_FIELDS, "Agent config publish request");
+        Map<String, Object> context = requireRevisionContext(project, agentId(agent), input);
         Long configVersionId = requiredLong(input.get("configVersionId"), "configVersionId");
-        Map<String, Object> target = configVersions(agentId(agent)).stream()
+        Map<String, Object> target = contextBases(context).stream()
                 .filter(config -> Objects.equals(configVersionId, longValue(config.get("id"))))
                 .findFirst()
                 .orElseThrow(() -> new ControlAiCodingAgentException(
@@ -220,13 +240,13 @@ public class ControlAiCodingAgentAuthoringService {
                     HttpStatus.CONFLICT,
                     Map.of("configVersionId", configVersionId, "status", String.valueOf(target.get("status"))));
         }
-        Map<String, Object> published = publishAttestedConfig(
-                project, agentId(agent), target, requestedBy(input));
+        Map<String, Object> published = publishAttestedConfig(project, agentId(agent), context);
         return ordered(
                 "schema", "agent-ai-coding-config-publish.v1",
                 "project", project.toMap(),
                 "agent", agent,
-                "activeConfig", published);
+                "activeConfig", contextBase(published),
+                "baseRevision", published.get("revision"));
     }
 
     public Map<String, Object> listBindableSkills(Long projectId, String search) {
@@ -271,7 +291,8 @@ public class ControlAiCodingAgentAuthoringService {
             throw skillError(ex);
         }
 
-        List<Map<String, Object>> versions = configVersions(agentId(agent));
+        Map<String, Object> context = requireRevisionContext(project, agentId(agent), input);
+        List<Map<String, Object>> versions = contextBases(context);
         Map<String, Object> base = requireMutableBase(
                 versions, nullableLong(input.get("baseConfigVersionId"), "baseConfigVersionId"), true);
         List<Map<String, Object>> selections = skillSelections(base.get("skills"));
@@ -296,7 +317,7 @@ public class ControlAiCodingAgentAuthoringService {
         }
         if (!replaced) selections.add(requested);
         if (!changed && "ACTIVE".equalsIgnoreCase(text(base.get("status")))) {
-            return skillMutationResult(project, agent, base, descriptor, false, true, false);
+            return skillMutationResult(project, agent, context, descriptor, false, true, false);
         }
 
         Map<String, Object> canonical;
@@ -306,13 +327,11 @@ public class ControlAiCodingAgentAuthoringService {
         } catch (AgentSkillException ex) {
             throw skillError(ex);
         }
-        Map<String, Object> draft = responseMap(callRuntime(
-                () -> runtimeClient.saveAgentConfigDraft(agentId(agent), canonical),
-                "AGENT_SKILL_SAVE_FAILED", "Agent Skill binding draft could not be saved"));
+        Map<String, Object> saved = drafts.save(project.id(), project.code(), agentId(agent), text(context.get("revision")), canonical);
         boolean publish = booleanValue(input.get("publish"), true, "publish");
         Map<String, Object> result = publish
-                ? publishAttestedConfig(project, agentId(agent), draft, requestedBy(input))
-                : draft;
+                ? publishAttestedConfig(project, agentId(agent), saved)
+                : saved;
         return skillMutationResult(project, agent, result, descriptor, !replaced, false, publish);
     }
 
@@ -325,7 +344,8 @@ public class ControlAiCodingAgentAuthoringService {
         Map<String, ?> input = request == null ? Map.of() : request;
         rejectUnknownFields(input, SKILL_DETACH_FIELDS, "Agent Skill detach request");
         Long skillId = requiredLong(input.get("skillId"), "skillId");
-        List<Map<String, Object>> versions = configVersions(agentId(agent));
+        Map<String, Object> context = requireRevisionContext(project, agentId(agent), input);
+        List<Map<String, Object>> versions = contextBases(context);
         Map<String, Object> base = requireMutableBase(
                 versions, nullableLong(input.get("baseConfigVersionId"), "baseConfigVersionId"), true);
         List<Map<String, Object>> selections = skillSelections(base.get("skills"));
@@ -337,6 +357,7 @@ public class ControlAiCodingAgentAuthoringService {
                     "project", project.toMap(),
                     "agent", agent,
                     "config", base,
+                    "baseRevision", context.get("revision"),
                     "skillId", skillId,
                     "removed", false,
                     "reused", true,
@@ -349,18 +370,17 @@ public class ControlAiCodingAgentAuthoringService {
         } catch (AgentSkillException ex) {
             throw skillError(ex);
         }
-        Map<String, Object> draft = responseMap(callRuntime(
-                () -> runtimeClient.saveAgentConfigDraft(agentId(agent), canonical),
-                "AGENT_SKILL_SAVE_FAILED", "Agent Skill detachment draft could not be saved"));
+        Map<String, Object> saved = drafts.save(project.id(), project.code(), agentId(agent), text(context.get("revision")), canonical);
         boolean publish = booleanValue(input.get("publish"), true, "publish");
         Map<String, Object> result = publish
-                ? publishAttestedConfig(project, agentId(agent), draft, requestedBy(input))
-                : draft;
+                ? publishAttestedConfig(project, agentId(agent), saved)
+                : saved;
         return ordered(
                 "schema", "agent-skill-detachment.v1",
                 "project", project.toMap(),
                 "agent", agent,
-                "config", result,
+                "config", contextBase(result),
+                "baseRevision", result.get("revision"),
                 "skillId", skillId,
                 "removed", true,
                 "reused", false,
@@ -431,8 +451,8 @@ public class ControlAiCodingAgentAuthoringService {
     private Map<String, Object> publishAttestedConfig(
             ProjectRef project,
             String agentId,
-            Map<String, Object> draft,
-            String publishedBy) {
+            Map<String, Object> context) {
+        Map<String, Object> draft = contextBase(context);
         Object remoteAgents = draft.get("remoteAgents");
         if (remoteAgents instanceof Collection<?> values && !values.isEmpty()) {
             throw new ControlAiCodingAgentException(
@@ -440,7 +460,7 @@ public class ControlAiCodingAgentAuthoringService {
                     "AI Coding cannot publish a config containing remote A2A Agent bindings",
                     HttpStatus.CONFLICT);
         }
-        Map<String, Object> target = draft;
+        Map<String, Object> target = context;
         Object skills = draft.get("skills");
         if (skills instanceof Collection<?> values && !values.isEmpty()) {
             Map<String, Object> canonical;
@@ -450,29 +470,16 @@ public class ControlAiCodingAgentAuthoringService {
             } catch (AgentSkillException ex) {
                 throw skillError(ex);
             }
-            target = responseMap(callRuntime(
-                    () -> runtimeClient.saveAgentConfigDraft(agentId, canonical),
-                    "AGENT_SKILL_REVALIDATION_FAILED",
-                    "Agent Skill bindings could not be revalidated before publish"));
+            target = drafts.save(project.id(), project.code(), agentId, text(context.get("revision")), canonical);
         }
-        return publishRuntimeConfig(agentId, target, publishedBy);
-    }
-
-    private Map<String, Object> publishRuntimeConfig(
-            String agentId,
-            Map<String, Object> draft,
-            String publishedBy) {
-        Long configVersionId = requiredLong(draft.get("id"), "configVersionId");
-        return responseMap(callRuntime(
-                () -> runtimeClient.publishAgentConfigVersion(
-                        agentId, configVersionId, Map.of("publishedBy", publishedBy)),
-                "AGENT_CONFIG_PUBLISH_FAILED", "Agent config could not be published"));
+        return drafts.publish(project.id(), project.code(), agentId, text(target.get("revision")),
+                requiredLong(contextBase(target).get("id"), "configVersionId"));
     }
 
     private Map<String, Object> skillMutationResult(
             ProjectRef project,
             Map<String, Object> agent,
-            Map<String, Object> config,
+            Map<String, Object> context,
             BindingDescriptor descriptor,
             boolean created,
             boolean reused,
@@ -481,7 +488,8 @@ public class ControlAiCodingAgentAuthoringService {
                 "schema", "agent-skill-attachment.v1",
                 "project", project.toMap(),
                 "agent", agent,
-                "config", config,
+                "config", contextBase(context),
+                "baseRevision", context.get("revision"),
                 "binding", bindingView(descriptor),
                 "created", created,
                 "reused", reused,
@@ -565,10 +573,22 @@ public class ControlAiCodingAgentAuthoringService {
                 && project.code().equalsIgnoreCase(firstText(agentProjectCode, ""));
     }
 
-    private List<Map<String, Object>> configVersions(String agentId) {
-        return responseList(callRuntime(
-                () -> runtimeClient.listAgentConfigVersions(agentId),
-                "AGENT_CONFIG_LIST_FAILED", "Agent config versions could not be read"));
+    private Map<String, Object> requireRevisionContext(ProjectRef project, String agentId, Map<String, ?> input) {
+        String revision = optionalText(input.get("baseRevision"));
+        if (revision == null || !revision.matches("[a-f0-9]{64}")) throw invalid(
+                "AGENT_DRAFT_REVISION_REQUIRED", "Read Agent context and send its baseRevision");
+        Map<String, Object> context = drafts.context(project.id(), project.code(), agentId);
+        if (!revision.equals(context.get("revision"))) throw new ControlAiCodingAgentException(
+                "AGENT_DRAFT_CONFLICT", "Agent changed; read context and review changes before retrying", HttpStatus.CONFLICT);
+        return context;
+    }
+
+    private Map<String, Object> contextBase(Map<String, Object> context) {
+        return responseMap(context.get("base"));
+    }
+
+    private List<Map<String, Object>> contextBases(Map<String, Object> context) {
+        return context.get("base") == null ? List.of() : List.of(contextBase(context));
     }
 
     private Map<String, Object> requireMutableBase(
@@ -619,6 +639,7 @@ public class ControlAiCodingAgentAuthoringService {
         return base == null ? Map.of() : ordered(
                 "configVersionId", longValue(base.get("id")),
                 "status", text(base.get("status")),
+                "config", base,
                 "requiresExplicitBase", draft != null);
     }
 
@@ -730,10 +751,6 @@ public class ControlAiCodingAgentAuthoringService {
 
     private String agentId(Map<String, Object> agent) {
         return requiredText(agent.get("id"), "agent.id");
-    }
-
-    private String requestedBy(Map<String, ?> request) {
-        return firstText(optionalText(request.get("requestedBy")), "ai-coding");
     }
 
     private String resolveSupervisorModelInstanceId(String requestedModelInstanceId) {

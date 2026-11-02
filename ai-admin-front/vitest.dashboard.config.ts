@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/views/dashboard/**/*.test.ts'],
+    include: ['src/views/dashboard/**/*.test.ts', 'src/views/getting-started/**/*.test.ts'],
     css: false,
   },
 })

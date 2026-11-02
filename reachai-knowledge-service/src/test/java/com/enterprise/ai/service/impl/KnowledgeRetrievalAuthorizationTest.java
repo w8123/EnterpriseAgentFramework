@@ -40,6 +40,7 @@ class KnowledgeRetrievalAuthorizationTest {
     private KnowledgeService knowledge;
     private KnowledgeRetrievalCore core;
     private KnowledgeRetrievalInternalController controller;
+    private KnowledgeRetrievalInternalController trustedGrantFixture;
 
     @BeforeEach
     void open() throws Exception {
@@ -60,14 +61,38 @@ class KnowledgeRetrievalAuthorizationTest {
         core = new KnowledgeRetrievalCore(new DefaultKnowledgeRetrievalEngine(new KnowledgeBaseLookup(db.mapper(KnowledgeBaseRepository.class)),
                 db.mapper(FileInfoRepository.class), db.mapper(ChunkRepository.class), mock(KnowledgeHitLogRepository.class), embedding, model, vectors, authorization), authorization);
         controller = new KnowledgeRetrievalInternalController(core);
+        // Exercise grant snapshot mechanics independently of the untrusted runtime boundary.
+        var trustedCore = spy(core);
+        doAnswer(inv -> {
+            com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest request = inv.getArgument(0);
+            request.setUserId("actor");
+            return core.retrieve(request);
+        }).when(trustedCore).retrieve(any());
+        trustedGrantFixture = new KnowledgeRetrievalInternalController(trustedCore);
     }
 
     @AfterEach void close() { if (db != null) db.close(); }
 
     @Test
-    void runtimeCannotReadTheReplacementBehindAnOldFilePermission() {
+    void unscopedRuntimeAndLegacyRequestsCannotBorrowAnExistingGrant() {
+        // The grant exists for a platform account named "actor". A bare matching
+        // runtime or request ID is not proof that the caller is that account.
+        assertTrue(controller.retrieve(request(false)).getData().empty());
+        assertTrue(core.retrieve(com.enterprise.ai.retrieval.KnowledgeRetrievalCoreRequest.builder()
+                .query("文件").knowledgeBaseCodes(List.of("kb")).auditUserId("actor").build()).getItems().isEmpty(),
+                "An audit identity must never authorize a file grant");
+        var rag = new RagServiceImpl(core, knowledge, mock(LlmService.class), mock(PromptBuilder.class));
+        assertTrue(rag.retrieve(ragRequest()).getReferences().isEmpty());
+        var duplicate = new DedupRequest();
+        duplicate.setUserId("actor"); duplicate.setText("文件"); duplicate.setKnowledgeBaseCodes(List.of("kb"));
+        assertTrue(new DedupServiceImpl(core).check(duplicate).getItems().isEmpty());
+        verifyNoInteractions(embedding, vectors, model);
+    }
+
+    @Test
+    void trustedGrantSnapshotCannotReadReplacementFile() {
         replaceDuringEmbedding();
-        assertTrue(controller.retrieve(request(false)).getData().hits().isEmpty(),
+        assertTrue(trustedGrantFixture.retrieve(request(false)).getData().hits().isEmpty(),
                 "An old permission snapshot must not authorize a replacement file");
     }
 
@@ -77,7 +102,7 @@ class KnowledgeRetrievalAuthorizationTest {
             db.jdbc().update("DELETE FROM knowledge_user_file_permission WHERE id=1");
             return List.of(hit("old-vector", "原文件内容"));
         });
-        controller.retrieve(request(true));
+        trustedGrantFixture.retrieve(request(true));
         verifyNoInteractions(model);
     }
 
@@ -87,24 +112,24 @@ class KnowledgeRetrievalAuthorizationTest {
             db.jdbc().update("DELETE FROM knowledge_user_file_permission WHERE id=1");
             return ApiResult.ok(null);
         });
-        assertTrue(controller.retrieve(request(true)).getData().hits().isEmpty(),
+        assertTrue(trustedGrantFixture.retrieve(request(true)).getData().hits().isEmpty(),
                 "Content must be revalidated after an external rerank call");
     }
 
     @Test
-    void ragCannotReadTheReplacementBehindAnOldFilePermission() {
-        replaceDuringEmbedding();
+    void ragCannotUseAnUnscopedFileGrant() {
         var rag = new RagServiceImpl(core, knowledge, mock(LlmService.class), mock(PromptBuilder.class));
         var request = new RagRequest(); request.setUserId("actor"); request.setQuestion("文件"); request.setKnowledgeBaseCodes(List.of("kb"));
-        assertTrue(rag.retrieve(request).getReferences().isEmpty(), "RAG must use the same file-generation fence");
+        assertTrue(rag.retrieve(request).getReferences().isEmpty(), "Unscoped RAG must fail closed");
+        verifyNoInteractions(embedding, vectors, model);
     }
 
     @Test
-    void dedupCannotReadTheReplacementBehindAnOldFilePermission() {
-        replaceDuringEmbedding();
+    void dedupCannotUseAnUnscopedFileGrant() {
         var dedup = new DedupServiceImpl(core);
         var request = new DedupRequest(); request.setUserId("actor"); request.setText("文件"); request.setKnowledgeBaseCodes(List.of("kb"));
-        assertTrue(dedup.check(request).getItems().isEmpty(), "Dedup must use the same file-generation fence");
+        assertTrue(dedup.check(request).getItems().isEmpty(), "Unscoped dedup must fail closed");
+        verifyNoInteractions(embedding, vectors, model);
     }
 
     @ParameterizedTest
@@ -112,7 +137,7 @@ class KnowledgeRetrievalAuthorizationTest {
     void authorizedRetrievalUsesPublishedDatabaseContent(String mode) {
         when(vectors.search(any())).thenReturn(List.of(VectorSearchResult.builder().id("old-vector").score(0.95f)
                 .fields(Map.of("file_id", "untrusted", "content", "未发布的远端内容")).build()));
-        var response = controller.retrieve(new KnowledgeRetrievalInternalController.RetrievalRequest(
+        var response = trustedGrantFixture.retrieve(new KnowledgeRetrievalInternalController.RetrievalRequest(
                 "文件", List.of("kb"), "actor", 5, 0.1f, mode, false)).getData();
         assertEquals(1, response.hitCount()); assertEquals("原文件内容", response.hits().get(0).content());
         assertEquals("原文件", response.hits().get(0).title());
@@ -137,6 +162,30 @@ class KnowledgeRetrievalAuthorizationTest {
                 "文件", List.of("kb"), "any-business-user", 5, 0.1f, "vector", false)).getData();
         assertEquals(1, response.hitCount());
         assertEquals("原文件内容", response.hits().get(0).content());
+    }
+
+    @Test
+    void restrictedBaseWithoutGrantsDoesNotCallProvidersWhenAnotherBaseIsOpen() {
+        db.jdbc().update("INSERT INTO knowledge_base(id,code,name,status,vector_collection_name,embedding_model_instance_id,access_mode) "
+                + "VALUES (8,'open','开放',1,'open-physical','embedding','ALL_CALLERS')");
+        var response = controller.retrieve(request(false));
+        assertEquals(200, response.getCode());
+        assertTrue(response.getData().empty());
+        verifyNoInteractions(embedding, vectors, model);
+    }
+
+    @Test
+    void anEmbeddingFailureIsReportedAsFailureNotMissingEvidence() {
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
+        when(embedding.embed(anyString(), anyString())).thenThrow(new IllegalStateException("provider unavailable"));
+        assertThrows(com.enterprise.ai.common.exception.BizException.class, () -> controller.retrieve(request(false)));
+        var llm = mock(LlmService.class);
+        var rag = new RagServiceImpl(core, knowledge, llm, mock(PromptBuilder.class));
+        assertThrows(com.enterprise.ai.common.exception.BizException.class, () -> rag.query(ragRequest()));
+        var duplicate = new DedupRequest();
+        duplicate.setUserId("actor"); duplicate.setText("文件"); duplicate.setKnowledgeBaseCodes(List.of("kb"));
+        assertThrows(com.enterprise.ai.common.exception.BizException.class, () -> new DedupServiceImpl(core).check(duplicate));
+        verifyNoInteractions(vectors, model, llm);
     }
 
     @Test
@@ -172,7 +221,7 @@ class KnowledgeRetrievalAuthorizationTest {
         db.jdbc().update("INSERT INTO knowledge_file_info(id,file_id,knowledge_base_id,file_name) VALUES (13,'secret',7,'受限文件')");
         db.jdbc().update("INSERT INTO knowledge_chunk(id,file_id,knowledge_base_id,chunk_index,content,vector_id,enabled) VALUES (103,'secret',7,0,'受限文件正文','secret-vector',1)");
         when(vectors.search(any())).thenReturn(List.of(hit("secret-vector", "受限文件正文")));
-        assertTrue(controller.retrieve(request(true)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(true)).getData().empty());
         verifyNoInteractions(model);
     }
 
@@ -185,7 +234,7 @@ class KnowledgeRetrievalAuthorizationTest {
             return List.of(0.1f);
         });
         when(vectors.search(any())).thenReturn(List.of(hit("new-vector", "替换后的受限内容")));
-        assertTrue(controller.retrieve(request(false)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(false)).getData().empty());
         assertEquals(1, db.jdbc().queryForObject("SELECT COUNT(*) FROM knowledge_user_file_permission", Integer.class));
     }
 
@@ -196,7 +245,7 @@ class KnowledgeRetrievalAuthorizationTest {
             db.jdbc().update("INSERT INTO knowledge_user_file_permission(id,user_id,file_id,record_generation) VALUES (2,'actor','file',REPEAT('d',32))");
             return List.of(0.1f);
         });
-        assertTrue(controller.retrieve(request(false)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(false)).getData().empty());
     }
 
     @Test
@@ -205,7 +254,7 @@ class KnowledgeRetrievalAuthorizationTest {
             db.jdbc().update("UPDATE knowledge_base SET vector_collection_name='replacement_physical' WHERE id=7");
             return List.of(0.1f);
         });
-        assertTrue(controller.retrieve(request(false)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(false)).getData().empty());
     }
 
     @ParameterizedTest
@@ -217,17 +266,18 @@ class KnowledgeRetrievalAuthorizationTest {
             else db.jdbc().update("UPDATE knowledge_chunk SET content='已经编辑' WHERE id=101");
             return ApiResult.ok(new ModelServiceClient.RerankResult("rerank", "fixture", List.of(new ModelServiceClient.RerankItem(0, 1f, "原文件内容"))));
         });
-        assertTrue(controller.retrieve(request(true)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(true)).getData().empty());
         verify(model).rerank(any());
     }
 
     @Test
-    void ragDropsAnswerAndReferencesWhenGrantChangesDuringGeneration() {
+    void ragDropsAnswerAndReferencesWhenOpenAccessChangesDuringGeneration() {
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
         var llm = mock(LlmService.class); var prompt = mock(PromptBuilder.class);
         when(prompt.build(anyString(), anyList())).thenReturn("已授权上下文");
         when(llm.chat(anyString(), eq("answer"))).thenAnswer(inv -> {
             assertFalse(TransactionSynchronizationManager.isActualTransactionActive());
-            db.jdbc().update("DELETE FROM knowledge_user_file_permission WHERE id=1");
+            db.jdbc().update("UPDATE knowledge_base SET access_mode='FILE_GRANTS' WHERE id=7");
             return "应丢弃的生成结果";
         });
         var response = new RagServiceImpl(core, knowledge, llm, prompt).query(ragRequest());
@@ -236,7 +286,8 @@ class KnowledgeRetrievalAuthorizationTest {
     }
 
     @Test
-    void anUnchangedGrantAllowsRagGenerationOutsideADatabaseTransaction() {
+    void unchangedOpenAccessAllowsRagGenerationOutsideADatabaseTransaction() {
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
         var llm = mock(LlmService.class); var prompt = mock(PromptBuilder.class);
         when(prompt.build(anyString(), anyList())).thenReturn("已授权上下文");
         when(llm.chat(eq("已授权上下文"), eq("answer"))).thenAnswer(inv -> {
@@ -248,10 +299,11 @@ class KnowledgeRetrievalAuthorizationTest {
     }
 
     @Test
-    void revocationWhileBuildingThePromptPreventsTheModelCall() {
+    void closingOpenAccessWhileBuildingThePromptPreventsTheModelCall() {
+        db.jdbc().update("UPDATE knowledge_base SET access_mode='ALL_CALLERS' WHERE id=7");
         var llm = mock(LlmService.class); var prompt = mock(PromptBuilder.class);
         when(prompt.build(anyString(), anyList())).thenAnswer(inv -> {
-            db.jdbc().update("DELETE FROM knowledge_user_file_permission WHERE id=1"); return "原上下文";
+            db.jdbc().update("UPDATE knowledge_base SET access_mode='FILE_GRANTS' WHERE id=7"); return "原上下文";
         });
         assertTrue(new RagServiceImpl(core, knowledge, llm, prompt).query(ragRequest()).getReferences().isEmpty());
         verifyNoInteractions(llm);
@@ -261,13 +313,13 @@ class KnowledgeRetrievalAuthorizationTest {
     @ValueSource(strings = {"read", "write", "admin"})
     void documentedGrantTypesPermitReading(String type) {
         db.jdbc().update("UPDATE knowledge_user_file_permission SET permission_type=? WHERE id=1", type);
-        assertEquals(1, controller.retrieve(request(false)).getData().hitCount());
+        assertEquals(1, trustedGrantFixture.retrieve(request(false)).getData().hitCount());
     }
 
     @Test
     void unknownGrantTypesFailClosed() {
         db.jdbc().update("UPDATE knowledge_user_file_permission SET permission_type='unknown' WHERE id=1");
-        assertTrue(controller.retrieve(request(false)).getData().empty());
+        assertTrue(trustedGrantFixture.retrieve(request(false)).getData().empty());
         verifyNoInteractions(embedding, vectors, model);
     }
 
@@ -276,7 +328,7 @@ class KnowledgeRetrievalAuthorizationTest {
         when(embedding.embed(anyString(), anyString())).thenAnswer(inv -> {
             db.jdbc().execute("DROP TABLE knowledge_user_file_permission"); return List.of(0.1f);
         });
-        assertThrows(RuntimeException.class, () -> controller.retrieve(request(true)));
+        assertThrows(RuntimeException.class, () -> trustedGrantFixture.retrieve(request(true)));
         verifyNoInteractions(model);
     }
 

@@ -17,6 +17,11 @@ public class PersonalMemoryEntity {
     private String memoryKey;
     private String tenantId;
     private String ownerId;
+    private String ownerDomain;
+    /** {@code personal} or {@code project:<code>}; see {@link PersonalMemoryScope}. */
+    private String scopeKey;
+    private String projectCode;
+    private Long groupId;
     private String memoryType;
     private String title;
     private String content;

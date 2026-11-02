@@ -93,7 +93,9 @@ public class RegistryProjectRequestVerificationService {
         String path = request.path().trim();
         if (!project.matches("[a-z0-9][a-z0-9_-]{0,95}")
                 || !("POST".equals(method) || "DELETE".equals(method))
-                || !path.startsWith(INGRESS_PREFIX + project + "/biz-index/")
+                || !(path.startsWith(INGRESS_PREFIX + project + "/biz-index/")
+                    || ("POST".equals(method) && ("/api/embed/token/exchange".equals(path)
+                        || "/api/embed/token/business-session/revoke".equals(path))))
                 || path.contains("?") || path.contains("#") || path.contains("..")
                 || request.appKey().length() > 128 || request.nonce().length() > 128
                 || request.timestamp().length() > 20

@@ -10,6 +10,125 @@ index 8bcb1f9..5c3dcab 100644
 +# ReachAI 嵌入式对话（留空则不加载）
 +VITE_REACHAI_BASE_URL=
 +VITE_REACHAI_AGENT_ID=
+diff --git a/src/config/axios/service.ts b/src/config/axios/service.ts
+index 3305354..adb1fc2 100644
+--- a/src/config/axios/service.ts
++++ b/src/config/axios/service.ts
+@@ -29,7 +29,7 @@ const ignoreMsgs = [
+ export const isRelogin = { show: false }
+ // Axios 无感知刷新令牌，参考 https://www.dashingdog.cn/article/11 与 https://segmentfault.com/a/1190000020210980 实现
+ // 请求队列
+-let requestList: any[] = []
++let requestList: Array<{ retry: () => void; reject: (reason: unknown) => void }> = []
+ // 是否正在刷新中
+ let isRefreshToken = false
+ // 请求白名单，无须 token 的接口
+@@ -146,28 +146,48 @@ service.interceptors.response.use(
+       }
+       data = await new Response(response.data).json()
+     }
+-    const code = data.code ?? result_code
++    // Callers that deliberately accept HTTP 401 (e.g. the ReachAI token broker)
++    // must share the same refresh queue as the normal business APIs.
++    const code = response.status === 401 ? 401 : (data.code ?? result_code)
+     // 获取错误信息
+     const msg = data.msg || errorCode[code] || errorCode['default']
+     if (ignoreMsgs.indexOf(msg) !== -1) {
+       // 如果是忽略的错误码，直接返回 msg 异常
+       return Promise.reject(msg)
+     } else if (code === 401) {
++      // A late 401 from a previous login must never be replayed as the current user.
++      const sentAuthorization = config.headers?.Authorization
++      if (typeof sentAuthorization === 'string' && sentAuthorization.startsWith('Bearer ')
++        && sentAuthorization !== 'Bearer ' + getAccessToken()) {
++        return Promise.reject(new Error('login session changed before response'))
++      }
+       // 如果未认证，并且未进行刷新令牌，说明可能是访问令牌过期了
+       if (!isRefreshToken) {
+         isRefreshToken = true
++        const refreshTokenAtStart = getRefreshToken()
+         // 1. 如果获取不到刷新令牌，则只能执行登出操作
+-        if (!getRefreshToken()) {
++        if (!refreshTokenAtStart) {
++          isRefreshToken = false
+           return handleAuthorized()
+         }
+         // 2. 进行刷新访问令牌
+         try {
+-          const refreshTokenRes = await refreshToken()
++          const refreshTokenRes = await refreshToken(refreshTokenAtStart)
++          if (getRefreshToken() !== refreshTokenAtStart) {
++            throw new Error('login session changed during refresh')
++          }
++          const result = refreshTokenRes.data
++          const tokens = result?.data
++          if ((result?.code !== 0 && result?.code !== 200)
++            || typeof tokens?.accessToken !== 'string' || !tokens.accessToken.trim()
++            || typeof tokens?.refreshToken !== 'string' || !tokens.refreshToken.trim()) {
++            throw new Error('refresh response invalid')
++          }
+           // 2.1 刷新成功，则回放队列的请求 + 当前请求
+-          setToken((await refreshTokenRes).data.data)
++          setToken(tokens)
+           config.headers!.Authorization = 'Bearer ' + getAccessToken()
+-          requestList.forEach((cb: any) => {
+-            cb()
++          requestList.forEach((pending) => {
++            pending.retry()
+           })
+           requestList = []
+           if ((config!.headers || {}).isEncrypt) {
+@@ -175,11 +195,13 @@ service.interceptors.response.use(
+           }
+           return service(config)
+         } catch (e) {
+-          // 为什么需要 catch 异常呢？刷新失败时，请求因为 Promise.reject 触发异常。
+-          // 2.2 刷新失败，只回放队列的请求
+-          requestList.forEach((cb: any) => {
+-            cb()
++          const sessionChanged = getRefreshToken() !== refreshTokenAtStart
++          const failure = sessionChanged ? new Error('login session changed during refresh') : e
++          // 2.2 刷新失败，结束等待请求，不能使用失效令牌重新发送。
++          requestList.forEach((pending) => {
++            pending.reject(failure)
+           })
++          if (sessionChanged) return Promise.reject(failure)
+           // 提示是否要登出。即不回放当前请求！不然会形成递归
+           return handleAuthorized()
+         } finally {
+@@ -188,10 +210,16 @@ service.interceptors.response.use(
+         }
+       } else {
+         // 添加到队列，等待刷新获取到新的令牌
+-        return new Promise((resolve) => {
+-          requestList.push(() => {
+-            config.headers!.Authorization = 'Bearer ' + getAccessToken() // 让每个请求携带自定义token 请根据实际情况自行修改
+-            resolve(service(config))
++        return new Promise((resolve, reject) => {
++          requestList.push({
++            retry: () => {
++              config.headers!.Authorization = 'Bearer ' + getAccessToken()
++              if ((config!.headers || {}).isEncrypt) {
++                ;(config!.headers || {}).isEncrypted = true
++              }
++              resolve(service(config))
++            },
++            reject
+           })
+         })
+       }
+@@ -241,9 +269,9 @@ service.interceptors.response.use(
+   }
+ )
+ 
+-const refreshToken = async () => {
++const refreshToken = async (token: string) => {
+   axios.defaults.headers.common['tenant-id'] = getTenantId()
+-  return await axios.post(base_url + '/system/auth/refresh-token?refreshToken=' + getRefreshToken())
++  return await axios.post(base_url + '/system/auth/refresh-token?refreshToken=' + encodeURIComponent(token))
+ }
+ const handleAuthorized = () => {
+   const { t } = useI18n()
 diff --git a/src/layout/Layout.vue b/src/layout/Layout.vue
 index 1cb4635..7d9dcd4 100644
 --- a/src/layout/Layout.vue
@@ -31,12 +150,262 @@ index 1cb4635..7d9dcd4 100644
        </section>
      )
    }
+diff --git a/src/views/erp/product/product/index.vue b/src/views/erp/product/product/index.vue
+index 4eeba1e..e11f166 100644
+--- a/src/views/erp/product/product/index.vue
++++ b/src/views/erp/product/product/index.vue
+@@ -136,6 +136,7 @@ import ProductForm from './ProductForm.vue'
+ import { DICT_TYPE } from '@/utils/dict'
+ import { defaultProps, handleTree } from '@/utils/tree'
+ import { erpPriceTableColumnFormatter } from '@/utils'
++import { activateReachAiPage } from '@/layout/components/ReachAiChat/pageBinding'
+ 
+ /** ERP 产品列表 */
+ defineOptions({ name: 'ErpProduct' })
+@@ -149,22 +150,74 @@ const total = ref(0) // 列表的总页数
+ const queryParams = reactive({
+   pageNo: 1,
+   pageSize: 10,
+-  name: undefined,
++  name: undefined as string | undefined,
+   categoryId: undefined
+ })
+ const queryFormRef = ref() // 搜索的表单
+ const exportLoading = ref(false) // 导出的加载中
+ const categoryList = ref<ProductCategoryVO[]>([]) // 产品分类列表
++let deactivateReachAiPage: (() => void) | undefined
++let productQueryGeneration = 0
++
++const registerReachAiPage = () => {
++  if (deactivateReachAiPage) return
++  deactivateReachAiPage = activateReachAiPage({
++    pageKey: 'yudao.erp.product.list',
++    name: 'ERP 产品列表',
++    route: '/erp/product/product',
++    registerActions: (bridge) => {
++      bridge.registerAction('erp.product.filterByName', async (args) => {
++        const name = typeof args.name === 'string' ? args.name.trim() : ''
++        if (!name || name.length > 100) {
++          return { status: 'PRECONDITION_FAILED', message: '请输入不超过 100 个字符的产品名称。' }
++        }
++        queryParams.name = name
++        queryParams.categoryId = undefined
++        queryParams.pageNo = 1
++        const applied = await getList()
++        if (!applied) {
++          return { status: 'PRECONDITION_FAILED', message: '筛选期间查询条件已变化，请重新发起查询。' }
++        }
++        return { status: 'SUCCESS', data: { total: total.value }, message: '已按产品名称筛选列表。' }
++      }, {
++        title: '按名称筛选产品列表',
++        description: '在当前产品列表按名称筛选，清除分类条件并返回第一页；不修改业务数据。',
++        inputSchema: {
++          type: 'object',
++          properties: { name: { type: 'string', description: '产品名称', maxLength: 100 } },
++          required: ['name'],
++          additionalProperties: false
++        }
++      })
++    }
++  })
++}
++
++const unregisterReachAiPage = () => {
++  productQueryGeneration++
++  loading.value = false
++  deactivateReachAiPage?.()
++  deactivateReachAiPage = undefined
++}
++
++onMounted(registerReachAiPage)
++onActivated(registerReachAiPage)
++onDeactivated(unregisterReachAiPage)
++onBeforeUnmount(unregisterReachAiPage)
+ 
+ /** 查询列表 */
+ const getList = async () => {
++  const generation = ++productQueryGeneration
++  const params = { ...queryParams }
+   loading.value = true
+   try {
+-    const data = await ProductApi.getProductPage(queryParams)
++    const data = await ProductApi.getProductPage(params)
++    if (generation !== productQueryGeneration || JSON.stringify(params) !== JSON.stringify(queryParams)) return false
+     list.value = data.list
+     total.value = data.total
++    return true
+   } finally {
+-    loading.value = false
++    if (generation === productQueryGeneration) loading.value = false
+   }
+ }
+ 
+diff --git a/scripts/test-reachai-token-refresh.cjs b/scripts/test-reachai-token-refresh.cjs
+new file mode 100644
+index 0000000..865caa0
+--- /dev/null
++++ b/scripts/test-reachai-token-refresh.cjs
+@@ -0,0 +1,154 @@
++const fs = require('node:fs')
++const vm = require('node:vm')
++const assert = require('node:assert/strict')
++const ts = require('typescript')
++
++const source = fs.readFileSync('src/config/axios/service.ts', 'utf8').replaceAll('import.meta.env', 'testEnv')
++const compiled = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, esModuleInterop: true } }).outputText
++let responseHandler
++let currentToken = 'old'
++let currentRefreshToken = 'refresh'
++let refreshCalls = 0
++let resolveRefresh
++let rejectRefresh
++let tokenWrites = 0
++const replayed = []
++const instance = config => { replayed.push(config); return Promise.resolve({ token: 'embed-token' }) }
++instance.interceptors = { request: { use() {} }, response: { use(handler) { responseHandler = handler } } }
++const axios = {
++  create: () => instance,
++  defaults: { headers: { common: {} } },
++  post: () => { refreshCalls++; return new Promise((resolve, reject) => { resolveRefresh = resolve; rejectRefresh = reject }) }
++}
++const mocks = {
++  axios,
++  'element-plus': { ElMessage: { error() {} }, ElMessageBox: {}, ElNotification: { error() {} } },
++  qs: { stringify() {} },
++  '@/config/axios/config': { config: { result_code: 200, base_url: '/admin-api', request_timeout: 1000 } },
++  '@/utils/auth': {
++    getAccessToken: () => currentToken,
++    getRefreshToken: () => currentRefreshToken,
++    getTenantId: () => '1',
++    getVisitTenantId: () => null,
++    setToken: () => { tokenWrites++; currentToken = 'new' },
++    removeToken() {}
++  },
++  './errorCode': { default: 'error' },
++  '@/router': { resetRouter() {} },
++  '@/hooks/web/useCache': { deleteUserCache() {} },
++  '@/utils/encrypt': { ApiEncrypt: { getEncryptHeader: () => 'x-encrypted' } }
++}
++const context = {
++  exports: {},
++  require(id) { if (!(id in mocks)) throw Error(id); return mocks[id] },
++  testEnv: {},
++  useI18n: () => ({ t: key => key }),
++  console,
++  Promise,
++  window: { location: { href: 'http://localhost/login' } }
++}
++vm.runInNewContext(compiled, context)
++const unauthorized = () => ({ status: 401, data: { message: 'login required' }, headers: {}, request: {}, config: { headers: {} } })
++async function main() {
++  const first = responseHandler(unauthorized())
++  const encryptedRequest = unauthorized()
++  encryptedRequest.config.headers.isEncrypt = true
++  const second = responseHandler(encryptedRequest)
++  assert.equal(refreshCalls, 1, 'concurrent broker calls share a single refresh')
++  resolveRefresh({ data: { code: 0, data: { accessToken: 'new', refreshToken: 'next' } } })
++  await Promise.all([first, second])
++  assert.equal(replayed.length, 2)
++  assert.ok(replayed.every(request => request.headers.Authorization === 'Bearer new'))
++  assert.equal(replayed.find(request => request.headers.isEncrypt).headers.isEncrypted, true,
++    'queued encrypted requests are not encrypted a second time')
++  const ordinary = await responseHandler({ status: 200, data: { token: 'embed-token' }, headers: {}, request: {}, config: { headers: {} } })
++  assert.equal(ordinary.token, 'embed-token')
++  currentRefreshToken = ''
++  await responseHandler(unauthorized())
++  await Promise.race([
++    responseHandler(unauthorized()),
++    new Promise((_, reject) => setTimeout(() => reject(new Error('second 401 remains stuck in refresh queue')), 200))
++  ])
++  currentRefreshToken = 'refresh'
++  const afterLogin = responseHandler(unauthorized())
++  assert.equal(refreshCalls, 2, 'a later login can start a new refresh')
++  resolveRefresh({ data: { code: 0, data: { accessToken: 'new', refreshToken: 'next' } } })
++  await afterLogin
++  const beforeFailure = replayed.length
++  const failedRefresh = responseHandler(unauthorized())
++  const waiting = responseHandler(unauthorized())
++  const waitingRejected = assert.rejects(waiting, /refresh unavailable/)
++  rejectRefresh(new Error('refresh unavailable'))
++  await Promise.all([failedRefresh, waitingRejected])
++  assert.equal(replayed.length, beforeFailure, 'refresh failure must not replay queued requests with stale credentials')
++  const recovered = responseHandler(unauthorized())
++  assert.equal(refreshCalls, 4, 'refresh failure must release the queue for a later attempt')
++  resolveRefresh({ data: { code: 0, data: { accessToken: 'new', refreshToken: 'next' } } })
++  await recovered
++  for (const body of [
++    { code: 401, msg: 'expired', data: { accessToken: 'invalid', refreshToken: 'invalid' } },
++    { code: 0, data: { accessToken: 'new', refreshToken: '' } }
++  ]) {
++    const beforeWrites = tokenWrites
++    const beforeReplays = replayed.length
++    const refresh = responseHandler(unauthorized())
++    const queued = responseHandler(unauthorized())
++    const rejected = assert.rejects(queued, /refresh response invalid/)
++    resolveRefresh({ data: body })
++    await Promise.all([refresh, rejected])
++    assert.equal(tokenWrites, beforeWrites)
++    assert.equal(replayed.length, beforeReplays)
++  }
++  for (const nextSession of ['', 'different-session']) {
++    currentRefreshToken = 'old-session'
++    currentToken = 'old-user'
++    const beforeWrites = tokenWrites
++    const beforeReplays = replayed.length
++    const original = responseHandler(unauthorized())
++    const queued = responseHandler(unauthorized())
++    const originalRejected = assert.rejects(original, /login session changed/)
++    const queuedRejected = assert.rejects(queued, /login session changed/)
++    currentRefreshToken = nextSession
++    currentToken = nextSession ? 'new-user' : ''
++    resolveRefresh({ data: { code: 0, data: { accessToken: 'old-returned', refreshToken: 'old-session' } } })
++    await Promise.all([originalRejected, queuedRejected])
++    assert.equal(tokenWrites, beforeWrites, 'old refresh must not replace the new login')
++    assert.equal(replayed.length, beforeReplays, 'old requests must not run as the new user')
++    assert.equal(currentToken, nextSession ? 'new-user' : '')
++  }
++  const oldResponse = unauthorized()
++  oldResponse.config.headers.Authorization = 'Bearer old-user'
++  const beforeLateCalls = refreshCalls
++  const beforeLateReplays = replayed.length
++  await assert.rejects(responseHandler(oldResponse), /login session changed before response/)
++  assert.equal(refreshCalls, beforeLateCalls)
++  assert.equal(replayed.length, beforeLateReplays)
++  currentRefreshToken = 'old-session'
++  currentToken = 'old-user'
++  const failedOld = responseHandler(unauthorized())
++  const failedOldRejected = assert.rejects(failedOld, /login session changed/)
++  currentRefreshToken = 'different-session'
++  currentToken = 'new-user'
++  rejectRefresh(new Error('refresh unavailable'))
++  await failedOldRejected
++  assert.equal(currentToken, 'new-user')
++  const vue = require('vue/compiler-sfc').parse(fs.readFileSync('src/layout/components/ReachAiChat/index.vue', 'utf8'))
++  const setup = vue.descriptor.scriptSetup.content
++  const tokenSource = setup.slice(setup.indexOf('const fetchToken ='), setup.indexOf('const mountChat ='))
++  const tokenJs = ts.transpileModule(tokenSource + '\nexports.fetchToken = fetchToken', {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
++  }).outputText
++  let requestOptions
++  const tokenContext = { exports: {}, tokenUrl: '/reachai/embed/token', agentId: 'agent',
++    service: options => { requestOptions = options; return Promise.resolve({ token: 'embed', expiresIn: 25 }) } }
++  vm.runInNewContext(tokenJs, tokenContext)
++  const signal = new AbortController().signal
++  const result = await tokenContext.exports.fetchToken({ signal, pageKey: 'page' })
++  assert.equal(result.token, 'embed')
++  assert.equal(requestOptions.signal, signal)
++  assert.equal(requestOptions.validateStatus(401), true)
++  assert.equal(requestOptions.validateStatus(403), false)
++  assert.equal(requestOptions.data.pageKey, 'page')
++  console.log('ReachAI broker refresh: concurrent 401 and success cases passed')
++}
++main().catch(error => { console.error(error); process.exitCode = 1 })
 diff --git a/src/layout/components/ReachAiChat/index.vue b/src/layout/components/ReachAiChat/index.vue
 new file mode 100644
-index 0000000..e1c4dfb
+index 0000000..edb9e82
 --- /dev/null
 +++ b/src/layout/components/ReachAiChat/index.vue
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,146 @@
 +<script lang="ts" setup>
 +/**
 + * ReachAI 嵌入式对话：登录后在右下角挂一个对话入口。
@@ -44,8 +413,10 @@ index 0000000..e1c4dfb
 + * 令牌由芋道后端 POST /reachai/embed/token 用当前登录用户换取，浏览器不接触项目密钥。
 + * 未配置 VITE_REACHAI_BASE_URL / VITE_REACHAI_AGENT_ID 时不加载。
 + */
-+import { onBeforeUnmount, onMounted } from 'vue'
-+import { getAccessToken, getTenantId } from '@/utils/auth'
++import { onBeforeUnmount, onMounted, watch } from 'vue'
++import { getAccessToken } from '@/utils/auth'
++import { service } from '@/config/axios/service'
++import { activeReachAiPage, type ReachAiPageBridge } from './pageBinding'
 +
 +defineOptions({ name: 'ReachAiChat' })
 +
@@ -53,22 +424,30 @@ index 0000000..e1c4dfb
 +  destroy(): void
 +}
 +interface ReachAiGlobal {
-+  createEafChat(options: Record<string, unknown>): ReachAiChatClient
++  createEafChat(options: Record<string, unknown>): Promise<ReachAiChatClient>
++  createEafPageBridge(options: Record<string, unknown>): ReachAiPageBridge
 +}
 +
 +const reachAiBase = (import.meta.env.VITE_REACHAI_BASE_URL || '').replace(/\/+$/, '')
 +const agentId = import.meta.env.VITE_REACHAI_AGENT_ID || ''
-+const tokenUrl = `${import.meta.env.VITE_BASE_URL || ''}/reachai/embed/token`
++// 默认使用业务后端；独立本地测试后端可显式指定其令牌端点。
++const tokenUrl =
++  import.meta.env.VITE_REACHAI_TOKEN_URL ||
++  `${import.meta.env.VITE_BASE_URL || ''}/reachai/embed/token`
 +const SCRIPT_ID = 'reachai-chat-embed-sdk'
 +
 +let client: ReachAiChatClient | null = null
 +let mountEl: HTMLElement | null = null
 +let disposed = false
++let generation = 0
++let sdkPromise: Promise<ReachAiGlobal> | undefined
++const route = useRoute()
 +
 +const loadSdk = (): Promise<ReachAiGlobal> => {
 +  const existing = (window as unknown as { ReachAI?: ReachAiGlobal }).ReachAI
 +  if (existing) return Promise.resolve(existing)
-+  return new Promise((resolve, reject) => {
++  if (sdkPromise) return sdkPromise
++  const pending = new Promise<ReachAiGlobal>((resolve, reject) => {
 +    if (!document.getElementById(`${SCRIPT_ID}-css`)) {
 +      const link = document.createElement('link')
 +      link.id = `${SCRIPT_ID}-css`
@@ -83,52 +462,86 @@ index 0000000..e1c4dfb
 +      const loaded = (window as unknown as { ReachAI?: ReachAiGlobal }).ReachAI
 +      loaded ? resolve(loaded) : reject(new Error('ReachAI SDK 未加载'))
 +    }
-+    script.onerror = () => reject(new Error('ReachAI SDK 加载失败'))
++    script.onerror = () => {
++      script.remove()
++      reject(new Error('ReachAI SDK 加载失败'))
++    }
 +    document.head.appendChild(script)
++  }).catch((error) => {
++    sdkPromise = undefined
++    throw error
 +  })
++  sdkPromise = pending
++  return pending
 +}
 +
 +const fetchToken = async (context: Record<string, unknown> = {}) => {
 +  const { signal, ...page } = context as { signal?: AbortSignal } & Record<string, unknown>
-+  const response = await fetch(tokenUrl, {
++  const payload = (await service({
++    url: tokenUrl,
++    baseURL: '',
 +    method: 'POST',
 +    signal,
-+    headers: {
-+      'Content-Type': 'application/json',
-+      Authorization: `Bearer ${getAccessToken()}`,
-+      'tenant-id': String(getTenantId() ?? '')
-+    },
-+    body: JSON.stringify({ ...page, agentId })
-+  })
-+  const payload = await response.json().catch(() => ({}))
-+  if (!response.ok || !payload.token) {
-+    throw new Error(payload.message || `获取对话令牌失败（${response.status}）`)
-+  }
++    headers: { 'Content-Type': 'application/json' },
++    validateStatus: (status) => (status >= 200 && status < 300) || status === 401,
++    data: { ...page, agentId }
++  })) as unknown as { token?: string; expiresIn?: number; message?: string }
++  if (!payload?.token) throw new Error(payload?.message || '获取对话令牌失败')
 +  return { token: payload.token as string, expiresIn: payload.expiresIn as number }
 +}
 +
-+onMounted(async () => {
++const mountChat = async () => {
++  const currentGeneration = ++generation
++  client?.destroy()
++  client = null
++  mountEl?.remove()
++  mountEl = null
 +  if (!reachAiBase || !agentId || !getAccessToken()) return
++  const binding = activeReachAiPage.value?.route === route.path ? activeReachAiPage.value : null
++  let localMount: HTMLElement | null = null
 +  try {
 +    const sdk = await loadSdk()
-+    if (disposed) return
-+    mountEl = document.createElement('div')
-+    document.body.appendChild(mountEl)
-+    client = sdk.createEafChat({
-+      mount: mountEl,
++    if (disposed || currentGeneration !== generation) return
++    const bridge = sdk.createEafPageBridge({ route: route.path })
++    binding?.registerActions(bridge)
++    localMount = document.createElement('div')
++    mountEl = localMount
++    document.body.appendChild(localMount)
++    const created = await sdk.createEafChat({
++      mount: localMount,
 +      agentId,
 +      apiBase: reachAiBase,
 +      position: 'bottom-right',
 +      locale: 'zh-CN',
++      // 目标环境完成业务系统隔离升级与验收前，先隐藏个人记忆入口。
++      memories: false,
++      bridge,
++      ...(binding ? {
++        page: { pageKey: binding.pageKey, name: binding.name, routePattern: binding.route },
++        pageRegistry: {}
++      } : {}),
 +      tokenProvider: fetchToken
 +    })
++    if (disposed || currentGeneration !== generation) {
++      created.destroy()
++      localMount.remove()
++      return
++    }
++    client = created
 +  } catch (error) {
-+    console.warn('[ReachAI] 嵌入式对话初始化失败', error)
++    localMount?.remove()
++    if (mountEl === localMount) mountEl = null
++    if (!disposed && currentGeneration === generation) console.warn('[ReachAI] 嵌入式对话初始化失败', error)
 +  }
++}
++
++onMounted(() => {
++  watch([() => route.path, activeReachAiPage], () => void mountChat(), { immediate: true })
 +})
 +
 +onBeforeUnmount(() => {
 +  disposed = true
++  generation++
 +  client?.destroy()
 +  client = null
 +  mountEl?.remove()
@@ -137,18 +550,122 @@ index 0000000..e1c4dfb
 +</script>
 +
 +<template>
-+  <!-- 对话窗口由 SDK 挂到 body 上 -->
++  <span hidden aria-hidden="true"></span>
 +</template>
-diff --git a/types/env.d.ts b/types/env.d.ts
-index 17535ea..5bf0e80 100644
---- a/types/env.d.ts
-+++ b/types/env.d.ts
-@@ -19,6 +19,8 @@ interface ImportMetaEnv {
-   readonly VITE_APP_DEFAULT_LOGIN_PASSWORD: string
-   readonly VITE_APP_DOCALERT_ENABLE: string
-   readonly VITE_BASE_URL: string
-+  readonly VITE_REACHAI_BASE_URL?: string
-+  readonly VITE_REACHAI_AGENT_ID?: string
-   readonly VITE_API_URL: string
-   readonly VITE_BASE_PATH: string
-   readonly VITE_DROP_DEBUGGER: string
+diff --git a/src/layout/components/ReachAiChat/pageBinding.ts b/src/layout/components/ReachAiChat/pageBinding.ts
+new file mode 100644
+index 0000000..2131444
+--- /dev/null
++++ b/src/layout/components/ReachAiChat/pageBinding.ts
+@@ -0,0 +1,26 @@
++import { shallowRef } from 'vue'
++
++export interface ReachAiPageBinding {
++  pageKey: string
++  name: string
++  route: string
++  registerActions: (bridge: ReachAiPageBridge) => void
++}
++
++export interface ReachAiPageBridge {
++  registerAction: (
++    key: string,
++    handler: (args: Record<string, unknown>) => unknown | Promise<unknown>,
++    options?: Record<string, unknown>
++  ) => () => void
++}
++
++// Only the currently mounted business page may supply actions to the chat.
++export const activeReachAiPage = shallowRef<ReachAiPageBinding | null>(null)
++
++export function activateReachAiPage(binding: ReachAiPageBinding): () => void {
++  activeReachAiPage.value = binding
++  return () => {
++    if (activeReachAiPage.value === binding) activeReachAiPage.value = null
++  }
++}
+diff --git a/scripts/test-reachai-product-query.cjs b/scripts/test-reachai-product-query.cjs
+new file mode 100644
+index 0000000..e87381b
+--- /dev/null
++++ b/scripts/test-reachai-product-query.cjs
+@@ -0,0 +1,79 @@
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const vm = require('node:vm')
++const ts = require('typescript')
++
++const source = fs.readFileSync('src/views/erp/product/product/index.vue', 'utf8')
++const begin = source.indexOf('let deactivateReachAiPage:')
++const end = source.indexOf('/** 搜索按钮操作 */', begin)
++assert.ok(begin >= 0 && end > begin, 'product page test boundaries are missing')
++const excerpt = source.slice(begin, end)
++const compiled = ts.transpileModule(excerpt, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText
++const calls = []
++let action
++let deactivate
++const params = { pageNo: 1, pageSize: 10, name: undefined, categoryId: undefined }
++const list = { value: [] }
++const total = { value: 0 }
++const loading = { value: false }
++const ctx = {
++  queryParams: params, list, total, loading,
++  ProductApi: { getProductPage: (query) => new Promise((resolve, reject) => calls.push({ query, resolve, reject })) },
++  activateReachAiPage: (binding) => {
++    binding.registerActions({ registerAction: (_key, handler) => { action = handler } })
++    return () => {}
++  },
++  onMounted: (fn) => fn(), onActivated: () => {}, onDeactivated: (fn) => { deactivate = fn }, onBeforeUnmount: () => {}
++}
++vm.runInNewContext(`${compiled}\nglobalThis.runProductQuery = getList`, ctx)
++
++async function main() {
++  const first = action({ name: 'old' })
++  params.name = 'new'
++  const second = ctx.runProductQuery()
++  assert.equal(calls[0].query.name, 'old')
++  assert.equal(calls[1].query.name, 'new')
++  calls[1].resolve({ list: ['new-result'], total: 1 })
++  assert.equal(await second, true)
++  calls[0].resolve({ list: ['old-result'], total: 99 })
++  const oldResult = await first
++  assert.equal(oldResult.status, 'PRECONDITION_FAILED')
++  assert.equal(list.value[0], 'new-result')
++  assert.equal(total.value, 1)
++  assert.equal(loading.value, false)
++
++  const staleByEdit = action({ name: 'edited-before-return' })
++  params.name = 'unsent-new-filter'
++  calls[2].resolve({ list: ['stale'], total: 5 })
++  assert.equal((await staleByEdit).status, 'PRECONDITION_FAILED')
++  assert.equal(list.value[0], 'new-result')
++
++  const latest = action({ name: 'current' })
++  calls[3].resolve({ list: ['current-result'], total: 2 })
++  assert.equal((await latest).status, 'SUCCESS')
++  assert.equal(list.value[0], 'current-result')
++  assert.equal(total.value, 2)
++  const leaving = action({ name: 'leaving' })
++  deactivate()
++  calls[4].resolve({ list: ['abandoned-result'], total: 7 })
++  assert.equal((await leaving).status, 'PRECONDITION_FAILED')
++  assert.equal(list.value[0], 'current-result')
++  assert.equal(loading.value, false)
++
++  const older = ctx.runProductQuery()
++  params.name = 'newest'
++  const newer = ctx.runProductQuery()
++  calls[5].resolve({ list: ['outdated'], total: 9 })
++  assert.equal(await older, false)
++  assert.equal(loading.value, true)
++  calls[6].resolve({ list: ['newest'], total: 3 })
++  assert.equal(await newer, true)
++  assert.equal(loading.value, false)
++  const failed = action({ name: 'error' })
++  calls[7].reject(new Error('network failed'))
++  await assert.rejects(failed, /network failed/)
++  assert.equal(list.value[0], 'newest')
++  assert.equal(loading.value, false)
++  console.log('ReachAI product query concurrency passed')
++}
++main().catch((error) => { console.error(error); process.exitCode = 1 })

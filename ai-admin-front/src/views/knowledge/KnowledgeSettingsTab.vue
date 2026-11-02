@@ -1,7 +1,10 @@
 <template>
   <div class="knowledge-settings-tab">
+    <el-alert v-if="contextError" :title="contextError" type="warning" :closable="false" show-icon>
+      <LiquidGlassButton source="wallpaper" :loading="loadingContext" @click="reloadSettings">重新读取设置</LiquidGlassButton>
+    </el-alert>
     <WorkbenchPanel class="glass-workspace-adaptive" title="基础信息" density="compact">
-      <el-form :model="basicForm" label-width="120px" :disabled="!kb || saving">
+      <el-form :model="basicForm" label-width="120px" :disabled="!kb || saving || loadingContext || !hasLoadedContext">
         <el-form-item label="名称" required :error="basicErrors.name">
           <el-input v-model="basicForm.name" placeholder="请输入知识库名称" />
         </el-form-item>
@@ -44,7 +47,7 @@
       </el-form>
     </WorkbenchPanel>
 
-    <el-form :model="form" label-width="120px" class="knowledge-settings-tab" :disabled="!kb || saving">
+    <el-form :model="form" label-width="120px" class="knowledge-settings-tab" :disabled="!kb || saving || loadingContext || !hasLoadedContext">
       <WorkbenchPanel class="glass-workspace-adaptive" title="谁能检索" density="compact">
         <el-form-item label="检索范围">
           <el-radio-group v-model="form.accessMode">
@@ -57,7 +60,7 @@
 
       <WorkbenchPanel class="glass-workspace-adaptive" title="切分" density="compact">
         <el-row :gutter="16">
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="切分方式">
               <el-select v-model="form.splitType" style="width: 100%">
                 <el-option label="固定长度" value="FIXED" />
@@ -66,12 +69,12 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="段落长度（字）">
               <el-input-number v-model="form.chunkSize" :min="100" :max="4000" :step="100" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="前后重叠（字）">
               <el-input-number v-model="form.chunkOverlap" :min="0" :max="1000" :step="10" style="width: 100%" />
             </el-form-item>
@@ -82,17 +85,17 @@
 
       <WorkbenchPanel class="glass-workspace-adaptive" title="检索" density="compact">
         <el-row :gutter="16">
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="检索方式">
               <el-segmented v-model="form.searchMode" :options="searchModeOptions" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="返回条数">
               <el-input-number v-model="form.topK" :min="1" :max="20" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="重排序">
               <el-switch v-model="form.rerankEnabled" :disabled="!basicForm.rerankModelInstanceId" />
               <div v-if="!basicForm.rerankModelInstanceId" class="field-hint">先给知识库配置重排模型才能开启。</div>
@@ -100,17 +103,17 @@
           </el-col>
         </el-row>
         <el-row :gutter="16">
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="相似度下限">
               <el-slider v-model="form.similarityThreshold" :min="0" :max="1" :step="0.05" show-input />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="语义权重">
               <el-slider v-model="form.vectorWeight" :min="0" :max="1" :step="0.05" show-input />
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="关键词权重">
               <el-slider v-model="form.keywordWeight" :min="0" :max="1" :step="0.05" show-input />
             </el-form-item>
@@ -120,7 +123,7 @@
       </WorkbenchPanel>
 
       <div v-if="canWriteKnowledge" class="form-footer">
-        <LiquidGlassButton source="wallpaper" type="primary" :loading="saving" @click="handleSave">保存设置</LiquidGlassButton>
+        <LiquidGlassButton source="wallpaper" type="primary" :loading="saving || loadingContext" :disabled="!settingsRevision" @click="handleSave">保存设置</LiquidGlassButton>
       </div>
     </el-form>
   </div>
@@ -128,11 +131,12 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import { LiquidGlassButton } from '@/components/common/liquid-glass'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
-import { updateKbConfig, updateKnowledge } from '@/api/knowledge'
+import { getKnowledgeSettingsContext, saveKnowledgeSettings } from '@/api/knowledge'
+import type { KnowledgeSettingsContext } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
 import { canLoadModelCatalog } from '@/auth/modelCatalogAccess'
 import type { KbConfig, KnowledgeBase, KnowledgeBaseForm } from '@/types/knowledge'
@@ -156,6 +160,12 @@ const emit = defineEmits<{
 
 const searchModeOptions = [{ label: '混合', value: 'hybrid' }, { label: '语义', value: 'vector' }, { label: '关键词', value: 'keyword' }]
 const saving = ref(false)
+const loadingContext = ref(false)
+const settingsRevision = ref('')
+const hasLoadedContext = ref(false)
+const contextError = ref('')
+let loadGeneration = 0
+let loadedState = ''
 const basicValidationAttempted = ref(false)
 const basicForm = reactive<KnowledgeBaseForm>({
   name: '', code: '', description: '', embeddingModelInstanceId: '', llmModelInstanceId: '', rerankModelInstanceId: '',
@@ -190,17 +200,6 @@ async function fetchModels(type: ModelType) {
   }
 }
 
-watch(() => JSON.stringify(props.kb && [props.kb.code, props.kb.name, props.kb.description, props.kb.embeddingModelInstanceId, props.kb.llmModelInstanceId, props.kb.rerankModelInstanceId]), () => {
-  const kb = props.kb
-  if (!kb) return
-  Object.assign(basicForm, {
-    name: kb.name, code: kb.code, description: kb.description || '',
-    embeddingModelInstanceId: kb.embeddingModelInstanceId || '',
-    llmModelInstanceId: kb.llmModelInstanceId || '',
-    rerankModelInstanceId: kb.rerankModelInstanceId || '',
-  })
-}, { immediate: true })
-
 onMounted(() => { modelFields.forEach(field => { void fetchModels(field.type) }) })
 const form = reactive<KbConfig>({
   accessMode: 'ALL_CALLERS',
@@ -215,9 +214,18 @@ const form = reactive<KbConfig>({
   keywordWeight: 0.3,
 })
 
-watch(() => JSON.stringify(props.kb && [props.kb.code, props.kb.accessMode, props.kb.splitType, props.kb.chunkSize, props.kb.chunkOverlap, props.kb.searchMode, props.kb.topK, props.kb.similarityThreshold, props.kb.rerankEnabled, props.kb.vectorWeight, props.kb.keywordWeight]), () => {
-  const kb = props.kb
-  if (!kb) return
+function applyContext(context: KnowledgeSettingsContext) {
+  if (context?.contractVersion !== 1 || context.kbCode !== props.kbCode || !/^[a-f0-9]{64}$/.test(context.revision)
+    || !context.before || typeof context.before !== 'object' || typeof context.before.name !== 'string'
+    || !['description', 'embeddingModelInstanceId', 'llmModelInstanceId', 'rerankModelInstanceId', 'accessMode', 'chunkSize', 'chunkOverlap',
+      'splitType', 'searchMode', 'topK', 'similarityThreshold', 'rerankEnabled', 'vectorWeight', 'keywordWeight']
+      .every(key => Object.prototype.hasOwnProperty.call(context.before, key))) throw new Error('设置响应不完整')
+  const kb = context.before
+  Object.assign(basicForm, {
+    name: kb.name || '', code: props.kbCode, description: kb.description || '',
+    embeddingModelInstanceId: kb.embeddingModelInstanceId || '', llmModelInstanceId: kb.llmModelInstanceId || '',
+    rerankModelInstanceId: kb.rerankModelInstanceId || '',
+  })
   Object.assign(form, {
     accessMode: kb.accessMode || 'ALL_CALLERS',
     splitType: kb.splitType || 'FIXED',
@@ -230,25 +238,61 @@ watch(() => JSON.stringify(props.kb && [props.kb.code, props.kb.accessMode, prop
     vectorWeight: kb.vectorWeight ?? 0.7,
     keywordWeight: kb.keywordWeight ?? 0.3,
   })
-}, { immediate: true })
+  settingsRevision.value = context.revision
+  hasLoadedContext.value = true
+  contextError.value = ''
+  loadedState = JSON.stringify([basicForm, form])
+}
+
+async function loadSettings() {
+  const generation = ++loadGeneration
+  loadingContext.value = true
+  settingsRevision.value = ''
+  try {
+    const { data } = await getKnowledgeSettingsContext(props.kbCode)
+    if (generation === loadGeneration) applyContext(data)
+  } catch {
+    if (generation === loadGeneration) contextError.value = '无法读取当前设置，请重新读取后再保存。'
+  } finally {
+    if (generation === loadGeneration) loadingContext.value = false
+  }
+}
+
+async function reloadSettings() {
+  if (loadedState && JSON.stringify([basicForm, form]) !== loadedState) {
+    try { await ElMessageBox.confirm('重新读取会替换当前未保存的输入。请先复制需要保留的内容。', '重新读取设置', { confirmButtonText: '替换并重新读取', cancelButtonText: '保留输入', type: 'warning' }) }
+    catch { return }
+  }
+  await loadSettings()
+}
+
+watch(() => props.kbCode, () => { hasLoadedContext.value = false; void loadSettings() }, { immediate: true })
 
 async function handleSave() {
-  if (!props.kb || saving.value) return
+  if (!props.kb || saving.value || loadingContext.value || !settingsRevision.value) return
   basicForm.name = basicForm.name.trim()
   basicValidationAttempted.value = true
   if (Object.values(basicErrors.value).some(Boolean)) return
-  const basicPayload = { ...basicForm, code: props.kbCode, rerankModelInstanceId: basicForm.rerankModelInstanceId || '' }
-  const configPayload = { ...form, rerankEnabled: Boolean(basicPayload.rerankModelInstanceId) && form.rerankEnabled }
+  const changes = {
+    name: basicForm.name, description: basicForm.description,
+    embeddingModelInstanceId: basicForm.embeddingModelInstanceId, llmModelInstanceId: basicForm.llmModelInstanceId,
+    rerankModelInstanceId: basicForm.rerankModelInstanceId || null,
+    ...form, rerankEnabled: Boolean(basicForm.rerankModelInstanceId) && form.rerankEnabled,
+  }
   saving.value = true
-  let basicSaved = false
   try {
-    await updateKnowledge(basicPayload)
-    basicSaved = true
-    await updateKbConfig(props.kbCode, configPayload)
+    const { data } = await saveKnowledgeSettings(props.kbCode, settingsRevision.value, changes)
+    applyContext(data)
     ElMessage.success('设置已保存')
     emit('saved')
-  } catch {
-    if (basicSaved) ElMessage.error('基本信息已保存，其他设置保存失败，请重试。')
+  } catch (error: any) {
+    if (error?.response?.status === 409) {
+      settingsRevision.value = ''
+      contextError.value = '设置已被其他人或 AI 修改，当前输入已保留。请核对后重新读取设置。'
+    } else {
+      settingsRevision.value = ''
+      contextError.value = '保存结果未确认，当前输入已保留。可重新读取设置核对实际结果。'
+    }
   } finally {
     saving.value = false
   }

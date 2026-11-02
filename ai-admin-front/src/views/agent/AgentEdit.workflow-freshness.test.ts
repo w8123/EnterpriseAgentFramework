@@ -25,6 +25,6 @@ describe('AgentEdit Workflow version freshness', () => {
 
   it('reloads freshness after loading and after any publish', () => {
     expect(script).toMatch(/async function loadAgentConfig\(\) \{[\s\S]*?void refreshWorkflowFreshness\(\)/)
-    expect(script).toMatch(/publishAgentConfig\(agentId, draft\.id, 'admin-ui'\)[\s\S]*?void refreshWorkflowFreshness\(\)/)
+    expect(script).toMatch(/publishAgentConfigIfUnchanged\(agentId, draft\.id, saved\.revision\)[\s\S]*?void refreshWorkflowFreshness\(\)/)
   })
 })

@@ -35,6 +35,7 @@ public class KnowledgeBizIndexGateway {
 
     static final String INTERNAL_ROOT = "/internal/knowledge/console/biz-index";
     static final String DOCUMENT_IMPORT_INTERNAL_ROOT = "/internal/knowledge/console/document-import";
+    static final String CATALOG_INTERNAL_ROOT = "/internal/knowledge/console/catalog";
     static final String PROJECT_INTERNAL_ROOT = "/internal/knowledge/project-ingress/projects";
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(5);
 
@@ -337,7 +338,8 @@ public class KnowledgeBizIndexGateway {
     private static String requireInternalPath(String value) {
         String path = value == null ? "" : value.trim();
         if (!(matchesInternalRoot(path, INTERNAL_ROOT)
-                || matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT))
+                || matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT)
+                || matchesInternalRoot(path, CATALOG_INTERNAL_ROOT))
                 || path.contains("?") || path.contains("#") || path.contains("..")) {
             throw new IllegalArgumentException("invalid Knowledge console internal path");
         }
@@ -360,7 +362,7 @@ public class KnowledgeBizIndexGateway {
         if (INTERNAL_ROOT.equals(path) || path.startsWith(INTERNAL_ROOT + "/")) {
             return requireInternalPath(path);
         }
-        if (matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT)) {
+        if (matchesInternalRoot(path, DOCUMENT_IMPORT_INTERNAL_ROOT) || matchesInternalRoot(path, CATALOG_INTERNAL_ROOT)) {
             return requireInternalPath(path);
         }
         if (path.startsWith(PROJECT_INTERNAL_ROOT + "/")

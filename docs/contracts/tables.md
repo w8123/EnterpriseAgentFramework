@@ -112,10 +112,10 @@
 | `capability_http_api_acceptance` | `reachai-capability-service` | - | Immutable current-source-set acceptance evidence; no duplicate contract store |
 | `capability_sync_log` | `reachai-capability-service` | - | Capability sync log |
 | `capability_sync_receipt` | `reachai-capability-service` | - | Project-scoped sync identity and snapshot binding |
+| `knowledge_internal_auth_nonce` | `reachai-knowledge-service` | - | Knowledge signed-ingress HMAC nonce anti-replay store (replaces Redis) |
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |
-| `control_personal_memory` | `reachai-control-service` | - | Canonical personal long-term memory owned by (tenant, runtime user), shared across Agents; physical delete |
-| `control_personal_memory_candidate` | `reachai-control-service` | - | Personal memory candidates awaiting the owner's confirmation |
-| `control_personal_memory_audit` | `reachai-control-service` | - | Personal memory audit trail without memory content |
+| `control_personal_memory` | `reachai-control-service` | - | Canonical personal long-term memory owned by (tenant, runtime user), layered as personal or per-project and grouped; shared across Agents and AI tools; physical delete |
+| `control_personal_memory_group` | `reachai-control-service` | - | Owner-defined personal memory groups under the personal layer or a project layer |
 | `control_personal_memory_outbox` | `reachai-control-service` | - | Transactional personal-memory projection outbox; Control canonical write boundary |
 | `control_memory_erasure_request` | `reachai-control-service` | - | Durable cross-domain Agent-memory erasure request, lease, retry, and aggregate completion state |
 | `control_memory_erasure_domain` | `reachai-control-service` | - | Per-domain automated/manual erasure evidence without object identifiers or content |
@@ -132,7 +132,7 @@
 | `control_business_user` | `reachai-control-service` | - | Control business user directory |
 | `control_embed_chat_event` | `reachai-control-service` | - | Embed chat transcript |
 | `control_embed_session` | `reachai-control-service` | - | Embed session state |
-| `control_embed_token_revocation` | `reachai-control-service` | - | Embed token revocation list |
+| `control_embed_token_revocation` | `reachai-control-service` | - | Durable Embed business-session revocation tombstones |
 | `control_external_user_binding` | `reachai-control-service` | - | External user binding |
 | `control_external_user_role_binding` | `reachai-control-service` | - | External user role binding |
 | `control_page_action_event` | `reachai-control-service` | - | Browser page action event |
@@ -167,6 +167,8 @@
 | `control_mcp_publication_revision` | `reachai-control-service` | - | MCP 开放 immutable tool-projection snapshot; the only source of truth for tools/list and tools/call |
 | `control_platform_auth_provider` | `reachai-control-service` | - | Platform auth provider |
 | `control_platform_auth_audit_event` | `reachai-control-service` | - | Non-secret audit for platform auth and high-risk runtime-user identity mapping changes |
+| `control_platform_ai_connection` | `reachai-control-service` | - | Platform user AI delegation credentials and permission snapshots |
+| `control_platform_ai_approval` | `reachai-control-service` | - | Encrypted, owner-reviewed platform AI action approvals |
 | `control_platform_login_session` | `reachai-control-service` | - | Platform login session |
 | `control_platform_permission` | `reachai-control-service` | - | Platform permission catalog |
 | `control_platform_role` | `reachai-control-service` | - | Platform role |

@@ -40,6 +40,19 @@
     </dependencies>
 
     <build>
+        <resources>
+            <resource>
+                <directory>src/main/resources</directory>
+            </resource>
+            <!-- 空库首次启动时自动建表用的 SQL 基线；唯一来源仍是仓库根目录 sql/initV2.sql -->
+            <resource>
+                <directory>${project.basedir}/../sql</directory>
+                <includes>
+                    <include>initV2.sql</include>
+                </includes>
+                <targetPath>reachai/schema</targetPath>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

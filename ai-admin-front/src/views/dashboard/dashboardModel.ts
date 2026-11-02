@@ -145,8 +145,6 @@ export function buildProjectSummaries(
         projectCode: key,
         baseUrl: '',
         contextPath: '',
-        scanPath: '',
-        scanType: 'auto',
         toolCount: 0,
         status: 'created',
       })

@@ -159,6 +159,42 @@ class RuntimeWorkflowManagementPersistenceTest {
         assertEquals(workflow, mapper.selectById(workflow.getId()));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"SDK", "SYSTEM"})
+    void aiDraftUpdateRechecksDefinitionOwnerInsideTheWriteTransaction(String authority) {
+        var workflow = seed(authority);
+        var update = new RuntimeWorkflowDefinitionEntity();
+        update.setName("AI attempted overwrite");
+        var error = assertThrows(RuntimeWorkflowEditingException.class,
+                () -> definitions.updateUserEditable(workflow.getId(), update, revision(workflow)));
+        assertEquals("WORKFLOW_DEFINITION_READ_ONLY", error.getCode());
+        assertEquals(workflow, mapper.selectById(workflow.getId()));
+    }
+
+    @Test
+    void aiDraftUpdateRejectsAnOwnerChangeAfterTheInitialRead() {
+        var previouslyRead = seed("USER");
+        db.jdbc().update("UPDATE runtime_workflow SET definition_authority = 'SDK', creation_channel = 'SDK_SYNC' WHERE id = ?",
+                previouslyRead.getId());
+        var update = new RuntimeWorkflowDefinitionEntity();
+        update.setName("AI attempted overwrite");
+        var error = assertThrows(RuntimeWorkflowEditingException.class,
+                () -> definitions.updateUserEditable(previouslyRead.getId(), update, revision(previouslyRead)));
+        assertEquals("WORKFLOW_DEFINITION_READ_ONLY", error.getCode());
+        assertEquals("原始定义", mapper.selectById(previouslyRead.getId()).getName());
+    }
+
+    @Test
+    void aiDraftUpdateRetainsOptimisticRevisionForUserOwnedDefinitions() {
+        var workflow = seed("USER");
+        var update = new RuntimeWorkflowDefinitionEntity();
+        update.setName("AI 修改");
+        var saved = definitions.updateUserEditable(workflow.getId(), update, revision(workflow));
+        assertEquals("AI 修改", mapper.selectById(saved.getId()).getName());
+        assertThrows(RuntimeWorkflowRevisionConflictException.class,
+                () -> definitions.updateUserEditable(workflow.getId(), update, revision(workflow)));
+    }
+
     @Test
     void editingCannotConvertAUserWorkflowIntoAnSdkSource() throws Exception {
         var workflow = seed("USER");

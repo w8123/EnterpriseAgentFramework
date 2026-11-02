@@ -24,6 +24,7 @@ const shortcutSources = [
   ['agents', '/agent', 'Agent', '配置和发布智能体'],
   ['knowledge', '/knowledge', '知识库', '管理知识文件与业务索引'],
   ['run-center', '/run-center', '运行中心', '查看对话、运行记录与评测'],
+  ['ai-usage', '/usage', 'AI 使用情况', '谁在用 AI、用什么工具、办了哪些事'],
   ['business-users', '/settings/business-users', '业务用户', '查看使用 Agent 的业务用户'],
   ['tool-acl', '/settings/tool-acl', '调用权限', '配置业务用户可调用的能力'],
   ['platform-users', '/settings/platform-users', '账号与角色', '管理平台账号、角色与项目授权'],
@@ -57,9 +58,8 @@ export const dashboardShortcuts: readonly DashboardShortcut[] = shortcutSources.
 })
 
 export const shortcutPresets = [
-  { key: 'developer', title: '开发快捷入口', label: '开发常用', description: '项目接入、业务能力、API 市场', ids: ['projects', 'capabilities', 'api-market'] },
-  { key: 'operator', title: '运营快捷入口', label: '运营常用', description: 'Workflow、Agent、知识库、运行中心与写操作审批', ids: ['workflows', 'agents', 'knowledge', 'run-center', 'tool-acl', 'write-approvals'] },
-  { key: 'manager', title: '管理快捷入口', label: '管理人员常用', description: '写操作审批、运行中心、员工连接、AI 工具调用记录与业务用户', ids: ['write-approvals', 'run-center', 'employee-connections', 'mcp-call-logs', 'business-users'] },
+  { key: 'developer', title: '开发快捷入口', label: '开发常用', description: '项目接入、业务能力、Agent、Workflow、Skill 与知识库', ids: ['projects', 'capabilities', 'agents', 'workflows', 'skills', 'knowledge'] },
+  { key: 'manager', title: '管理快捷入口', label: '管理人员常用', description: 'AI 使用情况、写操作审批、运行中心、员工连接、Agent 与调用权限', ids: ['ai-usage', 'write-approvals', 'run-center', 'employee-connections', 'agents', 'tool-acl'] },
   { key: 'admin', title: '平台管理快捷入口', label: '平台管理常用', description: '账号与角色、认证源、模型与合规', ids: ['platform-users', 'auth-providers', 'model-center', 'compliance'] },
 ] as const
 
@@ -101,10 +101,10 @@ export function shortcutPresetConfig(key: ShortcutPresetKey, permissions?: reado
 export function defaultShortcutConfig(permissions: readonly string[], roles: readonly string[] = []): DashboardWidgetConfig | null {
   const available = new Set(availableDashboardShortcuts(permissions).map(shortcut => shortcut.id))
   if (!available.size) return null
-  const rolePresets: Record<string, ShortcutPresetKey> = { DEVELOPER: 'developer', OPERATOR: 'operator', MANAGER: 'manager', PLATFORM_ADMIN: 'admin' }
+  const rolePresets: Record<string, ShortcutPresetKey> = { DEVELOPER: 'developer', MANAGER: 'manager', PLATFORM_ADMIN: 'admin' }
   const preferred = roles.map(role => rolePresets[role]).find(key => key && shortcutPresetConfig(key, permissions).shortcutIds?.length)
   const key = preferred ?? (available.has('platform-users') ? 'admin'
-    : available.has('workflows') || available.has('agents') || available.has('run-center') ? 'operator'
+    : available.has('ai-usage') || available.has('run-center') ? 'manager'
     : 'developer')
   const config = shortcutPresetConfig(key, permissions)
   return config.shortcutIds?.length ? config : { shortcutPreset: 'custom', shortcutIds: [...available].slice(0, 5) }

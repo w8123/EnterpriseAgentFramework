@@ -118,6 +118,79 @@ class RuntimeWorkflowReleasePersistenceTest {
         else if (jdbc != null) jdbc.execute("SHUTDOWN");
     }
 
+    @Test void reviewedPublicationRejectsUnchangedTimestampEditsAndChangedContractPins() {
+        var request = publicationRequest(REVISION, null);
+        var preview = tx.execute(status -> releases.previewPublication(request));
+        assertNotNull(preview);
+        assertEquals(0L, versions.selectCount(null));
+        assertEquals(0, events.selectCount(null));
+        var approved = publicationRequest(REVISION, preview.publicationDigest());
+        jdbc.update("UPDATE runtime_workflow SET default_model_instance_id='changed-model', updated_at=? WHERE id='wf-orders'", LocalDateTime.parse(REVISION));
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(approved, "platform:42")));
+        jdbc.update("UPDATE runtime_workflow SET default_model_instance_id='published-model', updated_at=? WHERE id='wf-orders'", LocalDateTime.parse(REVISION));
+        when(pins.pin(anyString(), any())).thenReturn(GRAPH + " ");
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(approved, "platform:42")));
+        assertEquals(0, versions.selectCount(null));
+        assertEquals(0, events.selectCount(null));
+        var refreshed = tx.execute(status -> releases.previewPublication(request));
+        var published = tx.execute(status -> releases.publishApproved(publicationRequest(REVISION, refreshed.publicationDigest()), "platform:42"));
+        assertEquals(refreshed.publishedGraph(), published.getGraphSpecSnapshotJson());
+        assertEquals("platform:42", published.getPublishedBy());
+        assertEquals(1, events.selectCount(null));
+        assertThrows(RuntimeWorkflowRevisionConflictException.class, () -> tx.execute(status ->
+                releases.publishApproved(publicationRequest(REVISION, refreshed.publicationDigest()), "platform:42")));
+    }
+
+    @Test void reviewedPublicationBindsOwnerParametersAndTheActiveRelease() {
+        var initial = tx.execute(status -> releases.publish("wf-orders", "initial", 100, null, "platform:42", REVISION));
+        String revision = workflows.selectById("wf-orders").getUpdatedAt().toString();
+        var preview = tx.execute(status -> releases.previewPublication(publicationRequest(revision, null)));
+        var approved = publicationRequest(revision, preview.publicationDigest());
+        var changedVersion = new RuntimeWorkflowVersionService.PublicationRequest(1, "wf-orders", null, null, revision,
+                "different-version", null, preview.publicationDigest());
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(changedVersion, "platform:42")));
+        jdbc.update("UPDATE runtime_workflow_version SET id=999 WHERE id=?", initial.getId());
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(approved, "platform:42")));
+        jdbc.update("UPDATE runtime_workflow SET project_id=1, project_code='other', updated_at=? WHERE id='wf-orders'", LocalDateTime.parse(revision));
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(approved, "platform:42")));
+        assertEquals(1, versions.selectCount(null));
+        assertEquals(1, events.selectCount(null));
+    }
+
+    private static RuntimeWorkflowVersionService.PublicationRequest publicationRequest(String revision, String digest) {
+        return new RuntimeWorkflowVersionService.PublicationRequest(1, "wf-orders", null, null, revision, "reviewed-v1", null, digest);
+    }
+
+    @Test void publicationPersistsTheRiskFloorThatWasComparedWithTheReview() {
+        when(pins.httpApiRiskFloor(anyString())).thenReturn("WRITE", "WRITE", null);
+        var preview = tx.execute(status -> releases.previewPublication(publicationRequest(REVISION, null)));
+        var published = tx.execute(status -> releases.publishApproved(publicationRequest(REVISION, preview.publicationDigest()), "platform:42"));
+        assertTrue(published.getSnapshotJson().contains("\"httpApiRiskFloor\":\"WRITE\""));
+        assertTrue(published.getSnapshotJson().contains("\"httpApiRiskClassified\":true"));
+        verify(pins, times(2)).httpApiRiskFloor(anyString());
+    }
+
+    @Test void publicationIncludesBusinessMethodRiskInTheReviewedSnapshot() {
+        when(pins.businessMethodRiskFloor(anyString())).thenReturn("WRITE");
+        var preview = tx.execute(status -> releases.previewPublication(publicationRequest(REVISION, null)));
+        var published = tx.execute(status -> releases.publishApproved(publicationRequest(REVISION, preview.publicationDigest()), "platform:42"));
+        assertTrue(published.getSnapshotJson().contains("\"businessMethodRiskFloor\":\"WRITE\""));
+        assertTrue(published.getSnapshotJson().contains("\"riskLevel\":\"WRITE\""));
+    }
+
+    @Test void changedBusinessMethodRiskInvalidatesThePublicationReview() {
+        when(pins.businessMethodRiskFloor(anyString())).thenReturn("READ", "WRITE");
+        var preview = tx.execute(status -> releases.previewPublication(publicationRequest(REVISION, null)));
+        assertThrows(RuntimeWorkflowVersionService.PublicationChanged.class,
+                () -> tx.execute(status -> releases.publishApproved(publicationRequest(REVISION, preview.publicationDigest()), "platform:42")));
+        assertEquals(0, versions.selectCount(null));
+    }
+
     @Test
     void concurrentPublishCommandsForOneRevisionCommitOneActiveReleaseAndOneEvent() throws Exception {
         var pool = Executors.newFixedThreadPool(2);

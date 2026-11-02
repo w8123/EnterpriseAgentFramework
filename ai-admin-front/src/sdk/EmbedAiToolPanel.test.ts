@@ -80,7 +80,7 @@ describe('EmbedAiToolPanel', () => {
 
     expect(fetchMock).toHaveBeenCalledWith('/api/embed/ai-tool-connections/5', expect.objectContaining({ method: 'DELETE' }))
     expect(wrapper.find('.eaf-aitool__item .danger').exists()).toBe(false)
-    expect(wrapper.text()).toContain('已断开')
+    expect(wrapper.text()).toContain('已停用')
   })
 
   it('shows the server message when loading fails', async () => {

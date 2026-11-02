@@ -21,7 +21,7 @@ public class RuntimePageAssistantWorkflowAttachmentService {
     public RuntimePageAssistantWorkflowAttachment attachPublishedPageWorkflow(
             String workflowId,
             RuntimePageAssistantWorkflowAttachRequest request) {
-        AttachmentResult result = attachmentService.attachPageAssistantOnly(
+        return view(attachmentService.attachPageAssistantOnly(
                 workflowId,
                 new PageAssistantAttachRequest(
                         request == null ? null : request.projectId(),
@@ -29,7 +29,20 @@ public class RuntimePageAssistantWorkflowAttachmentService {
                         request == null ? null : request.agentId(),
                         request == null ? null : request.modelInstanceId(),
                         request == null ? null : request.publishedBy(),
-                        request == null ? null : request.replaceWorkflowId()));
+                        request == null ? null : request.replaceWorkflowId())));
+    }
+
+    /** People and AI share this path; the publisher comes from the signed actor, never from the body. */
+    @Transactional
+    public RuntimePageAssistantWorkflowAttachment attachReviewed(String workflowId, PageAssistantAttachRequest request) {
+        return view(attachmentService.attachPageAssistantReviewed(workflowId, request));
+    }
+
+    public RuntimeWorkflowAgentAttachmentPort.PageAssistantContext context(String workflowId, Long projectId, String projectCode) {
+        return attachmentService.pageAssistantContext(workflowId, projectId, projectCode);
+    }
+
+    private RuntimePageAssistantWorkflowAttachment view(AttachmentResult result) {
         String toolName = StringUtils.hasText(result.toolName())
                 ? result.toolName().trim()
                 : fallbackToolName(result.workflow().keySlug());

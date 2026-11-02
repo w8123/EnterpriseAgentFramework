@@ -27,6 +27,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
     private static final Set<String> PROTECTED_PATHS = Set.of(
             "/internal/runtime/capability-references",
             "/internal/runtime/workflows/studio/read-only-trials",
+            "/internal/runtime/workflows/ai-coding/page-assistant/smoke-test",
             "/internal/runtime/agents/execute",
             "/internal/runtime/agents/execute/stream");
 
@@ -57,7 +58,11 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !path.startsWith("/internal/runtime/mcp/tool-executions")
                 && !isConsoleCapabilityInvocationPath(path)
                 && !isHttpApiConsolePath(path)
+                && !isAgentConfigDraftPath(path)
+                && !isProjectAgentDraftPath(path)
+                && !isProjectAttachmentPath(path)
                 && !isRunOpsReplayPath(path)
+                && !isPageAssistantAttachmentPath(path)
                 && agentGraphSyncProjectCode(path) == null
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
                 && path.startsWith("/internal/runtime/agents/sessions/"));
@@ -92,7 +97,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path)
                 || "/internal/runtime/workflows/studio/read-only-trials".equals(path) || isWorkflowReleasePath(path)
                 || isDebugSessionPath(path) || isConsoleCapabilityInvocationPath(path)
-                || isHttpApiConsolePath(path) || isRunOpsReplayPath(path))
+                || isHttpApiConsolePath(path) || isAgentConfigDraftPath(path) || isRunOpsReplayPath(path)
+                || isPageAssistantAttachmentPath(path))
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(verified.get().identitySource()))) {
             writeUnauthorized(response);
             return;
@@ -100,10 +106,11 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         String graphSyncProject = agentGraphSyncProjectCode(path);
         boolean projectCredential =
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_PROJECT_CREDENTIAL.equals(verified.get().identitySource());
-        // A project credential identity is only valid for that project's own Agent Graph sync.
-        if ((graphSyncProject != null || projectCredential)
-                && (!projectCredential || graphSyncProject == null
-                || !graphSyncProject.equals(verified.get().identityTenantId()))) {
+        boolean projectDraftPath = isProjectAgentDraftPath(path) || isProjectAttachmentPath(path);
+        // Project draft commands bind the signed tenant to the body in their controller; all other project identities stay rejected.
+        if ((graphSyncProject != null || projectDraftPath || projectCredential)
+                && (!projectCredential || !projectDraftPath && graphSyncProject == null
+                || graphSyncProject != null && !graphSyncProject.equals(verified.get().identityTenantId()))) {
             writeUnauthorized(response);
             return;
         }
@@ -134,7 +141,8 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
     }
 
     private static boolean isWorkflowReleasePath(String path) {
-        return path.matches("/api/workflows/[^/]+/versions/(publish|[^/]+/rollback)");
+        return path.matches("/api/workflows/[^/]+/versions/(publish|[^/]+/rollback)")
+                || path.equals("/internal/runtime/workflow-releases/context") || path.equals("/internal/runtime/workflow-releases/publish");
     }
 
     private static boolean isDebugSessionPath(String path) {
@@ -152,6 +160,28 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 || "/internal/runtime/http-api-connections/override-removals".equals(path)
                 || "/internal/runtime/http-api-invocations".equals(path)
                 || (path != null && path.matches("^/internal/runtime/http-api-invocations/[0-9a-fA-F-]{36}$"));
+    }
+
+    private static boolean isAgentConfigDraftPath(String path) {
+        return "/internal/runtime/agent-config-drafts/context".equals(path)
+                || "/internal/runtime/agent-config-drafts/versions".equals(path)
+                || "/internal/runtime/agent-config-drafts/save".equals(path)
+                || "/internal/runtime/agent-config-drafts/copy".equals(path)
+                || "/internal/runtime/agent-config-drafts/publish".equals(path)
+                || "/internal/runtime/agent-config-drafts/publication-context".equals(path)
+                || "/internal/runtime/agent-config-drafts/publish-approved".equals(path);
+    }
+
+    private static boolean isPageAssistantAttachmentPath(String path) {
+        return path.matches("/internal/runtime/workflows/[^/]+/page-assistant/(context|attach)");
+    }
+
+    private static boolean isProjectAgentDraftPath(String path) {
+        return path.startsWith("/internal/runtime/project-agent-config-drafts/");
+    }
+
+    private static boolean isProjectAttachmentPath(String path) {
+        return path.matches("/internal/runtime/projects/[0-9]+/agent-supervisor/workflow-tools/attach");
     }
 
     private static String normalizePath(HttpServletRequest request) {

@@ -2,6 +2,8 @@
 
 AI Coding 将接入和改造目标交给外部编码工具，并在平台中保留任务、交付物与真实验收。页面识别、只读分析、代码实施和业务验收分别建模，不把提交文字或任务完成消息当作上线证据。
 
+盘点管理端任务时可运行 `node scripts/inventory-human-api-operations.mjs --json`，从前端源码提取 HTTP 请求、浏览器存储与 Vue 事件绑定位置；`node scripts/report-platform-ai-coverage.mjs --json` 显示与现有平台 AI 工具的关联及未关联请求。两者均标记无法静态解析的表达式；这些位置与关联不等于完整任务或功能等价，具体交互、后端授权和运行验收仍须分别核对。
+
 ## 入口和身份
 
 | 通道 | 身份与用途 |
@@ -39,11 +41,19 @@ AI Coding 将接入和改造目标交给外部编码工具，并在平台中保�
 
 先读取上下文与当前修订，再生成结构化 Patch，经服务端 mutation 和 GraphSpec 校验后保存；dry-run 不写入。资源绑定、项目范围和权限由服务端复核，不能直接写 Canvas 冒充流程。发布仍执行 [Workflow 发布契约](workflow.md)。
 
+页面助手冒烟测试由持有平台会话和项目 `workflow:debug` 权限的用户发起。业务页面的可信客户端将有效 Embed 令牌放在 `X-ReachAI-Embed-Token` 请求头，并在请求体的 `runtimeContext.embedSessionId` 指定该页面会话；令牌不得放入 AI 对话、Workflow 输入、日志或 Artifact。Control 核对令牌、会话与 Workflow 项目后，通过签名内部请求传递身份。页面动作尚无隔离沙箱：`dryRun` 缺省或为 `true` 时不会执行；明确设为 `false` 后会触发真实页面动作，每个动作都需业务页面用户确认。当前仅支持页面动作及安全的流程节点，包含 TOOL、HTTP_REQUEST 等外部执行节点的图会在执行前拒绝。源码和隔离测试不等于已部署或已通过业务验收，状态见 [status](status.md)。
+
 ## Agent API
 
-项目 manifest 提供 Agent 创建、上下文、身份更新、配置草稿、发布和绑定入口。身份更新不顺带修改运行配置；草稿携带上下文给出的基准版本，发布时重新证明 Workflow 与 Skill。
+项目 manifest 提供 Agent 创建、上下文、身份更新、配置草稿、发布和绑定入口。身份更新不顺带修改运行配置；上下文返回同一快照的 `mutableBase` 与 `baseRevision`，配置保存、发布和 Skill attach/detach 必须携带该修订，已有 DRAFT 时还须带其版本 ID。冲突后重新阅读并审阅修改，不能自动刷新修订重放旧请求。写结果返回下一次操作所需的 `baseRevision`；超时或结果未确认时先回读状态。
+
+上述配置命令由 Control 验证项目 Key 后，以独立的 `PROJECT_CREDENTIAL` 签名通道转给 Runtime，校验真实项目归属和修订；原始 Key 不转发，`requestedBy` 不能指定发布审计身份。个人平台会话仍使用自己的签名入口。Agent 创建分步写入身份、配置和发布，后一步失败不代表前一步回滚。
+
+项目页面副驾驶供给复用同一实现：控制台按原有 `PLATFORM_WRITE` 项目权限，AI Coding 按已验证的项目 Key，分别走各自签名通道。已有 ACTIVE 配置则复用；只有尚无配置时才创建并发布默认配置，已有未发布草稿时返回冲突，不能自动覆盖或激活人工草稿。保存与发布分步完成，超时或发布失败后先回读当前状态，不自动重发。
 
 新建 Agent 固定在真实项目中，默认 STANDARD。可绑定的 Skill 只来自可见 PUBLISHED 精确版本，默认 `scriptPolicy=DENY`；添加与移除绑定不跳过平台治理，也不删除 Skill 包。
+
+通用 Workflow-as-Tool attach 由 Control 验证项目 Key 后按原始请求字节签名，Runtime 只接收项目凭证身份，并重新校验 Workflow 与 Agent 的真实项目归属；调用方的 `publishedBy` 不决定审计身份。客户端先供给或创建 Agent，再读取其 context，并在绑定请求中提交明确的 `agentId` 或 `agentKeySlug` 及该 Agent 的 `baseRevision`。Runtime 在同一 Agent 行锁内比较修订，再从 ACTIVE 配置生成绑定版本并保留人工草稿；人工草稿或线上配置发生变化时返回 `409 AGENT_DRAFT_CHANGED`。冲突后先重新读取并审阅，成功后也须回读，不自动刷新修订重放旧请求。
 
 ## Managed Executor
 

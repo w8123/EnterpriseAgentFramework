@@ -116,8 +116,13 @@ public class RuntimeDebugSessionStore {
                 .set("idempotency_key", result.idempotencyKey()).set("submitted_payload_json", result.submittedPayloadJson())
                 .set("execution_deadline_at", null)
                 .set("update_time", result.updatedAt());
-        if (mapper.update(null, update) != 1) throw conflict(row.getId(), "completion projection lost its revision");
-        return raw(row.getId());
+        if (mapper.update(null, update) == 1) return raw(row.getId());
+        // Another reader may have projected the same receipt first; that outcome is equivalent.
+        var latest = raw(row.getId());
+        if (revision(latest) == receipt.expectedRevision() + 1
+                && Objects.equals(latest.getStatus(), result.status())
+                && Objects.equals(latest.getResultJson(), result.resultSummaryJson())) return latest;
+        throw conflict(row.getId(), "completion projection lost its revision");
     }
 
     /** Claim the exact checkpoint that was validated, never a freshly read revision with older state. */

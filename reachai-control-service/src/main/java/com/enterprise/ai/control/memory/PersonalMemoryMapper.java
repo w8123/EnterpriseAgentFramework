@@ -18,9 +18,11 @@ public interface PersonalMemoryMapper extends BaseMapper<PersonalMemoryEntity> {
               FROM control_personal_memory
              WHERE tenant_id = #{tenantId}
                AND owner_id = #{ownerId}
+               AND owner_domain = #{ownerDomain}
              ORDER BY id
              FOR UPDATE
             """)
     List<PersonalMemoryEntity> selectOwnedForUpdate(@Param("tenantId") String tenantId,
-                                                    @Param("ownerId") String ownerId);
+                                                    @Param("ownerId") String ownerId,
+                                                    @Param("ownerDomain") String ownerDomain);
 }

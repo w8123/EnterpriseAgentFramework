@@ -16,13 +16,14 @@ import java.util.stream.Stream;
 
 /**
  * Supplies public, development-only cryptographic defaults for the five ReachAI services.
- * Explicit configuration always wins. Production profiles and Kubernetes never receive
+ * Only a fallback for development databases created before secrets were generated per
+ * installation (see {@code ReachAiBootstrapEnvironmentPostProcessor}). Explicit configuration always wins. Production profiles and Kubernetes never receive
  * these defaults, so their existing fail-fast validation remains effective.
  */
 public final class ReachAiLocalDevelopmentDefaultsEnvironmentPostProcessor
         implements EnvironmentPostProcessor, Ordered {
 
-    static final String PROPERTY_SOURCE_NAME = "reachAiLocalDevelopmentDefaults";
+    public static final String PROPERTY_SOURCE_NAME = "reachAiLocalDevelopmentDefaults";
     static final String DEVELOPMENT_MODEL_CREDENTIAL_SECRET = "dev-only-change-me-please-32-bytes";
     static final String DEVELOPMENT_WORKFLOW_CREDENTIAL_SECRET = "dev-only-change-me-please-32-bytes";
     static final String DEVELOPMENT_EMBED_TOKEN_SECRET = "dev-only-change-me-reachai-embed-token-secret";
@@ -80,7 +81,8 @@ public final class ReachAiLocalDevelopmentDefaultsEnvironmentPostProcessor
 
     @Override
     public int getOrder() {
-        return ConfigDataEnvironmentPostProcessor.ORDER + 1;
+        // After ReachAiBootstrapEnvironmentPostProcessor: generated per-installation secrets win.
+        return ConfigDataEnvironmentPostProcessor.ORDER + 2;
     }
 
     private static void addIfMissing(

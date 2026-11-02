@@ -151,7 +151,8 @@ These platform SDK checks do not replace conversation or browser acceptance. The
 SDK onboarding is not complete if the business gateway is untouched and the business front end has no safe token path.
 
 Before changing gateway or front-end code, read the manifest's `embed` section:
-- Call `agentProvisioning.provisionAgentUrl` from the AI coding tool, local shell, or server-side integration step when present. It creates or reuses the project page copilot Agent and publishes an ACTIVE AgentScope Supervisor config. It does not create a placeholder Workflow.
+- Call `agentProvisioning.provisionAgentUrl` from the AI coding tool, local shell, or server-side integration step when present. It reuses the project page copilot's ACTIVE config or initializes defaults when no config exists. An unpublished draft without an ACTIVE config returns 409 and requires review through Agent AI Coding; do not overwrite it or retry blindly. Save and publication are separate steps, so read current state after an unconfirmed result. It does not create a placeholder Workflow.
+- Before Workflow attachment, read the target Agent context and send its `baseRevision` with an explicit `agentId` or `agentKeySlug`. A conflict requires reviewing changes before a new request; read Agent context again after success.
 - Use the response `agent.keySlug` as the front-end `agentId`. Store only that key slug in business front-end configuration after provisioning succeeds.
 - Create only business-meaningful Workflows. Use Workflow AI Coding to save a valid draft, call `POST /api/workflows/{workflowId}/ai-coding/publish` with `X-ReachAI-AiCoding-Key`, then add the published Workflow through `agentSupervisor.endpoints.workflowToolAttachUrlTemplate` so a new ACTIVE Agent config contains it.
 - Do not call `agentProvisioning.provisionAgentUrl` from browser runtime code, and never put `aiCodingKey` in browser configuration or bundles.

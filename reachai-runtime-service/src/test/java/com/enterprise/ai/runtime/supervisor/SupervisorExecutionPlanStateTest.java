@@ -17,6 +17,70 @@ class SupervisorExecutionPlanStateTest {
     private final SupervisorExecutionPlanState state = new SupervisorExecutionPlanState(Set.of("a", "b", "c"), 1, 3, 3);
 
     @Test
+    void repeatedReadUsesDistinctOrderedPositionsAndWriteRemainsSingleUse() {
+        var plan = new SupervisorExecutionPlanState(Set.of("read", "write"), Set.of("read"), 1, 4, 4);
+        assertNotNull(plan.record(plan("write", "write"), 0).error());
+        assertNull(plan.record(plan("read", "read", "write"), 0).error());
+        assertNull(plan.reserve("read"));
+        assertNotNull(plan.reserve("read"), "same tool's concurrent executions cannot claim one another's position");
+        plan.complete("read"); plan.release("read");
+        assertEquals(1, plan.snapshot().cursor());
+        assertNotNull(plan.approvedStepError("write"));
+        assertNull(plan.reserve("read"));
+        plan.complete("read"); plan.release("read");
+        assertEquals(2, plan.snapshot().cursor());
+        assertNull(plan.approvedStepError("write"));
+        assertNull(plan.reserve("write"));
+        plan.complete("write"); plan.release("write");
+        assertFalse(plan.hasUnfinished());
+        assertNotNull(plan.reserve("write"));
+    }
+
+    @Test
+    void repeatedReadPositionsSurviveCheckpointWithoutSkippingLaterOccurrences() {
+        var before = new SupervisorExecutionPlanState(Set.of("read", "write"), Set.of("read"), 1, 4, 4);
+        assertNull(before.record(plan("read", "read", "write"), 0).error());
+        assertNull(before.reserve("read")); before.complete("read"); before.release("read");
+        var checkpoint = before.approvalInput(Map.of(), Map.of("workflow", 1, "a2a", 0, "managed", 0));
+        var restored = new SupervisorExecutionPlanState(Set.of("read", "write"), Set.of("read"), 1, 4, 4);
+        restored.restore(checkpoint);
+        assertEquals(1, restored.snapshot().cursor());
+        assertNotNull(restored.approvedStepError("write"));
+        assertNull(restored.reserve("read")); restored.complete("read"); restored.release("read");
+        assertNull(restored.approvedStepError("write"));
+    }
+
+    @Test
+    void repeatedReadCheckpointWithoutExactPositionsFailsClosed() {
+        var state = new SupervisorExecutionPlanState(Set.of("read", "write"), Set.of("read"), 1, 4, 4);
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("planNo", 1);
+        saved.put("recordedPlan", plan("read", "read", "write"));
+        saved.put("plannedWorkflowToolNames", List.of("read", "read", "write"));
+        saved.put("plannedWorkflowCursor", 1);
+        saved.put("completedWorkflowToolNames", List.of("read"));
+        assertThrows(IllegalArgumentException.class,
+                () -> state.restore(Map.of("__supervisorContinuation", saved)));
+        saved.put("completedPlanPositions", List.of(0, 1));
+        var invalidCursor = new SupervisorExecutionPlanState(Set.of("read", "write"), Set.of("read"), 1, 4, 4);
+        assertThrows(IllegalArgumentException.class,
+                () -> invalidCursor.restore(Map.of("__supervisorContinuation", saved)));
+    }
+
+    @Test
+    void completedReadCanBeUsedInAReplanButCompletedWriteCannot() {
+        var plan = new SupervisorExecutionPlanState(Set.of("read", "other", "write"), Set.of("read"), 2, 4, 5);
+        assertNull(plan.record(plan("read", "other"), 0).error());
+        assertNull(plan.reserve("read")); plan.complete("read"); plan.release("read");
+        assertNull(plan.reserve("other")); plan.fail(null); plan.release("other");
+        assertNull(plan.record(plan("read", "write"), 2).error());
+        assertNull(plan.reserve("read")); plan.complete("read"); plan.release("read");
+        assertNull(plan.reserve("write")); plan.complete("write"); plan.release("write");
+        plan.fail(null);
+        assertNotNull(plan.record(plan("write"), 4).error());
+    }
+
+    @Test
     void approvalCheckpointKeepsCompletedPrefixRemainingPlanAndNonRetryableFailures() {
         assertNull(state.record(plan("a"), 0).error());
         state.fail("a");

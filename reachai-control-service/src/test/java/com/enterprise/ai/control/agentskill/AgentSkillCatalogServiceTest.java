@@ -62,6 +62,77 @@ class AgentSkillCatalogServiceTest {
     @Autowired
     private AgentSkillCatalogService catalogService;
 
+    @Autowired
+    private com.enterprise.ai.control.mcp.application.port.McpPlatformSkillCatalogPort aiCatalog;
+
+    @Test
+    void personalAiUsesTheSamePrivateCatalogAndValidatesStoredPackagePaths() throws IOException {
+        var imported = catalogService.importPackage(skillZip("ai-private-catalog", "Read-only catalog fixture.", "1.0.0"),
+                new ImportCommand("ai-fixture", null, "私有目录测试", "PRIVATE", "UPLOAD", "fixture.zip", "builder", 7L, null));
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setAttribute(com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, "previous-session");
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(request));
+        try {
+            var actor = aiActor(7L);
+            var page = (Map<?, ?>) aiCatalog.list(actor, "ai-private-catalog", null, 0, 1).getBody();
+            assertEquals(1, page.get("total"));
+            assertEquals(imported.skill().id(), ((AgentSkillContracts.SkillSummary) ((List<?>) page.get("items")).get(0)).id());
+            assertEquals(200, aiCatalog.get(actor, imported.skill().id()).getStatusCode().value());
+            assertEquals(imported.version().id(), ((VersionView) aiCatalog.version(actor, imported.skill().id(), imported.version().id()).getBody()).id());
+            var file = (AgentSkillContracts.FilePreview) aiCatalog.file(actor, imported.skill().id(), imported.version().id(), "SKILL.md").getBody();
+            assertTrue(file.content().contains("Read-only catalog fixture."));
+            assertEquals(400, aiCatalog.file(actor, imported.skill().id(), imported.version().id(), "../SKILL.md").getStatusCode().value());
+            assertEquals(404, aiCatalog.get(aiActor(8L), imported.skill().id()).getStatusCode().value());
+            assertEquals(404, aiCatalog.file(aiActor(8L), imported.skill().id(), imported.version().id(), "SKILL.md").getStatusCode().value());
+            assertEquals(0, ((Map<?, ?>) aiCatalog.list(aiActor(8L), "ai-private-catalog", null, 0, 1).getBody()).get("total"));
+            assertEquals(0, ((Map<?, ?>) aiCatalog.bindableVersions(actor, "ai-private-catalog", null, 0, 1).getBody()).get("total"));
+            assertEquals("previous-session", request.getAttribute(com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE));
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    private com.enterprise.ai.control.identity.PlatformAuthenticatedSession aiActor(long id) {
+        var user = new com.enterprise.ai.control.identity.PlatformUserEntity(); user.setId(id); user.setUsername("builder-" + id);
+        return new com.enterprise.ai.control.identity.PlatformAuthenticatedSession(
+                com.enterprise.ai.control.identity.PlatformPrincipal.fromUser(user), "pai-fixture", java.time.LocalDateTime.now().plusHours(1),
+                List.of("BUILDER"), List.of("skill:read", "skill:bind"), List.of(
+                new com.enterprise.ai.control.identity.PlatformPermissionGrant("skill:read", "GLOBAL", "*"),
+                new com.enterprise.ai.control.identity.PlatformPermissionGrant("skill:bind", "GLOBAL", "*")));
+    }
+
+    @Test
+    void personalAiBindableCatalogUsesPublishedVersionsAndTheActualTargetProject() throws IOException {
+        List<ImportResult> imported = new java.util.ArrayList<>();
+        String[] visibility = { "PROJECT", "PROJECT", "PUBLIC", "PRIVATE", "PUBLIC" };
+        String[] project = { "orders", "finance", null, null, null };
+        for (int index = 0; index < visibility.length; index++) {
+            var item = catalogService.importPackage(skillZip("ai-bind-catalog-" + index, "Binding fixture.", "1.0.0"),
+                    new ImportCommand("ai-bind-fixture", null, "目录绑定 " + index, visibility[index], "UPLOAD", "fixture.zip", "builder",
+                            index == 3 ? 8L : 7L, project[index]));
+            imported.add(item);
+            if (index < 4) {
+                catalogService.review(item.skill().id(), item.version().id(), new ReviewCommand("APPROVE", "fixture", null, "reviewer"));
+                catalogService.publish(item.skill().id(), item.version().id(), "publisher");
+            }
+        }
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(new org.springframework.mock.web.MockHttpServletRequest()));
+        try {
+            var page = (Map<?, ?>) aiCatalog.bindableVersions(aiActor(7L), "ai-bind-catalog-", "orders", 0, 100).getBody();
+            var ids = ((List<?>) page.get("items")).stream().map(item -> ((AgentSkillContracts.BindingDescriptor) item).skill().id()).toList();
+            assertEquals(2, page.get("total"));
+            assertTrue(ids.containsAll(List.of(imported.get(0).skill().id(), imported.get(2).skill().id())));
+            assertEquals(1, ((Map<?, ?>) aiCatalog.bindableVersions(aiActor(7L), "ai-bind-catalog-", null, 0, 100).getBody()).get("total"));
+            assertEquals(200, aiCatalog.reviews(aiActor(7L), imported.get(0).skill().id(), imported.get(0).version().id()).getStatusCode().value());
+            assertFalse(((List<?>) aiCatalog.reviews(aiActor(7L), imported.get(0).skill().id(), imported.get(0).version().id()).getBody()).isEmpty());
+            assertFalse(((AgentSkillContracts.SkillAccessCapabilities) aiCatalog.access(aiActor(7L)).getBody()).canImport());
+        } finally {
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     @Test
     void importsReviewsPublishesDownloadsAndDeprecatesImmutableVersion() throws IOException {
         byte[] archive = skillZip("invoice-check", "Check an invoice against the approved controls.", "1.2.0");
@@ -226,7 +297,34 @@ class AgentSkillCatalogServiceTest {
         }
     }
 
+    @Test
+    void builtinRepackagedWithOtherZipTimestampsKeepsThePublishedVersion() throws IOException {
+        ImportCommand command = new ImportCommand(
+                "reachai", null, null, "PUBLIC", "BUILTIN", "classpath:builtin-timezone", "SYSTEM");
+        VersionView published = catalogService.importTrustedBuiltin(
+                skillZip("builtin-timezone", "Same files, other zip metadata.", "1.0.0", 0L), command);
+
+        VersionView again = catalogService.importTrustedBuiltin(
+                skillZip("builtin-timezone", "Same files, other zip metadata.", "1.0.0", 28_800_000L), command);
+
+        assertEquals(published.id(), again.id());
+        assertEquals(AgentSkillCatalogService.STATUS_PUBLISHED, again.status());
+        assertEquals(published.sourceSha256(), again.sourceSha256());
+
+        ImportCommand upload = new ImportCommand(
+                "engineering", null, null, "PRIVATE", "UPLOAD", "upload-timezone.zip", "alice", 7L, null);
+        catalogService.importPackage(skillZip("upload-timezone", "Uploads stay strict.", "1.0.0", 0L), upload);
+        assertEquals("SKILL_VERSION_CONFLICT", assertThrows(AgentSkillException.class,
+                () -> catalogService.importPackage(
+                        skillZip("upload-timezone", "Uploads stay strict.", "1.0.0", 28_800_000L), upload)).code());
+    }
+
     private static byte[] skillZip(String name, String description, String declaredVersion) throws IOException {
+        return skillZip(name, description, declaredVersion, 0L);
+    }
+
+    private static byte[] skillZip(String name, String description, String declaredVersion, long entryTime)
+            throws IOException {
         String metadata = declaredVersion == null ? "" : "metadata:\n  version: \"" + declaredVersion + "\"\n";
         String skill = "---\nname: " + name + "\ndescription: " + description + "\n"
                 + metadata + "---\n# " + name + "\n";
@@ -236,7 +334,7 @@ class AgentSkillCatalogServiceTest {
                     name + "/SKILL.md", skill.getBytes(StandardCharsets.UTF_8),
                     name + "/references/checklist.md", "# Checklist".getBytes(StandardCharsets.UTF_8)).entrySet()) {
                 ZipEntry entry = new ZipEntry(file.getKey());
-                entry.setTime(0L);
+                entry.setTime(entryTime);
                 zip.putNextEntry(entry);
                 zip.write(file.getValue());
                 zip.closeEntry();

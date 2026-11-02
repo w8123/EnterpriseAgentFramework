@@ -42,7 +42,7 @@ it.each(['java-methods', 'http-apis'] as const)('loads %s only once when page 2 
     ] } })
   expect(acknowledgePlatformExplorationNotice()).toBe(true)
   api.projects.mockResolvedValue({ data: [{ id: 7, projectCode: 'orders', name: 'Orders',
-    baseUrl: '', contextPath: '', scanPath: '', scanType: 'auto', toolCount: 0, status: 'created' }] })
+    baseUrl: '', contextPath: '', toolCount: 0, status: 'created' }] })
   list.mockImplementation((params: Record<string, unknown>) => Promise.resolve({ data: {
     records: [], total: 0, current: params.current, size: params.size, pages: 0,
   } }))

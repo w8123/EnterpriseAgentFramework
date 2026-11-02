@@ -6,7 +6,7 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
+import java.util.Map;
 
 public final class ScanSettingsJson {
 
@@ -26,38 +26,42 @@ public final class ScanSettingsJson {
     }
 
     private static ScanSettings merge(ScanSettings base, ScanSettings settings) {
-        if (settings.getDescriptionSourceOrder() != null && !settings.getDescriptionSourceOrder().isEmpty()) {
-            base.setDescriptionSourceOrder(new ArrayList<>(settings.getDescriptionSourceOrder()));
+        List<String> descriptionOrder = withoutJavadoc(settings.getDescriptionSourceOrder());
+        if (!descriptionOrder.isEmpty()) {
+            base.setDescriptionSourceOrder(descriptionOrder);
         }
-        if (settings.getParamDescriptionSourceOrder() != null && !settings.getParamDescriptionSourceOrder().isEmpty()) {
-            base.setParamDescriptionSourceOrder(new ArrayList<>(settings.getParamDescriptionSourceOrder()));
+        List<String> paramOrder = withoutJavadoc(settings.getParamDescriptionSourceOrder());
+        if (!paramOrder.isEmpty()) {
+            base.setParamDescriptionSourceOrder(paramOrder);
         }
         if (settings.getDescriptionSourceEnabled() != null) {
-            base.setDescriptionSourceEnabled(new HashMap<>(settings.getDescriptionSourceEnabled()));
+            base.setDescriptionSourceEnabled(withoutJavadoc(settings.getDescriptionSourceEnabled()));
         }
         if (settings.getParamDescriptionSourceEnabled() != null) {
-            base.setParamDescriptionSourceEnabled(new HashMap<>(settings.getParamDescriptionSourceEnabled()));
+            base.setParamDescriptionSourceEnabled(withoutJavadoc(settings.getParamDescriptionSourceEnabled()));
         }
-        base.setOnlyRestController(settings.isOnlyRestController());
         base.setHttpMethodWhitelist(settings.getHttpMethodWhitelist() == null
                 ? List.of()
                 : new ArrayList<>(settings.getHttpMethodWhitelist()));
-        base.setClassIncludeRegex(settings.getClassIncludeRegex());
-        base.setClassExcludeRegex(settings.getClassExcludeRegex());
         base.setSkipDeprecated(settings.isSkipDeprecated());
         if (settings.getDefaultFlags() != null) {
             ScanDefaultFlags flags = settings.getDefaultFlags();
             base.setDefaultFlags(new ScanDefaultFlags(flags.isEnabled()));
         }
-        base.setIncrementalMode(normalizeIncremental(settings.getIncrementalMode()));
         return base;
     }
 
-    private static String normalizeIncremental(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "OFF";
+    /** Javadoc 只有源码扫描能读到，SDK 运行时拿不到，旧数据里的这一项直接丢弃。 */
+    private static List<String> withoutJavadoc(List<String> order) {
+        if (order == null) {
+            return List.of();
         }
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        return List.of("OFF", "MTIME", "GIT_DIFF").contains(normalized) ? normalized : "OFF";
+        return order.stream().filter(item -> item != null && !item.startsWith("JAVADOC")).toList();
+    }
+
+    private static Map<String, Boolean> withoutJavadoc(Map<String, Boolean> enabled) {
+        Map<String, Boolean> result = new HashMap<>(enabled);
+        result.keySet().removeIf(key -> key == null || key.startsWith("JAVADOC"));
+        return result;
     }
 }

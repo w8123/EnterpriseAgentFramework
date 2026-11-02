@@ -1,0 +1,192 @@
+##
+## ReachAI 正式部署（预构建镜像，不用编译源码）
+##
+## 推荐用一条命令安装，它会生成配置、按内存设置 JVM、启动并打印登录信息：
+##   curl -fsSL https://raw.githubusercontent.com/w8123/EnterpriseAgentFramework-dev/dev/deploy/install.sh | bash
+##
+## 已经会用 Docker 的人也可以手动：
+##   cp reachai.env.example reachai.env    # 至少改掉管理员密码和数据库密码
+##   docker compose --env-file reachai.env up -d
+##
+## 打开 http://<服务器>:${REACHAI_PORT}（默认 8080），账号 admin。
+## 详细说明见 docs/部署与运维手册.md
+##
+## 可选组件（在 reachai.env 的 COMPOSE_PROFILES 里开启，逗号分隔）：
+##   mysql   自带 MySQL（默认开启；用自己的 MySQL 时去掉，并填写 AI_MYSQL_HOST 等）
+##   milvus  知识库向量检索（多占约 1.5G 内存）
+##   redis   Runtime 会话状态存 Redis（多实例部署时才需要）
+##
+name: ${REACHAI_PROJECT_NAME:-reachai}
+
+x-server: &server
+  image: ${REACHAI_IMAGE_REGISTRY:-ghcr.io/w8123}/reachai-server:${REACHAI_VERSION:-dev}
+  restart: unless-stopped
+  env_file:
+    - path: reachai.env
+      required: false
+  volumes:
+    - ${REACHAI_DATA_DIR:-./data}:/app/data
+  depends_on:
+    mysql:
+      condition: service_healthy
+      required: false
+  # 业务系统装在同一台机器上时，用 http://host.docker.internal:端口 访问它
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+x-server-env: &server-env
+  REACHAI_HOME: /app/data
+  AI_MYSQL_HOST: ${AI_MYSQL_HOST:-mysql}
+  AI_MYSQL_PORT: ${AI_MYSQL_PORT:-3306}
+  AI_MYSQL_DATABASE: ${AI_MYSQL_DATABASE:-reach_ai}
+  AI_MYSQL_USER: ${AI_MYSQL_USER:-reach_ai}
+  AI_MYSQL_PASSWORD: ${AI_MYSQL_PASSWORD:?请在 reachai.env 填写 AI_MYSQL_PASSWORD}
+  MODEL_SERVICE_URL: http://reachai-model:18601
+  KNOWLEDGE_SERVICE_URL: http://reachai-knowledge:18602
+  CONTROL_SERVICE_URL: http://reachai-control:18603
+  RUNTIME_SERVICE_URL: http://reachai-runtime:18604
+  CAPABILITY_SERVICE_URL: http://reachai-capability:18605
+  MILVUS_HOST: ${MILVUS_HOST:-milvus}
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REACHAI_MCP_HUB_PUBLIC_BASE_URL: ${REACHAI_PUBLIC_URL:-http://localhost:8080}
+  REACHAI_KNOWLEDGE_ARTIFACT_LOCAL_ROOT: /app/data/knowledge-artifacts
+  REACHAI_SKILL_ARTIFACT_ROOT: /app/data/skill-artifacts
+  RUNTIME_SESSION_MEMORY_JSON_DIR: /app/data/session-memory
+  RUNTIME_SKILL_CACHE_DIR: /app/data/skill-cache
+  TZ: ${TZ:-Asia/Shanghai}
+
+services:
+
+  mysql:
+    profiles: ["mysql"]
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${REACHAI_MYSQL_ROOT_PASSWORD:?请在 reachai.env 填写 REACHAI_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${AI_MYSQL_DATABASE:-reach_ai}
+      MYSQL_USER: ${AI_MYSQL_USER:-reach_ai}
+      MYSQL_PASSWORD: ${AI_MYSQL_PASSWORD:?请在 reachai.env 填写 AI_MYSQL_PASSWORD}
+      TZ: ${TZ:-Asia/Shanghai}
+    command: >-
+      --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+      --max-connections=500 ${REACHAI_MYSQL_OPTS:---innodb-buffer-pool-size=256M}
+    volumes:
+      - ${REACHAI_MYSQL_DATA_DIR:-./mysql}:/var/lib/mysql
+    healthcheck:
+      # 初始化期间 MySQL 只监听 socket，经 127.0.0.1 能登录才算就绪
+      test: ["CMD-SHELL", "mysqladmin ping -h127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }
+
+  redis:
+    profiles: ["redis"]
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - ${REACHAI_REDIS_DATA_DIR:-./redis}:/data
+
+  # Milvus 单机模式：内嵌 etcd、本地存储
+  milvus:
+    profiles: ["milvus"]
+    image: milvusdb/milvus:v2.4.4
+    restart: unless-stopped
+    command: ["milvus", "run", "standalone"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      ETCD_CONFIG_PATH: /milvus/configs/embedEtcd.yaml
+      COMMON_STORAGETYPE: local
+    volumes:
+      - ${REACHAI_MILVUS_DATA_DIR:-./milvus}:/var/lib/milvus
+      - ./milvus-embedEtcd.yaml:/milvus/configs/embedEtcd.yaml:ro
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  reachai-model:
+    <<: *server
+    command: ["model"]
+    environment:
+      <<: *server-env
+      JAVA_OPTS: ${REACHAI_JAVA_OPTS_MODEL:--Xms96m -Xmx384m -XX:+UseSerialGC}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18601/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-knowledge:
+    <<: *server
+    command: ["knowledge"]
+    environment:
+      <<: *server-env
+      JAVA_OPTS: ${REACHAI_JAVA_OPTS_KNOWLEDGE:--Xms128m -Xmx512m -XX:+UseSerialGC}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18602/ai/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-capability:
+    <<: *server
+    command: ["capability"]
+    environment:
+      <<: *server-env
+      JAVA_OPTS: ${REACHAI_JAVA_OPTS_CAPABILITY:--Xms96m -Xmx384m -XX:+UseSerialGC}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18605/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-runtime:
+    <<: *server
+    command: ["runtime"]
+    environment:
+      <<: *server-env
+      JAVA_OPTS: ${REACHAI_JAVA_OPTS_RUNTIME:--Xms128m -Xmx640m -XX:+UseSerialGC}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18604/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+  reachai-control:
+    <<: *server
+    command: ["control"]
+    environment:
+      <<: *server-env
+      JAVA_OPTS: ${REACHAI_JAVA_OPTS_CONTROL:--Xms128m -Xmx640m -XX:+UseSerialGC}
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:18603/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 40s
+
+  reachai-web:
+    image: ${REACHAI_IMAGE_REGISTRY:-ghcr.io/w8123}/reachai-web:${REACHAI_VERSION:-dev}
+    restart: unless-stopped
+    depends_on:
+      reachai-control: { condition: service_healthy }
+    ports:
+      - "${REACHAI_BIND:-0.0.0.0}:${REACHAI_PORT:-8080}:80"
+    logging:
+      driver: json-file
+      options: { max-size: "20m", max-file: "3" }

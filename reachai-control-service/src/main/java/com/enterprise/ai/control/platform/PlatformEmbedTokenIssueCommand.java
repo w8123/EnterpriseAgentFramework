@@ -22,6 +22,8 @@ public class PlatformEmbedTokenIssueCommand {
     private String pageInstanceId;
     private String route;
     private String origin;
+    private String businessSessionId;
+    private Long businessSessionExpiresAt;
     private Integer ttlSeconds;
     private BusinessPrincipal principal;
 

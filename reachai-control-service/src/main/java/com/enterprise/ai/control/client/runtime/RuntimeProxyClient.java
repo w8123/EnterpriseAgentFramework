@@ -14,6 +14,26 @@ import java.util.Map;
 
 @FeignClient(name = "reachai-runtime-proxy", url = "${services.runtime-service.url:http://localhost:18604}")
 public interface RuntimeProxyClient {
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach", consumes = "application/json")
+    ResponseEntity<Object> attachProjectWorkflowToolSigned(@PathVariable("projectId") Long projectId,
+            @RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/project-agent-config-drafts/context", consumes = "application/json")
+    ResponseEntity<Object> projectAgentDraftContext(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/project-agent-config-drafts/versions", consumes = "application/json")
+    ResponseEntity<Object> projectAgentConfigVersions(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/project-agent-config-drafts/save", consumes = "application/json")
+    ResponseEntity<Object> saveProjectAgentDraft(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/project-agent-config-drafts/publish", consumes = "application/json")
+    ResponseEntity<Object> publishProjectAgentDraft(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/workflow-releases/context", consumes = "application/json")
+    ResponseEntity<Object> workflowPublicationContext(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/workflow-releases/publish", consumes = "application/json")
+    ResponseEntity<Object> publishApprovedWorkflow(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST,
             path = "/internal/runtime/workflows/studio/read-only-trials", consumes = "application/json")
@@ -103,6 +123,12 @@ public interface RuntimeProxyClient {
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/sessions/stats")
     ResponseEntity<List<Map<String, Object>>> runOpsSessionStats(@RequestParam("sessionIds") List<String> sessionIds,
                                                                  @RequestParam("days") int days);
+
+    /** 嵌入式对话按人汇总，供「AI 使用情况」。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runops/usage/embed-users")
+    ResponseEntity<List<Map<String, Object>>> runOpsEmbedUserUsage(
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam("days") int days);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/diagnostics")
     ResponseEntity<Map<String, Object>> runOpsDiagnostics(
@@ -262,9 +288,13 @@ public interface RuntimeProxyClient {
                                                    @org.springframework.web.bind.annotation.RequestHeader Map<String, String> headers,
                                                    @RequestBody byte[] exactBody);
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/{id}/page-assistant/attach-tool")
-    ResponseEntity<Object> attachPageAssistantWorkflowTool(@PathVariable("id") String id,
-                                                           @RequestBody Map<String, Object> body);
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/workflows/{id}/page-assistant/context", consumes = "application/json")
+    ResponseEntity<Object> pageAssistantAttachContextSigned(@PathVariable("id") String id,
+            @RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/workflows/{id}/page-assistant/attach", consumes = "application/json")
+    ResponseEntity<Object> attachPageAssistantWorkflowToolSigned(@PathVariable("id") String id,
+            @RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.POST,
             path = "/internal/runtime/projects/{projectId}/agent-supervisor/workflow-tools/attach")
@@ -366,6 +396,27 @@ public interface RuntimeProxyClient {
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/agents/{agentId}/config-versions")
     ResponseEntity<Object> listAgentConfigVersions(@PathVariable("agentId") String agentId);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/context", consumes = "application/json")
+    ResponseEntity<Object> readAgentDraftContext(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/versions", consumes = "application/json")
+    ResponseEntity<Object> readAgentConfigVersionsForProject(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/save", consumes = "application/json")
+    ResponseEntity<Object> saveAgentDraftIfUnchanged(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/copy", consumes = "application/json")
+    ResponseEntity<Object> copyAgentDraftIfUnchanged(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/publish", consumes = "application/json")
+    ResponseEntity<Object> publishAgentDraftIfUnchanged(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/publication-context", consumes = "application/json")
+    ResponseEntity<Object> readAgentDraftPublicationContext(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/internal/runtime/agent-config-drafts/publish-approved", consumes = "application/json")
+    ResponseEntity<Object> publishApprovedAgentDraft(@RequestHeader Map<String, String> headers, @RequestBody byte[] exactBody);
 
     @RequestMapping(method = RequestMethod.PUT, path = "/api/agents/{agentId}/config-versions/draft")
     ResponseEntity<Object> saveAgentConfigDraft(@PathVariable("agentId") String agentId,

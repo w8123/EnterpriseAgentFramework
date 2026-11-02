@@ -21,6 +21,7 @@ public class PlatformEmbedTokenClaims {
     private String pageInstanceId;
     private String route;
     private String origin;
+    private String businessSessionId;
     private String jti;
     private long issuedAt;
     private long expiresAt;

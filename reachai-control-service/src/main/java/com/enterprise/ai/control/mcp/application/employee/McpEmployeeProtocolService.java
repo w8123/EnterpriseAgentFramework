@@ -25,6 +25,7 @@ import com.enterprise.ai.control.mcp.domain.publication.McpToolProjection;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -63,6 +64,7 @@ public class McpEmployeeProtocolService {
     private final McpWriteApprovalRepository approvalRepository;
     private final ObjectMapper objectMapper;
     private final ObjectMapper canonicalMapper;
+    private final EmployeeMemoryTools memoryTools;
 
     public McpEmployeeProtocolService(AiToolConnectionRepository connectionRepository,
                                       McpEmployeeAccessRepository accessRepository,
@@ -73,6 +75,22 @@ public class McpEmployeeProtocolService {
                                       McpCallAuditRepository callAuditRepository,
                                       McpWriteApprovalRepository approvalRepository,
                                       ObjectMapper objectMapper) {
+        this(connectionRepository, accessRepository, publicationRepository, businessUserSyncService,
+                aclDecisionService, executionGateway, callAuditRepository, approvalRepository, objectMapper, null);
+    }
+
+    @Autowired
+    public McpEmployeeProtocolService(AiToolConnectionRepository connectionRepository,
+                                      McpEmployeeAccessRepository accessRepository,
+                                      McpPublicationRepository publicationRepository,
+                                      BusinessUserSyncService businessUserSyncService,
+                                      ControlToolAclDecisionService aclDecisionService,
+                                      McpRuntimeExecutionGateway executionGateway,
+                                      McpCallAuditRepository callAuditRepository,
+                                      McpWriteApprovalRepository approvalRepository,
+                                      ObjectMapper objectMapper,
+                                      EmployeeMemoryTools memoryTools) {
+        this.memoryTools = memoryTools;
         this.connectionRepository = connectionRepository;
         this.accessRepository = accessRepository;
         this.publicationRepository = publicationRepository;
@@ -105,6 +123,10 @@ public class McpEmployeeProtocolService {
             connectionRepository.expire(connection.id(), now);
             throw new McpDomainException("MCP_CLIENT_EXPIRED",
                     "this connection has expired; create a new one in the business system");
+        }
+        if (!hasActiveOrigin(connection)) {
+            throw new McpDomainException("MCP_CLIENT_DISABLED",
+                    "the identity that created this connection is no longer active");
         }
         List<SystemSession> systems = new ArrayList<>();
         for (ConnectedSystem system : connection.systems()) {
@@ -154,7 +176,25 @@ public class McpEmployeeProtocolService {
         if (anyApproval && !session.exposed().containsKey(APPROVAL_STATUS_TOOL)) {
             tools.add(approvalStatusTool());
         }
+        if (memoryTools != null) {
+            memoryTools.tools(session).stream()
+                    .filter(tool -> !session.exposed().containsKey(String.valueOf(tool.get("name"))))
+                    .forEach(tools::add);
+        }
         return tools;
+    }
+
+    /** MCP handshake instructions: how to use the employee's memories, with their current preferences. */
+    public String instructions(EmployeeSession session) {
+        if (session == null) return null;
+        String notice = session.systems().stream().flatMap(system -> system.revision().tools().stream())
+                .anyMatch(tool -> !tool.hasTrustedRiskContract())
+                ? "部分能力的风险契约需要管理员重新校验并发布 MCP 服务后才能使用。" : null;
+        String memory = null;
+        try { if (memoryTools != null) memory = memoryTools.instructions(session); }
+        catch (RuntimeException unavailable) { /* Risk notice must survive optional memory outages. */ }
+        if (notice == null) return memory;
+        return memory == null || memory.isBlank() ? notice : notice + "\n\n" + memory;
     }
 
     private static Map<String, Object> approvalStatusTool() {
@@ -178,6 +218,9 @@ public class McpEmployeeProtocolService {
             throw new McpDomainException("MCP_TOOL_NAME_REQUIRED", "tools/call params.name is required");
         }
         ExposedTool target = session.exposed().get(toolName.trim());
+        if (target == null && memoryTools != null && EmployeeMemoryTools.handles(toolName)) {
+            return new EmployeeCallResult(memoryTools.call(session, toolName, arguments), null);
+        }
         if (target == null && APPROVAL_STATUS_TOOL.equals(toolName.trim())
                 && session.exposed().values().stream().anyMatch(McpEmployeeProtocolService::needsApproval)) {
             return new EmployeeCallResult(approvalStatus(session, arguments), null);
@@ -185,6 +228,10 @@ public class McpEmployeeProtocolService {
         if (target == null) {
             throw new McpDomainException("MCP_TOOL_NOT_VISIBLE",
                     "tool is not available through this connection: " + toolName);
+        }
+        if (!target.tool().hasTrustedRiskContract()) {
+            throw new McpDomainException("MCP_TOOL_RISK_REPUBLICATION_REQUIRED",
+                    "MCP 服务的风险契约需要重新发布后才能调用");
         }
         SystemSession system = target.system();
         requireAllowed(system, target.tool());
@@ -206,6 +253,10 @@ public class McpEmployeeProtocolService {
             return ApprovedExecution.refused("MCP_APPROVAL_CONNECTION_INACTIVE",
                     "员工的 AI 工具连接已断开或过期");
         }
+        if (!hasActiveOrigin(connection.get())) {
+            return ApprovedExecution.refused("MCP_APPROVAL_CONNECTION_INACTIVE",
+                    "创建连接的业务身份已停用或变更");
+        }
         Optional<SystemSession> system = usableSystem(connection.get(),
                 new ConnectedSystem(approval.projectCode(), approval.publicationId()));
         if (system.isEmpty()) {
@@ -213,9 +264,10 @@ public class McpEmployeeProtocolService {
                     "员工在" + firstText(approval.systemName(), approval.projectCode()) + "已不可用（账号停用或系统已关闭员工使用）");
         }
         Optional<McpToolProjection> tool = system.get().revision().tools().stream()
-                .filter(candidate -> !irreversible(candidate)
+                .filter(candidate -> candidate.hasTrustedRiskContract() && !irreversible(candidate)
                         && candidate.sourceKind().name().equals(approval.sourceKind())
                         && candidate.sourceRef().equals(approval.sourceRef())
+                        && Objects.equals(candidate.workflowVersionId(), approval.workflowVersionId())
                         && Objects.equals(candidate.capabilityContractHash(), approval.capabilityContractHash()))
                 .findFirst();
         if (tool.isEmpty()) {
@@ -437,12 +489,17 @@ public class McpEmployeeProtocolService {
         return Optional.of(new SystemSession(access.get(), publication.get(), revision.get(), account.get()));
     }
 
+    private boolean hasActiveOrigin(AiToolConnection connection) {
+        return businessUserSyncService.hasActiveOrigin(connection.tenantId(), connection.businessUserId(),
+                connection.appId(), connection.externalUserId());
+    }
+
     /** Tool names stay as published unless two systems share one; then both get the system prefix. */
     private static Map<String, ExposedTool> exposedNames(List<SystemSession> systems) {
         Map<String, Integer> counts = new HashMap<>();
         for (SystemSession system : systems) {
             for (McpToolProjection tool : system.revision().tools()) {
-                if (!irreversible(tool)) {
+                if (tool.hasTrustedRiskContract() && !irreversible(tool)) {
                     counts.merge(tool.name(), 1, Integer::sum);
                 }
             }
@@ -450,7 +507,7 @@ public class McpEmployeeProtocolService {
         Map<String, ExposedTool> exposed = new LinkedHashMap<>();
         for (SystemSession system : systems) {
             for (McpToolProjection tool : system.revision().tools()) {
-                if (irreversible(tool)) {
+                if (!tool.hasTrustedRiskContract() || irreversible(tool)) {
                     continue;
                 }
                 String name = counts.get(tool.name()) > 1

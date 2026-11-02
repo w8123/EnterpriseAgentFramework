@@ -21,7 +21,6 @@ import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingEntity;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingMapper;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceBindingStatus;
 import com.enterprise.ai.capability.catalog.httpapi.HttpApiSourceKind;
-import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
 import com.enterprise.ai.text.tooling.scanner.manifest.ToolManifest;
@@ -65,7 +64,6 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
     private HttpApiInventoryStateMapper inventories;
     private HttpApiInventoryMemberMapper members;
     private HttpApiAssetService assetService;
-    private ScannerHttpApiIntakeService controllerIntake;
     private ScannerHttpApiIntakeService openApiIntake;
     private ScannerHttpApiSingleSourceIntakeService single;
     private TransactionTemplate tx;
@@ -100,8 +98,6 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         assetService = new HttpApiAssetService(assets, bindings, new HttpApiContractCanonicalizer(json), org.mockito.Mockito.mock(com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService.class));
         var inventoryIntake = new HttpApiInventoryIntakeService(assetService, bindings,
                 new HttpApiInventoryStateService(inventories, members));
-        controllerIntake = new ScannerHttpApiIntakeService(inventoryIntake,
-                new ScannerHttpApiContractAdapter());
         openApiIntake = new ScannerHttpApiIntakeService(inventoryIntake,
                 new ScannerHttpApiContractAdapter());
         single = new ScannerHttpApiSingleSourceIntakeService(openApiIntake, bindings, assets);
@@ -123,8 +119,9 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         observation.setProjectId(project.getId()); observation.setSource("scanner"); observation.setAssetType("HTTP_API");
         observation.setContextPath(project.getContextPath()); observation.setHttpMethod(tool.method());
         observation.setEndpointPath(tool.path()); observation.setSourceLocation(tool.source().location());
-        assertNotEquals(observation.getSourceLocation(), initial.sourceLocation());
-        assertTrue(initial.sourceLocation().startsWith("contracts/openapi.yaml#"));
+        assertEquals(observation.getSourceLocation(), initial.sourceLocation(),
+                "uploaded documents carry only their file name, so both views share one location");
+        assertTrue(initial.sourceLocation().startsWith("openapi.yaml#"));
         assertTrue(ScannerHttpApiSourceIdentity.matches(HttpApiSourceKind.OPENAPI_SCAN,
                 observation.getSourceLocation(), initial.sourceLocation()));
         var drift = scannerData(scanOpenApiParity(root, "string").httpApis().get(0));
@@ -162,8 +159,8 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                 List.of(operation("openapi:orders.yaml:get")), true);
         HttpApiAssetService.ObserveRequest source = first.operations().get(0).request();
         tx.execute(status -> {
-            assetService.observe(new HttpApiAssetService.ObserveRequest(first.scope(), HttpApiSourceKind.CONTROLLER_SCAN,
-                    "controller:OrdersController#get", "src/OrdersController.java:42", "controller-r1", source.contract()));
+            assetService.observe(new HttpApiAssetService.ObserveRequest(first.scope(), HttpApiSourceKind.STARTER_MVC,
+                    "mvc:OrdersController#get", "mvc:OrdersController#get", "starter-r1", source.contract()));
             openApiIntake.observe(first);
             return null;
         });
@@ -191,49 +188,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         assertEquals(HttpApiSourceBindingStatus.REMOVED.name(),
                 binding(first.scope(), HttpApiSourceKind.OPENAPI_SCAN, "openapi:orders.yaml:get").getStatus());
         assertEquals(HttpApiSourceBindingStatus.DISCOVERED.name(),
-                binding(first.scope(), HttpApiSourceKind.CONTROLLER_SCAN, "controller:OrdersController#get").getStatus());
-    }
-
-    @Test
-    void actualOpenApiAndStaticControllerOutputsAreEquivalentThenSchemaDriftConflicts(@TempDir Path tempDir)
-            throws Exception {
-        ScanProjectEntity project = project(41L, "orders", "prod", "/saved-context");
-        HttpApiOperation controllerOperation = scanControllerParity(tempDir).httpApis().get(0);
-        HttpApiOperation openApiOperation = scanOpenApiParity(tempDir, "integer").httpApis().get(0);
-        ScannerHttpApiIntakeService.Plan controller = controllerIntake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project,
-                List.of(scannerData(controllerOperation)), true);
-        ScannerHttpApiIntakeService.Plan openApi = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
-                List.of(scannerData(openApiOperation)), true);
-        HttpApiContractCanonicalizer canonicalizer = new HttpApiContractCanonicalizer(json);
-
-        HttpApiContractCanonicalizer.CanonicalHttpApiContract controllerCanonical = canonicalizer.canonicalize(
-                controller.scope(), controller.operations().get(0).request().contract());
-        HttpApiContractCanonicalizer.CanonicalHttpApiContract openApiCanonical = canonicalizer.canonicalize(
-                openApi.scope(), openApi.operations().get(0).request().contract());
-        assertEquals(controllerCanonical.contractJson(), openApiCanonical.contractJson(),
-                "actual OpenAPI and Controller scanner facts must canonicalize equally");
-        tx.execute(status -> {
-            controllerIntake.observe(controller);
-            openApiIntake.observe(openApi);
-            return null;
-        });
-        assertEquals(HttpApiSourceBindingStatus.EQUIVALENT.name(),
-                binding(openApi.scope(), HttpApiSourceKind.CONTROLLER_SCAN, controllerOperation.sourceKey()).getStatus());
-        assertEquals(HttpApiSourceBindingStatus.EQUIVALENT.name(),
-                binding(openApi.scope(), HttpApiSourceKind.OPENAPI_SCAN, openApiOperation.sourceKey()).getStatus());
-
-        HttpApiOperation drifted = scanOpenApiParity(tempDir, "string").httpApis().get(0);
-        assertEquals(openApiOperation.sourceKey(), drifted.sourceKey());
-        assertNotEquals(openApiOperation.sourceRevision(), drifted.sourceRevision());
-        tx.execute(status -> openApiIntake.observe(openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, List.of(scannerData(drifted)), true)));
-
-        HttpApiAssetEntity asset = assets.selectOne(Wrappers.<HttpApiAssetEntity>lambdaQuery()
-                .eq(HttpApiAssetEntity::getProjectId, project.getId()));
-        assertEquals(HttpApiAssetStatus.CONFLICT.name(), asset.getStatus());
-        assertEquals(HttpApiSourceBindingStatus.CONFLICT.name(),
-                binding(openApi.scope(), HttpApiSourceKind.CONTROLLER_SCAN, controllerOperation.sourceKey()).getStatus());
-        assertEquals(HttpApiSourceBindingStatus.CONFLICT.name(),
-                binding(openApi.scope(), HttpApiSourceKind.OPENAPI_SCAN, drifted.sourceKey()).getStatus());
+                binding(first.scope(), HttpApiSourceKind.STARTER_MVC, "mvc:OrdersController#get").getStatus());
     }
 
     @Test
@@ -311,7 +266,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         OpenApiToolManifestScanner scanner = new OpenApiToolManifestScanner();
         ProjectMetadata metadata = new ProjectMetadata("orders", "https://ignored", "/saved-context");
         Files.writeString(spec, singleScheme);
-        ToolManifest complete = scanner.scan(tempDir, spec, metadata, null, null);
+        ToolManifest complete = scanner.scan(spec, metadata, null);
         assertTrue(complete.httpApiInventoryComplete());
         assertEquals(2, complete.httpApis().size());
         HttpApiOperation original = complete.httpApis().stream()
@@ -324,7 +279,7 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
 
         Files.writeString(spec, singleScheme.replace("security: [{ keyA: [] }]",
                 "security: [{ keyA: [], keyB: [] }]"));
-        ToolManifest partial = scanner.scan(tempDir, spec, metadata, null, null);
+        ToolManifest partial = scanner.scan(spec, metadata, null);
         assertFalse(partial.httpApiInventoryComplete());
         assertEquals(List.of("/safe"), partial.httpApis().stream().map(HttpApiOperation::endpointPath).toList());
         ScannerHttpApiIntakeService.Plan update = openApiIntake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project,
@@ -398,41 +353,6 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
         return project;
     }
 
-    private ToolManifest scanControllerParity(Path tempDir) throws IOException {
-        Files.writeString(tempDir.resolve("ParityController.java"), """
-                package parity;
-
-                import org.springframework.http.ResponseEntity;
-                import org.springframework.web.bind.annotation.PathVariable;
-                import org.springframework.web.bind.annotation.PostMapping;
-                import org.springframework.web.bind.annotation.RequestBody;
-                import org.springframework.web.bind.annotation.RequestMapping;
-                import org.springframework.web.bind.annotation.RestController;
-
-                @RestController
-                @RequestMapping("/schema")
-                class ParityController {
-                    @PostMapping(value = "/orders/{id}", consumes = "application/json", produces = "application/json")
-                    ResponseEntity<ParityResponse> update(@PathVariable("id") long id,
-                                                          @RequestBody ParityRequest request) {
-                        return null;
-                    }
-                }
-
-                class ParityRequest {
-                    long quantity;
-                    String reference;
-                }
-
-                class ParityResponse {
-                    long id;
-                    String state;
-                }
-                """);
-        return new ControllerAnnotationToolManifestScanner().scan(tempDir,
-                new ProjectMetadata("orders", "https://ignored", "/saved-context"));
-    }
-
     private ToolManifest scanOpenApiParity(Path tempDir, String quantityType) throws IOException {
         Path spec = tempDir.resolve("contracts/openapi.yaml");
         Files.createDirectories(spec.getParent());
@@ -466,8 +386,8 @@ class OpenApiScanHttpApiIntakeServicePersistenceTest {
                                   id: { type: integer }
                                   state: { type: string }
                 """.formatted(quantityType));
-        return new OpenApiToolManifestScanner().scan(tempDir, spec,
-                new ProjectMetadata("orders", "https://ignored", "/saved-context"), null, null);
+        return new OpenApiToolManifestScanner().scan(spec,
+                new ProjectMetadata("orders", "https://ignored", "/saved-context"), null);
     }
 
     private CapabilityScannerClient.HttpApiData scannerData(HttpApiOperation operation) {

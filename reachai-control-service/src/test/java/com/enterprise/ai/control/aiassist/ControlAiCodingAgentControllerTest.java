@@ -20,6 +20,21 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class ControlAiCodingAgentControllerTest {
 
+    @Test void ownerRevisionConflictKeepsTheDiscoverableAgentErrorContract() throws Exception {
+        var service = mock(ControlAiCodingAgentAuthoringService.class);
+        when(service.saveConfigDraft(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.eq("agent-1"), org.mockito.ArgumentMatchers.anyMap()))
+                .thenThrow(new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,
+                        "Agent changed; read context before retrying"));
+        var mvc = MockMvcBuilders.standaloneSetup(new ControlAiCodingAgentController(service)).build();
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put(
+                        "/api/ai-coding/projects/7/agents/agent-1/config/draft")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.schema").value("agent-ai-coding-error.v1"))
+                .andExpect(jsonPath("$.code").value("AGENT_DRAFT_CONFLICT"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
     @Test
     void projectKeyProtectsAgentAuthoringEndpoints() throws Exception {
         CapabilityProjectOnboardingClient capabilityClient = mock(CapabilityProjectOnboardingClient.class);

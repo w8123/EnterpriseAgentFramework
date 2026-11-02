@@ -7,7 +7,6 @@ import com.enterprise.ai.agent.capability.catalog.scan.ScanProjectEntity;
 import com.enterprise.ai.capability.catalog.scan.CapabilityScannerClient;
 import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiIntakeService;
 import com.enterprise.ai.capability.catalog.scan.ScannerHttpApiContractAdapter;
-import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
 import com.enterprise.ai.text.tooling.scanner.openapi.OpenApiToolManifestScanner;
@@ -79,8 +78,8 @@ class HttpApiCatalogAcceptancePersistenceTest {
         catalog = new HttpApiCatalogService(assets, bindings, inventories, members, acceptances, projects, json,
                 new HttpApiContractCanonicalizer(json));
         tx = new TransactionTemplate(new DataSourceTransactionManager(source));
-        jdbc.update("INSERT INTO capability_scan_project (id, name, project_code, environment, base_url, scan_path, scan_type, status) "
-                + "VALUES (41, 'orders', 'orders', 'dev', 'https://unused.invalid', '.', 'openapi', 'scanned')");
+        jdbc.update("INSERT INTO capability_scan_project (id, name, project_code, environment, base_url, status) "
+                + "VALUES (41, 'orders', 'orders', 'dev', 'https://unused.invalid', 'scanned')");
     }
 
     @Test
@@ -169,8 +168,8 @@ class HttpApiCatalogAcceptancePersistenceTest {
                             application/json:
                               schema: { type: object, properties: { orderId: { type: string } } }
                 """);
-        var scan = new OpenApiToolManifestScanner().scan(tempDir, spec,
-                new ProjectMetadata("orders", "https://unused.invalid", ""), null, null);
+        var scan = new OpenApiToolManifestScanner().scan(spec,
+                new ProjectMetadata("orders", "https://unused.invalid", ""), null);
         assertTrue(scan.httpApiInventoryComplete());
         assertEquals(1, scan.httpApis().size());
         HttpApiOperation operation = scan.httpApis().get(0);
@@ -302,10 +301,10 @@ class HttpApiCatalogAcceptancePersistenceTest {
         var remaining = catalog.detail(id);
         assertEquals("ACCEPTED", remaining.summary().sourceStatus());
         assertEquals(accepted, remaining.summary().acceptedContractHash());
-        assertEquals(List.of("CONTROLLER_SCAN"), remaining.summary().sourceKinds());
+        assertEquals(List.of("STARTER_MVC"), remaining.summary().sourceKinds());
         assertEquals(1, remaining.sources().stream().filter(s -> "REMOVED".equals(s.status())).count());
 
-        Files.writeString(controller, "class NoRoutes { }\n");
+        Files.writeString(controller, "openapi: 3.0.3\ninfo: {title: Orders, version: '3'}\npaths: {}\n");
         observeController(project, controller);
         assertEquals("SOURCE_MISSING", catalog.detail(id).summary().sourceStatus());
         assertEquals(accepted, catalog.detail(id).summary().acceptedContractHash());
@@ -318,8 +317,8 @@ class HttpApiCatalogAcceptancePersistenceTest {
         ScanProjectEntity orders = projects.selectById(41L);
         observeController(orders, controller);
         observeOpenApi(orders, root, spec);
-        jdbc.update("INSERT INTO capability_scan_project (id,name,project_code,environment,base_url,scan_path,scan_type,status) "
-                + "VALUES (42,'Payments','payments','dev','https://unused.invalid','.','controller','scanned')");
+        jdbc.update("INSERT INTO capability_scan_project (id,name,project_code,environment,base_url,status) "
+                + "VALUES (42,'Payments','payments','dev','https://unused.invalid','scanned')");
         ScanProjectEntity payments = projects.selectById(42L);
         observeController(payments, controller);
         observeOpenApi(payments, root, spec);
@@ -334,19 +333,24 @@ class HttpApiCatalogAcceptancePersistenceTest {
     }
 
     private Path controllerSource(Path root, boolean opaque) throws Exception {
-        Path source = root.resolve("OrdersController.java");
+        Path source = root.resolve("starter").resolve("orders.yaml");
+        Files.createDirectories(source.getParent());
         Files.writeString(source, """
-                import org.springframework.web.bind.annotation.*;
-                import external.routes.ReadRoute;
-                @RestController
-                @RequestMapping("/orders")
-                class OrdersController {
-                    %s
-                    OrderView find(@PathVariable("orderId") String orderId,
-                                   @RequestParam(value="detailLevel", required=false) String detailLevel) { return null; }
-                }
-                class OrderView { String orderId; String detailLevel; String state; }
-                """.formatted(opaque ? "@ReadRoute" : "@GetMapping(path=\"/{orderId}\", produces=\"application/json\")"));
+                openapi: 3.0.3
+                info: {title: Orders, version: '1'}
+                paths:
+                  /orders/{orderId}:
+                    get:
+                      %s
+                      parameters:
+                        - {name: orderId, in: path, required: true, schema: {type: string}}
+                        - {name: detailLevel, in: query, required: false, schema: {type: string}}
+                      responses:
+                        default:
+                          content:
+                            application/json:
+                              schema: {type: object, properties: {orderId: {type: string}, detailLevel: {type: string}, state: {type: string}}}
+                """.formatted(opaque ? "security: [{UnavailableScheme: []}]" : "description: Starter report"));
         return source;
     }
 
@@ -373,18 +377,27 @@ class HttpApiCatalogAcceptancePersistenceTest {
         return spec;
     }
 
+    /** A second, independent source (the SDK starter's MVC report) for multi-source assertions. */
     private void observeController(ScanProjectEntity project, Path source) {
-        var manifest = new ControllerAnnotationToolManifestScanner().scan(source,
-                new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""));
-        var intake = new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assetService, bindings,
-                new HttpApiInventoryStateService(inventories, members)), new ScannerHttpApiContractAdapter());
-        tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, manifest.httpApis().stream()
-                .map(this::scannerData).toList(), manifest.httpApiInventoryComplete())));
+        var manifest = new OpenApiToolManifestScanner().scan(source,
+                new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""), null);
+        var inventory = new HttpApiInventoryIntakeService(assetService, bindings,
+                new HttpApiInventoryStateService(inventories, members));
+        var adapter = new ScannerHttpApiContractAdapter();
+        var scope = new HttpApiServiceScope(project.getId(), project.getProjectCode(), project.getEnvironment());
+        var data = manifest.httpApis().stream().map(this::scannerData).toList();
+        var prepared = inventory.prepare(scope, HttpApiSourceKind.STARTER_MVC, data, "Starter HTTP API 清单",
+                item -> new HttpApiAssetService.ObserveRequest(scope, HttpApiSourceKind.STARTER_MVC, "mvc:" + item.sourceKey(),
+                        item.sourceLocation(), item.sourceRevision(), adapter.contract(project, item), item.businessGroups()));
+        boolean complete = manifest.httpApiInventoryComplete();
+        tx.execute(status -> inventory.observe(scope, HttpApiSourceKind.STARTER_MVC, true, complete,
+                prepared.stream().map(item -> item.request()).toList(),
+                complete ? null : "本次 HTTP API 清单不完整；未报告的旧来源尚未重新确认"));
     }
 
     private void observeOpenApi(ScanProjectEntity project, Path root, Path spec) {
-        var manifest = new OpenApiToolManifestScanner().scan(root, spec,
-                new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""), null, null);
+        var manifest = new OpenApiToolManifestScanner().scan(spec,
+                new ProjectMetadata(project.getProjectCode(), project.getBaseUrl(), ""), null);
         var intake = new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assetService, bindings,
                 new HttpApiInventoryStateService(inventories, members)), new ScannerHttpApiContractAdapter());
         tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.OPENAPI_SCAN, project, manifest.httpApis().stream()
@@ -681,7 +694,7 @@ class HttpApiCatalogAcceptancePersistenceTest {
     }
 
     @org.junit.jupiter.params.ParameterizedTest
-    @org.junit.jupiter.params.provider.EnumSource(value = HttpApiSourceKind.class, names = {"OPENAPI_SCAN", "CONTROLLER_SCAN"})
+    @org.junit.jupiter.params.provider.EnumSource(value = HttpApiSourceKind.class, names = {"OPENAPI_SCAN"})
     void unchangedScannerRevisionSurvivesInventoryRefreshButRealSourceRevisionStillInvalidates(HttpApiSourceKind kind) throws Exception {
         var scope = new HttpApiServiceScope(41L, "orders", "dev");
         var intake = revisionIntake();

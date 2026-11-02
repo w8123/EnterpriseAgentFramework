@@ -165,7 +165,7 @@
       </el-menu>
     </el-scrollbar>
 
-    <footer v-if="!collapsed" ref="sidebarFooterRef" class="sidebar-footer">
+    <footer ref="sidebarFooterRef" class="sidebar-footer">
       <el-popover
         :visible="Boolean(activeFooterPanel)"
         :virtual-ref="sidebarFooterRef"
@@ -190,6 +190,15 @@
         >
           <LiquidGlassLayer :bezel="18" :depth="24" />
           <div class="footer-popover-header">
+            <button
+              v-if="activeFooterPanel === 'settings'"
+              class="footer-back"
+              type="button"
+              aria-label="返回个人中心"
+              @click="activeFooterPanel = 'profile'"
+            >
+              <el-icon><ArrowLeft /></el-icon>
+            </button>
             <div class="footer-popover-heading">
               <h2 class="footer-popover-title" tabindex="-1">{{ activeFooterPanel === 'settings' ? '外观设置' : '个人中心' }}</h2>
               <p v-if="activeFooterPanel === 'settings'">选择适合你的工作台外观</p>
@@ -200,6 +209,20 @@
           </div>
           <div class="footer-tab-panel">
             <div v-if="activeFooterPanel === 'profile'" class="profile-panel">
+              <section class="profile-identity" aria-label="当前身份">
+                <div class="profile-identity-text">
+                  <strong>{{ profileName }}</strong>
+                  <span>当前身份：{{ currentWorkspace.label }}</span>
+                </div>
+              </section>
+              <button
+                class="profile-link"
+                type="button"
+                @click="openMyAiConnections"
+              >
+                <el-icon><Monitor /></el-icon>
+                <span>AI 工具接入</span>
+              </button>
               <button
                 class="profile-link"
                 type="button"
@@ -207,6 +230,14 @@
               >
                 <el-icon><Memo /></el-icon>
                 <span>我的记忆</span>
+              </button>
+              <button
+                class="profile-link"
+                type="button"
+                @click="activeFooterPanel = 'settings'"
+              >
+                <el-icon><Setting /></el-icon>
+                <span>外观设置</span>
               </button>
               <button
                 class="profile-action"
@@ -348,28 +379,44 @@
 
       <button
         class="footer-entry"
-        :class="{ active: activeFooterPanel === 'profile' }"
+        :class="{ active: Boolean(activeFooterPanel) }"
         type="button"
+        :aria-label="`个人中心，${profileName}，当前角色：${currentWorkspace.label}`"
+        :title="collapsed ? `个人中心 · ${profileName}` : undefined"
         aria-haspopup="dialog"
-        :aria-expanded="activeFooterPanel === 'profile'"
+        :aria-expanded="Boolean(activeFooterPanel)"
         @click="toggleFooterPanel('profile')"
       >
-        <el-icon><User /></el-icon>
-        <span>个人</span>
+        <el-icon aria-hidden="true"><User /></el-icon>
+        <span v-if="!collapsed" class="footer-entry-text">
+          <span class="footer-entry-name">{{ profileName }}</span>
+          <small class="footer-entry-role">当前：{{ currentWorkspace.label }}</small>
+        </span>
+        <el-icon v-if="!collapsed" class="footer-entry-arrow" aria-hidden="true"><ArrowUp /></el-icon>
       </button>
-      <span class="footer-divider" aria-hidden="true" />
-      <button
-        class="footer-entry"
-        :class="{ active: activeFooterPanel === 'settings' }"
-        type="button"
+      <LiquidGlassButton
+        v-if="availableWorkspaces.length > 1"
+        class="footer-role-switch"
+        source="wallpaper"
+        :circle="collapsed"
+        native-type="button"
+        :aria-label="`切换角色，当前角色：${currentWorkspace.label}`"
+        :title="collapsed ? `切换角色 · 当前：${currentWorkspace.label}` : undefined"
         aria-haspopup="dialog"
-        :aria-expanded="activeFooterPanel === 'settings'"
-        @click="toggleFooterPanel('settings')"
+        :aria-expanded="roleSwitchOpen"
+        @click="openRoleSwitch"
       >
-        <el-icon><Setting /></el-icon>
-        <span>设置</span>
-      </button>
+        <el-icon aria-hidden="true"><Switch /></el-icon>
+        <span v-if="!collapsed">切换角色</span>
+        <el-icon v-if="!collapsed" class="footer-role-switch-arrow" aria-hidden="true"><ArrowRight /></el-icon>
+      </LiquidGlassButton>
     </footer>
+    <RoleSwitchDialog
+      v-model="roleSwitchOpen"
+      :workspaces="availableWorkspaces"
+      :current="currentWorkspace.key"
+      @select="switchWorkspace"
+    />
   </nav>
 </template>
 
@@ -380,6 +427,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
   ArrowRight,
+  ArrowUp,
   Check,
   Close,
   Memo,
@@ -387,6 +435,7 @@ import {
   Moon,
   Setting,
   Sunny,
+  Switch,
   SwitchButton,
   User,
 } from '@element-plus/icons-vue'
@@ -395,14 +444,13 @@ import { platformSessionUser } from '@/auth/platformSession'
 import { DARK_THEME_ENTRY_READY, useTheme } from '@/composables/useTheme'
 import { supportsLiquidGlassRefraction } from '@/composables/liquidGlass'
 import LiquidGlassLayer from './LiquidGlassLayer.vue'
+import { LiquidGlassButton } from './liquid-glass'
 import { useProjectStore } from '@/store/project'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
-import {
-  filterSidebarMenu,
-  resolveActiveMenu,
-  resolveOpenGroups,
-  sidebarMenu,
-} from './sidebarMenu'
+import { resolveActiveMenu, resolveOpenGroups } from './sidebarMenu'
+import RoleSwitchDialog from './RoleSwitchDialog.vue'
+import { findSidebarWorkspace, type SidebarWorkspaceKey } from './sidebarWorkspaces'
+import { useSidebarWorkspace } from '@/composables/useSidebarWorkspace'
 import { useSidebarKeyboardNavigation } from './useSidebarKeyboardNavigation'
 
 const props = withDefaults(defineProps<{
@@ -449,10 +497,19 @@ const collapsed = computed(() => props.collapsed)
 const hideProjectPanel = computed(() => props.hideProjectPanel)
 const activeMenu = computed(() => resolveActiveMenu(route.path, route.meta.activeMenu))
 const openGroups = computed(() => resolveOpenGroups(route.path))
-const visibleSidebarMenu = computed(() => filterSidebarMenu(
-  sidebarMenu,
-  platformSessionUser.value?.permissions ?? [],
+const {
+  availableWorkspaces,
+  currentWorkspace,
+  visibleMenu: visibleSidebarMenu,
+  setWorkspace,
+  followActiveMenu,
+} = useSidebarWorkspace()
+// 从链接进入其他工作台的页面时，侧栏跟着切过去。
+watch(activeMenu, followActiveMenu, { immediate: true })
+const profileName = computed(() => (
+  platformSessionUser.value?.displayName?.trim() || platformSessionUser.value?.username || '个人'
 ))
+const roleSwitchOpen = ref(false)
 const sidebarMenuRef = ref<MenuInstance>()
 const { setMenuNode, tabindex, isMenuOpen, onMenuFocus, onMenuKeydown, scheduleMenuSync } = useSidebarKeyboardNavigation(
   sidebarMenuRef, visibleSidebarMenu, collapsed, activeMenu,
@@ -644,7 +701,17 @@ async function retryProjectOptions() {
 }
 
 function toggleFooterPanel(panel: 'profile' | 'settings') {
-  activeFooterPanel.value = activeFooterPanel.value === panel ? null : panel
+  activeFooterPanel.value = activeFooterPanel.value ? null : panel
+}
+
+function openRoleSwitch() {
+  activeFooterPanel.value = null
+  roleSwitchOpen.value = true
+}
+
+async function switchWorkspace(key: SidebarWorkspaceKey) {
+  setWorkspace(key)
+  await router.push(findSidebarWorkspace(key)?.home ?? '/dashboard')
 }
 
 // 浮层挂到 body，避免被侧栏的裁切和玻璃变换限制。
@@ -682,6 +749,11 @@ onBeforeUnmount(unbindFooterPanelDismiss)
 async function openMyMemories() {
   activeFooterPanel.value = null
   await router.push('/me/memories')
+}
+
+async function openMyAiConnections() {
+  activeFooterPanel.value = null
+  await router.push('/me/ai-connections')
 }
 
 async function handleLogout() {
@@ -1338,7 +1410,7 @@ async function handleLogout() {
 .sidebar-footer {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: 1fr 1px 1fr;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 10px;
   margin: 0 20px;
@@ -1384,6 +1456,7 @@ async function handleLogout() {
 }
 
 .footer-popover-heading {
+  flex: 1 1 auto;
   min-width: 0;
 
   h2 {
@@ -1764,17 +1837,19 @@ async function handleLogout() {
 }
 
 .footer-entry {
-  height: 30px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
+  padding: 4px 10px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--navigation-ink-secondary);
   font-size: 13px;
   font-weight: 600;
+  text-align: left;
   cursor: pointer;
   transition: color 0.16s ease, background 0.16s ease;
 
@@ -1792,16 +1867,143 @@ async function handleLogout() {
       color: var(--navigation-active);
     }
   }
+
+  &:active {
+    background: var(--surface-pressed);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
+  }
+
+  .footer-entry-arrow {
+    flex-shrink: 0;
+    margin-left: auto;
+    font-size: 12px;
+  }
 }
 
-.footer-divider {
-  width: 1px;
-  height: 18px;
-  background: var(--navigation-divider);
+.footer-entry-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.footer-entry-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer-entry-role {
+  color: var(--navigation-ink-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.profile-identity {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--brand-primary) 6%, transparent);
+}
+
+.profile-identity-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong {
+    overflow: hidden;
+    color: var(--text-primary);
+    font-size: 14px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  span {
+    overflow: hidden;
+    color: var(--text-secondary);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+
+.footer-role-switch {
+  width: 100%;
+
+  :deep(.el-button) {
+    width: 100%;
+    min-height: var(--control-height);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  :deep(.el-button > span) {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .footer-role-switch-arrow {
+    margin-left: auto;
+  }
+}
+
+.footer-back {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+
+  &:hover {
+    background: var(--sb-hover-bg);
+    color: var(--brand-primary);
+  }
 }
 
 /* ── 折叠态 ── */
 .is-collapsed {
+  .sidebar-footer {
+    justify-items: center;
+    gap: 8px;
+    margin: 0 8px;
+    padding: 12px 0;
+  }
+
+  .footer-entry {
+    justify-content: center;
+    width: var(--control-height);
+    min-height: var(--control-height);
+    padding: 0;
+  }
+
+  .footer-role-switch {
+    width: var(--control-height);
+
+    :deep(.el-button > span) {
+      justify-content: center;
+    }
+  }
+
   .menu-group {
     display: none;
   }

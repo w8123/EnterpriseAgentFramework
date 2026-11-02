@@ -8,7 +8,9 @@
 - 只修改当前任务相关内容，保留其他未提交工作；常规实现自主推进，改变已确认产品边界时先明确方案与影响。
 - 产品、用户和核心对象以[产品说明](docs/product.md)为准。Capability 是业务资产统称，Tool 是调用投影，Workflow 是 GraphSpec；Skill 仅指标准包或协议字段。
 - 不把文档、旧会话或未启动待办当作执行授权。不因整理代码或文档自动提交、推送、部署、改库或调用真实写业务。
+- 开发库向开源库同步遵守[开源同步规则](docs/development.md#开源同步)：官网仅保留在开发库，使用过滤快照生成开源改动，不直接合并开发库历史。
 - 搜索优先 `rg` / `rg --files`，中文文件使用 UTF-8。
+- 帮用户部署、升级或排障 ReachAI 时，只用[部署与运维手册](docs/部署与运维手册.md)里的命令（`deploy/install.sh`、`reachai doctor` 等），只改 `reachai.env`；不改 `deploy/docker-compose.yml`，不删 `data/`、`mysql/`，改库前先 `reachai backup`。
 
 ## 架构与数据
 

@@ -24,16 +24,20 @@ import java.util.zip.ZipOutputStream;
 public class BuiltinAgentSkillSource {
 
     private static final String BASE = "ai-assist/skills/";
+    // Extended timestamp: UTC 1980-01-01. Preserve existing UTC release bytes in every runtime timezone.
+    private static final byte[] FIXED_MTIME_EXTRA = java.nio.ByteBuffer.allocate(9)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN).putShort((short) 0x5455).putShort((short) 5)
+            .put((byte) 1).putInt(315532800).array();
     private static final Set<String> TEXT_SUFFIXES = Set.of(
             "md", "yaml", "yml", "json", "xml", "java", "ts", "js", "mjs", "cjs",
             "py", "ps1", "html", "css", "conf", "properties");
     private static final Map<String, Descriptor> DESCRIPTORS = Map.of(
             "agent-ai-coding", new Descriptor(
-                    "agent-ai-coding", "0.1.1", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
+                    "agent-ai-coding", "0.1.3", "ReachAI Agent AI Coding skill for project Agent authoring and governed Skill binding."),
             "reachai-onboarding", new Descriptor(
-                    "reachai-onboarding", "0.6.3", "ReachAI SDK onboarding skill for AI coding tools."),
+                    "reachai-onboarding", "0.6.5", "ReachAI SDK onboarding skill for AI coding tools."),
             "workflow-ai-coding", new Descriptor(
-                    "workflow-ai-coding", "0.1.2", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
+                    "workflow-ai-coding", "0.1.4", "ReachAI Workflow AI Coding skill for editing, validating, and debugging workflow drafts."));
 
     private final PathMatchingResourcePatternResolver resources = new PathMatchingResourcePatternResolver();
 
@@ -87,6 +91,8 @@ public class BuiltinAgentSkillSource {
                     entry.setCompressedSize(content.length);
                     entry.setCrc(crc.getValue());
                     entry.setTimeLocal(LocalDateTime.of(1980, 1, 1, 0, 0));
+                    // JDK 17 assigns a timezone-dependent mtime at this DOS epoch; override that extra field.
+                    entry.setExtra(FIXED_MTIME_EXTRA.clone());
                     zip.putNextEntry(entry);
                     zip.write(content);
                     zip.closeEntry();

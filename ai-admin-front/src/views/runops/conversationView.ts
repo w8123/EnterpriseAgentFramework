@@ -50,6 +50,7 @@ const RUN_ERROR_HINTS: Record<string, string> = {
   TIMED_OUT: '运行超时',
   SUPERVISOR_WORKFLOW_TIMEOUT: '调用的 Workflow 超时',
   SUPERVISOR_PLAN_INCOMPLETE: 'Agent 没能完成规划',
+  SUPERVISOR_PLAN_REQUIRED: 'Agent 没能完成规划，未执行业务操作',
   SUPERVISOR_FINAL_ANSWER_REQUIRED: 'Agent 没有给出最终回答',
   SUPERVISOR_ACTION_REJECTED: '操作被拒绝',
   SUPERVISOR_CANCELLED: '运行被取消',

@@ -25,9 +25,9 @@ class TraceWorkflowCandidateControllerTest {
         RequestMapping mapping = TraceWorkflowCandidateController.class
                 .getAnnotation(RequestMapping.class);
         Method eligibility = TraceWorkflowCandidateController.class
-                .getDeclaredMethod("eligibility", String.class);
+                .getDeclaredMethod("eligibility", jakarta.servlet.http.HttpServletRequest.class, String.class);
         Method create = TraceWorkflowCandidateController.class
-                .getDeclaredMethod("createTask", String.class,
+                .getDeclaredMethod("createTask", jakarta.servlet.http.HttpServletRequest.class, String.class,
                         CreateCandidateTaskRequest.class);
 
         assertArrayEquals(
@@ -40,7 +40,7 @@ class TraceWorkflowCandidateControllerTest {
     }
 
     @Test
-    void delegatesToApplicationService() {
+    void checksTheTraceProjectAndRecordsTheSessionAccountAsCreator() {
         TraceWorkflowCandidateApplicationService service =
                 mock(TraceWorkflowCandidateApplicationService.class);
         TraceWorkflowCandidateController controller =
@@ -49,17 +49,36 @@ class TraceWorkflowCandidateControllerTest {
                 TraceWorkflowCandidateEligibility.ELIGIBILITY_SCHEMA,
                 "trace-1", "orders", true, List.of(), List.of(),
                 "wf-1", 22L, "v1", JsonNodeFactory.instance.objectNode());
-        CreateCandidateTaskRequest request =
-                new CreateCandidateTaskRequest("CODEX", "alice");
         CandidateTaskView view = new CandidateTaskView(
                 "reachai.runops.trace-workflow-candidate-task.v1",
                 true, eligibility, null);
         when(service.eligibility("trace-1")).thenReturn(eligibility);
-        when(service.createOrReuse("trace-1", request)).thenReturn(view);
+        when(service.createOrReuse("trace-1", new CreateCandidateTaskRequest("CODEX", "operator"))).thenReturn(view);
 
-        assertEquals(eligibility, controller.eligibility("trace-1").getBody());
-        assertEquals(view, controller.createTask("trace-1", request).getBody());
-        verify(service).eligibility("trace-1");
-        verify(service).createOrReuse("trace-1", request);
+        var reader = request(new com.enterprise.ai.control.identity.PlatformPermissionGrant("runops:read", "PROJECT", "orders"));
+        assertEquals(eligibility, controller.eligibility(reader, "trace-1").getBody());
+        var denied = org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.createTask(reader, "trace-1", new CreateCandidateTaskRequest("CODEX", "alice")));
+        assertEquals(403, denied.getStatusCode().value());
+
+        var writer = request(new com.enterprise.ai.control.identity.PlatformPermissionGrant("runops:read", "PROJECT", "orders"),
+                new com.enterprise.ai.control.identity.PlatformPermissionGrant("workflow:write", "PROJECT", "orders"));
+        assertEquals(view, controller.createTask(writer, "trace-1", new CreateCandidateTaskRequest("CODEX", "alice")).getBody());
+        verify(service).createOrReuse("trace-1", new CreateCandidateTaskRequest("CODEX", "operator"));
+
+        var otherProject = request(new com.enterprise.ai.control.identity.PlatformPermissionGrant("runops:read", "PROJECT", "billing"));
+        org.junit.jupiter.api.Assertions.assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.eligibility(otherProject, "trace-1"));
+    }
+
+    private static org.springframework.mock.web.MockHttpServletRequest request(
+            com.enterprise.ai.control.identity.PlatformPermissionGrant... grants) {
+        var request = new org.springframework.mock.web.MockHttpServletRequest();
+        request.setAttribute(com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE,
+                new com.enterprise.ai.control.identity.PlatformAuthenticatedSession(
+                        new com.enterprise.ai.control.identity.PlatformPrincipal(42L, "operator", "操作员"), "session", null,
+                        List.of(), java.util.Arrays.stream(grants).map(com.enterprise.ai.control.identity.PlatformPermissionGrant::permissionCode).toList(),
+                        List.of(grants)));
+        return request;
     }
 }

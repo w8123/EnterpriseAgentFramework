@@ -33,6 +33,22 @@ class KnowledgeBizIndexGatewayTest {
     Path temporaryDirectory;
 
     @Test
+    void catalogReadUsesTheAllowlistedSignedTransport() throws Exception {
+        AtomicReference<CapturedRequest> captured = new AtomicReference<>();
+        HttpServer server = server(captured);
+        try {
+            byte[] body = "{\"operation\":\"BASES\"}".getBytes(StandardCharsets.UTF_8);
+            var response = gateway(server, 1_048_576).exchange("POST", KnowledgeBizIndexGateway.CATALOG_INTERNAL_ROOT + "/read",
+                    "default", "7", body, "application/json");
+            assertEquals(200, response.status());
+            assertEquals("/ai/internal/knowledge/console/catalog/read", captured.get().path());
+            verifySignature(captured.get());
+            assertThrows(IllegalArgumentException.class, () -> gateway(server, 1_048_576).exchange("POST",
+                    KnowledgeBizIndexGateway.CATALOG_INTERNAL_ROOT + "/../files", "default", "7", body, "application/json"));
+        } finally { server.stop(0); }
+    }
+
+    @Test
     void signsExactJsonBodyAndReturnsBoundedResponse() throws Exception {
         AtomicReference<CapturedRequest> captured = new AtomicReference<>();
         HttpServer server = server(captured);

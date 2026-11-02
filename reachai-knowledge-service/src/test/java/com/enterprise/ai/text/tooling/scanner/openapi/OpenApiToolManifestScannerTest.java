@@ -14,8 +14,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
-import java.time.Instant;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -187,15 +185,15 @@ class OpenApiToolManifestScannerTest {
                 """);
 
         ProjectMetadata project = new ProjectMetadata("orders", "http://ignored", "/saved-context");
-        ToolManifest manifest = scanner.scan(tempDir, spec, project, null, null);
+        ToolManifest manifest = scanner.scan(spec, project, null);
 
         assertEquals(2, manifest.tools().size(), "legacy tools remain independently available");
         assertTrue(manifest.httpApiInventoryComplete());
         assertEquals(2, manifest.httpApis().size());
         HttpApiOperation get = operation(manifest, "GET");
         HttpApiOperation post = operation(manifest, "POST");
-        assertEquals("contracts/orders.yaml#/paths/~1orders~1{id}/get", get.sourceLocation());
-        assertTrue(get.sourceKey().startsWith("openapi:contracts/orders.yaml:"));
+        assertEquals("orders.yaml#/paths/~1orders~1{id}/get", get.sourceLocation());
+        assertTrue(get.sourceKey().startsWith("openapi:orders.yaml:"));
         assertEquals("REQUIRED", get.authenticationState());
         assertEquals(List.of("API_KEY:ApiKeyAuth"), get.authenticationSchemes());
         assertEquals(List.of("X-API-Key"), get.requiredHeaderNames());
@@ -215,12 +213,12 @@ class OpenApiToolManifestScannerTest {
                 .contains("test-only-openapi-secret-should-not-appear"));
 
         Files.writeString(spec, Files.readString(spec).replace("createOrder", "renamedOperationOnly"));
-        HttpApiOperation renamed = operation(scanner.scan(tempDir, spec, project, null, null), "POST");
+        HttpApiOperation renamed = operation(scanner.scan(spec, project, null), "POST");
         assertEquals(post.sourceKey(), renamed.sourceKey());
         assertEquals(post.sourceRevision(), renamed.sourceRevision());
 
-        HttpApiOperation differentBaseUrl = operation(scanner.scan(tempDir, spec,
-                new ProjectMetadata("orders", "https://other.example", "/saved-context"), null, null), "POST");
+        HttpApiOperation differentBaseUrl = operation(scanner.scan(spec,
+                new ProjectMetadata("orders", "https://other.example", "/saved-context"), null), "POST");
         assertEquals(post.sourceKey(), differentBaseUrl.sourceKey());
         assertEquals(post.sourceRevision(), differentBaseUrl.sourceRevision(),
                 "server host/base URL is never an API identity or source revision fact");
@@ -288,8 +286,8 @@ class OpenApiToolManifestScannerTest {
                     trace: { responses: { '200': {} } }
                 """);
 
-        ToolManifest manifest = scanner.scan(tempDir, spec,
-                new ProjectMetadata("verbs", "https://ignored", ""), null, null);
+        ToolManifest manifest = scanner.scan(spec,
+                new ProjectMetadata("verbs", "https://ignored", ""), null);
 
         assertTrue(manifest.httpApiInventoryComplete());
         assertEquals(List.of("DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT", "TRACE"),
@@ -306,9 +304,9 @@ class OpenApiToolManifestScannerTest {
         ProjectMetadata project = new ProjectMetadata("auth", "https://ignored", "");
 
         writeHeaderAssociationSpec(spec, "X-A", "X-B");
-        ToolManifest first = scanner.scan(tempDir, spec, project, null, null);
+        ToolManifest first = scanner.scan(spec, project, null);
         writeHeaderAssociationSpec(spec, "X-B", "X-A");
-        ToolManifest swapped = scanner.scan(tempDir, spec, project, null, null);
+        ToolManifest swapped = scanner.scan(spec, project, null);
 
         assertFalse(first.httpApiInventoryComplete());
         assertFalse(swapped.httpApiInventoryComplete());
@@ -347,22 +345,22 @@ class OpenApiToolManifestScannerTest {
                     get: { responses: { '200': {} } }
                 """);
 
-        ToolManifest incompatible = scanner.scan(tempDir, spec,
-                new ProjectMetadata("orders", "https://saved.example", "/saved-context"), null, null);
+        ToolManifest incompatible = scanner.scan(spec,
+                new ProjectMetadata("orders", "https://saved.example", "/saved-context"), null);
         assertEquals(1, incompatible.tools().size(), "legacy Tool parsing remains separate from source intake");
         assertTrue(incompatible.httpApis().isEmpty());
         assertFalse(incompatible.httpApiInventoryComplete());
 
         Files.writeString(spec, Files.readString(spec).replace("https://api.example/not-the-saved-context",
                 "https://{tenant}.example/{basePath}"));
-        ToolManifest templated = scanner.scan(tempDir, spec,
-                new ProjectMetadata("orders", "https://saved.example", "/saved-context"), null, null);
+        ToolManifest templated = scanner.scan(spec,
+                new ProjectMetadata("orders", "https://saved.example", "/saved-context"), null);
         assertTrue(templated.httpApis().isEmpty());
         assertFalse(templated.httpApiInventoryComplete());
     }
 
     @Test
-    void treatsSwaggerTwoAndUnchangedIncrementalSpecsAsPartialRatherThanRemovalInventories(@TempDir Path tempDir)
+    void treatsSwaggerTwoAndUnknownSpecsAsPartialRatherThanRemovalInventories(@TempDir Path tempDir)
             throws Exception {
         Path swagger = tempDir.resolve("legacy.json");
         Files.writeString(swagger, """
@@ -391,22 +389,6 @@ class OpenApiToolManifestScannerTest {
         assertEquals(List.of(), completeEmpty.httpApis());
         assertTrue(completeEmpty.httpApiInventoryComplete(),
                 "a well-formed full document with no paths is an explicit safe removal inventory");
-
-        Path current = tempDir.resolve("current.yaml");
-        Files.writeString(current, """
-                openapi: 3.0.3
-                info: { title: Current, version: '1' }
-                paths: { /health: { get: { responses: { '200': {} } } } }
-                """);
-        Files.setLastModifiedTime(current, FileTime.from(Instant.now().minusSeconds(60)));
-        ScanOptions options = ScanOptions.empty();
-        options.setIncrementalMode(ScanOptions.MODE_MTIME);
-
-        ToolManifest unchanged = scanner.scan(current, new ProjectMetadata("current", "http://ignored", ""), options,
-                Instant.now().toEpochMilli());
-        assertEquals(List.of(), unchanged.tools());
-        assertEquals(List.of(), unchanged.httpApis());
-        assertFalse(unchanged.httpApiInventoryComplete());
     }
 
     private HttpApiOperation operation(ToolManifest manifest, String method) {

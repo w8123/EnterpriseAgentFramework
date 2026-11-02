@@ -65,8 +65,8 @@ class CatalogEnrichmentPersistenceTest {
             while (additions.find()) jdbc.execute("ALTER TABLE `" + table + "` ADD COLUMN IF NOT EXISTS `" + additions.group(1) + "` "
                     + additions.group(2).replace("''", "'").replaceAll("(?i)\\s+AFTER\\s+`[^`]+`", "").replaceAll("(?i)\\bJSON\\b", "LONGTEXT"));
         }
-        jdbc.update("INSERT INTO capability_scan_project(id,project_code,name,base_url,scan_path,scan_type) VALUES"
-                + "(7,'orders','Orders','http://fixture.invalid','','controller'),(8,'other','Other','http://fixture.invalid','','controller')");
+        jdbc.update("INSERT INTO capability_scan_project(id,project_code,name,base_url) VALUES"
+                + "(7,'orders','Orders','http://fixture.invalid'),(8,'other','Other','http://fixture.invalid')");
         var config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true);
         for (var mapper : List.of(ScanProjectMapper.class, ScanModuleMapper.class, ScanProjectToolMapper.class, SemanticDocMapper.class, CatalogGroupMemberMapper.class, CatalogClassificationStateMapper.class, ApiGraphNodeMapper.class, ApiGraphEdgeMapper.class, ApiGraphLayoutMapper.class)) config.addMapper(mapper);
         var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(ds); factory.setConfiguration(config);

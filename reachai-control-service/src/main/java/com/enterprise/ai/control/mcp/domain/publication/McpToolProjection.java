@@ -20,7 +20,15 @@ public record McpToolProjection(
         Long workflowVersionId,
         String riskLevel,
         String capabilityContractHash,
-        String minimumRiskLevel) {
+        String minimumRiskLevel,
+        Integer riskContractVersion) {
+
+    public McpToolProjection(String name, String description, String inputSchemaJson,
+            McpPublicationItemKind sourceKind, String sourceRef, Long workflowVersionId,
+            String riskLevel, String capabilityContractHash, String minimumRiskLevel) {
+        this(name, description, inputSchemaJson, sourceKind, sourceRef, workflowVersionId,
+                riskLevel, capabilityContractHash, minimumRiskLevel, null);
+    }
 
     public McpToolProjection(String name, String description, String inputSchemaJson,
             McpPublicationItemKind sourceKind, String sourceRef, Long workflowVersionId,
@@ -53,12 +61,24 @@ public record McpToolProjection(
         sourceRef = McpDomainText.requireText(sourceRef, "sourceRef");
         riskLevel = McpDomainText.optionalText(riskLevel);
         minimumRiskLevel = McpDomainText.optionalText(minimumRiskLevel);
-        if ("WRITE".equals(minimumRiskLevel) && !("WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel))) {
-            throw new McpDomainException("MCP_WORKFLOW_RISK_DOWNGRADE", "WRITE API Workflow cannot be projected as read-only");
+        if (riskContractVersion != null && riskContractVersion != 1) {
+            throw new McpDomainException("MCP_TOOL_RISK_INVALID", "unsupported tool risk contract version");
+        }
+        if (riskContractVersion != null && !("READ".equals(minimumRiskLevel)
+                || "WRITE".equals(minimumRiskLevel) || "IRREVERSIBLE".equals(minimumRiskLevel))) {
+            throw new McpDomainException("MCP_TOOL_RISK_INVALID", "trusted tool risk floor is required");
+        }
+        if ("WRITE".equals(minimumRiskLevel) && !("WRITE".equals(riskLevel) || "IRREVERSIBLE".equals(riskLevel))
+                || "IRREVERSIBLE".equals(minimumRiskLevel) && !"IRREVERSIBLE".equals(riskLevel)) {
+            throw new McpDomainException("MCP_WORKFLOW_RISK_DOWNGRADE", "tool risk cannot be lower than its trusted source");
         }
         if (sourceKind == McpPublicationItemKind.WORKFLOW && workflowVersionId == null) {
             throw new McpDomainException("MCP_WORKFLOW_VERSION_REQUIRED",
                     "WORKFLOW projection " + name + " requires a pinned workflow version");
         }
+    }
+
+    public boolean hasTrustedRiskContract() {
+        return Integer.valueOf(1).equals(riskContractVersion);
     }
 }

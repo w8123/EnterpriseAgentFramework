@@ -66,6 +66,30 @@ class OpenAiCompatibleRuntimeClientOptionsTest {
     }
 
     @Test
+    void noToolsFinalRoundOmitsToolChoiceForProvidersRequiringTools() {
+        ObjectMapper json = new ObjectMapper();
+        ChatRequest request = ChatRequest.builder()
+                .messages(List.of(ChatRequest.ChatMessage.builder().role("user").content("hi").build()))
+                .toolChoice(json.getNodeFactory().textNode("none"))
+                .build();
+        for (boolean stream : List.of(false, true)) {
+            ObjectNode body = client.buildChatBody(runtime("LLM", Map.of()), request, stream);
+            assertFalse(body.has("tools"));
+            assertFalse(body.has("tool_choice"));
+        }
+        request.setTools(json.createArrayNode());
+        ObjectNode emptyTools = client.buildChatBody(runtime("LLM", Map.of()), request, true);
+        assertFalse(emptyTools.has("tools"));
+        assertFalse(emptyTools.has("tool_choice"));
+        var tools = json.createArrayNode();
+        tools.addObject().put("type", "function");
+        request.setTools(tools);
+        ObjectNode withTools = client.buildChatBody(runtime("LLM", Map.of()), request, true);
+        assertEquals("none", withTools.path("tool_choice").asText());
+        assertTrue(withTools.has("tools"));
+    }
+
+    @Test
     void buildEmbeddingBodyRejectsProtectedOptions() {
         ModelInstanceRuntime runtime = runtime("EMBEDDING", Map.of("input", "steal", "encoding_format", "float"));
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,

@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -53,6 +54,7 @@ public class PlatformEmbedSessionService {
         entity.setExternalUserId(claims.getExternalUserId());
         entity.setExternalUserName(StringUtils.hasText(claims.getUserName()) ? claims.getUserName().trim() : null);
         entity.setGlobalUserId(claims.getGlobalUserId());
+        entity.setBusinessSessionId(claims.getBusinessSessionId());
         entity.setPageKey(StringUtils.hasText(pageKey) ? pageKey : claims.getPageKey());
         entity.setPageInstanceId(pageInstanceId);
         entity.setRoute(StringUtils.hasText(route) ? route : claims.getRoute());
@@ -78,7 +80,7 @@ public class PlatformEmbedSessionService {
         PlatformEmbedSessionEntity entity = mapper.selectOne(Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
                 .eq(PlatformEmbedSessionEntity::getSessionId, sessionId)
                 .last("limit 1"));
-        if (entity == null || !"ACTIVE".equals(entity.getStatus())) {
+        if (entity == null || !sessionId.equals(entity.getSessionId()) || !"ACTIVE".equals(entity.getStatus())) {
             throw new PlatformEmbedTokenException("embed chat session not found: " + sessionId);
         }
         requireSamePrincipal(entity, claims);
@@ -106,8 +108,8 @@ public class PlatformEmbedSessionService {
         }
         PlatformEmbedSessionEntity entity = mapper.selectOne(Wrappers.<PlatformEmbedSessionEntity>lambdaQuery()
                 .eq(PlatformEmbedSessionEntity::getSessionId, sessionId)
-                .last("limit 1"));
-        if (entity == null || !"ACTIVE".equals(entity.getStatus())) {
+                .last("limit 1 for update"));
+        if (entity == null || !sessionId.equals(entity.getSessionId()) || !"ACTIVE".equals(entity.getStatus())) {
             throw new PlatformEmbedTokenException("embed chat session not found: " + sessionId);
         }
         requireSamePrincipal(entity, claims);
@@ -147,12 +149,20 @@ public class PlatformEmbedSessionService {
             session.setSdkVersion(sdkVersion.trim());
         }
         session.setUpdatedAt(LocalDateTime.now());
-        mapper.updateById(session);
+        if (mapper.updateById(session) != 1) {
+            throw new IllegalStateException("embed session changed during page bridge rebind");
+        }
     }
 
     private void requireSamePrincipal(PlatformEmbedSessionEntity entity, PlatformEmbedTokenClaims claims) {
-        if (!Objects.equals(entity.getAgentId(), claims.getAgentId())
+        if (!StringUtils.hasText(claims.getTenantId()) || !StringUtils.hasText(claims.getAppId())
+                || !StringUtils.hasText(claims.getOrigin())
+                || !Objects.equals(entity.getTenantId(), claims.getTenantId())
+                || !Objects.equals(entity.getAppId(), claims.getAppId())
+                || !Objects.equals(entity.getAgentId(), claims.getAgentId())
                 || !Objects.equals(entity.getProjectCode(), claims.getProjectCode())
+                || !Objects.equals(entity.getOrigin(), claims.getOrigin())
+                || !Objects.equals(entity.getBusinessSessionId(), claims.getBusinessSessionId())
                 || !Objects.equals(entity.getExternalUserId(), claims.getExternalUserId())) {
             throw new PlatformEmbedTokenException("embed chat session does not match embed token");
         }
@@ -169,9 +179,19 @@ public class PlatformEmbedSessionService {
             if (!refreshedExpiry.isAfter(now)) {
                 throw new PlatformEmbedTokenException("embed chat session is expired");
             }
+            int updated = mapper.update(null, new UpdateWrapper<PlatformEmbedSessionEntity>()
+                    .eq("id", entity.getId())
+                    .eq("session_id", entity.getSessionId())
+                    .eq("status", "ACTIVE")
+                    .eq("page_instance_id", entity.getPageInstanceId())
+                    .eq("expires_at", entity.getExpiresAt())
+                    .set("expires_at", refreshedExpiry)
+                    .set("updated_at", now));
+            if (updated != 1) {
+                throw new PlatformEmbedTokenException("embed chat session changed during renewal");
+            }
             entity.setExpiresAt(refreshedExpiry);
             entity.setUpdatedAt(now);
-            mapper.updateById(entity);
         }
     }
 

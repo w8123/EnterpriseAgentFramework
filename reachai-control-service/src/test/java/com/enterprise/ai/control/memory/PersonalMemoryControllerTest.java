@@ -12,9 +12,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.lang.reflect.Method;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -23,63 +25,65 @@ import static org.mockito.Mockito.when;
 class PersonalMemoryControllerTest {
 
     @Test
-    void exposesSelfServicePersonalMemoryContract() throws Exception {
+    void exposesAddEditDeleteAndGroupsButNoAuditOrCandidates() throws Exception {
         Class<PersonalMemoryController> type = PersonalMemoryController.class;
         assertArrayEquals(new String[]{"/api/me/memories"}, type.getAnnotation(RequestMapping.class).value());
 
+        Method tree = type.getDeclaredMethod("tree", HttpServletRequest.class);
         Method list = type.getDeclaredMethod("list", HttpServletRequest.class,
-                String.class, String.class, String.class, String.class, Integer.class, Integer.class);
+                String.class, Long.class, String.class, String.class, Integer.class, Integer.class);
         Method remember = type.getDeclaredMethod("remember", HttpServletRequest.class,
-                String.class, PersonalMemoryService.RememberCommand.class);
-        Method get = type.getDeclaredMethod("get", HttpServletRequest.class, String.class, Long.class);
+                PersonalMemoryService.RememberCommand.class);
         Method update = type.getDeclaredMethod("update", HttpServletRequest.class,
-                String.class, Long.class, PersonalMemoryService.UpdateCommand.class);
-        Method forget = type.getDeclaredMethod("forget", HttpServletRequest.class, String.class, Long.class);
-        Method eraseAll = type.getDeclaredMethod("eraseAll", HttpServletRequest.class,
-                String.class, PersonalMemoryService.EraseAllCommand.class);
-        Method audit = type.getDeclaredMethod("audit", HttpServletRequest.class, String.class, Integer.class);
-        Method export = type.getDeclaredMethod("export", HttpServletRequest.class, String.class);
-        Method candidates = type.getDeclaredMethod("candidates", HttpServletRequest.class,
-                String.class, String.class, Integer.class, Integer.class);
-        Method approve = type.getDeclaredMethod("approve", HttpServletRequest.class,
-                String.class, Long.class, PersonalMemoryCandidateService.ReviewCommand.class);
-        Method reject = type.getDeclaredMethod("reject", HttpServletRequest.class, String.class, Long.class);
+                Long.class, PersonalMemoryService.UpdateCommand.class);
+        Method forget = type.getDeclaredMethod("forget", HttpServletRequest.class, Long.class);
+        Method createGroup = type.getDeclaredMethod("createGroup", HttpServletRequest.class,
+                PersonalMemoryGroupService.CreateGroupCommand.class);
+        Method updateGroup = type.getDeclaredMethod("updateGroup", HttpServletRequest.class,
+                Long.class, PersonalMemoryGroupService.UpdateGroupCommand.class);
+        Method deleteGroup = type.getDeclaredMethod("deleteGroup", HttpServletRequest.class, Long.class);
+        Method addProject = type.getDeclaredMethod("addProject", HttpServletRequest.class,
+                PersonalMemoryGroupService.AddProjectCommand.class);
 
+        assertArrayEquals(new String[]{"/tree"}, tree.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[]{}, list.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[]{}, remember.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[]{"/{id}"}, get.getAnnotation(GetMapping.class).value());
         assertArrayEquals(new String[]{"/{id}"}, update.getAnnotation(PutMapping.class).value());
         assertArrayEquals(new String[]{"/{id}"}, forget.getAnnotation(DeleteMapping.class).value());
-        assertArrayEquals(new String[]{"/erase-all"}, eraseAll.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[]{"/audit"}, audit.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[]{"/export"}, export.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[]{"/candidates"}, candidates.getAnnotation(GetMapping.class).value());
-        assertArrayEquals(new String[]{"/candidates/{id}/approve"}, approve.getAnnotation(PostMapping.class).value());
-        assertArrayEquals(new String[]{"/candidates/{id}/reject"}, reject.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[]{"/groups"}, createGroup.getAnnotation(PostMapping.class).value());
+        assertArrayEquals(new String[]{"/groups/{id}"}, updateGroup.getAnnotation(PutMapping.class).value());
+        assertArrayEquals(new String[]{"/groups/{id}"}, deleteGroup.getAnnotation(DeleteMapping.class).value());
+        assertArrayEquals(new String[]{"/projects"}, addProject.getAnnotation(PostMapping.class).value());
+        assertTrue(Arrays.stream(type.getDeclaredMethods()).map(Method::getName)
+                .noneMatch(name -> name.equals("audit") || name.contains("andidate")
+                        || name.equals("approve") || name.equals("reject")));
     }
 
     @Test
-    void manualRememberIsAlwaysRecordedAsManualAndReturnsCreated() {
+    void manualRememberIsAlwaysRecordedAsManualAndKeepsTheChosenGroup() {
         PersonalMemoryIdentityResolver resolver = mock(PersonalMemoryIdentityResolver.class);
         PersonalMemoryService service = mock(PersonalMemoryService.class);
         PersonalMemoryController controller = new PersonalMemoryController(resolver, service,
-                mock(PersonalMemoryCandidateService.class));
+                mock(PersonalMemoryGroupService.class));
         HttpServletRequest request = mock(HttpServletRequest.class);
         var principal = new PersonalMemoryIdentityResolver.PersonalMemoryPrincipal(
                 "default", "user-1", 1L, "user", "platform-session");
         var command = new PersonalMemoryService.RememberCommand("FACT", null, null, "content", null,
-                null, null, "CONVERSATION", "s1", "t1", "a1");
-        var view = new PersonalMemoryService.MemoryView(1L, "FACT", null, "content", null,
+                null, null, "CONVERSATION", "s1", "t1", "a1", "yudao-erp", 21L);
+        var view = new PersonalMemoryService.MemoryView(1L, "NOTE", null, "content", null,
+                "PROJECT", "project:yudao-erp", "yudao-erp", "芋道 ERP", 21L, "备注",
                 "MANUAL", null, null, LocalDateTime.now(), LocalDateTime.now());
         when(resolver.resolve(request, null)).thenReturn(principal);
         when(service.remember(eq(principal), any())).thenAnswer(invocation -> {
             PersonalMemoryService.RememberCommand manual = invocation.getArgument(1);
             assertEquals(PersonalMemoryService.SOURCE_MANUAL, manual.source());
             assertEquals(null, manual.agentId());
+            assertEquals("yudao-erp", manual.projectCode());
+            assertEquals(21L, manual.groupId());
             return new PersonalMemoryService.RememberResult(view, true, false, false);
         });
 
-        ResponseEntity<PersonalMemoryService.RememberResult> response = controller.remember(request, null, command);
+        ResponseEntity<PersonalMemoryService.RememberResult> response = controller.remember(request, command);
 
         assertEquals(HttpStatus.CREATED, response.getStatusCode());
         assertEquals(1L, response.getBody().memory().id());

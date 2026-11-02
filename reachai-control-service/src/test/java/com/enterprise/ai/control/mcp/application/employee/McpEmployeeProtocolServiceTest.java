@@ -18,6 +18,8 @@ import com.enterprise.ai.control.mcp.domain.publication.McpPublicationItemKind;
 import com.enterprise.ai.control.mcp.domain.publication.McpPublicationRevision;
 import com.enterprise.ai.control.mcp.domain.publication.McpPublicationStatus;
 import com.enterprise.ai.control.mcp.domain.publication.McpToolProjection;
+import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
+import com.enterprise.ai.control.memory.PersonalMemoryService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -54,6 +56,7 @@ class McpEmployeeProtocolServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(sync.hasActiveOrigin(any(), any(), any(), any())).thenReturn(true);
         service = new McpEmployeeProtocolService(connections, access, publications, sync, acl, gateway, audit,
                 new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper());
         access.save(new McpEmployeeAccess(null, 11L, "yudao-erp", "芋道 ERP", true));
@@ -100,12 +103,35 @@ class McpEmployeeProtocolServiceTest {
     }
 
     @Test
+    void revokedOriginCannotUseConnectionEvenWhenAnotherSystemRemainsActive() {
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp", "crm");
+        when(sync.hasActiveOrigin(eq("default"), eq(7L), eq("yudao-erp"), eq("1"))).thenReturn(false);
+        assertEquals("MCP_CLIENT_DISABLED", assertThrows(McpDomainException.class,
+                () -> service.authenticate(KEY)).code());
+        verify(gateway, never()).executeAsEmployee(any());
+    }
+
+    @Test
     void toolsHideIrreversibleAndPrefixOnlyCollidingNames() {
         connect(LocalDateTime.now().plusDays(1), "yudao-erp", "crm");
 
         var names = service.visibleTools(service.authenticate(KEY)).stream().map(t -> t.get("name")).toList();
 
         assertEquals(List.of("erpStockPage", "yudao-erp__search", "crm__search"), names);
+    }
+
+    @Test
+    void legacyRiskLabelsAreNotExposedOrDispatched() {
+        var legacy = new McpToolProjection("oldWrite", "d", "{}", McpPublicationItemKind.CAPABILITY,
+                "yudao-erp.oldWrite", null, "READ", "c".repeat(64));
+        published(11L, List.of(legacy));
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp");
+        var session = service.authenticate(KEY);
+        assertTrue(service.visibleTools(session).isEmpty());
+        assertTrue(service.instructions(session).contains("重新校验并发布"));
+        assertEquals("MCP_TOOL_NOT_VISIBLE", assertThrows(McpDomainException.class,
+                () -> service.callTool(session, "oldWrite", Map.of())).code());
+        verify(gateway, never()).executeAsEmployee(any());
     }
 
     @Test
@@ -159,6 +185,71 @@ class McpEmployeeProtocolServiceTest {
         assertEquals(3L, entry.getValue().projectId());
     }
 
+    @Test
+    void memoryToolsWorkOnTheEmployeesOwnMemoriesAndOnlyConnectedProjects() {
+        PersonalMemoryService memories = mock(PersonalMemoryService.class);
+        McpEmployeeProtocolService withMemory = new McpEmployeeProtocolService(connections, access, publications,
+                sync, acl, gateway, audit, new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper(),
+                new EmployeeMemoryTools(memories));
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp");
+        var session = withMemory.authenticate(KEY);
+        PersonalMemoryPrincipal owner = PersonalMemoryPrincipal.business("default", "1", "yudao-erp");
+        when(memories.remember(eq(owner), any())).thenReturn(new PersonalMemoryService.RememberResult(
+                new PersonalMemoryService.MemoryView(5L, "NOTE", null, "查库存默认看 1 号仓", List.of(), "PROJECT",
+                        "project:yudao-erp", "yudao-erp", "芋道 ERP", 21L, "备注", "AI_TOOL", "Claude Code",
+                        null, LocalDateTime.now(), LocalDateTime.now()), true, false, false));
+
+        var names = withMemory.visibleTools(session).stream().map(t -> t.get("name")).toList();
+        assertTrue(names.containsAll(List.of(EmployeeMemoryTools.SEARCH, EmployeeMemoryTools.SAVE,
+                EmployeeMemoryTools.FORGET)));
+
+        var saved = withMemory.callTool(session, EmployeeMemoryTools.SAVE,
+                Map.of("content", "查库存默认看 1 号仓", "projectCode", "yudao-erp"));
+        assertTrue(saved.result().success());
+        assertEquals("芋道 ERP · 备注", saved.result().output().get("where"));
+        ArgumentCaptor<PersonalMemoryService.RememberCommand> command =
+                ArgumentCaptor.forClass(PersonalMemoryService.RememberCommand.class);
+        verify(memories).remember(eq(owner), command.capture());
+        assertEquals("yudao-erp", command.getValue().projectCode());
+        assertEquals(PersonalMemoryService.SOURCE_AI_TOOL, command.getValue().source());
+        assertEquals("Claude Code", command.getValue().agentId());
+        verify(gateway, never()).executeAsEmployee(any());
+
+        var foreign = withMemory.callTool(session, EmployeeMemoryTools.SAVE,
+                Map.of("content", "x", "projectCode", "crm"));
+        assertEquals("MCP_MEMORY_PROJECT", foreign.result().errorCode());
+
+        when(memories.forget(eq(owner), eq(99L))).thenThrow(
+                new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
+        var missing = withMemory.callTool(session, EmployeeMemoryTools.FORGET, Map.of("memoryId", 99));
+        assertEquals("MCP_MEMORY_REJECTED", missing.result().errorCode());
+        assertEquals("没有找到这条记忆", missing.result().output().get("message"));
+    }
+
+    @Test
+    void handshakeInstructionsCarryTheEmployeesPreferences() {
+        PersonalMemoryService memories = mock(PersonalMemoryService.class);
+        McpEmployeeProtocolService withMemory = new McpEmployeeProtocolService(connections, access, publications,
+                sync, acl, gateway, audit, new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper(),
+                new EmployeeMemoryTools(memories));
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp");
+        when(memories.query(any(), any())).thenAnswer(invocation -> {
+            PersonalMemoryService.QueryCommand query = invocation.getArgument(1);
+            List<PersonalMemoryService.QueryHit> hits = query.projectCode() == null
+                    ? List.of(new PersonalMemoryService.QueryHit(1L, "PREFERENCE", null, "回答用中文", 1, null, null))
+                    : List.of(new PersonalMemoryService.QueryHit(1L, "PREFERENCE", null, "回答用中文", 1, null, null),
+                            new PersonalMemoryService.QueryHit(2L, "PREFERENCE", null, "部门默认填华东销售部", 1, null,
+                                    "yudao-erp"));
+            return new PersonalMemoryService.QueryResult(hits, hits.size(), 10, 1500, false);
+        });
+
+        String instructions = withMemory.instructions(withMemory.authenticate(KEY));
+
+        assertTrue(instructions.contains("- 回答用中文"));
+        assertTrue(instructions.contains("- 【芋道 ERP】部门默认填华东销售部"));
+        assertEquals(1, instructions.split("回答用中文", -1).length - 1);
+    }
+
     private AiToolConnection connect(LocalDateTime expiresAt, String... projectCodes) {
         List<ConnectedSystem> systems = java.util.Arrays.stream(projectCodes)
                 .map(code -> new ConnectedSystem(code, "crm".equals(code) ? 12L : 11L)).toList();
@@ -177,6 +268,6 @@ class McpEmployeeProtocolServiceTest {
 
     private static McpToolProjection tool(String name, String risk, String sourceRef) {
         return new McpToolProjection(name, "d", "{\"type\":\"object\"}", McpPublicationItemKind.CAPABILITY,
-                sourceRef, null, risk, "c".repeat(64));
+                sourceRef, null, risk, "c".repeat(64), risk, 1);
     }
 }

@@ -42,21 +42,11 @@ These node types can mutate external systems or data:
 - `MCP_CALL`
 - `KNOWLEDGE_WRITE`
 
-Before real execution, require:
-
-```json
-{
-  "runtimeContext": {
-    "confirmSideEffects": true
-  }
-}
-```
-
-Prefer `dryRun=true` first.
+Do not treat `runtimeContext.confirmSideEffects` as authorization or `dryRun=true` as a verified sandbox. Check the actual execution policy and request any required human authorization before running a graph that can change business data.
 
 ## PAGE_ACTION Safety
 
-`PAGE_ACTION` nodes queue client-side actions. Real page execution requires embed/page bridge context and may still need human confirmation for `confirmRequired` actions.
+`PAGE_ACTION` nodes queue client-side actions. An Embed session id alone does not authorize them. The guarded smoke-test path requires a separately verified business-page token supplied by a human-controlled client, explicit real execution, and page confirmation for each action. Do not collect or pass the token through AI tools. The current smoke path rejects external TOOL and HTTP nodes and has no dry-run sandbox.
 
 Do not claim a PAGE_ASSISTANT workflow is production-ready based only on a successful backend debug run. Verify the real browser interaction, business request and visible result, then report that acceptance through the current workbench task.
 

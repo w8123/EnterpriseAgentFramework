@@ -37,21 +37,23 @@ public class PersonalMemoryRecallService {
                                       String tenantId,
                                       String runtimeUserId,
                                       Map<String, Object> body) {
-        if (!StringUtils.hasText(runtimeUserId)
-                || !("AGENT".equalsIgnoreCase(identitySource)
-                || "EMBED_SESSION".equalsIgnoreCase(identitySource))) {
-            return Map.of();
-        }
+        // An embed caller must supply a separately attested business owner, not a bare user ID.
+        if (!StringUtils.hasText(runtimeUserId) || !"AGENT".equalsIgnoreCase(identitySource)) return Map.of();
         String tenant = StringUtils.hasText(tenantId) ? tenantId.trim().toLowerCase(Locale.ROOT) : "default";
-        String user = runtimeUserId.trim();
+        return recall(new PersonalMemoryPrincipal(tenant, runtimeUserId.trim(), null, null, null), body);
+    }
+
+    public Map<String, Object> recall(PersonalMemoryPrincipal owner, Map<String, Object> body) {
+        if (owner == null) return Map.of();
+        String tenant = owner.tenantId();
         String query = firstText(stringValue(body, "message"), stringValue(body, "userInput"),
                 stringValue(body, "input"), "");
         try {
             QueryResult result = memoryService.query(
-                    new PersonalMemoryPrincipal(tenant, user, null, null, null),
+                    owner,
                     new QueryCommand(query, null, topK, maxChars,
                             stringValue(body, "sessionId"), stringValue(body, "traceId"),
-                            stringValue(body, "agentId")));
+                            stringValue(body, "agentId"), stringValue(body, "projectCode")));
             if (result.hits().isEmpty()) {
                 return Map.of();
             }
@@ -64,7 +66,7 @@ public class PersonalMemoryRecallService {
             return Map.copyOf(payload);
         } catch (RuntimeException failure) {
             log.warn("Personal memory recall degraded: source={}, tenant={}, failureType={}",
-                    identitySource, tenant, failure.getClass().getSimpleName());
+                    "ATTESTED_OWNER", tenant, failure.getClass().getSimpleName());
             return Map.of();
         }
     }

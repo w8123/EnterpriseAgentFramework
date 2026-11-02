@@ -26,8 +26,6 @@ function createProject(id: number, projectCode: string): ScanProject {
     projectCode,
     baseUrl: '',
     contextPath: '',
-    scanPath: '',
-    scanType: 'auto',
     toolCount: 0,
     status: 'created',
   }

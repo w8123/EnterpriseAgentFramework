@@ -25,24 +25,27 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Control-owned long-term memory. A memory belongs to one runtime user and is shared by every
- * Agent that reads personal memory; each row records the Agent and session it came from.
+ * Control-owned long-term memory. A memory belongs to one person and is shared by every Agent and AI
+ * tool that reads personal memory. It lives in the personal layer or one project's layer, inside one of
+ * the owner's groups; each row records where it came from. The owner manages it by adding, editing and
+ * deleting; nothing else is logged about it.
  */
 @Service
 public class PersonalMemoryService {
 
     public static final String SOURCE_MANUAL = "MANUAL";
     public static final String SOURCE_CONVERSATION = "CONVERSATION";
-    public static final String SOURCE_CANDIDATE = "CANDIDATE";
+    public static final String SOURCE_AI_TOOL = "AI_TOOL";
     public static final String ERASE_ALL_CONFIRMATION = "ERASE_ALL_PERSONAL_MEMORIES";
 
     static final Set<String> ALLOWED_TYPES = Set.of("FACT", "PREFERENCE", "RULE", "NOTE");
-    private static final Set<String> SOURCES = Set.of(SOURCE_MANUAL, SOURCE_CONVERSATION, SOURCE_CANDIDATE);
+    private static final Set<String> SOURCES = Set.of(SOURCE_MANUAL, SOURCE_CONVERSATION, SOURCE_AI_TOOL);
     private static final Set<String> GLOBAL_RECALL_TYPES = Set.of("PREFERENCE", "RULE");
     private static final Set<String> STABLE_PROFILE_KEYS = Set.of(
             semanticSourceRef("profile:name"),
@@ -59,8 +62,7 @@ public class PersonalMemoryService {
             "BACKUP_EXPIRY_AND_RESTORE");
 
     private final PersonalMemoryMapper memoryMapper;
-    private final PersonalMemoryCandidateMapper candidateMapper;
-    private final PersonalMemoryAuditMapper auditMapper;
+    private final PersonalMemoryGroupService groupService;
     private final ObjectMapper objectMapper;
     private final PersonalMemoryIndexOutboxService indexOutboxService;
     private final PersonalMemoryKnowledgeQueryClient knowledgeQueryClient;
@@ -68,17 +70,14 @@ public class PersonalMemoryService {
     private final int maxActivePerOwner;
 
     public PersonalMemoryService(PersonalMemoryMapper memoryMapper,
-                                 PersonalMemoryCandidateMapper candidateMapper,
-                                 PersonalMemoryAuditMapper auditMapper,
+                                 PersonalMemoryGroupService groupService,
                                  ObjectMapper objectMapper) {
-        this(memoryMapper, candidateMapper, auditMapper, objectMapper, null, null, null,
-                DEFAULT_MAX_ACTIVE_PER_OWNER);
+        this(memoryMapper, groupService, objectMapper, null, null, null, DEFAULT_MAX_ACTIVE_PER_OWNER);
     }
 
     @Autowired
     public PersonalMemoryService(PersonalMemoryMapper memoryMapper,
-                                 PersonalMemoryCandidateMapper candidateMapper,
-                                 PersonalMemoryAuditMapper auditMapper,
+                                 PersonalMemoryGroupService groupService,
                                  ObjectMapper objectMapper,
                                  PersonalMemoryIndexOutboxService indexOutboxService,
                                  PersonalMemoryKnowledgeQueryClient knowledgeQueryClient,
@@ -90,8 +89,7 @@ public class PersonalMemoryService {
                     "personal memory max-active-items-per-owner must be between 1 and 100000");
         }
         this.memoryMapper = memoryMapper;
-        this.candidateMapper = candidateMapper;
-        this.auditMapper = auditMapper;
+        this.groupService = groupService;
         this.objectMapper = objectMapper;
         this.indexOutboxService = indexOutboxService;
         this.knowledgeQueryClient = knowledgeQueryClient;
@@ -99,22 +97,25 @@ public class PersonalMemoryService {
         this.maxActivePerOwner = maxActivePerOwner;
     }
 
+    /** {@code scope} is blank (every layer), {@code personal} or {@code project:<code>}. */
     @Transactional(readOnly = true)
-    public MemoryPage list(PersonalMemoryPrincipal principal, String type, String agentId, String keyword,
-                           Integer limit, Integer offset) {
+    public MemoryPage list(PersonalMemoryPrincipal principal, String scope, Long groupId, String agentId,
+                           String keyword, Integer limit, Integer offset) {
         int boundedLimit = Math.max(1, Math.min(limit == null ? 50 : limit, 200));
         int boundedOffset = Math.max(0, offset == null ? 0 : offset);
+        PersonalMemoryScope layer = PersonalMemoryScope.parseFilter(scope);
         String word = trim(keyword);
-        var scope = owned(principal)
-                .eq(StringUtils.hasText(type), PersonalMemoryEntity::getMemoryType, validatedType(type))
+        var query = owned(principal)
+                .eq(layer != null, PersonalMemoryEntity::getScopeKey, layer == null ? null : layer.key())
+                .eq(groupId != null, PersonalMemoryEntity::getGroupId, groupId)
                 .eq(StringUtils.hasText(agentId), PersonalMemoryEntity::getSourceAgentId, trim(agentId))
                 .and(word != null, q -> q.like(PersonalMemoryEntity::getTitle, word)
-                        .or().like(PersonalMemoryEntity::getContent, word))
-                .orderByDesc(PersonalMemoryEntity::getUpdatedAt)
-                .orderByDesc(PersonalMemoryEntity::getId);
-        long total = memoryMapper.selectCount(scope);
-        List<MemoryView> items = memoryMapper.selectList(scope.last("LIMIT " + boundedOffset + ", " + boundedLimit))
-                .stream().map(this::view).toList();
+                        .or().like(PersonalMemoryEntity::getContent, word));
+        long total = memoryMapper.selectCount(query);
+        query.orderByDesc(PersonalMemoryEntity::getUpdatedAt).orderByDesc(PersonalMemoryEntity::getId);
+        Map<Long, PersonalMemoryGroupEntity> groups = groupService.groupsById(principal);
+        List<MemoryView> items = memoryMapper.selectList(query.last("LIMIT " + boundedOffset + ", " + boundedLimit))
+                .stream().map(memory -> view(memory, groups)).toList();
         return new MemoryPage(items, total, boundedLimit, boundedOffset);
     }
 
@@ -124,7 +125,7 @@ public class PersonalMemoryService {
             throw badRequest("personal memory command is required");
         }
         String content = PersonalMemoryContentPolicy.validate(command.content());
-        String type = validatedType(command.type());
+        if (StringUtils.hasText(command.type())) validatedType(command.type());
         String title = bounded(command.title(), MAX_TITLE_CHARS, "title");
         String semanticKey = bounded(command.semanticKey(), 128, "semanticKey");
         String clientRequestId = bounded(command.clientRequestId(), 128, "clientRequestId");
@@ -134,7 +135,9 @@ public class PersonalMemoryService {
         }
         String memoryKey = clientRequestId == null
                 ? "pm-" + UUID.randomUUID().toString().replace("-", "")
-                : "pm-" + sha256(principal.tenantId() + "\n" + principal.runtimeUserId() + "\n" + clientRequestId);
+                : "pm-" + sha256(PersonalMemoryPrincipal.LEGACY_DOMAIN.equals(principal.ownerDomain())
+                        ? principal.tenantId() + "\n" + principal.runtimeUserId() + "\n" + clientRequestId
+                        : scopedRequestKey(principal, clientRequestId));
         String contentHash = contentHash(content);
 
         if (clientRequestId != null) {
@@ -144,13 +147,17 @@ public class PersonalMemoryService {
                 return new RememberResult(view(replay), false, true, false);
             }
         }
+        PersonalMemoryGroupEntity group = groupService.target(principal,
+                PersonalMemoryScope.of(command.projectCode()), command.groupId(), command.type());
+        PersonalMemoryScope scope = PersonalMemoryScope.of(group.getProjectCode());
+        String type = PersonalMemoryGroupService.typeFor(group.getKind(), command.type());
         if (semanticKey != null) {
-            PersonalMemoryEntity existing = memoryMapper.selectOne(owned(principal)
+            PersonalMemoryEntity existing = memoryMapper.selectOne(inLayer(principal, scope)
                     .eq(PersonalMemoryEntity::getSemanticKey, semanticSourceRef(semanticKey))
                     .last("LIMIT 1 FOR UPDATE"));
             if (existing != null) {
-                String previousHash = existing.getContentSha256();
                 existing.setMemoryType(type);
+                existing.setGroupId(group.getId());
                 existing.setTitle(title);
                 existing.setContent(content);
                 existing.setContentSha256(contentHash);
@@ -162,16 +169,11 @@ public class PersonalMemoryService {
                 existing.setUpdatedAt(LocalDateTime.now());
                 updateOrConflict(existing);
                 enqueueUpsert(principal, existing);
-                audit("UPDATE", principal, existing.getId(), command.agentId(), command.sessionId(),
-                        command.traceId(), "ALLOW", "SEMANTIC_KEY_REPLACE",
-                        Map.of("previousContentSha256", previousHash, "contentSha256", contentHash));
                 return new RememberResult(view(existing), false, false, true);
             }
         }
-        PersonalMemoryEntity duplicate = byContent(principal, contentHash);
+        PersonalMemoryEntity duplicate = byContent(principal, scope, contentHash);
         if (duplicate != null) {
-            audit("CREATE", principal, duplicate.getId(), command.agentId(), command.sessionId(),
-                    command.traceId(), "SKIP", "EXACT_DUPLICATE", Map.of("contentSha256", contentHash));
             return new RememberResult(view(duplicate), false, true, false);
         }
         if (activeCount(principal) >= maxActivePerOwner) {
@@ -184,6 +186,10 @@ public class PersonalMemoryService {
         entity.setMemoryKey(memoryKey);
         entity.setTenantId(principal.tenantId());
         entity.setOwnerId(principal.runtimeUserId());
+        entity.setOwnerDomain(principal.ownerDomain());
+        entity.setScopeKey(scope.key());
+        entity.setProjectCode(scope.projectCode());
+        entity.setGroupId(group.getId());
         entity.setMemoryType(type);
         entity.setTitle(title);
         entity.setContent(content);
@@ -201,15 +207,13 @@ public class PersonalMemoryService {
         } catch (DuplicateKeyException race) {
             // A concurrent write for the same key, content or semantic slot won; return it.
             PersonalMemoryEntity winner = byKey(memoryKey);
-            if (winner == null) winner = byContent(principal, contentHash);
+            if (winner == null) winner = byContent(principal, scope, contentHash);
             if (winner == null || !owns(winner, principal)) {
                 throw race;
             }
             return new RememberResult(view(winner), false, true, false);
         }
         enqueueUpsert(principal, entity);
-        audit("CREATE", principal, entity.getId(), command.agentId(), command.sessionId(), command.traceId(),
-                "ALLOW", source, Map.of("contentSha256", contentHash));
         return new RememberResult(view(entity), true, false, false);
     }
 
@@ -218,14 +222,23 @@ public class PersonalMemoryService {
         return view(requireOwned(principal, id, false));
     }
 
+    /** Edits a memory; a new {@code groupId} moves it, possibly into another layer. */
     @Transactional
     public MemoryView update(PersonalMemoryPrincipal principal, Long id, UpdateCommand command) {
         if (command == null) {
             throw badRequest("personal memory update is required");
         }
         PersonalMemoryEntity memory = requireOwned(principal, id, true);
-        String previousHash = memory.getContentSha256();
         if (command.type() != null) memory.setMemoryType(validatedType(command.type()));
+        if (command.groupId() != null && !command.groupId().equals(memory.getGroupId())) {
+            PersonalMemoryGroupEntity group = groupService.target(principal, PersonalMemoryScope.PERSONAL,
+                    command.groupId(), null);
+            PersonalMemoryScope scope = PersonalMemoryScope.of(group.getProjectCode());
+            memory.setGroupId(group.getId());
+            memory.setScopeKey(scope.key());
+            memory.setProjectCode(scope.projectCode());
+            memory.setMemoryType(PersonalMemoryGroupService.typeFor(group.getKind(), memory.getMemoryType()));
+        }
         if (command.title() != null) memory.setTitle(bounded(command.title(), MAX_TITLE_CHARS, "title"));
         if (command.content() != null) {
             memory.setContent(PersonalMemoryContentPolicy.validate(command.content()));
@@ -236,8 +249,6 @@ public class PersonalMemoryService {
         memory.setUpdatedAt(LocalDateTime.now());
         updateOrConflict(memory);
         enqueueUpsert(principal, memory);
-        audit("UPDATE", principal, memory.getId(), null, null, null, "ALLOW", "SELF_UPDATE",
-                Map.of("previousContentSha256", previousHash, "contentSha256", memory.getContentSha256()));
         return view(memory);
     }
 
@@ -246,13 +257,12 @@ public class PersonalMemoryService {
         PersonalMemoryEntity memory = requireOwned(principal, id, true);
         LocalDateTime now = LocalDateTime.now();
         delete(principal, memory, null);
-        audit("DELETE", principal, null, null, null, null, "ALLOW", "SELF_FORGET", Map.of());
         return new ForgetView(id, now);
     }
 
     /**
-     * Erases the owner's whole Control personal-memory domain. Runtime sessions, business source
-     * systems, RunOps and backups are separate domains with their own owners and evidence.
+     * Erases the owner's whole Control personal-memory domain, groups included. Runtime sessions,
+     * business source systems, RunOps and backups are separate domains with their own owners.
      */
     @Transactional
     public EraseAllView eraseAll(PersonalMemoryPrincipal principal, EraseAllCommand command) {
@@ -267,20 +277,23 @@ public class PersonalMemoryService {
         }
         LocalDateTime now = LocalDateTime.now();
         List<PersonalMemoryEntity> memories =
-                memoryMapper.selectOwnedForUpdate(principal.tenantId(), principal.runtimeUserId());
+                memoryMapper.selectOwnedForUpdate(principal.tenantId(), principal.runtimeUserId(), principal.ownerDomain());
         for (PersonalMemoryEntity memory : memories) {
             delete(principal, memory, correlationId);
         }
-        int candidatesErased = candidateMapper.deleteAllForOwner(principal.tenantId(), principal.runtimeUserId());
-        auditMapper.delete(Wrappers.<PersonalMemoryAuditEntity>lambdaQuery()
-                .eq(PersonalMemoryAuditEntity::getTenantId, principal.tenantId())
-                .eq(PersonalMemoryAuditEntity::getOwnerId, principal.runtimeUserId()));
-        audit("ERASE_ALL", principal, null, null, null, null, "ALLOW", "SELF_ERASE_ALL", Map.of(
-                "memoriesErased", memories.size(),
-                "candidatesErased", candidatesErased,
-                "retainedDomains", ERASE_ALL_RETAINED_DOMAINS));
-        return new EraseAllView("CONTROL_PERSONAL_MEMORY_ERASED", memories.size(), candidatesErased, now,
-                memories.isEmpty() && candidatesErased == 0, ERASE_ALL_RETAINED_DOMAINS);
+        int groupsErased = groupService.deleteAll(principal);
+        return new EraseAllView("CONTROL_PERSONAL_MEMORY_ERASED", memories.size(), groupsErased, now,
+                memories.isEmpty(), ERASE_ALL_RETAINED_DOMAINS);
+    }
+
+    /** Prevent legacy erasure from silently omitting business-scoped records or groups. */
+    @Transactional(readOnly = true)
+    public boolean hasScopedOwnerData(String tenantId, String userId) {
+        return memoryMapper.selectCount(Wrappers.<PersonalMemoryEntity>lambdaQuery()
+                .eq(PersonalMemoryEntity::getTenantId, tenantId)
+                .eq(PersonalMemoryEntity::getOwnerId, userId)
+                .ne(PersonalMemoryEntity::getOwnerDomain, PersonalMemoryPrincipal.LEGACY_DOMAIN)) > 0
+                || groupService.hasScopedOwnerGroups(tenantId, userId);
     }
 
     /** Deletes memories whose expires_at has passed. */
@@ -299,15 +312,18 @@ public class PersonalMemoryService {
             PersonalMemoryEntity memory = memoryMapper.selectByIdForUpdate(candidate.getId());
             if (memory == null || memory.getExpiresAt() == null || memory.getExpiresAt().isAfter(now)) continue;
             PersonalMemoryPrincipal owner = new PersonalMemoryPrincipal(
-                    memory.getTenantId(), memory.getOwnerId(), null, null, null);
+                    memory.getTenantId(), memory.getOwnerId(), null, null, null, memory.getOwnerDomain());
             delete(owner, memory, null);
-            auditAs("EXPIRE", owner, null, "SYSTEM", null, null, null, "ALLOW", "RETENTION_EXPIRED", Map.of());
             expired++;
         }
         return expired;
     }
 
-    @Transactional
+    /**
+     * Recall for one AI turn: the personal layer always, plus the project layer when the turn works on
+     * that project. Preferences and stable profile facts stay in even without lexical overlap.
+     */
+    @Transactional(readOnly = true)
     public QueryResult query(PersonalMemoryPrincipal principal, QueryCommand command) {
         if (command == null) {
             throw badRequest("personal memory query is required");
@@ -315,22 +331,25 @@ public class PersonalMemoryService {
         int topK = Math.max(1, Math.min(command.topK() == null ? 8 : command.topK(), 50));
         int maxChars = Math.max(256, Math.min(command.maxChars() == null ? 6_000 : command.maxChars(), 32_000));
         Set<String> types = validatedTypes(command.types());
+        List<String> layers = recallLayers(command.projectCode());
         LocalDateTime now = LocalDateTime.now();
         PersonalMemoryKnowledgeQueryClient.QueryAttempt knowledgeAttempt = knowledgeQueryClient == null
                 ? PersonalMemoryKnowledgeQueryClient.QueryAttempt.off()
-                : knowledgeQueryClient.query(principal.tenantId(), principal.runtimeUserId(),
-                        command.query(), topK * 3, maxChars);
+                : PersonalMemoryPrincipal.LEGACY_DOMAIN.equals(principal.ownerDomain())
+                    ? knowledgeQueryClient.query(principal.tenantId(), principal.runtimeUserId(),
+                            command.query(), topK * 3, maxChars)
+                    : knowledgeQueryClient.query(principal.tenantId(), principal.runtimeUserId(),
+                            command.query(), topK * 3, maxChars, principal.ownerDomain());
         List<Long> projectedIds = knowledgeAttempt.successful()
                 && knowledgeAttempt.mode().affectsRanking() ? knowledgeAttempt.ids() : List.of();
         // Projection hits are hints only: every id is re-read from the owner's rows here, so a
         // delayed projection delete can never re-inject a forgotten memory.
-        List<PersonalMemoryEntity> projectedOrRecent = memoryMapper.selectList(recallable(principal, types, now)
-                .in(!projectedIds.isEmpty(), PersonalMemoryEntity::getId, projectedIds)
-                .orderByDesc(PersonalMemoryEntity::getUpdatedAt)
-                .last("LIMIT 500"));
-        // Global rules, preferences and stable profile facts stay recallable even when the
-        // projection ranks other rows first.
-        List<PersonalMemoryEntity> sticky = memoryMapper.selectList(recallable(principal, types, now)
+        List<PersonalMemoryEntity> projectedOrRecent = memoryMapper.selectList(
+                recallable(principal, types, layers, now)
+                        .in(!projectedIds.isEmpty(), PersonalMemoryEntity::getId, projectedIds)
+                        .orderByDesc(PersonalMemoryEntity::getUpdatedAt)
+                        .last("LIMIT 500"));
+        List<PersonalMemoryEntity> sticky = memoryMapper.selectList(recallable(principal, types, layers, now)
                 .and(q -> q.in(PersonalMemoryEntity::getMemoryType, GLOBAL_RECALL_TYPES)
                         .or().in(PersonalMemoryEntity::getSemanticKey, STABLE_PROFILE_KEYS))
                 .orderByDesc(PersonalMemoryEntity::getUpdatedAt)
@@ -369,94 +388,36 @@ public class PersonalMemoryService {
                 truncated = true;
             }
             selected.add(new QueryHit(scored.memory().getId(), scored.memory().getMemoryType(),
-                    scored.memory().getTitle(), content, scored.score(), scored.memory().getUpdatedAt()));
+                    scored.memory().getTitle(), content, scored.score(), scored.memory().getUpdatedAt(),
+                    scored.memory().getProjectCode()));
             usedChars += chars;
         }
         if (retrievalTelemetry != null) {
             retrievalTelemetry.record(knowledgeAttempt, selected.stream().map(QueryHit::id).toList(),
                     unique.keySet(), topK);
         }
-        audit("SEARCH", principal, null, command.agentId(), command.sessionId(), command.traceId(),
-                "ALLOW", "RECALL", Map.of(
-                        "candidateCount", candidates.size(),
-                        "selectedCount", selected.size(),
-                        "knowledgeQueryMode", knowledgeAttempt.mode().name(),
-                        "knowledgeQueryOutcome", knowledgeAttempt.outcome()));
         return new QueryResult(selected, candidates.size(), usedChars, maxChars, truncated);
     }
 
     @Transactional(readOnly = true)
     public ExportView export(PersonalMemoryPrincipal principal) {
+        Map<Long, PersonalMemoryGroupEntity> groups = groupService.groupsById(principal);
         List<MemoryView> memories = memoryMapper.selectList(owned(principal)
                         .orderByAsc(PersonalMemoryEntity::getCreatedAt)
                         .orderByAsc(PersonalMemoryEntity::getId))
-                .stream().map(this::view).toList();
-        return new ExportView("reachai-personal-memory-v2", LocalDateTime.now(), principal.tenantId(),
-                principal.runtimeUserId(), memories);
+                .stream().map(memory -> view(memory, groups)).toList();
+        return new ExportView("reachai-personal-memory-v4", LocalDateTime.now(), principal.tenantId(),
+                principal.runtimeUserId(), principal.ownerDomain(), memories);
     }
 
-    @Transactional(readOnly = true)
-    public List<AuditView> audit(PersonalMemoryPrincipal principal, Integer limit) {
-        int boundedLimit = Math.max(1, Math.min(limit == null ? 100 : limit, 500));
-        return auditMapper.selectList(Wrappers.<PersonalMemoryAuditEntity>lambdaQuery()
-                        .eq(PersonalMemoryAuditEntity::getTenantId, principal.tenantId())
-                        .eq(PersonalMemoryAuditEntity::getOwnerId, principal.runtimeUserId())
-                        .orderByDesc(PersonalMemoryAuditEntity::getCreatedAt)
-                        .orderByDesc(PersonalMemoryAuditEntity::getId)
-                        .last("LIMIT " + boundedLimit))
-                .stream()
-                .map(event -> new AuditView(event.getId(), event.getEventType(), event.getMemoryId(),
-                        event.getDecision(), event.getReason(), event.getAgentId(), event.getCreatedAt()))
-                .toList();
-    }
-
-    /** The owner's memory with exactly this normalized content, if any. */
-    PersonalMemoryEntity byContent(PersonalMemoryPrincipal principal, String contentHash) {
-        return memoryMapper.selectOne(owned(principal)
+    /** The owner's memory in this layer with exactly this normalized content, if any. */
+    PersonalMemoryEntity byContent(PersonalMemoryPrincipal principal, PersonalMemoryScope scope, String contentHash) {
+        return memoryMapper.selectOne(inLayer(principal, scope)
                 .eq(PersonalMemoryEntity::getContentSha256, contentHash).last("LIMIT 1"));
-    }
-
-    /** The owner's memory in this semantic slot, if any. */
-    PersonalMemoryEntity bySemanticKey(PersonalMemoryPrincipal principal, String semanticKey) {
-        if (!StringUtils.hasText(semanticKey)) return null;
-        return memoryMapper.selectOne(owned(principal)
-                .eq(PersonalMemoryEntity::getSemanticKey, semanticSourceRef(semanticKey)).last("LIMIT 1"));
-    }
-
-    void audit(String eventType, PersonalMemoryPrincipal principal, Long memoryId, String agentId,
-               String sessionId, String traceId, String decision, String reason, Map<String, Object> metadata) {
-        auditAs(eventType, principal, memoryId, "USER", agentId, sessionId, traceId, decision, reason, metadata);
-    }
-
-    private void auditAs(String eventType, PersonalMemoryPrincipal principal, Long memoryId, String actorType,
-                         String agentId, String sessionId, String traceId, String decision, String reason,
-                         Map<String, Object> metadata) {
-        PersonalMemoryAuditEntity event = new PersonalMemoryAuditEntity();
-        event.setTenantId(principal.tenantId());
-        event.setOwnerId(principal.runtimeUserId());
-        event.setMemoryId(memoryId);
-        event.setEventType(eventType);
-        event.setActorType(actorType);
-        event.setAgentId(trim(agentId));
-        event.setSessionId(trim(sessionId));
-        event.setTraceId(trim(traceId));
-        event.setDecision(decision);
-        event.setReason(reason);
-        event.setMetadataJson(json(metadata));
-        event.setCreatedAt(LocalDateTime.now());
-        auditMapper.insert(event);
     }
 
     private void delete(PersonalMemoryPrincipal principal, PersonalMemoryEntity memory, String correlationId) {
         memoryMapper.deleteById(memory.getId());
-        candidateMapper.deleteRelatedToMemory(memory.getId());
-        // Older audit rows keep the event but lose every link back to the deleted memory.
-        auditMapper.update(null, Wrappers.<PersonalMemoryAuditEntity>lambdaUpdate()
-                .eq(PersonalMemoryAuditEntity::getMemoryId, memory.getId())
-                .set(PersonalMemoryAuditEntity::getMemoryId, null)
-                .set(PersonalMemoryAuditEntity::getSessionId, null)
-                .set(PersonalMemoryAuditEntity::getTraceId, null)
-                .set(PersonalMemoryAuditEntity::getMetadataJson, "{\"erased\":true}"));
         if (indexOutboxService != null) {
             indexOutboxService.enqueueDelete(principal, memory.getId(), correlationId);
         }
@@ -466,7 +427,7 @@ public class PersonalMemoryService {
         try {
             memoryMapper.updateById(memory);
         } catch (DuplicateKeyException duplicate) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "an identical personal memory already exists");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "这一层里已经有一条相同的记忆");
         }
     }
 
@@ -488,7 +449,8 @@ public class PersonalMemoryService {
 
     private static boolean owns(PersonalMemoryEntity memory, PersonalMemoryPrincipal principal) {
         return principal.tenantId().equals(memory.getTenantId())
-                && principal.runtimeUserId().equals(memory.getOwnerId());
+                && principal.runtimeUserId().equals(memory.getOwnerId())
+                && principal.ownerDomain().equals(memory.getOwnerDomain());
     }
 
     private PersonalMemoryEntity byKey(String memoryKey) {
@@ -500,16 +462,29 @@ public class PersonalMemoryService {
         return memoryMapper.selectCount(owned(principal));
     }
 
+    private static List<String> recallLayers(String projectCode) {
+        PersonalMemoryScope project = PersonalMemoryScope.of(projectCode);
+        return project.personal() ? List.of(PersonalMemoryScope.PERSONAL_KEY)
+                : List.of(PersonalMemoryScope.PERSONAL_KEY, project.key());
+    }
+
     private static com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PersonalMemoryEntity> owned(
             PersonalMemoryPrincipal principal) {
         return Wrappers.<PersonalMemoryEntity>lambdaQuery()
                 .eq(PersonalMemoryEntity::getTenantId, principal.tenantId())
-                .eq(PersonalMemoryEntity::getOwnerId, principal.runtimeUserId());
+                .eq(PersonalMemoryEntity::getOwnerId, principal.runtimeUserId())
+                .eq(PersonalMemoryEntity::getOwnerDomain, principal.ownerDomain());
+    }
+
+    private static com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PersonalMemoryEntity> inLayer(
+            PersonalMemoryPrincipal principal, PersonalMemoryScope scope) {
+        return owned(principal).eq(PersonalMemoryEntity::getScopeKey, scope.key());
     }
 
     private static com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<PersonalMemoryEntity> recallable(
-            PersonalMemoryPrincipal principal, Set<String> types, LocalDateTime now) {
+            PersonalMemoryPrincipal principal, Set<String> types, List<String> layers, LocalDateTime now) {
         return owned(principal)
+                .in(PersonalMemoryEntity::getScopeKey, layers)
                 .in(!types.isEmpty(), PersonalMemoryEntity::getMemoryType, types)
                 .and(q -> q.isNull(PersonalMemoryEntity::getExpiresAt)
                         .or().gt(PersonalMemoryEntity::getExpiresAt, now));
@@ -522,9 +497,28 @@ public class PersonalMemoryService {
     }
 
     private MemoryView view(PersonalMemoryEntity entity) {
+        PersonalMemoryGroupEntity group = entity.getGroupId() == null ? null
+                : groupService.groupsById(new PersonalMemoryPrincipal(entity.getTenantId(), entity.getOwnerId(),
+                        null, null, null, entity.getOwnerDomain())).get(entity.getGroupId());
+        return view(entity, group == null ? Map.of() : Map.of(group.getId(), group));
+    }
+
+    private MemoryView view(PersonalMemoryEntity entity, Map<Long, PersonalMemoryGroupEntity> groups) {
+        PersonalMemoryGroupEntity group = entity.getGroupId() == null ? null : groups.get(entity.getGroupId());
+        String projectCode = entity.getProjectCode();
+        String layerName = projectCode == null ? "个人记忆"
+                : firstText(group == null ? null : group.getProjectName(), projectCode);
         return new MemoryView(entity.getId(), entity.getMemoryType(), entity.getTitle(), entity.getContent(),
-                readTags(entity.getTagsJson()), entity.getSourceType(), entity.getSourceAgentId(),
+                readTags(entity.getTagsJson()), projectCode == null ? "PERSONAL" : "PROJECT",
+                Objects.requireNonNullElse(entity.getScopeKey(), PersonalMemoryScope.PERSONAL_KEY), projectCode,
+                layerName, entity.getGroupId(), group == null ? null : group.getName(),
+                entity.getSourceType(), entity.getSourceAgentId(),
                 entity.getExpiresAt(), entity.getCreatedAt(), entity.getUpdatedAt());
+    }
+
+    private static String firstText(String... values) {
+        for (String value : values) if (StringUtils.hasText(value)) return value.trim();
+        return null;
     }
 
     private String tags(List<String> rawTags) {
@@ -553,14 +547,6 @@ public class PersonalMemoryService {
         }
     }
 
-    private String json(Map<String, Object> value) {
-        try {
-            return objectMapper.writeValueAsString(value == null ? Map.of() : value);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to serialize personal memory audit metadata", e);
-        }
-    }
-
     static String validatedType(String value) {
         String type = StringUtils.hasText(value) ? value.trim().toUpperCase(Locale.ROOT) : "NOTE";
         if (!ALLOWED_TYPES.contains(type)) {
@@ -582,6 +568,16 @@ public class PersonalMemoryService {
             throw badRequest("personal memory " + field + " exceeds " + max + " characters");
         }
         return result;
+    }
+
+    private static String scopedRequestKey(PersonalMemoryPrincipal principal, String requestId) {
+        // Length framing prevents delimiter-bearing external identifiers from aliasing each other.
+        return framed(principal.tenantId()) + framed(principal.ownerDomain())
+                + framed(principal.runtimeUserId()) + framed(requestId);
+    }
+
+    private static String framed(String value) {
+        return value.length() + ":" + value;
     }
 
     static String contentHash(String content) {
@@ -710,27 +706,37 @@ public class PersonalMemoryService {
     private record ScoredMemory(PersonalMemoryEntity memory, double score) {
     }
 
-    /** {@code source} is MANUAL (default), CONVERSATION or CANDIDATE. */
+    /**
+     * {@code source} is MANUAL (default), CONVERSATION or AI_TOOL. {@code groupId} files it into that
+     * group; otherwise {@code projectCode} picks the layer (empty means personal) and the type picks the
+     * group.
+     */
     public record RememberCommand(String type, String semanticKey, String title, String content,
                                   List<String> tags, String expiresAt, String clientRequestId,
-                                  String source, String sessionId, String traceId, String agentId) {
+                                  String source, String sessionId, String traceId, String agentId,
+                                  String projectCode, Long groupId) {
     }
 
-    public record UpdateCommand(String type, String title, String content, List<String> tags, String expiresAt) {
+    public record UpdateCommand(String type, String title, String content, List<String> tags, String expiresAt,
+                                Long groupId) {
     }
 
     public record EraseAllCommand(String confirmation) {
     }
 
-    public record EraseAllView(String status, int memoriesErased, int candidatesErased,
+    public record EraseAllView(String status, int memoriesErased, int groupsErased,
                                LocalDateTime erasedAt, boolean idempotent, List<String> retainedDomains) {
     }
 
+    /** {@code projectCode} adds that project's layer to the personal layer. */
     public record QueryCommand(String query, List<String> types, Integer topK, Integer maxChars,
-                               String sessionId, String traceId, String agentId) {
+                               String sessionId, String traceId, String agentId, String projectCode) {
     }
 
+    /** {@code layer} is PERSONAL or PROJECT; {@code scope} is {@code personal} or {@code project:<code>}. */
     public record MemoryView(Long id, String type, String title, String content, List<String> tags,
+                             String layer, String scope, String projectCode, String layerName,
+                             Long groupId, String groupName,
                              String sourceType, String sourceAgentId, LocalDateTime expiresAt,
                              LocalDateTime createdAt, LocalDateTime updatedAt) {
     }
@@ -745,7 +751,7 @@ public class PersonalMemoryService {
     }
 
     public record QueryHit(Long id, String type, String title, String content, double score,
-                           LocalDateTime updatedAt) {
+                           LocalDateTime updatedAt, String projectCode) {
     }
 
     public record QueryResult(List<QueryHit> hits, int candidateCount, int usedChars, int maxChars,
@@ -753,10 +759,6 @@ public class PersonalMemoryService {
     }
 
     public record ExportView(String schema, LocalDateTime exportedAt, String tenantId, String userId,
-                             List<MemoryView> memories) {
-    }
-
-    public record AuditView(Long id, String eventType, Long memoryId, String decision, String reason,
-                            String agentId, LocalDateTime createdAt) {
+                             String ownerDomain, List<MemoryView> memories) {
     }
 }

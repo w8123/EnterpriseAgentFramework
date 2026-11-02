@@ -13,7 +13,7 @@ function contract(type = 'string'): HttpApiContract {
   }
 }
 function source(id: number, facts: HttpApiContract | null = contract(), status = 'EQUIVALENT'): HttpApiSource {
-  return { id, sourceKind: id === 1 ? 'CONTROLLER_SCAN' : 'OPENAPI_SCAN', sourceKey: `source-${id}`,
+  return { id, sourceKind: id === 1 ? 'STARTER_MVC' : 'OPENAPI_SCAN', sourceKey: `source-${id}`,
     sourceLocation: null, sourceRevision: null, sourceContractHash: `hash-${id}`, status,
     observedAt: null, confirmedInLatestInventory: true, reason: null, latestInventoryAt: null,
     inventoryComplete: true, confirmedAt: null, contract: facts }

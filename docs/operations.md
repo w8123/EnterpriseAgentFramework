@@ -1,15 +1,19 @@
 # 运维
 
+安装、配域名、备份恢复、升级和常见问题的操作步骤见 [部署与运维手册](部署与运维手册.md)；本页是更细的环境、验收和准入条件。
+
 ## 环境与数据库
 
-先明确目标环境、制品、配置、数据库与数据归属。新库执行 [sql/initV2.sql](../sql/initV2.sql)，已有库按 [SQL 说明](../sql/README.md)选择适用升级；不在已有库重跑初始化。结构变更需核对备份、DDL 隐式提交和恢复路径，执行后回读表、列、索引、种子与中文。
+先明确目标环境、制品、配置、数据库与数据归属。新库可以执行 [sql/initV2.sql](../sql/initV2.sql)，也可以让服务首次启动时自动建表（连接到空库时按内置的 initV2.sql 初始化，`REACHAI_BOOTSTRAP_SCHEMA_INIT=false` 关闭）；已有库按 [SQL 说明](../sql/README.md)选择适用升级；不在已有库重跑初始化。结构变更需核对备份、DDL 隐式提交和恢复路径，执行后回读表、列、索引、种子与中文。
 
-配置真实 Secret，禁用正式环境不需要的本地登录与 bootstrap。内部签名、模型凭据、工作流凭据、存储身份和会话策略分别管理；不把开发专用值投入生产。
+配置写在 `reachai.env`（模板见仓库根目录 [reachai.env.example](../reachai.env.example)）或同名环境变量。非 Kubernetes 环境首次在空库上启动时，会在 `REACHAI_HOME`（默认 `reachai.env` 旁边的 `.reachai`，否则 `~/.reachai`）生成 `secrets.properties`，五个服务必须读同一个目录，并且要和数据库一起备份；Kubernetes 不会自动生成，必须从 Secret 注入。禁用正式环境不需要的本地登录与 bootstrap。内部签名、模型凭据、工作流凭据、存储身份和会话策略分别管理；不把开发专用值投入生产。
+
+平台 AI 业务方法和 HTTP API 写入审核另需为 Control 配置 `REACHAI_PLATFORM_AI_APPROVAL_KEY_ID` 和 `REACHAI_PLATFORM_AI_APPROVAL_KEY_BASE64`；后者是安全生成的 32 字节密钥的 Base64，须通过密钥管理注入并妥善备份，不自动生成或写入仓库。多实例必须使用同一密钥与标识；更换或丢失密钥会使尚未消费的审批无法解密，须重新申请。未配置时写入审批不可用。已有库先按 SQL 说明准备连接与审批表；上线后用真实账号核验审核、吊销、过期、来源或凭据漂移、并发消费及结果未知的查询。
 
 ## 部署顺序
 
 1. 构建与验证对应制品，记录版本和配置；命令见[开发](development.md)。
-2. 准备 MySQL、Redis、向量库、对象存储及必要外部依赖，完成本环境适用升级。
+2. 准备 MySQL 及按需开启的依赖（Milvus 用于知识库向量检索，Docling 用于文档解析，Redis 用于 Runtime 生产多实例会话状态，对象存储用于多实例知识库制品），完成本环境适用升级。
 3. 启动 Model、Knowledge、Capability、Runtime、Control，核对进程归属、端口、制品新鲜度与健康。
 4. 发布前端，代理管理端 `/api/**`、受保护 `/ai/**` 和 `/model/**` 到 Control，不暴露内部服务。
 5. 用真实角色、业务系统和外部客户端执行验收，再决定具体能力是否开启。
@@ -37,7 +41,7 @@ node scripts/check-physical-service-smoke.mjs
 | 能力 | 开启前必须完成 |
 | --- | --- |
 | 标准 Skill | 真实外部包、范围权限、审核发布、Agent 精确绑定、下载摘要、撤销和缓存篡改；内置包同版本同字节 |
-| 个人记忆 | canonical 与投影一致性、双用户隔离、候选同意、shadow 对照、负载、删除、跨域擦除与备份恢复；保留策略 / Legal Hold 生效 |
+| 个人记忆 | canonical 与投影一致性、双用户隔离、分层分组、shadow 对照、负载、删除、跨域擦除与备份恢复；保留策略 / Legal Hold 生效 |
 | Knowledge | MySQL / Milvus 联合验证、迟到写入回收、存储 IAM、版本删除、持久卷、重启与整机故障；准确物理身份，不扫描全桶 |
 | 自动化 | 固定已发布目标、时区/DST、双实例租约、防重复触发、取消、恢复、有限重试及 RunOps 关联 |
 | Managed Executor | 固定镜像、Kubernetes 资源、网络与凭据隔离、跨租户攻击、容量、Artifact 上限、超时、回收和事故恢复 |

@@ -7,6 +7,8 @@ import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolSer
 import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.EmployeeCallResult;
 import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.EmployeeSession;
 import com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.SystemSession;
+import com.enterprise.ai.control.identity.PlatformAiConnectionService.ConnectionIdentity;
+import com.enterprise.ai.control.mcp.application.platform.McpPlatformProtocolService;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpAuthenticatedSession;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpToolCallResult;
@@ -40,19 +42,22 @@ public class McpEndpointController {
     private final ObjectMapper objectMapper;
     private final McpAuditPayloadSanitizer auditPayloadSanitizer;
     private final McpEmployeeProtocolService employeeService;
+    private final McpPlatformProtocolService platformService;
 
     public McpEndpointController(McpProtocolRequestGuard guard,
                                  McpProtocolApplicationService service,
                                  McpHubProperties properties,
                                  ObjectMapper objectMapper,
                                  McpAuditPayloadSanitizer auditPayloadSanitizer,
-                                 McpEmployeeProtocolService employeeService) {
+                                 McpEmployeeProtocolService employeeService,
+                                 McpPlatformProtocolService platformService) {
         this.guard = guard;
         this.service = service;
         this.properties = properties;
         this.objectMapper = objectMapper;
         this.auditPayloadSanitizer = auditPayloadSanitizer;
         this.employeeService = employeeService;
+        this.platformService = platformService;
     }
 
     @GetMapping("/mcp/manifest")
@@ -67,7 +72,7 @@ public class McpEndpointController {
     }
 
     /** No resumable SSE stream is offered; POST remains the single endpoint. */
-    @GetMapping({"/mcp", "/mcp/jsonrpc", AiToolSetupInstructions.EMPLOYEE_ENDPOINT_PATH})
+    @GetMapping({"/mcp", "/mcp/jsonrpc", AiToolSetupInstructions.EMPLOYEE_ENDPOINT_PATH, "/mcp/platform"})
     public ResponseEntity<Map<String, Object>> streamNotSupported() {
         if (!properties.isEnabled()) return ResponseEntity.notFound().build();
         return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
@@ -88,6 +93,14 @@ public class McpEndpointController {
                                              @RequestBody(required = false) Map<String, Object> body) {
         return handle(httpRequest, body, token -> new EmployeeCaller(employeeService.authenticate(token)),
                 new EmployeeCaller(null));
+    }
+
+    /** Platform-user connections have their own credential domain and tool catalog. */
+    @PostMapping("/mcp/platform")
+    public ResponseEntity<?> platformJsonRpc(HttpServletRequest httpRequest,
+                                             @RequestBody(required = false) Map<String, Object> body) {
+        return handle(httpRequest, body, token -> new PlatformCaller(platformService.authenticate(token)),
+                new PlatformCaller(null));
     }
 
     private ResponseEntity<?> handle(HttpServletRequest httpRequest, Map<String, Object> body,
@@ -137,7 +150,7 @@ public class McpEndpointController {
     private DispatchResult dispatch(Caller caller,
                                     McpProtocolRequestGuard.ValidatedRequest request) {
         return switch (request.method()) {
-            case "initialize" -> ok(success(request.id(), initializeResult()), request);
+            case "initialize" -> ok(success(request.id(), initializeResult(caller.instructions())), request);
             case "notifications/initialized" -> DispatchResult.notificationResult();
             case "server/discover" -> ok(success(request.id(), discoveryResult()), request);
             case "tools/list" -> {
@@ -162,12 +175,17 @@ public class McpEndpointController {
             payload.put("isError", false);
         } else {
             String code = result.errorCode() == null ? "MCP_TOOL_EXECUTION_FAILED" : result.errorCode();
-            // Only approval refusals carry a message written for the employee; runtime output stays private.
-            Object message = code.startsWith("MCP_APPROVAL_") && result.output() != null
+            // Only approval and memory refusals carry a message written for the employee; runtime output stays private.
+            Object message = (code.startsWith("MCP_APPROVAL_") || code.startsWith("MCP_MEMORY_")) && result.output() != null
                     ? result.output().get("message") : null;
             Map<String, Object> structured = new LinkedHashMap<>();
             structured.put("errorCode", code);
             if (message != null) structured.put("message", message);
+            if (caller instanceof PlatformCaller && "reachai_workflow_trial_read_only".equals(text(request.params().get("name")))
+                    && McpPlatformProtocolService.isSafeWorkflowTrialError(code)
+                    && result.output() != null && !result.output().isEmpty()) {
+                structured.put("details", result.output());
+            }
             payload.put("content", List.of(Map.of("type", "text",
                     "text", message == null ? code : code + ": " + message)));
             payload.put("structuredContent", structured);
@@ -183,11 +201,12 @@ public class McpEndpointController {
                 result.traceId(), result.runId());
     }
 
-    private Map<String, Object> initializeResult() {
+    private Map<String, Object> initializeResult(String instructions) {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("protocolVersion", properties.getLegacyProtocolVersion());
         result.put("capabilities", capabilities());
         result.put("serverInfo", serverInfo());
+        if (instructions != null && !instructions.isBlank()) result.put("instructions", instructions);
         return result;
     }
 
@@ -223,6 +242,11 @@ public class McpEndpointController {
     private interface Caller {
         List<Map<String, Object>> visibleTools();
 
+        /** Text for the initialize result; only an employee connection has any. */
+        default String instructions() {
+            return null;
+        }
+
         McpToolCallResult callTool(String toolName, Map<String, Object> arguments);
 
         void audit(String method, String toolName, Object requestBody, Object responseBody,
@@ -240,6 +264,11 @@ public class McpEndpointController {
         @Override
         public List<Map<String, Object>> visibleTools() {
             return service.visibleTools(session);
+        }
+
+        @Override
+        public String instructions() {
+            return service.instructions(session);
         }
 
         @Override
@@ -275,6 +304,16 @@ public class McpEndpointController {
         }
 
         @Override
+        public String instructions() {
+            try {
+                return employeeService.instructions(session);
+            } catch (RuntimeException degraded) {
+                // Memory is a convenience; the handshake must not fail because of it.
+                return null;
+            }
+        }
+
+        @Override
         public McpToolCallResult callTool(String toolName, Map<String, Object> arguments) {
             EmployeeCallResult called = employeeService.callTool(session, toolName, arguments);
             lastSystem = called.system();
@@ -297,6 +336,34 @@ public class McpEndpointController {
                     auditPayloadSanitizer.capture(requestBody),
                     auditPayloadSanitizer.capture(responseBody),
                     errorCode, traceId, runId, remoteIp));
+        }
+    }
+
+    private final class PlatformCaller implements Caller {
+        private final ConnectionIdentity identity;
+        private String attemptId;
+
+        private PlatformCaller(ConnectionIdentity identity) {
+            this.identity = identity;
+        }
+
+        @Override
+        public List<Map<String, Object>> visibleTools() {
+            return platformService.visibleTools(identity);
+        }
+
+        @Override
+        public McpToolCallResult callTool(String toolName, Map<String, Object> arguments) {
+            attemptId = platformService.recordWriteIntent(identity, toolName);
+            return platformService.callTool(identity, toolName, arguments);
+        }
+
+        @Override
+        public void audit(String method, String toolName, Object requestBody, Object responseBody,
+                          boolean success, String errorCategory, String errorCode, String traceId,
+                          String runId, long startedAt, String remoteIp) {
+            platformService.audit(identity, method, toolName, success, errorCategory, errorCode,
+                    (System.nanoTime() - startedAt) / 1_000_000L, attemptId);
         }
     }
 

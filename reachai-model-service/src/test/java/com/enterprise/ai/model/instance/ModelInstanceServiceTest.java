@@ -42,6 +42,38 @@ class ModelInstanceServiceTest {
     private ModelInstanceService service;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    @Test
+    void createsAnotherModelInSourceScopeWithoutReturningStoredKey() {
+        ModelInstanceEntity source = savedEmbedding("source-1");
+        source.setProjectCode("orders");
+        source.setProjectScopeKey("orders");
+        when(mapper.selectById("source-1")).thenReturn(source);
+        when(mapper.selectCount(any())).thenReturn(0L);
+
+        ModelInstanceResponse response = service.createConnectionModel("source-1",
+                new ModelInstanceController.ConnectionModelCreateRequest("Chat", ModelType.LLM, "chat-model"));
+
+        ArgumentCaptor<ModelInstanceEntity> saved = ArgumentCaptor.forClass(ModelInstanceEntity.class);
+        verify(mapper).insert(saved.capture());
+        assertEquals("orders", saved.getValue().getProjectCode());
+        assertEquals("openai", saved.getValue().getProvider());
+        assertEquals(ModelType.LLM.name(), saved.getValue().getModelType());
+        assertEquals("chat-model", saved.getValue().getModelName());
+        assertEquals(readPlain(source.getConnectionConfigJson()), readPlain(saved.getValue().getConnectionConfigJson()));
+        assertFalse(response.toString().contains("sk-live-abcdefgh"));
+        assertEquals(ModelType.EMBEDDING.name(), source.getModelType());
+    }
+
+    @Test
+    void linkedProviderAccountCannotBeCopiedAsAnIndependentCredential() {
+        ModelInstanceEntity source = savedEmbedding("linked");
+        source.setProviderAccountId("account");
+        when(mapper.selectById("linked")).thenReturn(source);
+        assertThrows(BizException.class, () -> service.createConnectionModel("linked",
+                new ModelInstanceController.ConnectionModelCreateRequest("Chat", ModelType.LLM, "chat-model")));
+        verify(mapper, never()).insert(any());
+    }
+
     @BeforeAll
     static void initMybatisPlusLambdaCache() {
         TableInfoHelper.initTableInfo(
@@ -183,7 +215,7 @@ class ModelInstanceServiceTest {
 
         BizException ex = assertThrows(BizException.class, () -> service.createFromTemplate("tpl-1", request));
         assertEquals(400, ex.getCode());
-        assertTrue(ex.getMessage().contains("Template is disabled"));
+        assertTrue(ex.getMessage().contains("模板已停用"));
     }
 
     @Test
@@ -320,7 +352,7 @@ class ModelInstanceServiceTest {
         when(mapper.selectCount(any())).thenReturn(1L);
 
         BizException ex = assertThrows(BizException.class, () -> service.create(request));
-        assertTrue(ex.getMessage().contains("already exists"));
+        assertTrue(ex.getMessage().contains("已经有一个叫"));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Wrapper<ModelInstanceEntity>> captor = ArgumentCaptor.forClass(Wrapper.class);
@@ -481,7 +513,7 @@ class ModelInstanceServiceTest {
         request.setConnection(Map.of("baseUrl", "https://api.openai.com/v1"));
 
         BizException ex = assertThrows(BizException.class, () -> service.update("id-1", request));
-        assertTrue(ex.getMessage().toLowerCase().contains("archived"));
+        assertTrue(ex.getMessage().contains("已归档"));
     }
 
     @Test

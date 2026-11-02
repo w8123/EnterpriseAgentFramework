@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/views/mcp-hub/**/*.test.ts'],
+    include: ['src/views/mcp-hub/**/*.test.ts', 'src/views/usage/**/*.test.ts'],
     css: false,
   },
 })

@@ -25,6 +25,11 @@ public final class ModelStreamFailure extends RuntimeException {
     private static final Pattern UPSTREAM_ERROR_CODE =
             Pattern.compile("\"code\"\\s*:\\s*\"([A-Za-z][A-Za-z0-9._-]{1,63})\"");
 
+    /** 与 model 服务 ModelProviderErrors 的网络失败文案开头保持一致。 */
+    private static final String[] MODEL_SERVICE_TRANSPORT_PREFIXES = {
+            "连不上模型服务", "找不到模型服务地址", "连接模型服务", "和模型服务", "调用模型超时", "调用模型失败",
+            "这个模型还没有填写接口地址"};
+
     private final String code;
     private final String safeMessage;
     private final String finishReason;
@@ -105,12 +110,32 @@ public final class ModelStreamFailure extends RuntimeException {
                     "provider_context_length_exceeded",
                     diagnostics);
         }
+        String transportHint = modelServiceTransportHint(upstreamMessage);
+        if (transportHint != null) {
+            return new ModelStreamFailure(MODEL_PROVIDER_REQUEST_FAILED, transportHint, "provider_error", diagnostics);
+        }
         return new ModelStreamFailure(
                 MODEL_PROVIDER_REQUEST_FAILED,
                 "模型供应商调用失败" + upstreamHint(upstreamCode, upstreamMessage)
                         + "，请到 ReachAI 模型中心重新测试并检查连接配置后重试。",
                 "provider_error",
                 diagnostics);
+    }
+
+    /**
+     * 模型服务对连不上、地址错、超时这类网络失败给出的中文提示不含上游响应体，原样展示比通用提示更能指明下一步。
+     */
+    static String modelServiceTransportHint(String upstreamMessage) {
+        if (upstreamMessage == null) {
+            return null;
+        }
+        String message = upstreamMessage.trim();
+        for (String prefix : MODEL_SERVICE_TRANSPORT_PREFIXES) {
+            if (message.startsWith(prefix)) {
+                return message.length() <= 300 ? message : message.substring(0, 300);
+            }
+        }
+        return null;
     }
 
     /**

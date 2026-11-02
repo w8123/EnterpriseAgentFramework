@@ -1,10 +1,11 @@
 package com.enterprise.ai.controller;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.config.KnowledgeDependencyInfoContributor;
 import com.enterprise.ai.domain.dto.ChunkUpdateRequest;
 import com.enterprise.ai.domain.dto.ChunkVO;
 import com.enterprise.ai.domain.dto.FileInfoVO;
-import com.enterprise.ai.domain.dto.KbConfigRequest;
+import com.enterprise.ai.common.knowledge.KnowledgeSettingsProtocol;
 import com.enterprise.ai.domain.dto.KnowledgeBaseRequest;
 import com.enterprise.ai.domain.dto.KnowledgeBaseVO;
 import com.enterprise.ai.domain.dto.KnowledgeHitLogDTO;
@@ -17,6 +18,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/knowledge")
@@ -24,6 +26,13 @@ import java.util.List;
 public class KnowledgeController {
 
     private final KnowledgeService knowledgeService;
+    private final KnowledgeDependencyInfoContributor dependencies;
+
+    /** Milvus / Docling 是否可用，页面据此提前告诉用户哪些功能暂时用不了。 */
+    @GetMapping("/dependencies")
+    public ApiResult<Map<String, Object>> dependencies() {
+        return ApiResult.ok(dependencies.dependencies());
+    }
 
     // ==================== 知识库 CRUD ====================
 
@@ -38,10 +47,10 @@ public class KnowledgeController {
         return ApiResult.ok();
     }
 
-    @PutMapping("/base")
-    public ApiResult<Void> update(@Valid @RequestBody KnowledgeBaseRequest request) {
-        knowledgeService.update(request);
-        return ApiResult.ok();
+    @PutMapping(value = {"/base", "/kb/{kbCode}/config"}, produces = "application/json")
+    public org.springframework.http.ResponseEntity<Map<String, Object>> revisionRequired() {
+        return org.springframework.http.ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT)
+                .header("Cache-Control", "no-store").body(KnowledgeSettingsProtocol.revisionRequired());
     }
 
     @DeleteMapping("/base/{code}")
@@ -84,16 +93,6 @@ public class KnowledgeController {
                                                            @RequestParam(required = false) Boolean lowConfidenceOnly,
                                                            @RequestParam(required = false) String source) {
         return ApiResult.ok(knowledgeService.listHitLogs(kbCode, limit, lowConfidenceOnly, source));
-    }
-
-    /**
-     * PUT /ai/kb/{kbCode}/config — 更新知识库 chunk 策略配置
-     */
-    @PutMapping("/kb/{kbCode}/config")
-    public ApiResult<Void> updateConfig(@PathVariable String kbCode,
-                                        @Valid @RequestBody KbConfigRequest request) {
-        knowledgeService.updateKbConfig(kbCode, request);
-        return ApiResult.ok();
     }
 
     // ==================== Chunk 预览 ====================

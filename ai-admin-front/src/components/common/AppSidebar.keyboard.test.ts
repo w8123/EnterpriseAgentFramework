@@ -56,6 +56,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(wrapper.get('.el-scrollbar__wrap').attributes('tabindex')).toBe('-1')
     entry()!.focus()
     await key(focus(), 'ArrowDown')
+    expect(focus()).toBe(leaf('/getting-started'))
+    await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/registry/projects'))
     await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/business-capabilities'))
@@ -115,7 +117,7 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     const { wrapper, leaf, group, entry, push } = await setup(true)
     entry()!.focus()
     await key(focus(), 'ArrowDown')
-    expect(focus()).toBe(leaf('/registry/projects'))
+    expect(focus()).toBe(leaf('/getting-started'))
     const parent = group('/integration-group')
     parent.focus()
     await key(parent, 'ArrowRight')
@@ -141,7 +143,7 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
 
   it('keeps teleported preferences interactive and returns focus when dismissed', async () => {
     const { wrapper } = await setup()
-    const settings = wrapper.findAll<HTMLButtonElement>('.footer-entry')[1]
+    const settings = wrapper.findAll<HTMLButtonElement>('.footer-entry')[0]
     const panel = () => document.body.querySelector<HTMLElement>('.sidebar-footer-popover')
 
     await settings.trigger('click')
@@ -183,7 +185,9 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     appearance.setReduceTransparency(false)
     appearance.setGlassRefraction(true)
     const { wrapper } = await setup()
-    await wrapper.findAll('.footer-entry')[1].trigger('click')
+    await wrapper.findAll('.footer-entry')[0].trigger('click')
+    await settle()
+    ;[...document.body.querySelectorAll<HTMLButtonElement>('.profile-link')].find(button => button.textContent?.includes('外观设置'))!.click()
     await settle()
 
     const texture = () => document.body.querySelector<HTMLInputElement>('[role="switch"][aria-label="玻璃质感"]')!
@@ -266,6 +270,7 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     const { wrapper, leaf, group, entry, push } = await setup()
     const disabled = leaf('/registry/projects')
     disabled.setAttribute('aria-disabled', 'true')
+    leaf('/getting-started').setAttribute('aria-disabled', 'true')
     entry()!.focus()
     await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/business-capabilities'))

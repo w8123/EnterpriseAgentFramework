@@ -5,12 +5,9 @@ import org.slf4j.Logger;
 import java.util.List;
 
 /**
- * Embedding 请求调试日志：在 DEBUG 级别输出每条待向量文本的长度与预览（避免 INFO 泄露大量正文）。
+ * Embedding 请求调试日志只记录文本长度，不记录知识或用户输入正文。
  */
 public final class EmbeddingDebugLogs {
-
-    /** 单条文本预览最大字符数（超出则截断） */
-    private static final int MAX_PREVIEW_CHARS = 500;
 
     private EmbeddingDebugLogs() {
     }
@@ -30,21 +27,8 @@ public final class EmbeddingDebugLogs {
         for (int i = 0; i < texts.size(); i++) {
             String t = texts.get(i);
             int len = t == null ? 0 : t.length();
-            String preview = previewOne(t);
-            log.debug("{} 文本[{}/{}] 长度={}, 预览: {}", prefix, i + 1, texts.size(), len, preview);
+            log.debug("{} 文本[{}/{}] 长度={}", prefix, i + 1, texts.size(), len);
         }
     }
 
-    private static String previewOne(String t) {
-        if (t == null) {
-            return "null";
-        }
-        String normalized = t.replace("\r\n", "\n").replace('\r', '\n')
-                .replace("\n", "\\n");
-        if (normalized.length() <= MAX_PREVIEW_CHARS) {
-            return normalized;
-        }
-        return normalized.substring(0, MAX_PREVIEW_CHARS)
-                + "... (已截断预览，原文长度=" + t.length() + ")";
-    }
 }

@@ -24,9 +24,27 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ReachAiRegistryClientTest {
+
+    @Test
+    void duplicateCapabilitiesDoNotSendAnAmbiguousOrPartialInventory() {
+        ReachAiRegistryProperties properties = new ReachAiRegistryProperties();
+        properties.getRegistry().setUrl("https://reachai.example.com");
+        properties.getRegistry().setAppKey("demo-key");
+        properties.getRegistry().setAppSecret("demo-secret");
+        properties.getProject().setCode("demo");
+        properties.getProject().setBaseUrl("https://biz.example.com");
+        RecordingTransport transport = new RecordingTransport();
+        ReachAiRegistryClient client = new ReachAiRegistryClient(properties,
+                new ReachCapabilityBeanScanner(new Object[]{new ContractCapability(), new ContractCapability()}),
+                transport);
+
+        assertThrows(IllegalStateException.class, client::scanAndSyncCapabilities);
+        assertTrue(transport.requests.isEmpty());
+    }
 
     @Test
     void registerAndSyncPostsProjectThenHeartbeatWithReachAiHeaders() {
@@ -283,6 +301,7 @@ class ReachAiRegistryClientTest {
         assertEquals(Boolean.TRUE, metadata.get("declared"));
         assertEquals("ReachCapability", metadata.get("source"));
         assertEquals("BUSINESS_METHOD", metadata.get("assetType"));
+        assertEquals(Boolean.TRUE, metadata.get("businessIdentityRequired"));
         List<?> httpApis = (List<?>) transport.requests.get(0).body.get("httpApis");
         assertEquals(1, httpApis.size());
         assertEquals("GET", findHttpApi(httpApis, "/users/current").get("httpMethod"));
@@ -354,7 +373,7 @@ class ReachAiRegistryClientTest {
     @RequestMapping("/users")
     static class AnnotatedController {
         @GetMapping("/current")
-        @ReachCapability(name = "team.current-user", title = "Current user")
+        @ReachCapability(name = "team.current-user", title = "Current user", businessIdentityRequired = true)
         public String currentUser() {
             return "user-001";
         }

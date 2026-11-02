@@ -70,6 +70,98 @@ class MemoryErasureOrchestrationServiceTest {
     }
 
     @Test
+    void unscopedErasureCannotClaimToCoverBusinessScopedMemories() {
+        Fixture fixture = fixture();
+        when(fixture.personalMemoryService.hasScopedOwnerData("tenant-a", "42")).thenReturn(true);
+        var error = assertThrows(ResponseStatusException.class, () -> fixture.service.create(
+                new MemoryErasureOrchestrationService.CreateCommand(MemoryErasureOrchestrationService.CONFIRMATION,
+                        "request", "tenant-a", "42", "PRIVACY_REQUEST", "ticket/42"), "admin"));
+        assertEquals(409, error.getStatusCode().value());
+        verify(fixture.store, never()).createOrGet(any(), anyList());
+    }
+
+    @Test
+    void unscopedErasureCannotTargetAKnownBusinessAccountWithoutPersonalMemory() {
+        Fixture fixture = fixture();
+        when(fixture.businessIdentityGuard.hasPotentialBusinessIdentity("tenant-a", "42")).thenReturn(true);
+        var error = assertThrows(ResponseStatusException.class, () -> fixture.service.create(
+                new MemoryErasureOrchestrationService.CreateCommand(MemoryErasureOrchestrationService.CONFIRMATION,
+                        "request", "tenant-a", "42", "PRIVACY_REQUEST", "ticket/42"), "admin"));
+        assertEquals(409, error.getStatusCode().value());
+        verify(fixture.store, never()).createOrGet(any(), anyList());
+    }
+
+    @Test
+    void queuedErasureStopsWhenBusinessIdentityAppears() {
+        Fixture fixture = fixture();
+        MemoryErasureRequestEntity request = request(fixture.identity);
+        wireProcessStore(fixture, request, domainInventory(1L));
+        when(fixture.businessIdentityGuard.hasPotentialBusinessIdentity("default", "user-1")).thenReturn(true);
+        fixture.service.processDue(10);
+        assertEquals("FAILED", request.getStatus());
+        assertEquals("user-1", request.getRuntimeUserId());
+        assertNull(request.getNextAttemptAt());
+        verify(fixture.personalMemoryService, never()).eraseAll(any(), any(), any());
+        verify(fixture.runtimeGateway, never()).eraseOwner(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    void runtimeScopeConflictRemainsPendingWithAnActionableReason() {
+        Fixture fixture = fixture();
+        var request = request(fixture.identity);
+        var domains = domainInventory(1L);
+        complete(domains, MemoryErasureOrchestrationService.CONTROL_PERSONAL_MEMORY);
+        complete(domains, MemoryErasureOrchestrationService.CONTROL_CANDIDATE_OUTBOX);
+        complete(domains, MemoryErasureOrchestrationService.KNOWLEDGE_PERSONAL_PROJECTION);
+        wireProcessStore(fixture, request, domains);
+        when(fixture.runtimeGateway.eraseOwner(anyString(), anyString(), anyString(),
+                anyString(), anyInt(), anyString())).thenReturn(ResponseEntity.status(409)
+                .body(Map.of("code", "RUNTIME_OWNER_SCOPE_REQUIRED")));
+        fixture.service.processDue(10);
+        assertEquals("FAILED", request.getStatus());
+        assertNull(request.getNextAttemptAt());
+        verify(fixture.store).updateDomain(eq(1L), eq(MemoryErasureOrchestrationService.RUNTIME_SESSION_STATE),
+                eq("FAILED"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                eq("SCOPED_IDENTITY_REQUIRED"), org.mockito.ArgumentMatchers.isNull(), any());
+        verify(fixture.store).updateDomain(eq(1L), eq(MemoryErasureOrchestrationService.RUNTIME_CONVERSATION_LEDGER),
+                eq("FAILED"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                eq("SCOPED_IDENTITY_REQUIRED"), org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
+    void contradictoryRuntimeCompletionWithFailedOperationsRemainsPending() {
+        Fixture fixture = fixture();
+        var request = request(fixture.identity);
+        var domains = domainInventory(1L);
+        complete(domains, MemoryErasureOrchestrationService.CONTROL_PERSONAL_MEMORY);
+        complete(domains, MemoryErasureOrchestrationService.CONTROL_CANDIDATE_OUTBOX);
+        complete(domains, MemoryErasureOrchestrationService.KNOWLEDGE_PERSONAL_PROJECTION);
+        wireProcessStore(fixture, request, domains);
+        when(fixture.runtimeGateway.eraseOwner(anyString(), anyString(), anyString(),
+                anyString(), anyInt(), anyString())).thenReturn(ResponseEntity.ok(Map.of(
+                "complete", true, "remaining", 0, "erased", 0, "legalHoldBlocked", 0, "retryable", 0, "failed", 1)));
+        fixture.service.processDue(10);
+        verify(fixture.store).updateDomain(eq(1L), eq(MemoryErasureOrchestrationService.RUNTIME_SESSION_STATE),
+                eq("FAILED"), eq("RUNTIME_RETRY_REQUIRED"), eq(0L),
+                eq("RUNTIME_ERASE_FAILED"), org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
+    void queuedLegacyErasureStopsBeforeDeletingWhenScopedDataAppears() {
+        Fixture fixture = fixture();
+        MemoryErasureRequestEntity request = request(fixture.identity);
+        List<MemoryErasureDomainEntity> domains = domainInventory(1L);
+        wireProcessStore(fixture, request, domains);
+        when(fixture.personalMemoryService.hasScopedOwnerData("default", "user-1")).thenReturn(true);
+        fixture.service.processDue(10);
+        verify(fixture.personalMemoryService, never()).eraseAll(any(), any(), any());
+        verify(fixture.runtimeGateway, never()).eraseOwner(any(), any(), any(), any(), anyInt(), any());
+        verify(fixture.store).updateDomain(eq(1L), eq(MemoryErasureOrchestrationService.CONTROL_PERSONAL_MEMORY),
+                eq("FAILED"), org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                eq("SCOPED_IDENTITY_REQUIRED"), org.mockito.ArgumentMatchers.isNull(), any());
+    }
+
+    @Test
     void automatedDomainsFinishAsActionRequiredAndScrubRawOwner() {
         Fixture fixture = fixture();
         MemoryErasureRequestEntity request = request(fixture.identity);
@@ -99,6 +191,7 @@ class MemoryErasureOrchestrationServiceTest {
                         "remaining", 0,
                         "erased", 4,
                         "legalHoldBlocked", 0,
+                        "retryable", 0,
                         "failed", 0)));
 
         MemoryErasureOrchestrationService.ProcessingResult result =
@@ -131,6 +224,7 @@ class MemoryErasureOrchestrationServiceTest {
                         "remaining", 1,
                         "erased", 0,
                         "legalHoldBlocked", 1,
+                        "retryable", 0,
                         "failed", 0)));
 
         fixture.service.processDue(10);
@@ -166,6 +260,7 @@ class MemoryErasureOrchestrationServiceTest {
                         "remaining", 0,
                         "erased", 0,
                         "legalHoldBlocked", 0,
+                        "retryable", 0,
                         "failed", 0)));
 
         fixture.service.processDue(10);
@@ -296,10 +391,11 @@ class MemoryErasureOrchestrationServiceTest {
         RuntimeSessionRetentionGateway runtimeGateway = mock(RuntimeSessionRetentionGateway.class);
         PersonalMemoryErasureIdentity identity =
                 new PersonalMemoryErasureIdentity("dedicated-erasure-test-key");
+        BusinessIdentityErasureGuard businessIdentityGuard = mock(BusinessIdentityErasureGuard.class);
         return new Fixture(new MemoryErasureOrchestrationService(
                 store, personalMemoryService, outboxMapper, knowledgeClient,
-                runtimeGateway, identity), store, personalMemoryService,
-                outboxMapper, knowledgeClient, runtimeGateway, identity);
+                runtimeGateway, identity, businessIdentityGuard), store, personalMemoryService,
+                outboxMapper, knowledgeClient, runtimeGateway, identity, businessIdentityGuard);
     }
 
     private static MemoryErasureRequestEntity request(PersonalMemoryErasureIdentity identity) {
@@ -420,6 +516,7 @@ class MemoryErasureOrchestrationServiceTest {
             PersonalMemoryIndexOutboxService outboxMapper,
             PersonalMemoryKnowledgeErasureClient knowledgeClient,
             RuntimeSessionRetentionGateway runtimeGateway,
-            PersonalMemoryErasureIdentity identity) {
+            PersonalMemoryErasureIdentity identity,
+            BusinessIdentityErasureGuard businessIdentityGuard) {
     }
 }

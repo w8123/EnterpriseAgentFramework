@@ -75,7 +75,7 @@ class PlatformEmbedCredentialPolicyControllerTest {
         PlatformEmbedCredentialPolicyController controller =
                 new PlatformEmbedCredentialPolicyController(capability, originPolicy, runtime, new ObjectMapper());
         when(runtime.listAgents(null, "yudao-erp")).thenReturn(ResponseEntity.ok(List.of(
-                Map.of("id", "8e747bd7c1f1", "keySlug", "erp-assistant", "enabled", true))));
+                Map.of("id", "8e747bd7c1f1", "keySlug", "erp-assistant", "projectCode", "yudao-erp", "enabled", true))));
 
         when(capability.listEmbedCredentialPolicies("yudao-erp", "ACTIVE", 20)).thenReturn(ResponseEntity.ok(List.of(
                 Map.of("projectCode", "yudao-erp", "status", "ACTIVE", "allowedOriginsJson", "[]"))));

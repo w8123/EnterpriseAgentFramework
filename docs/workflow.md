@@ -2,7 +2,7 @@
 
 ## 资产与来源
 
-“业务能力”工作台包含 Java 业务方法和 HTTP API 两类资产。SDK、Controller、OpenAPI 与 API 市场是来源机制；正式 owner 维护已接纳契约，Tool 定义由 owner 派生，不能反向成为第二份可编辑资产。
+“业务能力”工作台包含 Java 业务方法和 HTTP API 两类资产。SDK Starter（业务方法与 Spring MVC 接口）、上传的 OpenAPI 文档与 API 市场是来源机制；正式 owner 维护已接纳契约，Tool 定义由 owner 派生，不能反向成为第二份可编辑资产。
 
 ```text
 来源观察 → 接纳决定 → 方法/API 资产 → Workflow 草稿

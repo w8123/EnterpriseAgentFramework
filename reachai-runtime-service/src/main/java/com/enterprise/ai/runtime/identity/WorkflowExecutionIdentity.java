@@ -177,6 +177,16 @@ public final class WorkflowExecutionIdentity {
     public static WorkflowExecutionIdentity forAgentExecution(
             Long projectId, String projectCode, WorkflowExecutionIdentity caller) {
         if (caller == null) return fromAgent(projectId, projectCode);
+        // Do not silently replace an attested business-system scope with the target Agent's
+        // project: identical external user IDs need not denote the same person across systems.
+        // The current Embed gateway attests the target separately and sends no project here;
+        // an explicitly scoped Embed identity must nevertheless agree with the target.
+        boolean businessCaller = caller.source == Source.EMBED_SESSION || caller.source == Source.MCP_EMPLOYEE;
+        boolean hasCallerProject = caller.projectId != null || StringUtils.hasText(caller.projectCode);
+        if (businessCaller && ((caller.source == Source.MCP_EMPLOYEE && !hasCallerProject)
+                || (hasCallerProject && !caller.authorizeProjectCredential(projectId, projectCode)))) {
+            throw new IllegalArgumentException("business identity does not match the Agent project");
+        }
         return restoreFromTrustedSnapshot(caller.source, caller.tenantId, projectId, projectCode, caller.userId);
     }
 

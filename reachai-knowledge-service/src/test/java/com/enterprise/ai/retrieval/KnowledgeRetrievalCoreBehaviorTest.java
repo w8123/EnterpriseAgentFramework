@@ -27,6 +27,7 @@ import org.mockito.ArgumentCaptor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -221,7 +222,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
     }
 
     @Test
-    void multiKnowledgeBaseFailureIsIsolated() {
+    void multiKnowledgeBaseFailureDoesNotReturnPartialResults() {
         KnowledgeBase ok = kb("kb_ok");
         KnowledgeBase bad = kb("kb_bad");
         when(knowledgeBaseRepository.selectList(any())).thenReturn(List.of(ok, bad));
@@ -245,7 +246,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
         when(chunkRepository.selectList(any())).thenReturn(List.of());
         when(fileInfoRepository.selectList(any())).thenReturn(List.of(file("f1", "a.md")));
 
-        KnowledgeRetrievalCoreResponse response = core.retrieve(KnowledgeRetrievalCoreRequest.builder()
+        assertThrows(com.enterprise.ai.common.exception.BizException.class, () -> core.retrieve(KnowledgeRetrievalCoreRequest.builder()
                 .query("q")
                 .knowledgeBaseCodes(List.of("kb_ok", "kb_bad"))
                 .searchMode("vector")
@@ -254,10 +255,8 @@ class KnowledgeRetrievalCoreBehaviorTest {
                 .rerankEnabled(false)
                 .recordHit(false)
                 .userId("u1")
-                .build());
-
-        assertEquals(1, response.getItems().size());
-        assertEquals("ok-hit", response.getItems().get(0).getContent());
+                .build()));
+        verify(vectorService, times(2)).search(any(VectorSearchRequest.class));
     }
 
     @Test

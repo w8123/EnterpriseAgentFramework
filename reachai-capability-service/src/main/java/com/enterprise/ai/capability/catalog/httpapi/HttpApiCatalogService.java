@@ -41,7 +41,7 @@ public class HttpApiCatalogService {
             + "WHERE b.asset_id = capability_http_api_asset.id AND b.status <> 'REMOVED' "
             + "AND (i.id IS NULL OR i.supported IS NULL OR i.supported <> 1 "
             + "OR m.id IS NULL OR i.inventory_token <> m.inventory_token "
-            + "OR (b.source_kind IN ('OPENAPI_SCAN', 'CONTROLLER_SCAN') "
+            + "OR (b.source_kind = 'OPENAPI_SCAN' "
             + "AND (p.id IS NULL OR LOWER(p.status) = 'failed')) "
             + "OR b.source_contract_json IS NULL OR TRIM(b.source_contract_json) = '' "
             + "OR JSON_VALID(b.source_contract_json) = 0 "
@@ -420,8 +420,7 @@ public class HttpApiCatalogService {
     }
 
     private boolean isScan(String kind) {
-        return HttpApiSourceKind.CONTROLLER_SCAN.name().equals(kind)
-                || HttpApiSourceKind.OPENAPI_SCAN.name().equals(kind);
+        return HttpApiSourceKind.OPENAPI_SCAN.name().equals(kind);
     }
 
     private String digest(String value) {

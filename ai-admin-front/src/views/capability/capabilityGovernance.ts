@@ -69,7 +69,7 @@ export function capabilitySourceLabel(source?: string | null, sourceLocation?: s
   const normalized = String(source || '').trim().toLowerCase()
   if (normalized === 'sdk') return 'SDK 注册'
   if (normalized === 'code') return '代码内置'
-  if (normalized === 'scanner') return '源码扫描'
+  if (normalized === 'scanner') return 'OpenAPI 导入'
   if (normalized === 'manual') return '平台配置'
   return normalized || '来源未知'
 }

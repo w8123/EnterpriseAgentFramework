@@ -29,7 +29,7 @@ class ScanEntryRetirementBrowserLauncherTest {
             Map<String, Object> state = new LinkedHashMap<>();
             state.put("status", "READY_FOR_NORMAL_OWNER_FLOW"); state.put("controlOrigin", surface.controlOrigin());
             state.put("workflowId", surface.workflowId()); state.put("projectId", 41); state.put("projectCode", "orders");
-            state.put("scanPath", surface.scanPath()); state.put("specFile", surface.specFile());
+            state.put("documentDirectory", surface.documentDirectory()); state.put("specFile", surface.specFile());
             state.put("upstreamOrigin", surface.upstreamOrigin()); state.put("authStatePath", surface.authStatePath());
             write(manifest, json, state); System.out.println("BMAPI_5A_BROWSER_READY");
             await(root, "trial", deadline); state.put("trialEvidence", fixture.verifyRetirementBrowserTrial());

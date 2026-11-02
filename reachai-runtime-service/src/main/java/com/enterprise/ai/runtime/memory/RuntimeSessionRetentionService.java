@@ -96,6 +96,12 @@ public class RuntimeSessionRetentionService {
         LocalDateTime now = LocalDateTime.now();
         RuntimeConversationSessionEntity session = store.claimManualPurge(
                 tenant, publicSessionId, reason, reference, actorHash, owner, now);
+        return eraseClaimed(session, tenant, publicSessionId, reason, reference, actorHash, owner);
+    }
+
+    private EraseResult eraseClaimed(RuntimeConversationSessionEntity session, String tenant,
+                                     String publicSessionId, String reason, String reference,
+                                     String actorHash, String owner) {
         try {
             stateEraser.purgeAll(session);
             store.finalizePurge(session, owner, "PLATFORM_USER", actorHash, reference,
@@ -131,9 +137,22 @@ public class RuntimeSessionRetentionService {
         String reference = RuntimeSessionRetentionSupport.referenceId(referenceId);
         String actorHash = RuntimeSessionRetentionSupport.actorHash(actorId);
         int batchSize = ownerEraseBatchSize(requestedBatchSize);
+        // Do not let the old tenant + bare user id endpoint delete a business account's
+        // sessions merely because another identity has the same local id. Check the full
+        // owning table, not just the bounded batch, before any destructive operation.
+        if (store.countBusinessOwnerSessions(tenant, user) > 0) {
+            throw RuntimeSessionRetentionException.scopedIdentityRequired();
+        }
         LocalDateTime attemptedAt = LocalDateTime.now();
         List<RuntimeConversationSessionEntity> candidates =
                 store.ownerEraseCandidates(tenant, user, batchSize);
+        // The database may use a case-insensitive collation for user_id. Validate the
+        // entire selected batch before deleting anything; opaque ids must match exactly.
+        if (candidates.stream().anyMatch(candidate -> !user.equals(candidate.getUserId())
+                || "EMBED_SESSION".equalsIgnoreCase(candidate.getIdentitySource())
+                || "MCP_EMPLOYEE".equalsIgnoreCase(candidate.getIdentitySource()))) {
+            throw RuntimeSessionRetentionException.scopedIdentityRequired();
+        }
         int erased = 0;
         int alreadyErased = 0;
         int legalHoldBlocked = 0;
@@ -147,9 +166,16 @@ public class RuntimeSessionRetentionService {
                 continue;
             }
             try {
-                erase(tenant, candidate.getSessionId(), reason, reference, actorId);
+                String owner = lifecycleOwner();
+                RuntimeConversationSessionEntity claimed = store.claimOwnerPurge(
+                        candidate, user, reason, reference, actorHash, owner, LocalDateTime.now());
+                eraseClaimed(claimed, tenant, candidate.getSessionId(), reason, reference, actorHash, owner);
                 erased++;
             } catch (RuntimeSessionRetentionException failure) {
+                if ("RUNTIME_OWNER_SCOPE_REQUIRED".equals(failure.code())) {
+                    recordOwnerEraseNotCompletedSafely(candidate, actorHash, reason, reference, failure.code());
+                    throw failure;
+                }
                 switch (failure.code()) {
                     case "RUNTIME_SESSION_NOT_FOUND" -> alreadyErased++;
                     case "RUNTIME_SESSION_LEGAL_HOLD" -> legalHoldBlocked++;
@@ -167,7 +193,7 @@ public class RuntimeSessionRetentionService {
             }
         }
         long remaining = store.countOwnerSessions(tenant, user);
-        boolean complete = remaining == 0;
+        boolean complete = remaining == 0 && legalHoldBlocked == 0 && retryable == 0 && failed == 0;
         String status = complete
                 ? "ERASED"
                 : legalHoldBlocked > 0 && retryable == 0 && failed == 0

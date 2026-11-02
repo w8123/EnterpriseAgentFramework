@@ -104,7 +104,7 @@ public class RuntimeWorkflowProposalGenerationService {
         List<RuntimeWorkflowProposalPlaceholderView> placeholders = new ArrayList<>();
 
         if (!supports(request)) {
-            validationErrors.add("requirement and modelInstanceId are required");
+            validationErrors.add("请填写需求并选择模型；还没有模型的话先到模型中心添加");
             return result(request, List.of(), List.of(), "", List.of(), warnings, placeholders, validationErrors);
         }
 

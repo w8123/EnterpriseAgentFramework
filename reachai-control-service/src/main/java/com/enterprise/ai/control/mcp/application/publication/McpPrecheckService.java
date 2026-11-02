@@ -34,6 +34,10 @@ public class McpPrecheckService {
             }
             McpToolProjection source = contractResolver.resolve(item.sourceKind(), item.sourceRef());
             McpToolProjection projected = applyOverrides(source, item);
+            if (!projected.hasTrustedRiskContract()) {
+                throw new com.enterprise.ai.control.mcp.domain.McpDomainException(
+                        "MCP_TOOL_RISK_UNRESOLVABLE", "无法核验能力风险，请先核对并重新发布来源: " + item.sourceRef());
+            }
             if (projected.riskLevel() == null || projected.riskLevel().isBlank()
                     || "UNKNOWN".equalsIgnoreCase(projected.riskLevel())) {
                 throw new com.enterprise.ai.control.mcp.domain.McpDomainException(
@@ -65,6 +69,7 @@ public class McpPrecheckService {
                 source.workflowVersionId(),
                 riskLevel,
                 source.capabilityContractHash(),
-                source.minimumRiskLevel());
+                source.minimumRiskLevel(),
+                source.riskContractVersion());
     }
 }

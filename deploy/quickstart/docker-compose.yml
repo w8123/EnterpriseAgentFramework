@@ -15,7 +15,7 @@ x-reachai-service: &reachai-service
   image: reachai-quickstart/server:local
   build:
     context: ../..
-    dockerfile: deploy/quickstart/reachai/Dockerfile
+    dockerfile: deploy/docker/Dockerfile
     target: server
   restart: unless-stopped
   depends_on:
@@ -170,6 +170,8 @@ services:
       <<: *reachai-env
       JAVA_OPTS: -Xms128m -Xmx640m -XX:+UseSerialGC
       REACHAI_SKILL_ARTIFACT_ROOT: /app/data/skill-artifacts
+      REACHAI_PLATFORM_AI_APPROVAL_KEY_ID: ${REACHAI_PLATFORM_AI_APPROVAL_KEY_ID:-}
+      REACHAI_PLATFORM_AI_APPROVAL_KEY_BASE64: ${REACHAI_PLATFORM_AI_APPROVAL_KEY_BASE64:-}
     volumes:
       - reachai-data:/app/data
     healthcheck:
@@ -183,7 +185,7 @@ services:
     image: reachai-quickstart/web:local
     build:
       context: ../..
-      dockerfile: deploy/quickstart/reachai/Dockerfile
+      dockerfile: deploy/docker/Dockerfile
       target: web
     restart: unless-stopped
     depends_on:

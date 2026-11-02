@@ -991,14 +991,7 @@ class AiCodingTaskProtocolHttpTest {
 
         JsonNode task = createPageMapTask();
         String taskId = task.path("taskId").asText();
-        assertEquals(
-                HttpStatus.BAD_REQUEST,
-                exchange(
-                        HttpMethod.POST,
-                        "/api/ai-coding-console/tasks/" + taskId + "/handoffs",
-                        objectMapper.createObjectNode()
-                                .put("issuedBy", "x".repeat(97)),
-                        PLATFORM_TOKEN).getStatusCode());
+        // The issuer is the signed-in account, so a client-supplied issuedBy is no longer read.
 
         JsonNode handoff = requireBody(exchange(
                 HttpMethod.POST,
@@ -1057,14 +1050,6 @@ class AiCodingTaskProtocolHttpTest {
                 taskRoot + "/events",
                 event("evt-length-start", "STARTED", "开始扫描"),
                 taskToken));
-        assertEquals(
-                HttpStatus.BAD_REQUEST,
-                exchange(
-                        HttpMethod.POST,
-                        "/api/ai-coding-console/tasks/" + taskId + "/cancel",
-                        objectMapper.createObjectNode()
-                                .put("actor", "x".repeat(97)),
-                        PLATFORM_TOKEN).getStatusCode());
         ObjectNode question = objectMapper.createObjectNode();
         question.put("schema", "reachai.ai-coding.question.v1");
         question.put("clientEventId", "evt-length-question");

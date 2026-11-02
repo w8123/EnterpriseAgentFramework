@@ -475,6 +475,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 import {
   attachPageAssistantWorkflowTool,
+  getPageAssistantAttachContext,
   getWorkflowDebugSession,
   getWorkflowDebugSessionByCreationKey,
 } from '@/api/workflow'
@@ -1497,9 +1498,7 @@ async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
   const current = studio.value
   if (!current || current.workflowKind !== 'PAGE_ASSISTANT') return false
 
-  const projectId = current.projectId ?? null
-  const projectCode = current.projectCode?.trim() || null
-  if (!projectId && !projectCode) {
+  if (!current.projectId && !current.projectCode?.trim()) {
     if (!options.silent) {
       ElMessage.error('当前页面助手缺少项目归属，无法同步到页面副驾驶。')
     }
@@ -1508,11 +1507,11 @@ async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
 
   pageAssistantSyncing.value = true
   try {
+    // Read the target and its revision first; a conflict is shown, never retried with a newer revision.
+    const { data: context } = await getPageAssistantAttachContext(workflowId.value)
     const { data } = await attachPageAssistantWorkflowTool(workflowId.value, {
-      projectId,
-      projectCode,
+      ...(context.targetExists ? { baseRevision: context.revision } : { createTarget: true }),
       modelInstanceId: current.defaultModelInstanceId || workflowMeta.defaultModelInstanceId || null,
-      publishedBy: 'ReachAI Workflow Studio',
     })
     if (!options.silent) {
       ElMessage.success(`已同步到页面副驾驶（${data.agentKeySlug} 配置 v${data.configVersionNo}）`)
@@ -1520,8 +1519,10 @@ async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
     return true
   } catch (error) {
     if (!options.silent) {
-      const response = (error as { response?: { data?: { message?: string; error?: string } } })?.response
-      ElMessage.error(response?.data?.message || response?.data?.error || '页面副驾驶同步失败')
+      const response = (error as { response?: { status?: number; data?: { message?: string; error?: string; code?: string } } })?.response
+      ElMessage.error(response?.data?.code === 'AGENT_DRAFT_CHANGED'
+        ? '页面副驾驶刚被修改，请先查看它的当前配置，再重新同步。'
+        : response?.data?.message || response?.data?.error || '页面副驾驶同步失败')
       return false
     }
     throw error

@@ -114,10 +114,11 @@ public class ControlAiAssistProjectController {
                         "context.agent", "agent",
                         "context.configVersions", "configVersions",
                         "context.mutableBase", "mutableBase",
+                        "context.baseRevision", "baseRevision",
                         "create.config", "supervisorConfig",
                         "draft", "draft",
                         "publish", "activeConfig"),
-                "Project Agent authoring endpoints are not ApiResult-wrapped; read mutableBase before every config or Skill mutation."));
+                "Project Agent authoring endpoints are not ApiResult-wrapped; read mutableBase and send baseRevision for every config save, publish or Skill mutation."));
         shapes.put("agentSkillBinding", new ResponseShape(
                 "bare-json",
                 Map.of(
@@ -333,10 +334,10 @@ public class ControlAiAssistProjectController {
                 List.of(
                         "Download and install the agent-ai-coding skill before authoring project Agents or binding Skills from AI tools.",
                         "Use only the project-key Agent endpoints in this manifest; do not call console /api/agents or /api/skills endpoints with an AI Coding key.",
-                        "Read Agent context and mutableBase before every config or Skill mutation; send the current DRAFT id when one exists.",
+                        "Read Agent context before every config or Skill mutation; send baseRevision and the current DRAFT id when one exists. A conflict requires review, never blind retry.",
                         "Bind only exact published Skill versions returned by bindableSkillsUrl; AI Coding forces scriptPolicy=DENY and cannot access PRIVATE Skills.",
                         "Store every executable graph as a runtime_workflow and publish an ACTIVE version before attachment.",
-                        "Attach published Workflows via the generic agent-supervisor workflow-tools attach endpoint using agentKeySlug.",
+                        "Read target Agent context, then attach a published Workflow with explicit agentId or agentKeySlug and its baseRevision. Review conflicts before retrying.",
                         "Publish a new Agent config version after changing Supervisor, Skill, or Workflow bindings.",
                         "Remote A2A bindings and Skill package governance still require the human console."));
     }

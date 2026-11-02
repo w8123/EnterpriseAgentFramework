@@ -19,6 +19,19 @@ function request(partial: Partial<PageActionRequest> = {}): PageActionRequest {
 }
 
 describe('createEafPageBridge pre-execution confirm', () => {
+  it('keeps a replacement action when the earlier registration is disposed', async () => {
+    const bridge = createEafPageBridge()
+    const handler = vi.fn(async () => ({ ok: true }))
+    const disposeOld = bridge.registerAction('page.search.applyFilters', handler, { title: 'Old' })
+    const disposeNew = bridge.registerAction('page.search.applyFilters', handler, { title: 'New' })
+
+    disposeOld()
+    expect(bridge.actionDefinitions).toMatchObject([{ actionKey: 'page.search.applyFilters', title: 'New' }])
+    expect(await bridge.handleEvent(request())).toMatchObject({ status: 'SUCCESS' })
+    disposeNew()
+    expect(bridge.registeredActions).toEqual([])
+  })
+
   it('skips confirm when confirm=false and runs handler once', async () => {
     const confirmAction = vi.fn(async () => false)
     const handler = vi.fn(async () => ({ ok: true }))
@@ -91,6 +104,33 @@ describe('createEafPageBridge pre-execution confirm', () => {
     cancelButton.click()
 
     await expect(pending).resolves.toMatchObject({ status: 'USER_CANCELLED' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('closes the default confirmation when the client is disposed', async () => {
+    const lifetime = new AbortController()
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const pending = bridge.handleEvent(request({ confirm: true }), { signal: lifetime.signal, isActive: () => !lifetime.signal.aborted })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    lifetime.abort()
+    await expect(pending).resolves.toBeNull()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('settles the previous request when a new confirmation replaces its dialog', async () => {
+    const bridge = createEafPageBridge()
+    const handler = vi.fn()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const previous = bridge.handleEvent(request({ confirm: true, requestId: 'old' }))
+    const next = bridge.handleEvent(request({ confirm: true, requestId: 'new' }))
+    await expect(previous).resolves.toMatchObject({ status: 'USER_CANCELLED' })
+    const cancel = Array.from(document.querySelectorAll('[role="alertdialog"] button'))
+      .find(button => button.textContent === '取消') as HTMLButtonElement
+    cancel.click()
+    await expect(next).resolves.toMatchObject({ status: 'USER_CANCELLED' })
     expect(handler).not.toHaveBeenCalled()
   })
 

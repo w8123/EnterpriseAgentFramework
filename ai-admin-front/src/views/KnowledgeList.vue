@@ -14,6 +14,8 @@
       </template>
     </PageHeader>
 
+    <KnowledgeDependencyNotice />
+
     <LiquidGlassTable
       class="knowledge-list-surface workbench-list-surface"
       :body-layout="viewMode === 'card' ? 'cards' : 'table'"
@@ -419,6 +421,7 @@ import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import KnowledgeAttachAgentDialog from './knowledge/KnowledgeAttachAgentDialog.vue'
+import KnowledgeDependencyNotice from './knowledge/KnowledgeDependencyNotice.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlatformCan } from '@/auth/usePlatformCan'

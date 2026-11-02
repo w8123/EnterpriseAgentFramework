@@ -29,7 +29,7 @@ function reviewItem(overrides: Partial<CapabilityDiffReviewItem> = {}): Capabili
 describe('capability governance model', () => {
   it('identifies SDK-backed scanner projections without relabeling all scanner rows', () => {
     expect(capabilitySourceLabel('scanner', 'sdk:orders:queryOrder')).toBe('SDK 注册')
-    expect(capabilitySourceLabel('scanner', 'scanner:orders:queryOrder')).toBe('源码扫描')
+    expect(capabilitySourceLabel('scanner', 'scanner:orders:queryOrder')).toBe('OpenAPI 导入')
     expect(capabilitySourceLabel('sdk')).toBe('SDK 注册')
   })
 

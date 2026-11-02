@@ -65,6 +65,7 @@ class McpWriteApprovalServiceTest {
 
     @BeforeEach
     void setUp() {
+        when(sync.hasActiveOrigin(any(), any(), any(), any())).thenReturn(true);
         protocol = new McpEmployeeProtocolService(connections, access, publications, sync, acl, gateway, audit,
                 approvals, new ObjectMapper());
         service = new McpWriteApprovalService(approvals, protocol, new ObjectMapper());
@@ -73,7 +74,7 @@ class McpWriteApprovalServiceTest {
                 11L, "pub11", "", McpPublicationStatus.PUBLISHED, 1100L, null, null)));
         when(publications.findRevision(eq(11L), eq(1100L))).thenReturn(Optional.of(new McpPublicationRevision(
                 1100L, 11L, 2, List.of(tool("erpStockPage", "READ"), tool("erpCustomerCreate", "WRITE"),
-                tool("erpOrderUpdate", null)), null, LocalDateTime.now())));
+                tool("erpOrderUpdate", "WRITE")), null, LocalDateTime.now())));
         when(sync.activeAccount(eq("default"), eq(7L), eq("yudao-erp")))
                 .thenReturn(Optional.of(new BusinessSystemAccount("yudao-erp", "1", "张三", List.of("erp_user"))));
         when(acl.decide(any(), eq(1L), eq("yudao-erp"), eq("TOOL"), any()))
@@ -182,6 +183,16 @@ class McpWriteApprovalServiceTest {
     }
 
     @Test
+    void approvalAfterOriginIdentityWasRevokedFailsWithoutRunning() {
+        long id = submit("erpCustomerCreate", Map.of("name", "x"));
+        when(sync.hasActiveOrigin(eq("default"), eq(7L), eq("yudao-erp"), eq("1"))).thenReturn(false);
+        var decided = service.approve(id, "manager01", null);
+        assertEquals("FAILED", decided.state());
+        assertEquals("MCP_APPROVAL_CONNECTION_INACTIVE", decided.errorCode());
+        verify(gateway, never()).executeAsEmployee(any());
+    }
+
+    @Test
     void approvalWhenTheCallPermissionWasWithdrawnFailsWithoutRunning() {
         long id = submit("erpCustomerCreate", Map.of("name", "x"));
         when(acl.decide(any(), anyLong(), any(), any(), any())).thenReturn("DENY");
@@ -190,6 +201,19 @@ class McpWriteApprovalServiceTest {
 
         assertEquals("FAILED", decided.state());
         assertEquals("MCP_APPROVAL_ACL_DENIED", decided.errorCode());
+        verify(gateway, never()).executeAsEmployee(any());
+    }
+
+    @Test
+    void approvalCannotExecuteAgainstAnOldUnverifiedRevision() {
+        long id = submit("erpCustomerCreate", Map.of("name", "x"));
+        var legacy = new McpToolProjection("erpCustomerCreate", "d", "{}", McpPublicationItemKind.CAPABILITY,
+                "yudao-erp.erpCustomerCreate", null, "WRITE", "c".repeat(64));
+        when(publications.findRevision(eq(11L), eq(1100L))).thenReturn(Optional.of(new McpPublicationRevision(
+                1100L, 11L, 2, List.of(legacy), null, LocalDateTime.now())));
+        var decided = service.approve(id, "manager01", null);
+        assertEquals("FAILED", decided.state());
+        assertEquals("MCP_APPROVAL_TOOL_CHANGED", decided.errorCode());
         verify(gateway, never()).executeAsEmployee(any());
     }
 
@@ -246,7 +270,7 @@ class McpWriteApprovalServiceTest {
 
     private static McpToolProjection tool(String name, String risk) {
         return new McpToolProjection(name, "d", "{\"type\":\"object\"}", McpPublicationItemKind.CAPABILITY,
-                "yudao-erp." + name, null, risk, "c".repeat(64));
+                "yudao-erp." + name, null, risk, "c".repeat(64), risk, 1);
     }
 
     private static McpWriteApproval withExpiry(McpWriteApproval a, LocalDateTime expiresAt) {

@@ -29,6 +29,7 @@ import {
 } from '@/api/model'
 import type { ModelInstance, ModelInstanceTestResult, ModelTemplate } from '@/types/model'
 import ModelInstanceForm from './components/ModelInstanceForm.vue'
+import ModelConnectionReuseDialog from './components/ModelConnectionReuseDialog.vue'
 import ModelProviderIcon from './components/ModelProviderIcon.vue'
 import ModelTemplatePicker from './components/ModelTemplatePicker.vue'
 import ModelTestResultPanel from './components/ModelTestResultPanel.vue'
@@ -78,6 +79,7 @@ const toggling = ref(false)
 const archiving = ref(false)
 const replaceVisible = ref(false)
 const customReplaceVisible = ref(false)
+const connectionReuseVisible = ref(false)
 const customReplace = ref({ provider: '', modelName: '', baseUrl: '', path: '' })
 const draftTestResult = ref<ModelInstanceTestResult | null>(null)
 const draftTestStale = ref(false)
@@ -422,6 +424,10 @@ onBeforeUnmount(() => {
             测试
           </LiquidGlassButton>
           <LiquidGlassButton source="wallpaper"
+            v-if="canManageModels && !archived && !editing && !instance.providerAccountId"
+            @click="connectionReuseVisible = true"
+          >使用此连接添加模型</LiquidGlassButton>
+          <LiquidGlassButton source="wallpaper"
             v-if="canManageModels && !archived && !editing"
             :loading="toggling"
             :icon="Switch"
@@ -556,6 +562,9 @@ onBeforeUnmount(() => {
         </LiquidGlassCard>
       </div>
     </template>
+
+    <ModelConnectionReuseDialog v-model:open="connectionReuseVisible" :source="instance"
+      @created="router.push({ name: 'ModelInstanceDetail', params: { id: $event } })" />
 
     <AppDialog
       v-model="replaceVisible"

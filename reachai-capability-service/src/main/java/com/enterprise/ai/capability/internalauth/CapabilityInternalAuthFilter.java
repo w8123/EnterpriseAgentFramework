@@ -80,6 +80,18 @@ public class CapabilityInternalAuthFilter extends OncePerRequestFilter {
             verified = verifyControl(cached, path, body);
         } else if (isCatalogResourcePath(path)) {
             verified = verifyControl(cached, path, body);
+        } else if (isCapabilityProjectLookupPath(path) && InternalServiceAuthHeaders.CALLER_RUNTIME.equals(
+                cached.getHeader(InternalServiceAuthHeaders.CALLER))) {
+            verified = verifier.verifyRuntimeProjectLookup(cached.getMethod(), path,
+                    cached.getHeader(InternalServiceAuthHeaders.CALLER),
+                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_SOURCE),
+                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_TENANT_ID),
+                    cached.getHeader(InternalServiceAuthHeaders.IDENTITY_USER_ID),
+                    cached.getHeader(InternalServiceAuthHeaders.TIMESTAMP),
+                    cached.getHeader(InternalServiceAuthHeaders.NONCE),
+                    cached.getHeader(InternalServiceAuthHeaders.BODY_SHA256),
+                    cached.getHeader(InternalServiceAuthHeaders.SIGNATURE), body,
+                    System.currentTimeMillis()).orElse(null);
         } else if (isCapabilityCatalogReadPath(path) || isCapabilityProjectLookupPath(path)) {
             verified = verifier.verifyCatalogRead(cached.getMethod(), path,
                     cached.getHeader(InternalServiceAuthHeaders.CALLER),

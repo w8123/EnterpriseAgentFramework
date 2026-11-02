@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.workflow;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.graph.GraphSpecToolContract;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -110,7 +111,7 @@ public class RuntimeWorkflowReferenceIndex {
                 else for (int ordinal = 0; ordinal < graph.getNodes().size(); ordinal++) {
                     var node = graph.getNodes().get(ordinal);
                     if (node == null) { warnings.add("GRAPH_UNREADABLE"); continue; }
-                    if (!"TOOL".equals(node.getType())) continue;
+                    if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
                     String ref = GraphSpecToolContract.resolve(node);
                     if (ref == null || ref.contains("${") || ref.contains("{{") || ref.length() > 256) {
                         warnings.add("UNRESOLVED_TOOL_REFERENCE"); continue;

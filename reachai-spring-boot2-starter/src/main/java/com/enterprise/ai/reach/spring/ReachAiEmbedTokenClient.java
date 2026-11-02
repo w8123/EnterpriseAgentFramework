@@ -1,6 +1,8 @@
 package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.auth.ReachAiSignatureHeaders;
+import com.enterprise.ai.reach.sdk.auth.ReachAiProjectRequestHeaders;
+import com.enterprise.ai.reach.sdk.auth.ReachAiProjectRequestSigner;
 import com.enterprise.ai.reach.sdk.auth.ReachAiSigner;
 import com.enterprise.ai.reach.sdk.client.ReachAiClientConfig;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,6 +22,7 @@ import java.util.Map;
 public class ReachAiEmbedTokenClient {
 
     private static final String TOKEN_EXCHANGE_PATH = "/api/embed/token/exchange";
+    private static final String SESSION_REVOKE_PATH = "/api/embed/token/business-session/revoke";
 
     private final ReachAiRegistryProperties properties;
     private final ReachAiRegistryTransport transport;
@@ -52,25 +55,49 @@ public class ReachAiEmbedTokenClient {
         body.put("route", trimToNull(request.getRoute()));
         body.put("origin", request.getOrigin().trim());
         body.put("principal", request.getPrincipal());
+        body.put("businessSessionId", request.getPrincipal().getBusinessSessionId());
+        body.put("businessSessionExpiresAt", request.getPrincipal().getBusinessSessionExpiresAt());
 
         String response;
         try {
+            byte[] payload = objectMapper.writeValueAsBytes(body);
             response = transport.exchange(
                     "POST",
                     trimTrailingSlash(properties.getRegistry().getUrl())
                             + TOKEN_EXCHANGE_PATH,
-                    signedHeaders(),
-                    body);
+                    signedHeaders(payload, TOKEN_EXCHANGE_PATH),
+                    payload);
         } catch (IOException ex) {
             // Do not propagate a transport body: it may contain credentials or
             // a short-lived token supplied by a non-conforming upstream.
             throw new IllegalStateException(
                     "ReachAI Embed Token exchange request failed");
         }
-        return parseResponse(response);
+        return parseResponse(response, request.getPrincipal());
     }
 
-    private ReachAiEmbedTokenResult parseResponse(String response) {
+    /** Notify ReachAI after a host login session is invalidated. Retry failures until acknowledged. */
+    public void revokeBusinessSession(String businessSessionId) {
+        validateConfiguration();
+        requireText(businessSessionId, "businessSessionId");
+        Map<String, Object> body = new LinkedHashMap<String, Object>();
+        body.put("projectCode", properties.getProject().getCode().trim());
+        body.put("businessSessionId", businessSessionId);
+        try {
+            byte[] payload = objectMapper.writeValueAsBytes(body);
+            String response = transport.exchange("POST",
+                    trimTrailingSlash(properties.getRegistry().getUrl()) + SESSION_REVOKE_PATH,
+                    signedHeaders(payload, SESSION_REVOKE_PATH), payload);
+            JsonNode root = objectMapper.readTree(response);
+            if (root == null || !root.isObject() || !isSuccessCode(root.get("code"))) {
+                throw new IllegalStateException("ReachAI business session revocation was rejected");
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("ReachAI business session revocation request failed");
+        }
+    }
+
+    private ReachAiEmbedTokenResult parseResponse(String response, ReachAiEmbedPrincipal principal) {
         try {
             JsonNode root = objectMapper.readTree(response);
             if (root == null || !root.isObject()) {
@@ -85,6 +112,14 @@ public class ReachAiEmbedTokenClient {
             JsonNode payload = root.path("data");
             if (!payload.isObject()) {
                 payload = root;
+            }
+            if (principal.getBusinessSessionId() != null
+                    && !payload.path("businessSessionBound").asBoolean(false)) {
+                throw new IllegalStateException("ReachAI did not confirm business session binding");
+            }
+            if (principal.getBusinessSessionExpiresAt() != null
+                    && !payload.path("businessSessionExpiryApplied").asBoolean(false)) {
+                throw new IllegalStateException("ReachAI did not confirm business session expiry");
             }
             String token = text(payload.get("token"));
             if (token == null) {
@@ -122,7 +157,7 @@ public class ReachAiEmbedTokenClient {
         return result;
     }
 
-    private Map<String, String> signedHeaders() {
+    private Map<String, String> signedHeaders(byte[] payload, String path) {
         ReachAiSignatureHeaders headers = ReachAiSigner.sign(
                 ReachAiClientConfig.builder()
                         .endpoint(properties.getRegistry().getUrl())
@@ -131,7 +166,14 @@ public class ReachAiEmbedTokenClient {
                         .appKey(properties.getRegistry().getAppKey())
                         .appSecret(properties.getRegistry().getAppSecret())
                         .build());
-        return headers.toHttpHeaders();
+        ReachAiProjectRequestHeaders bodySignature = ReachAiProjectRequestSigner.sign(
+                properties.getRegistry().getAppKey(), properties.getRegistry().getAppSecret(),
+                properties.getProject().getCode(), "POST", path, payload,
+                headers.getTimestamp(), headers.getNonce());
+        Map<String, String> result = headers.toHttpHeaders();
+        result.put(ReachAiProjectRequestHeaders.BODY_SHA256, bodySignature.getBodySha256());
+        result.put("X-ReachAI-Body-Signature", bodySignature.getSignature());
+        return result;
     }
 
     private void validateConfiguration() {
@@ -164,8 +206,8 @@ public class ReachAiEmbedTokenClient {
     }
 
     private static boolean isSuccessCode(JsonNode code) {
-        return (code.isNumber() && code.asInt() == 200)
-                || (code.isTextual() && "200".equals(code.asText().trim()));
+        return code != null && ((code.isNumber() && code.asInt() == 200)
+                || (code.isTextual() && "200".equals(code.asText().trim())));
     }
 
     private static String text(JsonNode node) {

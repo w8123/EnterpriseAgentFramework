@@ -71,6 +71,23 @@ class RuntimeSessionRetentionStoreTest {
     }
 
     @Test
+    void ownerPurgeRejectsReplacedSessionOrChangedOwnerBeforeClaiming() {
+        var sessionMapper = mock(RuntimeConversationSessionMapper.class);
+        var original = session("ACTIVE", false); original.setId(7L); original.setUserId("Alice");
+        var replacement = session("ACTIVE", false); replacement.setId(8L); replacement.setUserId("Alice");
+        when(sessionMapper.selectOne(any(Wrapper.class))).thenReturn(replacement);
+        var store = store(sessionMapper, mock(RuntimeSessionRetentionAuditMapper.class));
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", assertThrows(RuntimeSessionRetentionException.class,
+                () -> store.claimOwnerPurge(original, "Alice", "PRIVACY_REQUEST", null,
+                        "a".repeat(64), "owner", LocalDateTime.now())).code());
+        replacement.setId(7L); replacement.setUserId("alice");
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", assertThrows(RuntimeSessionRetentionException.class,
+                () -> store.claimOwnerPurge(original, "Alice", "PRIVACY_REQUEST", null,
+                        "a".repeat(64), "owner", LocalDateTime.now())).code());
+        verify(sessionMapper, org.mockito.Mockito.never()).update(any(), any(Wrapper.class));
+    }
+
+    @Test
     void finalPurgeDeletesEventsThenClaimedSessionAndLeavesMetadataAudit() {
         RuntimeConversationSessionMapper sessionMapper = mock(RuntimeConversationSessionMapper.class);
         RuntimeConversationEventMapper eventMapper = mock(RuntimeConversationEventMapper.class);

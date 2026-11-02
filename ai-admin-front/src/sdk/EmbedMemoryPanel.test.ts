@@ -10,13 +10,15 @@ describe('EmbedMemoryPanel', () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it('lists the end user own memories with the embed token and deletes one', async () => {
-    let items = [{ id: 3, type: 'PREFERENCE', content: '默认用中文回答', sourceAgentId: 'erp-assistant' }]
-    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    let items = [{
+      id: 3, type: 'PREFERENCE', content: '默认用中文回答', sourceAgentId: 'erp-assistant',
+      layer: 'PERSONAL', scope: 'personal', layerName: '个人记忆', groupName: '偏好',
+    }]
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
       if (init?.method === 'DELETE') {
         items = []
         return ok({ id: 3 })
       }
-      if (url.includes('/candidates')) return ok({ items: [], total: 0 })
       return ok({ items, total: items.length })
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -27,6 +29,9 @@ describe('EmbedMemoryPanel', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('默认用中文回答')
+    expect(wrapper.text()).toContain('个人记忆 · 偏好')
+    expect(wrapper.text()).not.toContain('待确认')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/candidates'))).toBe(false)
     const [firstUrl, firstInit] = fetchMock.mock.calls[0]
     expect(firstUrl).toMatch(/^\/api\/embed\/memories/)
     expect((firstInit?.headers as Record<string, string>).Authorization).toBe('Bearer tok')

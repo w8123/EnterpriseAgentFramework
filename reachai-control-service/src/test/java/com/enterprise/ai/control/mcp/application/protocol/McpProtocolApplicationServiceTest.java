@@ -67,7 +67,19 @@ class McpProtocolApplicationServiceTest {
                 name, "tool " + name,
                 "{\"type\":\"object\",\"properties\":{\"id\":{\"type\":\"string\"}}}",
                 com.enterprise.ai.control.mcp.domain.publication.McpPublicationItemKind.CAPABILITY,
-                "orders:" + name, null, riskLevel);
+                "orders:" + name, null, riskLevel, null, riskLevel, 1);
+    }
+
+    @Test
+    void legacyRevisionCannotListOrExecuteUntilRepublished() {
+        McpToolProjection legacy = new McpToolProjection("legacy", "legacy", "{}",
+                McpPublicationItemKind.CAPABILITY, "orders:legacy", null, "READ");
+        McpAuthenticatedSession session = session(client(McpClientStatus.ACTIVE, List.of()), revision(List.of(legacy)));
+        assertTrue(service.visibleTools(session).isEmpty());
+        assertTrue(service.instructions(session).contains("重新校验并发布"));
+        assertEquals("MCP_TOOL_RISK_REPUBLICATION_REQUIRED", assertThrows(McpDomainException.class,
+                () -> service.callTool(session, "legacy", Map.of())).code());
+        verify(executionGateway, org.mockito.Mockito.never()).execute(any());
     }
 
     private McpPublicationRevision revision(List<McpToolProjection> tools) {
@@ -184,7 +196,7 @@ class McpProtocolApplicationServiceTest {
     void toolsListFailsClosedWhenFrozenSchemaIsNotAJsonObject() {
         McpToolProjection invalid = new McpToolProjection(
                 "order_search", "tool order_search", "[]",
-                McpPublicationItemKind.CAPABILITY, "orders:order_search", null, "READ");
+                McpPublicationItemKind.CAPABILITY, "orders:order_search", null, "READ", null, "READ", 1);
         McpAuthenticatedSession session = session(
                 client(McpClientStatus.ACTIVE, List.of()), revision(List.of(invalid)));
 

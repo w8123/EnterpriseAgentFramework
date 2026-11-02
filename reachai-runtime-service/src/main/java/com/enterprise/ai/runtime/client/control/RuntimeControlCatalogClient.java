@@ -9,7 +9,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.util.List;
 import java.util.Map;
 
-@FeignClient(name = "reachai-control-service", url = "${services.control-service.url:http://localhost:18603}")
+@FeignClient(name = "reachai-control-service", url = "${services.control-service.url:http://localhost:18603}",
+        configuration = RuntimeAgentSkillInternalAuthFeignConfig.class)
 public interface RuntimeControlCatalogClient {
 
     @GetMapping("/internal/control/page-actions/lookup")
@@ -83,7 +84,10 @@ public interface RuntimeControlCatalogClient {
                                       Map<String, Object> args,
                                       boolean confirmRequired,
                                       int confirmationTimeoutMs,
-                                      int executionTimeoutMs) {
+                                      int executionTimeoutMs,
+                                      String identitySource,
+                                      String identityTenantId,
+                                      String identityUserId) {
     }
 
     record PageBridgeExecutionResponse(boolean success,

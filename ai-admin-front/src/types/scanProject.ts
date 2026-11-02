@@ -1,22 +1,17 @@
 import type { ToolInfo } from '@/types/tool'
 
-export type ScanType = 'openapi' | 'controller' | 'auto'
 export type ScanStatus = 'created' | 'scanning' | 'scanned' | 'failed'
 
-/** 与后端 ScanOptions / ScanSettings 枚举值一致 */
+/** 与后端 ScanSettings 枚举值一致；说明来源顺序由 SDK Starter 拉取使用 */
 export type DescriptionSource =
-  | 'JAVADOC'
   | 'SWAGGER_API_OPERATION'
   | 'OPENAPI_OPERATION'
   | 'METHOD_NAME'
 
 export type ParamDescriptionSource =
-  | 'JAVADOC_PARAM'
   | 'SCHEMA_ANNO'
   | 'PARAMETER_ANNO'
   | 'FIELD_NAME'
-
-export type ScanIncrementalMode = 'OFF' | 'MTIME' | 'GIT_DIFF'
 
 export interface ScanDefaultFlags {
   enabled: boolean
@@ -31,43 +26,28 @@ export interface ScanSettings {
   /** 缺省或 true=解析该源；false=跳过。未出现的 key 视为 true（兼容旧数据） */
   descriptionSourceEnabled: SourceEnabledMap<DescriptionSource>
   paramDescriptionSourceEnabled: SourceEnabledMap<ParamDescriptionSource>
-  onlyRestController: boolean
   httpMethodWhitelist: string[]
-  classIncludeRegex: string
-  classExcludeRegex: string
   skipDeprecated: boolean
   defaultFlags: ScanDefaultFlags
-  incrementalMode: ScanIncrementalMode
 }
 
 export function getDefaultScanSettings(): ScanSettings {
   return {
-    descriptionSourceOrder: [
-      'SWAGGER_API_OPERATION',
-      'OPENAPI_OPERATION',
-      'JAVADOC',
-      'METHOD_NAME',
-    ],
-    paramDescriptionSourceOrder: ['PARAMETER_ANNO', 'SCHEMA_ANNO', 'JAVADOC_PARAM', 'FIELD_NAME'],
+    descriptionSourceOrder: ['SWAGGER_API_OPERATION', 'OPENAPI_OPERATION', 'METHOD_NAME'],
+    paramDescriptionSourceOrder: ['PARAMETER_ANNO', 'SCHEMA_ANNO', 'FIELD_NAME'],
     descriptionSourceEnabled: {
-      JAVADOC: true,
       SWAGGER_API_OPERATION: true,
       OPENAPI_OPERATION: true,
       METHOD_NAME: true,
     },
     paramDescriptionSourceEnabled: {
-      JAVADOC_PARAM: true,
       SCHEMA_ANNO: true,
       PARAMETER_ANNO: true,
       FIELD_NAME: true,
     },
-    onlyRestController: true,
     httpMethodWhitelist: [],
-    classIncludeRegex: '',
-    classExcludeRegex: '',
     skipDeprecated: false,
     defaultFlags: { enabled: false },
-    incrementalMode: 'OFF',
   }
 }
 
@@ -85,9 +65,10 @@ export interface ScanProject {
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
   contextPath: string
-  scanPath: string
-  scanType: ScanType
+  /** 已上传 OpenAPI 文档的文件名，仅作展示 */
   specFile?: string | null
+  /** 是否已上传 OpenAPI 文档；文档内容不随项目返回 */
+  openapiDocumentUploaded?: boolean
   toolCount: number
   status: ScanStatus
   errorMessage?: string | null
@@ -121,9 +102,10 @@ export interface ScanProjectUpsertRequest {
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
   contextPath: string
-  scanPath: string
-  scanType: ScanType
+  /** OpenAPI 文档文件名；与 specContent 一起提交，留空则保留已上传的文档 */
   specFile?: string | null
+  /** OpenAPI 文档内容（JSON 或 YAML），最大 5MB */
+  specContent?: string | null
 }
 
 /** PATCH /api/scan-projects/:id/registry-credential */

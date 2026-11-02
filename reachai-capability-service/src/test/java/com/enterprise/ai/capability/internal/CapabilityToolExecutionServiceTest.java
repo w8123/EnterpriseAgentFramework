@@ -82,6 +82,27 @@ class CapabilityToolExecutionServiceTest {
     }
 
     @Test
+    void treatsYudaoHttp200WithForbiddenBusinessCodeAsFailure() {
+        ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("code", 403);
+        body.put("msg", "没有该操作权限");
+        body.put("data", null);
+        CapturingInvoker invoker = new CapturingInvoker(Map.of("statusCode", 200, "body", body));
+        CapabilityToolExecutionService service = new CapabilityToolExecutionService(
+                com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper),
+                invoker, null, mock(CapabilitySourceContractGuard.class));
+        when(mapper.selectOne(any())).thenReturn(tool("yudao:erpProductPage", true));
+
+        Map<String, Object> response = service.execute("yudao:erpProductPage", Map.of("input", Map.of()));
+
+        assertEquals(false, response.get("success"));
+        assertEquals("CAPABILITY_BUSINESS_RESPONSE_FAILED", response.get("code"));
+        assertEquals("403", response.get("businessCode"));
+        assertTrue(String.valueOf(response.get("message")).contains("没有该操作权限"));
+    }
+
+    @Test
     void keepsStringBusinessCode200Successful() {
         ToolDefinitionMapper mapper = mock(ToolDefinitionMapper.class);
         Map<String, Object> businessBody = Map.of("code", "200", "success", true, "data", Map.of("total", 0));
@@ -237,12 +258,18 @@ class CapabilityToolExecutionServiceTest {
         CapabilityToolExecutionService service = new CapabilityToolExecutionService(com.enterprise.ai.capability.internal.BusinessMethodExecutionFixtures.catalog(mapper), invoker, securityService, mock(CapabilitySourceContractGuard.class));
         ToolDefinitionEntity tool = tool("qmssmp:teamArchivePage", true);
         tool.setProjectCode("qmssmp");
+        tool.setCapabilityMetadataJson("{\"businessIdentityRequired\":true}");
         when(mapper.selectOne(any())).thenReturn(tool);
         RegistryCredentialEntity credential = new RegistryCredentialEntity();
         credential.setProjectCode("qmssmp");
         credential.setAppKey("qmssmp");
         credential.setAppSecret("secret");
         when(securityService.findPrimaryActiveCredential("qmssmp")).thenReturn(Optional.of(credential));
+
+        CapabilityInvocationPolicyException noIdentity = assertThrows(CapabilityInvocationPolicyException.class,
+                () -> service.execute("qmssmp:teamArchivePage", Map.of("input", Map.of())));
+        assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", noIdentity.code());
+        assertNull(invoker.invocation);
 
         service.execute("qmssmp:teamArchivePage", Map.of(
                 "input", Map.of("pageIndex", 1),

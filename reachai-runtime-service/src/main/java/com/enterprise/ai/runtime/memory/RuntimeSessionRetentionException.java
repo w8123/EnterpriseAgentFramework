@@ -43,4 +43,10 @@ public class RuntimeSessionRetentionException extends RuntimeException {
                 "RUNTIME_SESSION_TURN_ACTIVE", HttpStatus.CONFLICT,
                 "Runtime session has an active turn");
     }
+
+    public static RuntimeSessionRetentionException scopedIdentityRequired() {
+        return new RuntimeSessionRetentionException(
+                "RUNTIME_OWNER_SCOPE_REQUIRED", HttpStatus.CONFLICT,
+                "A business identity scope is required before owner erasure");
+    }
 }

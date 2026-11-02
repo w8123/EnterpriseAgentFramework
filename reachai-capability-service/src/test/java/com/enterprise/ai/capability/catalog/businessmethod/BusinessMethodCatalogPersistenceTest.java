@@ -232,7 +232,7 @@ class BusinessMethodCatalogPersistenceTest {
 
     private void project(Long id, String code) {
         var entity = new ScanProjectEntity(); entity.setId(id); entity.setProjectCode(code); entity.setName(code);
-        entity.setBaseUrl("http://orders.local"); entity.setScanPath("sdk:" + code); entity.setScanType("auto");
+        entity.setBaseUrl("http://orders.local");
         session.getMapper(ScanProjectMapper.class).insert(entity);
     }
 

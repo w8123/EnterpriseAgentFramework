@@ -343,6 +343,25 @@ class HttpApiConsoleControllerTest {
                 .header(CatalogReadAuthorization.PROJECT_CODE, "orders").body(body);
     }
 
+    @Test void platformAiWritePreflightRequiresTheSameAclAndAnAcceptedSupportedContract() {
+        var allowed = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
+        var denied = fixture(ControlToolAclDecisionService.DECISION_DENY_NO_MATCH, HASH, true);
+        for (var fixture : List.of(allowed, denied)) {
+            var existing = fixture.capability.getHttpApi(9L, "42",
+                    CatalogReadAuthorization.resourceBody(fixture.authorization.requirePermission(fixture.request, PlatformPermissions.PLATFORM_READ), PlatformPermissions.PLATFORM_READ));
+            var summary = ((Map<?, ?>) existing.getBody()).get("summary");
+            var contract = Map.of("identity", Map.of("method", "POST", "routeTemplate", "/orders", "mappingConditions", Map.of()),
+                    "sideEffect", "WRITE", "parameters", List.of(), "responses", List.of(Map.of("contentTypes", List.of("application/json"),
+                            "schema", Map.of("type", "object"))), "authentication", Map.of("state", "NONE"));
+            when(fixture.capability.getHttpApi(eq(9L), eq("42"), any())).thenReturn(ownerPage(Map.of("summary", summary, "acceptedContract", contract)));
+        }
+        var response = allowed.controller.platformAiWriteContext(allowed.request, 9L);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals("WRITE", ((Map<?, ?>) response.getBody()).get("sideEffect"));
+        assertEquals(HttpStatus.FORBIDDEN, denied.controller.platformAiWriteContext(denied.request, 9L).getStatusCode());
+        verifyNoInteractions(allowed.runtime, denied.runtime);
+    }
+
     @Test void connectionsUseCanonicalIdentityWithoutLoadingContractOrAnotherProjectRoundTrip() {
         var fixture = fixture(ControlToolAclDecisionService.DECISION_ALLOW, HASH, true);
         when(fixture.runtime.readConnection(any(), eq("42"))).thenReturn(ResponseEntity.ok(Map.of("status", "NONE")));

@@ -68,7 +68,7 @@ describe('platform route navigation', () => {
 
   it('sends accounts without any role from the overview to the business-user landing page', () => {
     expect(platformSessionNavigation({ fullPath: '/dashboard', meta: {} }, 'AUTHENTICATED', []))
-      .toEqual({ path: '/no-role' })
+      .toEqual({ path: '/me' })
     expect(platformSessionNavigation({ fullPath: '/dashboard', meta: {} }, 'AUTHENTICATED', ['runops:read']))
       .toBe(true)
     expect(platformSessionNavigation({ fullPath: '/me/memories', meta: {} }, 'AUTHENTICATED', []))

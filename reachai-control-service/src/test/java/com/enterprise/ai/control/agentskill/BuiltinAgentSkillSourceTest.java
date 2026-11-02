@@ -25,6 +25,18 @@ import static org.mockito.Mockito.when;
 class BuiltinAgentSkillSourceTest {
     private static final byte[] BINARY = {31, -117, 8, 0, 13, 10, -1, 0};
 
+    @Test void runtimeTimezoneDoesNotChangePublishedPackageIdentity() throws IOException {
+        var original = java.util.TimeZone.getDefault();
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
+            byte[] canonical = packageWithText("name: example\n");
+            for (String zone : java.util.List.of("Asia/Shanghai", "America/Los_Angeles", "Pacific/Auckland")) {
+                java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(zone));
+                assertArrayEquals(canonical, packageWithText("name: example\n"), zone);
+            }
+        } finally { java.util.TimeZone.setDefault(original); }
+    }
+
     @Test
     void textCheckoutLineEndingsDoNotChangeBuiltinPackageIdentity() throws IOException {
         byte[] lf = packageWithText("name: example\nsecond: line\n");

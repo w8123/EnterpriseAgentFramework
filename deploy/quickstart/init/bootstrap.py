@@ -314,6 +314,16 @@ AGENT_PROMPT = """你是芋道 ERP 的业务助手，帮员工查询产品、库
 - 回答用简洁的中文，数字保留原样，必要时用表格。"""
 
 
+def checked_agent_edit_context(value, agent_id, project):
+    revision = value.get("revision") if isinstance(value, dict) else None
+    if (not isinstance(revision, str) or len(revision) != 64
+            or any(char not in "0123456789abcdef" for char in revision)
+            or value.get("agentId") != agent_id or type(value.get("projectId")) is not int or value.get("projectId") != project["id"]
+            or value.get("projectCode") != PROJECT_CODE):
+        raise ApiError(502, "Agent 修订响应不完整或归属不匹配，请核对当前配置后重新执行初始化。")
+    return value
+
+
 def ensure_agent(project, model_id, tools):
     agent = next((a for a in items_of(call("GET", "/api/agents", params={"projectCode": PROJECT_CODE}))
                   if a.get("keySlug") == AGENT_SLUG), None)
@@ -331,18 +341,30 @@ def ensure_agent(project, model_id, tools):
     if active and (active.get("modelInstanceId") or None) == model_id and len(active.get("tools") or []) == len(tools):
         log("Agent「ERP 助手」已是最新发布版本")
         return agent
-    draft = call("PUT", f"/api/agents/{agent['id']}/config-versions/draft", {
+    context = checked_agent_edit_context(call("GET", f"/api/agents/{agent['id']}/config-versions/draft-context"), agent["id"], project)
+    changes = {
         "runtimeType": "AGENTSCOPE", "systemPrompt": AGENT_PROMPT, "modelInstanceId": model_id,
         "maxPlanSteps": 6, "maxWorkflowCalls": 4, "maxReplans": 2, "totalTimeoutMs": 300000,
         "workflowTimeoutMs": 180000, "pageBridgeTimeoutMs": 30000, "parallelReadOnly": True,
         "policyProfile": "STANDARD", "toolCatalogMode": "ALLOW_LIST",
         "memory": {"sessionMemoryEnabled": True, "sessionMemoryWindow": 40,
                    "personalMemoryRead": False, "personalMemoryWrite": "OFF"},
-        "configJson": None, "tools": tools, "remoteAgents": []})
+        "configJson": None, "tools": tools, "remoteAgents": []}
+    saved = checked_agent_edit_context(call("PUT", f"/api/agents/{agent['id']}/config-versions/draft-if-unchanged",
+                                           {"baseRevision": context["revision"], "changes": changes}), agent["id"], project)
+    draft = saved.get("base")
+    if (not isinstance(draft, dict) or type(draft.get("id")) is not int or draft["id"] <= 0
+            or draft.get("agentId") != agent["id"] or draft.get("status") != "DRAFT"):
+        raise ApiError(502, "Agent 草稿保存结果未确认，请先读取当前配置核对，不继续发布。")
     if not model_id:
         log("Agent「ERP 助手」已保存草稿；没有模型不能发布。填好 LLM_API_KEY 后重新执行 reachai-init 即可发布。")
         return agent
-    call("POST", f"/api/agents/{agent['id']}/config-versions/{draft['id']}/publish", {"publishedBy": "reachai-init"})
+    published = checked_agent_edit_context(call("POST", f"/api/agents/{agent['id']}/config-versions/{draft['id']}/publish-if-unchanged",
+                                               {"baseRevision": saved["revision"]}), agent["id"], project)
+    active = published.get("base")
+    if (not isinstance(active, dict) or active.get("agentId") != agent["id"] or type(active.get("id")) is not int or active.get("id") != draft["id"]
+            or active.get("status") != "ACTIVE"):
+        raise ApiError(502, "Agent 发布结果未确认，请先核对当前版本，不自动重发。")
     log(f"已发布 Agent「ERP 助手」v{draft.get('versionNo')}（{len(tools)} 个工具，模型 {model_id or '未配置'}）")
     return agent
 

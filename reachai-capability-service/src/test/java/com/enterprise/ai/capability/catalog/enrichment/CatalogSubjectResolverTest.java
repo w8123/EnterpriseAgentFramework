@@ -58,7 +58,7 @@ class CatalogSubjectResolverTest {
         method.setTitle("查询订单"); method.setAcceptedRevisionId(12L);
         var api = api(21L, "orders:http:21");
         var source = source(41L, "sdk:orders:find"); source.setAssetType("BUSINESS_METHOD"); source.setSourceQualifiedName("orders:find");
-        var unowned = source(42L, "OrderController.java#OrderController#find"); unowned.setTitle("候选接口"); unowned.setParametersJson("malformed JSON");
+        var unowned = source(42L, "orders.yaml#/paths/~1orders/get"); unowned.setTitle("候选接口"); unowned.setParametersJson("malformed JSON");
         var group = new ScanModuleEntity(); group.setId(4L); group.setProjectId(7L); group.setDisplayName("订单查询");
         when(methods.selectList(any())).thenReturn(List.of(method)); when(apis.selectList(any())).thenReturn(List.of(api));
         when(observations.selectList(any())).thenReturn(List.of(source, unowned)); when(grouping.list(7L)).thenReturn(List.of(group));
@@ -76,7 +76,7 @@ class CatalogSubjectResolverTest {
     }
 
     @Test void typedFormalOwnerInventorySkipsMalformedUnownedSourceContracts() {
-        var source = source(41L, "OrderController.java#OrderController#find"); source.setParametersJson("not valid JSON");
+        var source = source(41L, "orders.yaml#/paths/~1orders/get"); source.setParametersJson("not valid JSON");
         when(observations.selectList(any())).thenReturn(List.of(source));
         assertEquals(List.of(), resolver.operations(7L, false, "BUSINESS_METHOD"));
         assertEquals(List.of(), resolver.operations(7L, false, "HTTP_API"));
@@ -112,7 +112,7 @@ class CatalogSubjectResolverTest {
     }
 
     @Test void classificationGroupDescriptionIgnoresUnownedSourcesWhileProjectProseKeepsItsExistingScope() {
-        var source = source(41L, "OrderController.java#OrderController#find"); source.setParametersJson("not valid JSON");
+        var source = source(41L, "orders.yaml#/paths/~1orders/get"); source.setParametersJson("not valid JSON");
         when(observations.selectList(any())).thenReturn(List.of(source));
         var group = new ScanModuleEntity(); group.setId(4L); group.setProjectId(7L); group.setDisplayName("Orders");
         when(grouping.requireGroup(7L, 4L)).thenReturn(group);
@@ -172,8 +172,8 @@ class CatalogSubjectResolverTest {
         var a = api(21L, "orders:http:21"); var b = api(22L, "orders:http:22");
         when(apis.selectById(21L)).thenReturn(a);
         when(apis.selectList(any())).thenReturn(List.of(a, b)); when(apiCatalog.details(anyList())).thenReturn(Map.of(21L, detail(a, "", null), 22L, detail(b, "", null)));
-        var source = source(41L, "OrderController.java#OrderController#find"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
-        String location = "src/main/java/com/example/OrderController.java#com.example.OrderController#find()";
+        var source = source(41L, "orders.yaml#/paths/~1orders/get"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
+        String location = "specs/orders.yaml#/paths/~1orders/get";
         when(bindings.selectList(any())).thenReturn(List.of(binding(a, location), binding(b, location)));
         assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
         when(apis.selectList(any())).thenReturn(List.of(a)); when(apiCatalog.details(anyList())).thenReturn(Map.of(21L, detail(a, "", null)));
@@ -183,16 +183,14 @@ class CatalogSubjectResolverTest {
         assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
     }
 
-    @Test void scannerSourceFormatsResolveOnlyOneBindingIncludingSameAssetDirectoryAndOverloadAmbiguity() {
+    @Test void scannerSourceFormatsResolveOnlyOneBindingIncludingSameAssetDirectoryAmbiguity() {
         var api = api(21L, "orders:http:21"); when(apis.selectList(any())).thenReturn(List.of(api)); when(apiCatalog.details(anyList())).thenReturn(Map.of(21L, detail(api, "", null)));
         when(apis.selectById(21L)).thenReturn(api);
-        var source = source(41L, "OrderController.java#OrderController#find"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
-        var plain = binding(api, "src/main/java/com/example/OrderController.java#com.example.OrderController#find()");
+        var source = source(41L, "orders.yaml#/paths/~1orders/get"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
+        var plain = binding(api, "specs/orders.yaml#/paths/~1orders/get");
         when(bindings.selectList(any())).thenReturn(List.of(plain)); assertEquals("HTTP_API", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
-        var overloaded = binding(api, "src/main/java/com/example/OrderController.java#com.example.OrderController#find(java.lang.String)"); overloaded.setId(22L);
-        when(bindings.selectList(any())).thenReturn(List.of(plain, overloaded)); assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
-        var differentDirectory = binding(api, "src/main/java/org/other/OrderController.java#org.other.OrderController#find()"); differentDirectory.setId(23L);
-        when(bindings.selectList(any())).thenReturn(List.of(plain, differentDirectory)); assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
+        var otherDirectory = binding(api, "v2/orders.yaml#/paths/~1orders/get"); otherDirectory.setId(22L);
+        when(bindings.selectList(any())).thenReturn(List.of(plain, otherDirectory)); assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
         source.setSourceLocation("openapi.yaml#/paths/~1orders/get"); var openApi = binding(api, "specs/openapi.yaml#/paths/~1orders/get"); openApi.setSourceKind("OPENAPI_SCAN");
         when(bindings.selectList(any())).thenReturn(List.of(openApi)); assertEquals("HTTP_API", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
     }
@@ -200,8 +198,8 @@ class CatalogSubjectResolverTest {
     @Test void removedOrForeignScopeBindingsNeverAttachCurrentSourceToAnOwnerInAnotherEnvironment() {
         var api = api(21L, "orders:http:21"); when(apis.selectById(21L)).thenReturn(api); when(apis.selectList(any())).thenReturn(List.of(api));
         when(apiCatalog.details(anyList())).thenReturn(Map.of(21L, detail(api, "", null)));
-        var source = source(41L, "OrderController.java#OrderController#find"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
-        var binding = binding(api, "src/main/java/com/example/OrderController.java#com.example.OrderController#find()"); when(bindings.selectList(any())).thenReturn(List.of(binding));
+        var source = source(41L, "orders.yaml#/paths/~1orders/get"); when(observations.selectById(41L)).thenReturn(source); when(observations.selectList(any())).thenReturn(List.of(source));
+        var binding = binding(api, "specs/orders.yaml#/paths/~1orders/get"); when(bindings.selectList(any())).thenReturn(List.of(binding));
         assertEquals("HTTP_API", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
         binding.setStatus("REMOVED"); assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
         binding.setStatus("DISCOVERED"); binding.setProjectCode("other"); assertEquals("SOURCE_OBSERVATION", resolver.resolve(7L, "SOURCE_OBSERVATION", 41L).subjectType());
@@ -234,8 +232,8 @@ class CatalogSubjectResolverTest {
     }
     private HttpApiAssetEntity api(Long id, String name) { var api = new HttpApiAssetEntity(); api.setId(id); api.setProjectId(7L); api.setProjectCode("orders"); api.setEnvironment("default"); api.setHttpMethod("GET"); api.setRouteTemplate("/orders"); api.setQualifiedName(name); return api; }
     private HttpApiCatalogService.ApiDetail detail(HttpApiAssetEntity api, String acceptedHash, com.fasterxml.jackson.databind.JsonNode accepted) {
-        return new HttpApiCatalogService.ApiDetail(new HttpApiCatalogService.ApiSummary(api.getId(), api.getQualifiedName(), 7L, "orders", "default", "GET", "/orders", "CURRENT", true, "", acceptedHash, acceptedHash, "set-revision", 1, List.of("CONTROLLER_SCAN"), "", null), null, accepted, List.of());
+        return new HttpApiCatalogService.ApiDetail(new HttpApiCatalogService.ApiSummary(api.getId(), api.getQualifiedName(), 7L, "orders", "default", "GET", "/orders", "CURRENT", true, "", acceptedHash, acceptedHash, "set-revision", 1, List.of("OPENAPI_SCAN"), "", null), null, accepted, List.of());
     }
-    private HttpApiSourceBindingEntity binding(HttpApiAssetEntity api, String location) { var binding = new HttpApiSourceBindingEntity(); binding.setId(api.getId()); binding.setAssetId(api.getId()); binding.setProjectId(7L); binding.setProjectCode(api.getProjectCode()); binding.setEnvironment(api.getEnvironment()); binding.setStatus("DISCOVERED"); binding.setSourceKind("CONTROLLER_SCAN"); binding.setSourceLocation(location); return binding; }
+    private HttpApiSourceBindingEntity binding(HttpApiAssetEntity api, String location) { var binding = new HttpApiSourceBindingEntity(); binding.setId(api.getId()); binding.setAssetId(api.getId()); binding.setProjectId(7L); binding.setProjectCode(api.getProjectCode()); binding.setEnvironment(api.getEnvironment()); binding.setStatus("DISCOVERED"); binding.setSourceKind("OPENAPI_SCAN"); binding.setSourceLocation(location); return binding; }
     private ScanProjectToolEntity source(Long id, String location) { var source = new ScanProjectToolEntity(); source.setId(id); source.setProjectId(7L); source.setAssetType("HTTP_API"); source.setSource("scanner"); source.setName("source" + id); source.setSourceLocation(location); source.setParametersJson("[]"); source.setHttpMethod("GET"); source.setEndpointPath("/orders"); return source; }
 }

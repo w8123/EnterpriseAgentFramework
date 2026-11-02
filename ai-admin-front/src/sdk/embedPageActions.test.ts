@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createEafPageBridge } from './eafPageBridge'
 import {
   dispatchPageActionExactlyOnce,
@@ -6,6 +6,97 @@ import {
 } from './embedPageActions'
 
 describe('dispatchPageActionExactlyOnce', () => {
+  afterEach(() => { delete (window as any).__REACHAI_PAGE_BRIDGE__ })
+
+  it.each([false, true])('requires confirmation before the global fallback (accepted: %s)', async (accepted) => {
+    const execute = vi.fn(async () => ({ status: 'SUCCESS', data: { changed: true } }))
+    ;(window as any).__REACHAI_PAGE_BRIDGE__ = { execute }
+    const confirmAction = vi.fn(async () => accepted)
+    const bridge = createEafPageBridge({ pageInstanceId: 'page-1', confirmAction })
+    const ok = (data: unknown) => new Response(JSON.stringify({ code: 200, data }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchImpl = vi.fn().mockImplementation(async (url: string) => ok(url.endsWith('/claim') ? { claimed: true } : {}))
+    await dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'fallback-confirm', actionKey: 'change',
+        confirm: true, target: { pageInstanceId: 'page-1' }, metadata: { pageKey: 'orders' } },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl,
+    })
+    expect(confirmAction).toHaveBeenCalledTimes(1)
+    expect(execute).toHaveBeenCalledTimes(accepted ? 1 : 0)
+    expect(fetchImpl.mock.calls.filter(([url]) => String(url).endsWith('/claim'))).toHaveLength(accepted ? 1 : 0)
+    if (accepted) {
+      expect(execute).toHaveBeenCalledWith('orders', 'change', {}, expect.objectContaining({ confirmed: true }))
+      expect(confirmAction.mock.invocationCallOrder[0]).toBeLessThan(fetchImpl.mock.invocationCallOrder[0])
+      expect(fetchImpl.mock.invocationCallOrder[0]).toBeLessThan(execute.mock.invocationCallOrder[0])
+    }
+    const resultCall = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/result'))
+    expect(JSON.parse(String(resultCall?.[1]?.body))).toMatchObject({
+      status: accepted ? 'SUCCESS' : 'USER_CANCELLED',
+      ...(accepted ? { userConfirmed: true } : {}),
+    })
+  })
+
+  it('never invokes the global fallback for another page instance', async () => {
+    const execute = vi.fn()
+    ;(window as any).__REACHAI_PAGE_BRIDGE__ = { execute }
+    const confirmAction = vi.fn(async () => true)
+    const fetchImpl = vi.fn()
+    await dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'wrong-page', actionKey: 'change', confirm: true,
+        target: { pageInstanceId: 'other-page' }, metadata: { pageKey: 'orders' } },
+      bridge: createEafPageBridge({ pageInstanceId: 'page-1', confirmAction }),
+      sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl,
+    })
+    expect(confirmAction).not.toHaveBeenCalled()
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(execute).not.toHaveBeenCalled()
+  })
+  it('does not claim or execute when the host is destroyed during confirmation', async () => {
+    let finishConfirmation!: (accepted: boolean) => void
+    let active = true
+    const handler = vi.fn()
+    const resultListener = vi.fn()
+    const bridge = createEafPageBridge({ confirmAction: () => new Promise<boolean>((resolve) => { finishConfirmation = resolve }) })
+    bridge.registerAction('change', handler)
+    bridge.onResult(resultListener)
+    const fetchImpl = vi.fn()
+    const pending = dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'destroy-during-confirm', actionKey: 'change', confirm: true },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl, isActive: () => active,
+    })
+    await vi.waitFor(() => expect(finishConfirmation).toBeTypeOf('function'))
+    active = false
+    finishConfirmation(true)
+    await pending
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+    expect(resultListener).not.toHaveBeenCalled()
+  })
+
+  it('settles an unresponsive custom confirmation when the host is destroyed', async () => {
+    const lifetime = new AbortController()
+    const confirmAction = vi.fn(() => new Promise<boolean>(() => {}))
+    const handler = vi.fn()
+    const bridge = createEafPageBridge({ confirmAction })
+    bridge.registerAction('change', handler)
+    const fetchImpl = vi.fn()
+    const pending = dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'destroy-unresponsive', actionKey: 'change', confirm: true },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl,
+      isActive: () => !lifetime.signal.aborted, signal: lifetime.signal,
+    })
+    await vi.waitFor(() => expect(confirmAction).toHaveBeenCalledTimes(1))
+    lifetime.abort()
+    await pending
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('posts a business-terminal action result without treating it as a transport error', async () => {
     const bridge = createEafPageBridge({ pageInstanceId: 'page-instance-1' })
     bridge.registerAction('search', async () => ({
@@ -142,6 +233,65 @@ describe('dispatchPageActionExactlyOnce', () => {
     expect(onError).toHaveBeenCalledWith(expect.objectContaining({
       message: expect.stringContaining('expired before execution'),
     }))
+  })
+
+  it.each([false, true])('retries an uncertain claim without duplicate execution (server already claimed: %s)', async (serverClaimed) => {
+    const handler = vi.fn(async () => ({ changed: true }))
+    const confirmAction = vi.fn(async () => true)
+    const bridge = createEafPageBridge({ confirmAction })
+    bridge.registerAction('change', handler)
+    const handledPageActions = new Set<string>()
+    const fetchImpl = vi.fn()
+      .mockRejectedValueOnce(new TypeError('claim response lost'))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify(serverClaimed ? { code: 409, message: 'already claimed' } : { code: 200, data: { claimed: true } }),
+        { status: serverClaimed ? 409 : 200, headers: { 'Content-Type': 'application/json' } },
+      ))
+    if (!serverClaimed) {
+      fetchImpl.mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, data: {} }), {
+        status: 200, headers: { 'Content-Type': 'application/json' },
+      }))
+    }
+    const options = {
+      request: { type: 'page.action.requested' as const, requestId: 'uncertain-claim', actionKey: 'change', confirm: true },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions, inFlightPageActions: new Map<string, Promise<void>>(), fetchImpl,
+    }
+
+    await dispatchPageActionExactlyOnce(options)
+    expect(handler).not.toHaveBeenCalled()
+    expect(handledPageActions.has('uncertain-claim')).toBe(false)
+    await dispatchPageActionExactlyOnce(options)
+    expect(confirmAction).toHaveBeenCalledTimes(2)
+    expect(handler).toHaveBeenCalledTimes(serverClaimed ? 0 : 1)
+    expect(fetchImpl).toHaveBeenCalledTimes(serverClaimed ? 2 : 3)
+  })
+
+  it('recovers an unclaimed action on the next pending poll after a network failure', async () => {
+    const handler = vi.fn(async () => ({ refreshed: true }))
+    const bridge = createEafPageBridge()
+    bridge.registerAction('refresh', handler)
+    const request = { type: 'page.action.requested', requestId: 'retry-poll', actionKey: 'refresh' }
+    const json = (data: unknown) => new Response(JSON.stringify({ code: 200, data }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(json([request]))
+      .mockRejectedValueOnce(new TypeError('network unavailable'))
+      .mockResolvedValueOnce(json([request]))
+      .mockResolvedValueOnce(json({ claimed: true }))
+      .mockResolvedValueOnce(json({}))
+    const options = {
+      apiBase: '/api/embed', token: 'token', sessionId: 'session-1', bridge,
+      handledPageActions: new Set<string>(), pendingPageActions: new Set<string>(),
+      inFlightPageActions: new Map<string, Promise<void>>(), fetchImpl,
+    }
+
+    await pollPendingPageActions(options)
+    expect(handler).not.toHaveBeenCalled()
+    await pollPendingPageActions(options)
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(5)
   })
 
   it('retries an ambiguously delivered cached result even when server no longer lists it', async () => {

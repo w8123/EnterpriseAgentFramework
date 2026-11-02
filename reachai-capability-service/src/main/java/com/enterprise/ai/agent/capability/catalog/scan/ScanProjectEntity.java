@@ -1,6 +1,7 @@
 package com.enterprise.ai.agent.capability.catalog.scan;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -35,11 +36,15 @@ public class ScanProjectEntity {
 
     private String contextPath;
 
-    private String scanPath;
-
-    private String scanType;
-
+    /** 上传的 OpenAPI 文档文件名，仅作来源标签。 */
     private String specFile;
+
+    /** 上传的 OpenAPI 文档内容；体积较大，列表查询不加载，扫描时单独读取。 */
+    @TableField(select = false)
+    private String openapiDocument;
+
+    /** 上传文档内容的 SHA-256，参与扫描修订判断。 */
+    private String openapiDocumentSha256;
 
     private Integer toolCount;
 

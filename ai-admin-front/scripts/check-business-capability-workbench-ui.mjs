@@ -127,9 +127,10 @@ for (const [label, source] of [
     `${label} 不得恢复已退场的检索索引重建入口或任务状态`)
 }
 assert.match(sourceActions, /v-if="workspace === 'sources'"/, '同步操作不应在整理工具中重复')
-for (const operation of ['SDK 接入指引', '扫描并同步接口', '重新扫描', '扫描解析设置', 'ReachAI 将主动调用业务系统', '当前回调地址使用 localhost', '最近一次同步失败']) {
+for (const operation of ['SDK 接入指引', '扫描并同步接口', '重新导入 OpenAPI', '来源解析设置', 'ReachAI 将主动调用业务系统', '当前回调地址使用 localhost', '最近一次同步失败']) {
   assert.ok(importDialog.includes(operation), `接入/设置行为未承接：${operation}`)
 }
+assert.doesNotMatch(importDialog, /onlyRestController|classIncludeRegex|incrementalMode|Javadoc/, '源码扫描专用设置已移除')
 assert.doesNotMatch(importDialog, /AI Coding 扫描|name="ai-coding"/, '取消未实现的扫描占位入口')
 for (const file of ['src/views/capability/BusinessMethodCatalog.vue', 'src/views/api/HttpApiCatalog.vue']) {
   const catalog = read(file)

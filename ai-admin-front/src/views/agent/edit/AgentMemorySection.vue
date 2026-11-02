@@ -30,9 +30,14 @@
         <el-select v-model="memoryPolicy.personalMemoryWrite" class="memory-policy-form__select">
           <el-option label="关闭" value="OFF" />
           <el-option label="仅用户明确要求（如“记住……”）" value="EXPLICIT" />
-          <el-option label="明确要求 + 自动候选（需用户确认）" value="EXPLICIT_AND_CANDIDATE" />
+          <!-- 旧版本的「明确要求 + 自动候选」：候选已取消，效果等同于仅明确要求。 -->
+          <el-option
+            v-if="memoryPolicy.personalMemoryWrite === 'EXPLICIT_AND_CANDIDATE'"
+            label="仅用户明确要求（旧设置）"
+            value="EXPLICIT_AND_CANDIDATE"
+          />
         </el-select>
-        <p class="memory-policy-form__hint">自动候选不会直接生效，需用户确认后才会被召回。</p>
+        <p class="memory-policy-form__hint">用户明确要求记住的内容会直接放进他的「个人记忆」，用户可以随时在「我的记忆」里编辑或删除。</p>
       </el-form-item>
     </el-form>
   </WorkbenchPanel>

@@ -157,7 +157,11 @@ public class EmbedAiToolConnectionController {
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             HttpServletRequest httpRequest) {
         return handle(authorization, owner -> {
-            EmployeePortalSessionService.Issued ticket = portalSessions.issueTicket(owner);
+            // The token was just verified by owner(); read its claims again so the page's
+            // 我的助手 talks to the same Agent as the same attested user.
+            PlatformEmbedTokenClaims claims = tokenService.verify(authorization.substring("Bearer ".length()).trim());
+            EmployeePortalSessionService.Issued ticket = portalSessions.issueTicket(
+                    owner, EmployeePortalSessionService.ChatGrant.of(claims));
             return new PortalTicketResponse(
                     PlatformPublicOrigin.resolve(properties, httpRequest) + "/my/ai-tools#ticket=" + ticket.value(),
                     ticket.expiresAt().toString());

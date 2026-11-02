@@ -327,7 +327,7 @@ function statusTone(status: HttpApiSourceStatus) {
   return status === 'ACCEPTED' ? 'success' : status === 'DISCOVERED' ? 'warning' : 'danger'
 }
 function sourceKindLabel(kind: string) {
-  return ({ OPENAPI_SCAN: 'OpenAPI', CONTROLLER_SCAN: 'Controller', STARTER_MVC: 'Starter MVC',
+  return ({ OPENAPI_SCAN: 'OpenAPI', STARTER_MVC: 'Starter MVC',
     API_MARKET_OPERATION: 'API 市场' } as Record<string, string>)[kind] || kind
 }
 watch([query.requestKey, () => scope?.requestKey.value, projectId, platformSessionId], () => {

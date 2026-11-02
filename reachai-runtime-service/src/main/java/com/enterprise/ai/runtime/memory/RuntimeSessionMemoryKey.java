@@ -13,7 +13,15 @@ public record RuntimeSessionMemoryKey(
         String stateUserKey,
         String stateSessionKey,
         String identitySource,
-        int contextWindow) {
+        int contextWindow,
+        String businessProjectCode) {
+
+    public RuntimeSessionMemoryKey(boolean persistent, String tenantId, String trustedUserId,
+                                   String agentId, String publicSessionId, String stateUserKey,
+                                   String stateSessionKey, String identitySource, int contextWindow) {
+        this(persistent, tenantId, trustedUserId, agentId, publicSessionId, stateUserKey,
+                stateSessionKey, identitySource, contextWindow, null);
+    }
 
     public RuntimeSessionMemoryKey(boolean persistent,
                                    String tenantId,

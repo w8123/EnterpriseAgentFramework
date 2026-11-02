@@ -137,6 +137,12 @@ public class RuntimeRunOpsQueryService {
         return safeList(runMapper.selectSessionRunStats(ids, LocalDateTime.now().minusDays(safeDays(days))));
     }
 
+    /** 嵌入式对话按人汇总（最近 days 天，最多 90 天）；projectCode 为空时统计全部业务系统。 */
+    public List<RuntimeEmbedUserUsageView> embedUserUsage(String projectCode, int days) {
+        String project = StringUtils.hasText(projectCode) ? projectCode.trim() : null;
+        return safeList(runMapper.selectEmbedUserUsage(LocalDateTime.now().minusDays(safeDays(days)), project));
+    }
+
     private List<RuntimeRunEntity> findRecentRuns(String projectCode, String status, String runType,
                                                  String entryType, String agentId, String userId,
                                                  String keyword, int limit, int days) {

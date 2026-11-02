@@ -175,10 +175,7 @@ All patch operations run through the same atomic GraphSpec mutation kernel used 
 - `runtimeContext`
 - `dryRun`
 
-Runtime safety keys:
-
-- `runtimeContext.confirmSideEffects=true` for side-effect nodes
-- `runtimeContext.embedSessionId` / `pageBridge` / `pageContext` / `bridgeGlobal` for PAGE_ACTION flows
+Neither `dryRun` nor `runtimeContext.confirmSideEffects` is proof of a side-effect sandbox. Inspect the actual node contracts and obtain the required authorization before execution. PAGE_ACTION graphs require the guarded page smoke-test path described in `page-assistant.md`; an `embedSessionId` alone is not user authorization.
 
 ## Publish Boundary
 

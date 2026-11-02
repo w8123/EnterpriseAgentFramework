@@ -141,6 +141,28 @@ class AiToolConnectionServiceTest {
         assertTrue(service.list(liSi).isEmpty());
     }
 
+    @Test
+    void capabilitiesSayWhatRunsDirectlyAndWhatWaitsForApprovalWithoutIrreversibleTools() {
+        when(publications.findRevision(eq(11L), eq(1100L))).thenReturn(Optional.of(new McpPublicationRevision(
+                1100L, 11L, 1, List.of(
+                new McpToolProjection("stock_page", "查询库存", "{}", McpPublicationItemKind.CAPABILITY, "r1", null, "READ", null, "READ", 1),
+                new McpToolProjection("customer_create", "新建客户", "{}", McpPublicationItemKind.CAPABILITY, "r2", null, "WRITE", null, "WRITE", 1),
+                new McpToolProjection("order_delete", "删除订单", "{}", McpPublicationItemKind.CAPABILITY, "r3", null, "IRREVERSIBLE", null, "IRREVERSIBLE", 1)),
+                null, LocalDateTime.now())));
+
+        var systems = service.capabilities(zhangSan);
+
+        assertEquals(1, systems.size());
+        assertEquals("芋道 ERP", systems.get(0).name());
+        assertTrue(systems.get(0).current());
+        var tools = systems.get(0).tools();
+        assertEquals(List.of("stock_page", "customer_create"), tools.stream().map(AiToolConnectionService.CapabilityView::name).toList());
+        assertTrue(tools.get(0).readOnly());
+        assertFalse(tools.get(0).approvalRequired());
+        assertFalse(tools.get(1).readOnly());
+        assertTrue(tools.get(1).approvalRequired());
+    }
+
     private void published(long publicationId, int toolCount) {
         when(publications.findById(publicationId)).thenReturn(Optional.of(new McpPublication(
                 publicationId, "pub" + publicationId, "", McpPublicationStatus.PUBLISHED,
@@ -148,7 +170,7 @@ class AiToolConnectionServiceTest {
         List<McpToolProjection> tools = new ArrayList<>();
         for (int i = 0; i < toolCount; i++) {
             tools.add(new McpToolProjection("tool" + i, "d", "{}", McpPublicationItemKind.CAPABILITY,
-                    "ref" + i, null, "READ", null));
+                    "ref" + i, null, "READ", null, "READ", 1));
         }
         when(publications.findRevision(eq(publicationId), eq(publicationId * 100))).thenReturn(Optional.of(
                 new McpPublicationRevision(publicationId * 100, publicationId, 1, tools, null, LocalDateTime.now())));

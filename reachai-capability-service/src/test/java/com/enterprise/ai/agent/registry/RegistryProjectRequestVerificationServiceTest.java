@@ -17,6 +17,21 @@ import static org.mockito.Mockito.when;
 
 class RegistryProjectRequestVerificationServiceTest {
 
+    @Test
+    void verifiesBodyBoundSessionRevocationAndRejectsCopiedExchangeSignature() {
+        RegistryCredentialMapper mapper = mock(RegistryCredentialMapper.class);
+        RegistryProjectRequestNonceStore nonces = mock(RegistryProjectRequestNonceStore.class);
+        when(mapper.selectOne(any())).thenReturn(credential());
+        when(nonces.tryConsume(any(), any(), any(), anyLong(), anyLong(), anyInt())).thenReturn(true);
+        var service = new RegistryProjectRequestVerificationService(mapper, nonces, 300, 600, 1000);
+        String path = "/api/embed/token/business-session/revoke";
+        byte[] body = "{}".getBytes(StandardCharsets.UTF_8);
+        var signature = ReachAiProjectRequestSigner.sign("rak_orders", "ras_orders", "orders", "POST", path, body);
+        assertEquals(3L, service.verify(request(signature, "POST", path)).credentialId());
+        assertThrows(IllegalArgumentException.class,
+                () -> service.verify(request(signature, "POST", "/api/embed/token/exchange")));
+    }
+
     private static final String PATH =
             "/api/knowledge-ingress/projects/orders/biz-index/orders_idx/batch";
 
@@ -38,6 +53,28 @@ class RegistryProjectRequestVerificationServiceTest {
         assertEquals(9L, verified.projectId());
         assertEquals(3L, verified.credentialId());
         assertEquals("orders", verified.projectCode());
+    }
+
+    @Test
+    void verifiesEmbedExchangeAndRejectsReplayAndChangedBodyDigest() {
+        RegistryCredentialMapper mapper = mock(RegistryCredentialMapper.class);
+        RegistryProjectRequestNonceStore nonceStore = mock(RegistryProjectRequestNonceStore.class);
+        when(mapper.selectOne(any())).thenReturn(credential());
+        when(nonceStore.tryConsume(any(), any(), any(), anyLong(), anyLong(), anyInt()))
+                .thenReturn(true, false);
+        RegistryProjectRequestVerificationService service = new RegistryProjectRequestVerificationService(
+                mapper, nonceStore, 300, 600, 1000);
+        String path = "/api/embed/token/exchange";
+        ReachAiProjectRequestHeaders signed = ReachAiProjectRequestSigner.sign(
+                "rak_orders", "ras_orders", "orders", "POST", path,
+                "{\"tenantId\":\"1\"}".getBytes(StandardCharsets.UTF_8));
+        assertEquals(3L, service.verify(request(signed, "POST", path)).credentialId());
+        assertThrows(IllegalArgumentException.class, () -> service.verify(request(signed, "POST", path)));
+        var changed = new RegistryProjectRequestVerificationService.ProjectRequest("orders", signed.getAppKey(),
+                "POST", path, signed.getTimestamp(), signed.getNonce(),
+                ReachAiProjectRequestSigner.bodySha256Hex("{\"tenantId\":\"2\"}".getBytes(StandardCharsets.UTF_8)),
+                signed.getSignature());
+        assertThrows(IllegalArgumentException.class, () -> service.verify(changed));
     }
 
     @Test

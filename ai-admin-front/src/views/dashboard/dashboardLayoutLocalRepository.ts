@@ -39,11 +39,17 @@ const STORAGE_KEY = 'reachai.dashboard.consoleLayout.local.v1'
  * - 文档本身就是空 items：用户刻意清空布局，照常返回；
  * - 文档 items 非空但全部 widgetKey 未知或 DISABLED（收口后为空）：返回 null 回退默认。
  */
-export function createDashboardLayoutLocalRepository(ownerId?: () => number | undefined): DashboardLayoutRepository {
+export function createDashboardLayoutLocalRepository(
+  ownerId?: () => number | undefined,
+  /** 当前身份工作台；每个身份各存一份布局，切换身份时概览随之切换。 */
+  workspace?: () => string | undefined,
+): DashboardLayoutRepository {
   function storageKey() {
     if (!ownerId) return STORAGE_KEY
     const id = ownerId()
-    return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? `${STORAGE_KEY}.user.${id}` : null
+    if (!(typeof id === 'number' && Number.isSafeInteger(id) && id > 0)) return null
+    const scope = workspace?.()
+    return scope ? `${STORAGE_KEY}.user.${id}.workspace.${scope}` : `${STORAGE_KEY}.user.${id}`
   }
   return {
     sourceLabel: ownerId ? '当前账号 · 此浏览器' : '当前浏览器布局',

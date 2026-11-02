@@ -14,7 +14,7 @@ export interface PlatformNavigationTarget {
   meta: { public?: unknown; requiredPermissions?: unknown }
 }
 
-export const NO_ROLE_LANDING_PATH = '/no-role'
+export const NO_ROLE_LANDING_PATH = '/me'
 
 function isWorkspaceHome(fullPath: string): boolean {
   const path = fullPath.split(/[?#]/)[0]
@@ -28,7 +28,7 @@ export function platformSessionNavigation(
 ): true | RouteLocationRaw {
   if (target.meta.public) return true
   if (state === 'AUTHENTICATED') {
-    // 没有任何平台权限的账号是业务人员：概览对他们是空的，改为说明怎样在业务系统里使用。
+    // 没有任何平台权限的账号是业务人员：概览对他们是空的，改为进入「我的」。
     if (grantedPermissions.length === 0 && isWorkspaceHome(target.fullPath)) {
       return { path: NO_ROLE_LANDING_PATH }
     }

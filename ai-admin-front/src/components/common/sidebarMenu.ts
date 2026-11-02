@@ -23,8 +23,10 @@ import {
   Connection,
   Cpu,
   DataAnalysis,
+  Flag,
   Grid,
   Lock,
+  PieChart,
   Share,
   Clock,
   Timer,
@@ -60,6 +62,13 @@ export type SidebarEntry =
 export const sidebarMenu: SidebarEntry[] = [
   { kind: 'group', label: '智能化改造' },
   { kind: 'item', index: '/dashboard', label: '概览', icon: DataAnalysis },
+  {
+    kind: 'item',
+    index: '/getting-started',
+    label: '开始使用',
+    icon: Flag,
+    requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+  },
   {
     kind: 'item',
     index: '/registry/projects',
@@ -128,6 +137,13 @@ export const sidebarMenu: SidebarEntry[] = [
     label: '运行中心',
     icon: Timer,
     anyPermissions: RUN_CENTER_PERMISSIONS,
+  },
+  {
+    kind: 'item',
+    index: '/usage',
+    label: 'AI 使用情况',
+    icon: PieChart,
+    requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ],
   },
   {
     kind: 'item',

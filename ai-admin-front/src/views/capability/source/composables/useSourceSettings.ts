@@ -23,14 +23,12 @@ export function useSourceSettings(deps: UseSourceSettingsDeps) {
   const scanSettingsSaving = ref(false)
 
   const descriptionSourceLabels: Record<DescriptionSource, string> = {
-    JAVADOC: 'Javadoc',
     SWAGGER_API_OPERATION: 'Swagger @ApiOperation',
     OPENAPI_OPERATION: 'OpenAPI @Operation',
     METHOD_NAME: '方法名兜底',
   }
 
   const paramSourceLabels: Record<ParamDescriptionSource, string> = {
-    JAVADOC_PARAM: 'Javadoc @param',
     SCHEMA_ANNO: '@Schema / 模型',
     PARAMETER_ANNO: '@Parameter 等',
     FIELD_NAME: '形参/字段名',
@@ -38,7 +36,8 @@ export function useSourceSettings(deps: UseSourceSettingsDeps) {
 
   const allHttpMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'] as const
 
-  const isOpenApiMode = computed(() => deps.project.value?.scanType === 'openapi')
+  // 纯 OpenAPI 导入项目没有 SDK，说明来源顺序只对 SDK Starter 生效。
+  const isOpenApiMode = computed(() => deps.project.value?.projectKind === 'SCAN')
 
 
   function buildSourceEnabledMap(
@@ -87,15 +86,11 @@ export function useSourceSettings(deps: UseSourceSettingsDeps) {
         paramOrder,
         settings.paramDescriptionSourceEnabled,
       ),
-      onlyRestController: settings.onlyRestController ?? defaults.onlyRestController,
       httpMethodWhitelist: settings.httpMethodWhitelist != null ? [...settings.httpMethodWhitelist] : [],
-      classIncludeRegex: settings.classIncludeRegex ?? '',
-      classExcludeRegex: settings.classExcludeRegex ?? '',
       skipDeprecated: settings.skipDeprecated ?? false,
       defaultFlags: {
         enabled: defaultFlags.enabled ?? defaults.defaultFlags.enabled,
       },
-      incrementalMode: settings.incrementalMode ?? defaults.incrementalMode,
     } as ScanSettings)
   }
 
@@ -133,13 +128,9 @@ export function useSourceSettings(deps: UseSourceSettingsDeps) {
       paramDescriptionSourceOrder: [...scanSettingsForm.paramDescriptionSourceOrder],
       descriptionSourceEnabled: { ...scanSettingsForm.descriptionSourceEnabled },
       paramDescriptionSourceEnabled: { ...scanSettingsForm.paramDescriptionSourceEnabled },
-      onlyRestController: scanSettingsForm.onlyRestController,
       httpMethodWhitelist: [...scanSettingsForm.httpMethodWhitelist],
-      classIncludeRegex: scanSettingsForm.classIncludeRegex?.trim() ?? '',
-      classExcludeRegex: scanSettingsForm.classExcludeRegex?.trim() ?? '',
       skipDeprecated: scanSettingsForm.skipDeprecated,
       defaultFlags: { enabled: scanSettingsForm.defaultFlags.enabled },
-      incrementalMode: scanSettingsForm.incrementalMode,
     }
     scanSettingsSaving.value = true
     try {
@@ -150,11 +141,11 @@ export function useSourceSettings(deps: UseSourceSettingsDeps) {
       syncScanSettingsFormFromProject()
       ElMessage.success(
         deps.project.value?.projectKind === 'REGISTERED' || deps.project.value?.projectKind === 'HYBRID'
-          ? '扫描设置已保存。SDK 下次同步来源时将按新规则解析；请在业务方法/API 目录核对变化并显式接纳。'
-          : '扫描设置已保存',
+          ? '设置已保存。SDK 下次同步来源时将按新规则解析；请在业务方法/API 目录核对变化并显式接纳。'
+          : '设置已保存',
       )
     } catch {
-      if (!disposed) ElMessage.error('扫描设置保存失败，请重试；当前输入已保留')
+      if (!disposed) ElMessage.error('设置保存失败，请重试；当前输入已保留')
     } finally {
       scanSettingsSaving.value = false
     }

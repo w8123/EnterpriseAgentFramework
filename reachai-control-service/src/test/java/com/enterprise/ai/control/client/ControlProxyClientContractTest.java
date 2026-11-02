@@ -16,6 +16,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 class ControlProxyClientContractTest {
@@ -231,11 +232,17 @@ class ControlProxyClientContractTest {
                 "/api/workflows/{workflowId}/versions/{versionId}/rollback");
         assertEquals(ResponseEntity.class, rollbackWorkflowVersion.getReturnType());
 
+        Method pageAssistantContext = RuntimeProxyClient.class
+                .getMethod("pageAssistantAttachContextSigned", String.class, Map.class, byte[].class);
+        assertMapping(pageAssistantContext, RequestMethod.POST,
+                "/internal/runtime/workflows/{id}/page-assistant/context");
         Method attachPageAssistantWorkflowTool = RuntimeProxyClient.class
-                .getMethod("attachPageAssistantWorkflowTool", String.class, Map.class);
+                .getMethod("attachPageAssistantWorkflowToolSigned", String.class, Map.class, byte[].class);
         assertMapping(attachPageAssistantWorkflowTool, RequestMethod.POST,
-                "/api/workflows/{id}/page-assistant/attach-tool");
+                "/internal/runtime/workflows/{id}/page-assistant/attach");
         assertEquals(ResponseEntity.class, attachPageAssistantWorkflowTool.getReturnType());
+        assertFalse(java.util.Arrays.stream(RuntimeProxyClient.class.getMethods())
+                .anyMatch(method -> method.getName().equals("attachPageAssistantWorkflowTool")));
 
         Method attachAgentSupervisorWorkflowTool = RuntimeProxyClient.class
                 .getMethod("attachAgentSupervisorWorkflowTool", Long.class, Map.class);

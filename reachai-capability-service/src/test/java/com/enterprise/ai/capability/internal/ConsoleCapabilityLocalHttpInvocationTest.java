@@ -133,6 +133,15 @@ class ConsoleCapabilityLocalHttpInvocationTest {
                                 "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64), "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool),
                                 "requireSignedInvocation", true))));
         assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", rejected.code());
+        tool.setCapabilityMetadataJson("{\"requiredRoles\":[],\"businessIdentityRequired\":true}");
+        CapabilityInvocationPolicyException explicit = assertThrows(CapabilityInvocationPolicyException.class,
+                () -> service.execute("orders.lookup", Map.of("input", Map.of("orderNo", "O-43"), "context", Map.of(),
+                        "constraints", Map.of("consoleCapabilityInvocation", true,
+                                "expectedQualifiedName", "orders.lookup", "expectedProjectCode", "orders",
+                                "expectedProjectId", 7L, "expectedContractHash", "a".repeat(64),
+                                "expectedExecutionRevision", BusinessMethodExecutionFixtures.executionRevision(tool),
+                                "requireSignedInvocation", true))));
+        assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", explicit.code());
         assertEquals(0, requests.get());
     }
 

@@ -4,7 +4,7 @@
 
 ## 新环境
 
-确认数据库为空后，在支持文件重定向的 Bash 或 CMD 中执行：
+服务连接到空库时会自动按内置的 `initV2.sql` 建表（多个服务同时启动时用数据库锁保证只执行一次），一般不需要手动执行。需要手动初始化时，确认数据库为空后，在支持文件重定向的 Bash 或 CMD 中执行：
 
 ```bash
 mysql --default-character-set=utf8mb4 -h localhost -u root -p < sql/initV2.sql
@@ -24,6 +24,16 @@ mysql --default-character-set=utf8mb4 -h localhost -u root -p < sql/initV2.sql
 - [upgrade-20261024-platform-manager-role.sql](upgrade-20261024-platform-manager-role.sql)
 - [upgrade-20261025-employee-write-approval.sql](upgrade-20261025-employee-write-approval.sql)
 - [upgrade-20261025-remove-embed-renderer-catalog.sql](upgrade-20261025-remove-embed-renderer-catalog.sql)
+- [upgrade-20261028-knowledge-internal-auth-nonce.sql](upgrade-20261028-knowledge-internal-auth-nonce.sql)
+- [upgrade-20261028-platform-ai-connections.sql](upgrade-20261028-platform-ai-connections.sql)
+- [upgrade-20261028-remove-source-code-scan.sql](upgrade-20261028-remove-source-code-scan.sql)
+- [upgrade-20261029-platform-ai-approvals.sql](upgrade-20261029-platform-ai-approvals.sql)
+- [upgrade-20261029-merge-operator-into-manager.sql](upgrade-20261029-merge-operator-into-manager.sql)
+- [upgrade-20261030-personal-memory-groups.sql](upgrade-20261030-personal-memory-groups.sql)
+- [upgrade-20261101-project-request-nonce.sql](upgrade-20261101-project-request-nonce.sql)
+- [upgrade-20261102-embed-business-session-revocation.sql](upgrade-20261102-embed-business-session-revocation.sql)
+- [upgrade-20261102-embed-session-login-binding.sql](upgrade-20261102-embed-session-login-binding.sql)
+- [upgrade-20261102-personal-memory-owner-domain.sql](upgrade-20261102-personal-memory-owner-domain.sql)
 
 MySQL DDL 可能隐式提交。执行前核对目标与恢复路径；执行后回读表、列、索引、必要种子及中文，确认业务配置保留。升级完成不自动更新发布 pin、重启进程或证明业务验收通过。
 

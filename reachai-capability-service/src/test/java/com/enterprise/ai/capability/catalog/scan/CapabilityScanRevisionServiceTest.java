@@ -33,7 +33,7 @@ class CapabilityScanRevisionServiceTest {
         member.setInventoryToken("unconfirmed");
         assertNotEquals(initial, service.revision(project));
         member.setInventoryToken("confirmed");
-        project.setScanPath("different-project-root");
+        project.setOpenapiDocumentSha256("different-document");
         assertNotEquals(initial, service.revision(project));
     }
 }

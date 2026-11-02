@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -33,6 +34,28 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WorkflowExecutionIdentityTest {
+
+    @Test
+    void agentExecutionCannotOverwriteAnAttestedBusinessSystem() {
+        var employee = WorkflowExecutionIdentity.fromMcpEmployee("tenant", 41L, "orders", "1");
+        var matched = WorkflowExecutionIdentity.forAgentExecution(41L, "ORDERS", employee);
+        assertEquals("1", matched.userId());
+        assertEquals("tenant", matched.tenantId());
+        assertEquals(WorkflowExecutionIdentity.Source.MCP_EMPLOYEE, matched.source());
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowExecutionIdentity.forAgentExecution(42L, "other", employee));
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowExecutionIdentity.forAgentExecution(42L, "orders", employee));
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowExecutionIdentity.forAgentExecution(41L, "other", employee));
+        assertThrows(IllegalArgumentException.class, () -> WorkflowExecutionIdentity.forAgentExecution(
+                41L, "orders", WorkflowExecutionIdentity.fromMcpEmployee("tenant", null, null, "1")));
+        var scopedEmbed = WorkflowExecutionIdentity.fromEmbedSession("tenant", 41L, "orders", "1");
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowExecutionIdentity.forAgentExecution(42L, "other", scopedEmbed));
+        var gatewayEmbed = WorkflowExecutionIdentity.fromEmbedSession("tenant", null, null, "1");
+        assertEquals("orders", WorkflowExecutionIdentity.forAgentExecution(41L, "orders", gatewayEmbed).projectCode());
+    }
 
     @Test
     void attestedStudioTrialIsProjectOnlyAndCannotBeRestoredAsTrustedOrCrossProjects() throws Exception {

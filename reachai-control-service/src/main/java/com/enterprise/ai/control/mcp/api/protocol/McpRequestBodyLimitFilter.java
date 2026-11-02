@@ -45,7 +45,8 @@ public class McpRequestBodyLimitFilter extends OncePerRequestFilter {
             return true;
         }
         String path = request.getServletPath();
-        return !("/mcp".equals(path) || "/mcp/jsonrpc".equals(path) || "/mcp/employee".equals(path));
+        return !("/mcp".equals(path) || "/mcp/jsonrpc".equals(path)
+                || "/mcp/employee".equals(path) || "/mcp/platform".equals(path));
     }
 
     @Override

@@ -44,24 +44,24 @@ class HttpApiInventoryIntakeServiceTest {
 
     @Test
     void partialInventoryConfirmsReportedMembershipWithoutRemovingUnreportedBindings() {
-        var request = request(scope, HttpApiSourceKind.CONTROLLER_SCAN, "reported");
+        var request = request(scope, HttpApiSourceKind.OPENAPI_SCAN, "reported");
         var binding = new HttpApiSourceBindingEntity();
         binding.setId(19L);
         when(assets.observe(request)).thenReturn(new HttpApiAssetService.Observation(null, binding, false));
 
-        var summary = intake.observe(scope, HttpApiSourceKind.CONTROLLER_SCAN, true, false,
+        var summary = intake.observe(scope, HttpApiSourceKind.OPENAPI_SCAN, true, false,
                 List.of(request), "清单不完整");
 
         assertEquals(1, summary.observed());
         assertEquals(0, summary.removed());
         verifyNoInteractions(bindings);
         verify(assets, never()).remove(any());
-        verify(inventories).record(scope, HttpApiSourceKind.CONTROLLER_SCAN, true, false,
+        verify(inventories).record(scope, HttpApiSourceKind.OPENAPI_SCAN, true, false,
                 "清单不完整", List.of(19L));
     }
 
     @ParameterizedTest
-    @EnumSource(value = HttpApiSourceKind.class, names = {"STARTER_MVC", "CONTROLLER_SCAN", "OPENAPI_SCAN"})
+    @EnumSource(value = HttpApiSourceKind.class, names = {"STARTER_MVC", "OPENAPI_SCAN"})
     void completeEmptyInventoryUsesExactProjectEnvironmentAndSourceKind(HttpApiSourceKind kind) {
         var prior = new HttpApiSourceBindingEntity();
         prior.setSourceKey("prior");

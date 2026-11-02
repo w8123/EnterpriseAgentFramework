@@ -13,6 +13,7 @@ import java.util.Map;
 
 public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
 
+    private static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private int connectTimeoutMs = 5000;
     private int readTimeoutMs = 60000;
@@ -20,6 +21,8 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
     @Override
     public String exchange(String method, String url, Map<String, String> headers, Object body) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+        // Signed headers are scoped to this endpoint; never forward them to a redirect target.
+        connection.setInstanceFollowRedirects(false);
         connection.setRequestMethod(method);
         connection.setConnectTimeout(connectTimeoutMs);
         connection.setReadTimeout(readTimeoutMs);
@@ -47,11 +50,15 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
             }
         }
         int status = connection.getResponseCode();
-        String response = read(status >= 400 ? connection.getErrorStream() : connection.getInputStream());
-        if (status >= 400) {
-            throw new IOException("ReachAI registry request failed: status=" + status + " body=" + response);
+        if (status >= 300 && status < 400) {
+            connection.disconnect();
+            throw new IOException("ReachAI registry request failed: status=" + status + " redirect rejected");
         }
-        return response;
+        if (status >= 400) {
+            connection.disconnect();
+            throw new IOException("ReachAI registry request failed: status=" + status);
+        }
+        return read(connection.getInputStream());
     }
 
     public void setConnectTimeoutMs(int connectTimeoutMs) {
@@ -77,6 +84,9 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
         int n;
         try {
             while ((n = input.read(chunk)) >= 0) {
+                if (n > MAX_RESPONSE_BYTES - buffer.size()) {
+                    throw new IOException("ReachAI registry response too large");
+                }
                 buffer.write(chunk, 0, n);
             }
         } finally {

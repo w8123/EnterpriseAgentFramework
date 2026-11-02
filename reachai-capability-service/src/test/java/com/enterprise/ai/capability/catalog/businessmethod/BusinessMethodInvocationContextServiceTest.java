@@ -29,6 +29,16 @@ class BusinessMethodInvocationContextServiceTest {
         assertTrue(ConsoleBusinessMethodDeclaration.hasRequiredRoles("{not-json", json));
         assertFalse(context(Map.of("requiredRoles", List.of("order-reader")), List.of(), null, "READY").executable());
     }
+    @Test void explicitIdentityRequirementDoesNotDependOnRoles() {
+        assertFalse(ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(Map.of(), json));
+        assertFalse(ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(Map.of("businessIdentityRequired", false), json));
+        assertTrue(ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(Map.of("businessIdentityRequired", true), json));
+        assertTrue(ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(Map.of("businessIdentityRequired", "false"), json));
+        var declared = context(Map.of("requiredRoles", List.of(), "businessIdentityRequired", true), List.of(), null, "READY");
+        assertTrue(declared.businessIdentityRequired());
+        assertFalse(declared.executable());
+        assertEquals("CAPABILITY_BUSINESS_IDENTITY_REQUIRED", declared.blockingCode());
+    }
     @Test void parameterExamplesRemainUsefulAndTargetDescriptionDropsAddressSecrets() {
         var normal = new ToolDefinitionParameter("request", "object", "request", true, null, List.of(),
                 Map.of("example", Map.of("quantity", 2), "enum", List.of("standard"), "minimum", 1));

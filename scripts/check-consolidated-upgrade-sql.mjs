@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
-import { readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -19,9 +19,9 @@ const sources = [
   ['upgrade-20261017-agent-memory-policy.sql', '19c5371e21d82a631c759f924d8a29a9b3ba52e9522094a1263b57cdb29caaf2'],
   ['upgrade-20261017-business-index-reference-naming.sql', 'e2d1c663696d8a6eecb0926ef96ba0ed31705e116a798a27906ca74b05cf127c'],
   ['upgrade-20261017-personal-memory-tables.sql', '9e4419f72c17fcf852a615f33f1e67262f908bf4d2aaffca004439d2eea61faa'],
-  ['upgrade-20261017-platform-roles-redesign.sql', '40380932f6e077f31ff3b4c6f8b99412437f893a12fd851daaf9a2eb2f69dd15'],
+  ['upgrade-20261017-platform-roles-redesign.sql', 'd84ad11c293cf058d3384dd154f6afa597a4cf981485a33fdbffca45d28d3bf9'],
   ['upgrade-20261017-run-center-cleanup.sql', '4102341992d1fcac09f1af982693f80b9f98b31d21abcb5bb905b823ccc7800b'],
-  ['upgrade-20261018-knowledge-cleanup.sql', '8a817877694bd9706c2d97d3bc36912210fc9c7972fbf66470ddb9c868db33b8'],
+  ['upgrade-20261018-knowledge-cleanup.sql', 'b3257e5b3cc83fbefeef961a554dc502c319c32fa7a55e5f323f6ca6cb60717c'],
 ]
 const issues = []
 function fail(message) {
@@ -62,7 +62,19 @@ function tables(sql) {
 const baselineTables = tables(init)
 const upgradeTables = tables(upgrade)
 if (upgradeTables.size !== 11) fail(`expected 11 created tables, found ${upgradeTables.size}`)
+// Later upgrades reshape or retire these; the baseline follows the later script instead.
+const supersededLater = {
+  control_personal_memory: 'upgrade-20261030-personal-memory-groups.sql',
+  control_personal_memory_candidate: 'upgrade-20261030-personal-memory-groups.sql',
+  control_personal_memory_audit: 'upgrade-20261030-personal-memory-groups.sql',
+}
 for (const [table, definition] of upgradeTables) {
+  if (supersededLater[table]) {
+    if (!existsSync(join(directory, supersededLater[table]))) {
+      fail(`${table} is marked superseded by missing sql/${supersededLater[table]}`)
+    }
+    continue
+  }
   if (!baselineTables.has(table)) fail(`${table} is missing from initV2.sql`)
   else if (definition !== baselineTables.get(table)) fail(`${table} differs from initV2.sql`)
 }

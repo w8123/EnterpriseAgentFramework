@@ -5,7 +5,7 @@ import Dashboard from './Dashboard.vue'
 import { defaultConsoleLayout } from './widgetRegistry'
 
 const mocks = vi.hoisted(() => ({
-  projects: vi.fn(), agents: vi.fn(), workflows: vi.fn(), stats: vi.fn(), runs: vi.fn(), health: vi.fn(),
+  projects: vi.fn(), agents: vi.fn(), workflows: vi.fn(), stats: vi.fn(), runs: vi.fn(), health: vi.fn(), models: vi.fn(),
   push: vi.fn(), setPrincipal: vi.fn(), setSession: vi.fn(),
 }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
@@ -16,7 +16,10 @@ vi.mock('@/api/workflow', () => ({
   getAgentStatistics: (...args: unknown[]) => mocks.stats(...args),
 }))
 vi.mock('@/api/runops', () => ({ getRecentRunOps: (...args: unknown[]) => mocks.runs(...args) }))
-vi.mock('@/api/request', () => ({ controlRequest: { get: (...args: unknown[]) => mocks.health(...args) } }))
+vi.mock('@/api/request', () => ({
+  controlRequest: { get: (...args: unknown[]) => mocks.health(...args) },
+  modelRequest: { get: (...args: unknown[]) => mocks.models(...args) },
+}))
 vi.mock('@/auth/platformSession', async () => {
   const { computed, ref } = await import('vue')
   const session = ref({ sessionId: 'dashboard-session', principal: {} as Record<string, unknown> })
@@ -71,6 +74,17 @@ beforeEach(() => {
 })
 
 describe('Dashboard 部分授权', () => {
+  it('平台管理员的概览不显示首次设置引导，也不为引导额外读取模型', async () => {
+    mocks.setPrincipal({ userId: 55, username: 'admin', permissions: ['platform:admin'], permissionGrants: [] })
+    mocks.models.mockResolvedValue({ data: [] })
+    const wrapper = render()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="getting-started-banner"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('继续设置')
+    expect(mocks.models).not.toHaveBeenCalled()
+  })
+
   it.each([
     ['agents', 'Agent 列表'], ['stats', 'Agent 统计'], ['runs', '运行数据'],
     ['workflows', 'Workflow'], ['projects', '业务系统'], ['health', '服务健康'],

@@ -74,6 +74,7 @@ public class MemoryErasureOrchestrationService {
     private final PersonalMemoryKnowledgeErasureClient knowledgeClient;
     private final RuntimeSessionRetentionGateway runtimeGateway;
     private final PersonalMemoryErasureIdentity identity;
+    private final BusinessIdentityErasureGuard businessIdentityGuard;
 
     public MemoryErasureOrchestrationService(
             MemoryErasureStore store,
@@ -81,13 +82,15 @@ public class MemoryErasureOrchestrationService {
             PersonalMemoryIndexOutboxService outboxService,
             PersonalMemoryKnowledgeErasureClient knowledgeClient,
             RuntimeSessionRetentionGateway runtimeGateway,
-            PersonalMemoryErasureIdentity identity) {
+            PersonalMemoryErasureIdentity identity,
+            BusinessIdentityErasureGuard businessIdentityGuard) {
         this.store = store;
         this.personalMemoryService = personalMemoryService;
         this.outboxService = outboxService;
         this.knowledgeClient = knowledgeClient;
         this.runtimeGateway = runtimeGateway;
         this.identity = identity;
+        this.businessIdentityGuard = businessIdentityGuard;
     }
 
     public RequestView create(CreateCommand command, String actorId) {
@@ -96,6 +99,10 @@ public class MemoryErasureOrchestrationService {
         }
         String tenant = tenantId(command.tenantId());
         String runtimeUserId = opaqueId(command.runtimeUserId(), "runtimeUserId", 128);
+        if (hasAmbiguousOwner(tenant, runtimeUserId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "该用户编号可能属于业务系统身份，当前跨域擦除无法安全确定目标，请联系管理员处理");
+        }
         String clientRequestId = machineId(command.clientRequestId(), "clientRequestId", 64);
         String reasonCode = reasonCode(command.reasonCode());
         String referenceId = machineId(command.referenceId(), "referenceId", 128);
@@ -217,13 +224,29 @@ public class MemoryErasureOrchestrationService {
         List<MemoryErasureDomainEntity> initialDomains = store.domains(request.getId());
         requireCompleteDomainInventory(initialDomains);
         Map<String, MemoryErasureDomainEntity> domains = domainMap(initialDomains);
+        if (hasAmbiguousOwner(tenant, user)) {
+            store.updateDomain(request.getId(), CONTROL_PERSONAL_MEMORY, "FAILED", null, null,
+                    "SCOPED_IDENTITY_REQUIRED", null, LocalDateTime.now());
+            return finishFromDomains(request, leaseOwner);
+        }
         runControlErasure(request, tenant, user, domains.get(CONTROL_PERSONAL_MEMORY));
         domains = domainMap(request.getId());
         runOutboxProof(request, domains);
         domains = domainMap(request.getId());
         runKnowledgeProof(request, tenant, user, domains);
-        runRuntimeErasure(request, tenant, user, domains);
+        if (!hasAmbiguousOwner(tenant, user)) {
+            runRuntimeErasure(request, tenant, user, domains);
+        }
+        if (hasAmbiguousOwner(tenant, user)) {
+            store.updateDomain(request.getId(), CONTROL_PERSONAL_MEMORY, "FAILED", null, null,
+                    "SCOPED_IDENTITY_REQUIRED", null, LocalDateTime.now());
+        }
         return finishFromDomains(request, leaseOwner);
+    }
+
+    private boolean hasAmbiguousOwner(String tenant, String userId) {
+        return personalMemoryService.hasScopedOwnerData(tenant, userId)
+                || businessIdentityGuard.hasPotentialBusinessIdentity(tenant, userId);
     }
 
     private void runControlErasure(MemoryErasureRequestEntity request,
@@ -242,7 +265,7 @@ public class MemoryErasureOrchestrationService {
                     (long) result.memoriesErased(), null, null, LocalDateTime.now());
             store.updateDomain(request.getId(), CONTROL_CANDIDATE_OUTBOX,
                     "WAITING_DEPENDENCY", "CANONICAL_ERASED_DELIVERY_PENDING",
-                    (long) result.candidatesErased(), null, null, LocalDateTime.now());
+                    0L, null, null, LocalDateTime.now());
         } catch (RuntimeException failure) {
             store.updateDomain(request.getId(), CONTROL_PERSONAL_MEMORY,
                     "WAITING_DEPENDENCY", null, null,
@@ -325,6 +348,15 @@ public class MemoryErasureOrchestrationService {
             ResponseEntity<Map<String, Object>> response = runtimeGateway.eraseOwner(
                     tenant, user, request.getReasonCode(), request.getReferenceId(), 100,
                     request.getRequestedByHash());
+            if (response.getStatusCode().value() == 409 && response.getBody() != null
+                    && "RUNTIME_OWNER_SCOPE_REQUIRED".equals(response.getBody().get("code"))) {
+                LocalDateTime now = LocalDateTime.now();
+                store.updateDomain(request.getId(), RUNTIME_SESSION_STATE, "FAILED", null, null,
+                        "SCOPED_IDENTITY_REQUIRED", null, now);
+                store.updateDomain(request.getId(), RUNTIME_CONVERSATION_LEDGER, "FAILED", null, null,
+                        "SCOPED_IDENTITY_REQUIRED", null, now);
+                return;
+            }
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 throw new IllegalStateException("Runtime owner erasure returned a non-success status");
             }
@@ -333,6 +365,7 @@ public class MemoryErasureOrchestrationService {
             long remaining = longValue(body, "remaining");
             long erased = longValue(body, "erased");
             long legalHold = longValue(body, "legalHoldBlocked");
+            long retryable = longValue(body, "retryable");
             long failed = longValue(body, "failed");
             long cumulativeErased = Math.max(
                     count(domains.get(RUNTIME_SESSION_STATE) == null
@@ -343,17 +376,20 @@ public class MemoryErasureOrchestrationService {
             String status;
             String resultCode;
             String failureCode = null;
-            if (complete && remaining == 0) {
+            if (complete && remaining == 0 && legalHold == 0 && retryable == 0 && failed == 0) {
                 status = "COMPLETED";
                 resultCode = "RUNTIME_ERASED";
             } else if (legalHold > 0) {
                 status = "BLOCKED_LEGAL_HOLD";
                 resultCode = "LEGAL_HOLD";
                 failureCode = "RUNTIME_SESSION_LEGAL_HOLD";
+            } else if (failed > 0) {
+                status = "FAILED";
+                resultCode = "RUNTIME_RETRY_REQUIRED";
+                failureCode = "RUNTIME_ERASE_FAILED";
             } else {
                 status = "WAITING_DEPENDENCY";
                 resultCode = "RUNTIME_RETRY_REQUIRED";
-                if (failed > 0) failureCode = "RUNTIME_ERASE_FAILED";
             }
             LocalDateTime now = LocalDateTime.now();
             store.updateDomain(request.getId(), RUNTIME_SESSION_STATE,

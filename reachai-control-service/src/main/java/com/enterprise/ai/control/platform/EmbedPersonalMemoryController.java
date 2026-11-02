@@ -1,10 +1,6 @@
 package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.common.dto.ApiResult;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateService;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateService.CandidatePage;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateService.CandidateView;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateService.ReviewResult;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
 import com.enterprise.ai.control.memory.PersonalMemoryService;
 import com.enterprise.ai.control.memory.PersonalMemoryService.EraseAllCommand;
@@ -34,7 +30,7 @@ import java.util.function.Function;
  * The embedded-chat end user's own memories (嵌入式对话 · 我的记忆).
  *
  * <p>The owner is the same one embedded chat recalls and writes for: the verified embed token's tenant and
- * external (or global) user. Nothing in the request can name another owner.
+ * business system and external user. Nothing in the request can name another owner.
  */
 @RestController
 @RequestMapping("/api/embed/memories")
@@ -43,17 +39,17 @@ public class EmbedPersonalMemoryController {
 
     private final PlatformEmbedTokenService tokenService;
     private final PersonalMemoryService memoryService;
-    private final PersonalMemoryCandidateService candidateService;
 
     @GetMapping
     public ResponseEntity<ApiResult<MemoryPage>> list(
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @RequestParam(required = false) String type,
+            @RequestParam(required = false) String scope,
+            @RequestParam(required = false) Long groupId,
             @RequestParam(required = false) String agentId,
             @RequestParam(required = false) String keyword,
             @RequestParam(defaultValue = "50") Integer limit,
             @RequestParam(defaultValue = "0") Integer offset) {
-        return handle(authorization, owner -> memoryService.list(owner, type, agentId, keyword, limit, offset));
+        return handle(authorization, owner -> memoryService.list(owner, scope, groupId, agentId, keyword, limit, offset));
     }
 
     @DeleteMapping("/{id}")
@@ -68,28 +64,6 @@ public class EmbedPersonalMemoryController {
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
             @RequestBody EraseAllCommand command) {
         return handle(authorization, owner -> memoryService.eraseAll(owner, command));
-    }
-
-    @GetMapping("/candidates")
-    public ResponseEntity<ApiResult<CandidatePage>> candidates(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @RequestParam(defaultValue = "50") Integer limit,
-            @RequestParam(defaultValue = "0") Integer offset) {
-        return handle(authorization, owner -> candidateService.list(owner, "PENDING", limit, offset));
-    }
-
-    @PostMapping("/candidates/{id}/approve")
-    public ResponseEntity<ApiResult<ReviewResult>> approve(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable Long id) {
-        return handle(authorization, owner -> candidateService.approve(owner, id, null));
-    }
-
-    @PostMapping("/candidates/{id}/reject")
-    public ResponseEntity<ApiResult<CandidateView>> reject(
-            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
-            @PathVariable Long id) {
-        return handle(authorization, owner -> candidateService.reject(owner, id));
     }
 
     private <T> ResponseEntity<ApiResult<T>> handle(String authorization, Function<PersonalMemoryPrincipal, T> action) {
@@ -122,6 +96,8 @@ public class EmbedPersonalMemoryController {
         String tenant = StringUtils.hasText(claims.getTenantId())
                 ? claims.getTenantId().trim().toLowerCase(Locale.ROOT)
                 : "default";
-        return new PersonalMemoryPrincipal(tenant, user, null, null, null);
+        String projectCode = StringUtils.hasText(claims.getProjectCode()) ? claims.getProjectCode().trim() : claims.getAppId();
+        if (!StringUtils.hasText(projectCode)) throw new PlatformEmbedTokenException("embed token has no business system");
+        return PersonalMemoryPrincipal.business(tenant, user, projectCode);
     }
 }

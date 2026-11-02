@@ -13,6 +13,7 @@ import type {
   WorkflowReadOnlyTrialResult,
   WorkflowProposalEditRequest,
   WorkflowProposalEditResult,
+  PageAssistantAttachContext,
   PageAssistantWorkflowAttachRequest,
   PageAssistantWorkflowAttachmentResult,
   WorkflowRuntimeValidationRequest,
@@ -27,6 +28,14 @@ import type {
   WorkflowVersion,
 } from '@/types/workflow'
 import type { AgentConfigDraft, AgentConfigVersion } from '@/types/agent'
+
+export interface AgentDraftEditContext {
+  agentId: string
+  projectId: number | null
+  projectCode: string | null
+  revision: string
+  base: AgentConfigVersion | null
+}
 
 const WORKFLOW_AI_AUTHORING_TIMEOUT_MS = 300000
 
@@ -66,23 +75,30 @@ export function listAgentConfigVersions(agentId: string) {
   )
 }
 
-export function saveAgentConfigDraft(agentId: string, data: AgentConfigDraft) {
-  return controlRequest.put<AgentConfigVersion>(
-    `/api/agents/${encodeURIComponent(agentId)}/config-versions/draft`,
-    data,
+export function getAgentDraftEditContext(agentId: string) {
+  return controlRequest.get<AgentDraftEditContext>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/draft-context`, { errorFeedback: 'local' },
   )
 }
 
-export function publishAgentConfig(agentId: string, configVersionId: number, publishedBy?: string) {
-  return controlRequest.post<AgentConfigVersion>(
-    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/publish`,
-    { publishedBy },
+export function saveAgentDraftIfUnchanged(agentId: string, baseRevision: string, changes: AgentConfigDraft) {
+  return controlRequest.put<AgentDraftEditContext>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/draft-if-unchanged`,
+    { baseRevision, changes }, { errorFeedback: 'local' },
   )
 }
 
-export function copyAgentConfigToDraft(agentId: string, configVersionId: number) {
-  return controlRequest.post<AgentConfigVersion>(
-    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/copy-to-draft`,
+export function copyAgentConfigToDraftIfUnchanged(agentId: string, configVersionId: number, baseRevision: string) {
+  return controlRequest.post<AgentDraftEditContext>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/copy-to-draft-if-unchanged`,
+    { baseRevision }, { errorFeedback: 'local' },
+  )
+}
+
+export function publishAgentConfigIfUnchanged(agentId: string, configVersionId: number, baseRevision: string) {
+  return controlRequest.post<AgentDraftEditContext>(
+    `/api/agents/${encodeURIComponent(agentId)}/config-versions/${configVersionId}/publish-if-unchanged`,
+    { baseRevision }, { errorFeedback: 'local' },
   )
 }
 
@@ -220,6 +236,12 @@ export function rollbackWorkflowVersion(workflowId: string, versionId: number | 
   return controlRequest.post<WorkflowVersion>(
     `/api/workflows/${encodeURIComponent(workflowId)}/versions/${versionId}/rollback`,
     { baseRevision },
+  )
+}
+
+export function getPageAssistantAttachContext(workflowId: string) {
+  return controlRequest.get<PageAssistantAttachContext>(
+    `/api/workflows/${encodeURIComponent(workflowId)}/page-assistant/attach-context`,
   )
 }
 

@@ -43,7 +43,7 @@ public class ModelDiscoveryService {
             return new ModelDiscoveryResponse(true, models.isEmpty() ? "供应商返回了空的模型列表" : "ok",
                     runtime.getProvider(), models.size(), models);
         } catch (Exception e) {
-            String message = e instanceof BizException be ? be.getMessage() : e.getMessage();
+            String message = e instanceof BizException be ? be.getMessage() : "模型发现失败，请检查模型服务配置后重试。";
             return new ModelDiscoveryResponse(false, friendlyMessage(e, ConnectionConfigSupport.sanitizeError(message)),
                     runtime.getProvider(), 0, List.of());
         }
@@ -51,9 +51,10 @@ public class ModelDiscoveryService {
 
     static String friendlyMessage(Exception e, String detail) {
         int status = e instanceof BizException be ? be.getCode() : 0;
+        // 供应商原文是不可信内容，不能在模型发现结果中回显。
         return switch (status) {
-            case 401, 403 -> "API Key 无效或没有权限（HTTP " + status + "）。供应商原文：" + detail;
-            case 404 -> "该服务地址没有提供模型列表接口（HTTP 404），请直接填写模型名称。供应商原文：" + detail;
+            case 401, 403 -> "API Key 无效或没有权限（HTTP " + status + "），请检查供应商凭据与模型权限。";
+            case 404 -> "该服务地址没有提供模型列表接口（HTTP 404），请直接填写模型名称。";
             default -> detail;
         };
     }

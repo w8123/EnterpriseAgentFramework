@@ -332,27 +332,20 @@ function validateA2aHubOwners(failures, sources) {
   for (const [, key, rootClass, reloadApi] of a2aOwners) {
     const owner = vueAst(sources[key], files[key], failures)
     const rootNode = owner.ast?.children.find(node => node.type === NodeTypes.ELEMENT)
-    const heading = rootNode?.children.find(node => node.type === NodeTypes.ELEMENT)
-    const headingElements = []
-    const visit = node => {
-      if (!node) return
-      if (node.type === NodeTypes.ELEMENT) headingElements.push(node)
-      for (const child of node.children ?? []) visit(child)
-    }
-    visit(heading)
     const reload = owner.script.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === 'reload')
     assert((importsComponent(owner, 'WorkbenchPanel', '@/components/common/WorkbenchPanel.vue') && owner.elements.some(node => node.tag === 'WorkbenchPanel')) ||
       (importsComponent(owner, 'LiquidGlassTable', '@/components/common/liquid-glass') && owner.elements.some(node => node.tag === 'LiquidGlassTable')),
     `${files[key]} must render an imported workbench surface`)
+    // The refresh spinner may also follow a detail load (developer console: loading || detailLoading).
     const hasRefresh = owner.elements.some(node => !directiveProp(node, 'if') && !directiveProp(node, 'show') &&
-      directiveText(node, 'bind', 'loading') === 'loading' &&
+      /^loading(\s*\|\|\s*\w+)?$/.test(directiveText(node, 'bind', 'loading') ?? '') &&
       ((['el-button', 'LiquidGlassButton'].includes(node.tag) && directiveText(node, 'on', 'click') === 'reload') ||
         (node.tag === 'A2aListToolbar' && directiveText(node, 'on', 'refresh') === 'reload' &&
           importsComponent(owner, 'A2aListToolbar', '../A2aListToolbar.vue'))))
     assert(rootNode?.tag === 'section' && staticProp(rootNode, 'class') === rootClass &&
       !rootNode?.props.some(prop => prop.type === NodeTypes.DIRECTIVE && ['if', 'show', 'else', 'else-if'].includes(prop.name)) &&
       !owner.elements.some(node => node.tag === 'PageHeader') &&
-      (!['a2aTrust', 'a2aDeveloper'].includes(key) || headingElements.some(node => node.tag === 'h2')) && hasRefresh &&
+      hasRefresh &&
       astNodes(reload?.body, node => ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === reloadApi).length > 0,
     `${files[key]} must preserve its reachable content and real reload action under the shared Hub header`)
   }

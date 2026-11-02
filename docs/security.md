@@ -8,6 +8,7 @@
 | 业务系统应用 | Enrollment 后的项目凭据、精确 body HMAC、时间窗和 nonce | 项目注册、同步、回调及受签名业务入口 |
 | 业务终端用户 | 业务后端从登录态产生的 Embed / 调用身份 | 真实租户、外部用户与业务角色 |
 | 员工 AI 工具 | 绑定员工和允许系统的个人连接 | 当前员工状态、业务角色、服务发布范围与写审批 |
+| 平台用户 AI 工具 | 平台用户创建的独立连接密钥 | 创建时授权与当前账号权限的交集、资源范围、到期与撤销 |
 | AI Coding 客户端 | 项目 AI Coding Key 或特定任务的 Task Token | 项目级 API 与任务级协议分别校验 |
 | MCP / A2A 客户端 | 各自协议凭证与受治理 Principal | 固定发布版本、范围、信任与审计 |
 | 内部服务 | 受签名的服务身份与执行信封 | 调用方、资源、真实操作者、body 与防重放校验 |
@@ -31,9 +32,8 @@
 
 | 平台角色 | 主要工作 |
 | --- | --- |
-| DEVELOPER | 按授权项目接入系统、维护业务方法/API、查看运行 |
-| OPERATOR | 编排、调试、发布 Agent / Workflow，管理运行和员工接入 |
-| MANAGER | 查看使用与治理结果，执行被授予的审批、断开连接等操作 |
+| DEVELOPER | 按授权项目接入系统、维护业务方法/API，开发和发布 Agent / Workflow / Skill / 知识库，管理 MCP 与 A2A 开放 |
+| MANAGER | 上线和运营 Agent / Workflow，查看使用与治理结果，审批员工写操作、断开员工连接，管理业务用户与调用权限 |
 | PLATFORM_ADMIN | 平台、账号、资源与全局配置 |
 
 角色是权限模板，后端始终按权限码与作用域授权，不按角色名绕过校验。前端路由和按钮投影同一权限事实；隐藏按钮不能代替服务端检查。精确规则从 [PlatformPermissions](../reachai-control-service/src/main/java/com/enterprise/ai/control/identity/PlatformPermissions.java)与 [PlatformConsolePermissionPolicy](../reachai-control-service/src/main/java/com/enterprise/ai/control/identity/PlatformConsolePermissionPolicy.java)读取。

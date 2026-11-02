@@ -1,36 +1,34 @@
 package com.enterprise.ai.agent.capability.catalog.scan;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 项目来源设置：说明来源顺序供 SDK Starter 拉取，其余用于 OpenAPI 文档导入。
+ * 旧版源码扫描字段（Javadoc、类过滤、增量模式等）已移除，读取旧 JSON 时忽略。
+ */
 @JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class ScanSettings {
 
     private List<String> descriptionSourceOrder;
     private List<String> paramDescriptionSourceOrder;
     private Map<String, Boolean> descriptionSourceEnabled;
     private Map<String, Boolean> paramDescriptionSourceEnabled;
-    private boolean onlyRestController = true;
     private List<String> httpMethodWhitelist;
-    private String classIncludeRegex;
-    private String classExcludeRegex;
     private boolean skipDeprecated;
     private ScanDefaultFlags defaultFlags;
-    private String incrementalMode;
 
     public static ScanSettings defaults() {
         ScanSettings settings = new ScanSettings();
-        settings.setDescriptionSourceOrder(List.of(
-                "SWAGGER_API_OPERATION", "OPENAPI_OPERATION", "JAVADOC", "METHOD_NAME"));
-        settings.setParamDescriptionSourceOrder(List.of(
-                "PARAMETER_ANNO", "SCHEMA_ANNO", "JAVADOC_PARAM", "FIELD_NAME"));
-        settings.setOnlyRestController(true);
+        settings.setDescriptionSourceOrder(List.of("SWAGGER_API_OPERATION", "OPENAPI_OPERATION", "METHOD_NAME"));
+        settings.setParamDescriptionSourceOrder(List.of("PARAMETER_ANNO", "SCHEMA_ANNO", "FIELD_NAME"));
         settings.setHttpMethodWhitelist(List.of());
         settings.setSkipDeprecated(false);
         settings.setDefaultFlags(ScanDefaultFlags.defaults());
-        settings.setIncrementalMode("OFF");
         return settings;
     }
 
@@ -66,36 +64,12 @@ public class ScanSettings {
         this.paramDescriptionSourceEnabled = paramDescriptionSourceEnabled;
     }
 
-    public boolean isOnlyRestController() {
-        return onlyRestController;
-    }
-
-    public void setOnlyRestController(boolean onlyRestController) {
-        this.onlyRestController = onlyRestController;
-    }
-
     public List<String> getHttpMethodWhitelist() {
         return httpMethodWhitelist;
     }
 
     public void setHttpMethodWhitelist(List<String> httpMethodWhitelist) {
         this.httpMethodWhitelist = httpMethodWhitelist;
-    }
-
-    public String getClassIncludeRegex() {
-        return classIncludeRegex;
-    }
-
-    public void setClassIncludeRegex(String classIncludeRegex) {
-        this.classIncludeRegex = classIncludeRegex;
-    }
-
-    public String getClassExcludeRegex() {
-        return classExcludeRegex;
-    }
-
-    public void setClassExcludeRegex(String classExcludeRegex) {
-        this.classExcludeRegex = classExcludeRegex;
     }
 
     public boolean isSkipDeprecated() {
@@ -112,13 +86,5 @@ public class ScanSettings {
 
     public void setDefaultFlags(ScanDefaultFlags defaultFlags) {
         this.defaultFlags = defaultFlags;
-    }
-
-    public String getIncrementalMode() {
-        return incrementalMode;
-    }
-
-    public void setIncrementalMode(String incrementalMode) {
-        this.incrementalMode = incrementalMode;
     }
 }

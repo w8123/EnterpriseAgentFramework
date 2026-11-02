@@ -2,6 +2,8 @@ package com.enterprise.ai.control.mcp.api.protocol;
 
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpAuthenticatedSession;
+import com.enterprise.ai.control.mcp.application.platform.McpPlatformProtocolService;
+import com.enterprise.ai.control.identity.PlatformAiConnectionService.ConnectionIdentity;
 import com.enterprise.ai.control.mcp.domain.McpDomainException;
 import com.enterprise.ai.control.mcp.domain.client.McpClient;
 import com.enterprise.ai.control.mcp.domain.client.McpClientStatus;
@@ -40,17 +42,20 @@ class McpEndpointControllerTest {
     private McpProtocolApplicationService service;
     private McpHubProperties properties;
     private McpEndpointController controller;
+    private McpPlatformProtocolService platformService;
 
     @BeforeEach
     void setUp() {
         service = mock(McpProtocolApplicationService.class);
+        platformService = mock(McpPlatformProtocolService.class);
         properties = new McpHubProperties();
         properties.setEnabled(true);
         ObjectMapper objectMapper = new ObjectMapper();
         controller = new McpEndpointController(
                 new McpProtocolRequestGuard(properties), service, properties, objectMapper,
                 new McpAuditPayloadSanitizer(objectMapper, properties),
-                mock(com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.class));
+                mock(com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService.class),
+                platformService);
     }
 
     @Test
@@ -79,6 +84,35 @@ class McpEndpointControllerTest {
                 "jsonrpc", "2.0", "method", "notifications/initialized"));
         assertEquals(202, notification.getStatusCode().value());
         assertNull(notification.getBody());
+    }
+
+    @Test
+    void platformEndpointUsesItsOwnCredentialDomainAndToolCatalog() {
+        ConnectionIdentity identity = new ConnectionIdentity(19L, "CODEX", null);
+        when(platformService.authenticate("secret-key")).thenReturn(identity);
+        when(platformService.visibleTools(identity)).thenReturn(List.of(Map.of("name", "reachai_workflow_get")));
+
+        ResponseEntity<?> response = controller.platformJsonRpc(legacyRequest(true),
+                Map.of("jsonrpc", "2.0", "id", 3, "method", "tools/list"));
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(List.of(Map.of("name", "reachai_workflow_get")), result(response).get("tools"));
+        verify(service, never()).authenticate(org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void platformWriteDoesNotRunWhenItsAuditIntentCannotBeRecorded() {
+        ConnectionIdentity identity = new ConnectionIdentity(19L, "CODEX", null);
+        when(platformService.authenticate("secret-key")).thenReturn(identity);
+        when(platformService.recordWriteIntent(identity, "reachai_workflow_save_patch"))
+                .thenThrow(new IllegalStateException("audit unavailable"));
+        ResponseEntity<?> response = controller.platformJsonRpc(legacyRequest(true), Map.of(
+                "jsonrpc", "2.0", "id", 4, "method", "tools/call",
+                "params", Map.of("name", "reachai_workflow_save_patch", "arguments", Map.of())));
+
+        assertEquals(500, response.getStatusCode().value());
+        verify(platformService, never()).callTool(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -205,7 +239,7 @@ class McpEndpointControllerTest {
     private McpAuthenticatedSession session(McpClientStatus clientStatus) {
         McpToolProjection tool = new McpToolProjection(
                 "lookup", "Lookup", "{\"type\":\"object\"}",
-                McpPublicationItemKind.CAPABILITY, "orders.lookup", null, "READ");
+                McpPublicationItemKind.CAPABILITY, "orders.lookup", null, "READ", null, "READ", 1);
         McpPublicationRevision revision = new McpPublicationRevision(
                 11L, 1L, 1, List.of(tool), "{}", LocalDateTime.now());
         McpPublication publication = new McpPublication(

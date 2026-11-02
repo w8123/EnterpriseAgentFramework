@@ -324,6 +324,9 @@ public class ReachAiRegistryClient {
         metadata.put("module", descriptor.getModule());
         metadata.put("tags", descriptor.getTags());
         metadata.put("requiredRoles", descriptor.getRequiredRoles());
+        if (descriptor.isBusinessIdentityRequired()) {
+            metadata.put("businessIdentityRequired", true);
+        }
         metadata.put("timeoutMs", descriptor.getTimeoutMs());
         metadata.put("retryLimit", descriptor.getRetryLimit());
         metadata.put("className", descriptor.getClassName());

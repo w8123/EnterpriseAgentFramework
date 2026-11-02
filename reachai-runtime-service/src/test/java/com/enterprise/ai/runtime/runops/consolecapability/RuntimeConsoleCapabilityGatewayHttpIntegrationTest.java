@@ -279,7 +279,7 @@ class RuntimeConsoleCapabilityGatewayHttpIntegrationTest {
         @Override public Map<String, Object> getToolDefinition(String qualifiedName) { throw unsupported(); }
         @Override public CapabilityInvocationResponse invokeTool(String qualifiedName, Map<String, String> headers, byte[] body) { throw unsupported(); }
         @Override public Map<String, Object> getProject(String projectCode) { throw unsupported(); }
-        @Override public Map<String, Object> getProjectById(Long projectId) { throw unsupported(); }
+        @Override public Map<String, Object> getProjectById(Long projectId, Map<String, String> internalAuthHeaders) { throw unsupported(); }
         @Override public List<Map<String, Object>> listProjectTools(Long projectId) { throw unsupported(); }
         @Override public Map<String, Object> projectReadinessFacts(Long projectId) { throw unsupported(); }
         @Override public com.enterprise.ai.common.capability.HttpApiConsoleContracts.ExecutionContext httpApiExecutionContext(

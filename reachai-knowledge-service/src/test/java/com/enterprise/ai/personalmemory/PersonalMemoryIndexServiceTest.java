@@ -57,6 +57,30 @@ class PersonalMemoryIndexServiceTest {
     }
 
     @Test
+    void scopedOutboxAndQueriesUseTheSameBusinessDomainHash() {
+        Fixture fixture = fixture();
+        when(fixture.eventMapper.selectOne(any(Wrapper.class))).thenReturn(null);
+        when(fixture.indexMapper.updateIfNewer(any())).thenReturn(0);
+        String payload = """
+                {"schema":"reachai-personal-memory-index-event-v1","memoryId":9,"tenantId":"default","runtimeUserId":"user-1","ownerDomain":"BUSINESS:erp-a",
+                 "sourceVersion":100,"type":"NOTE","content":"私密信息","trustLevel":"VERIFIED"}
+                """;
+        fixture.service.apply(new PersonalMemoryIndexService.IndexEvent("scoped", "PERSONAL_MEMORY_UPSERT", payload));
+        ArgumentCaptor<KnowledgePersonalMemoryIndexEntity> saved = ArgumentCaptor.forClass(KnowledgePersonalMemoryIndexEntity.class);
+        verify(fixture.indexMapper).insert(saved.capture());
+        String expected = new PersonalMemoryIndexIdentity("test-index-identity-secret")
+                .hash("default", "user-1", "BUSINESS:erp-a");
+        assertEquals(expected, saved.getValue().getRuntimeUserHash());
+        when(fixture.indexMapper.selectList(any(Wrapper.class))).thenReturn(List.of());
+        fixture.service.query(new PersonalMemoryIndexService.QueryRequest("default", "user-1", "x", 5, 1000, "BUSINESS:erp-a"));
+        ArgumentCaptor<Wrapper<KnowledgePersonalMemoryIndexEntity>> query = ArgumentCaptor.forClass(Wrapper.class);
+        verify(fixture.indexMapper).selectList(query.capture());
+        var wrapper = (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) query.getValue();
+        wrapper.getSqlSegment();
+        assertTrue(wrapper.getParamNameValuePairs().containsValue(expected));
+    }
+
+    @Test
     void ignoresOutOfOrderOlderEvent() {
         Fixture fixture = fixture();
         when(fixture.eventMapper.selectOne(any(Wrapper.class))).thenReturn(null);

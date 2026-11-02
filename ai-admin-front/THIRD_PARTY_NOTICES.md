@@ -23,6 +23,12 @@
 | `public/theme-wallpapers/gold-curves.webp` | Zulfikar Laode | [暖金曲面](https://unsplash.com/photos/abstract-smooth-yellow-and-orange-curves-LxcVtiEW5dc) |
 | `public/theme-wallpapers/deep-blue.webp` | Paul Sawyer | [深蓝波面](https://unsplash.com/photos/abstract-blue-waves-on-a-dark-background-OyYuvj4Dbek) |
 
+## AI 工具图标（LobeHub Icons）
+
+- 来源：[lobehub/lobe-icons](https://github.com/lobehub/lobe-icons)，MIT 许可证，Copyright (c) 2023 LobeHub。
+- 当前接入页复用已有 Claude Code、Codex、Cursor、TRAE 图标，并随包加入 `@lobehub/icons-static-svg@1.101.0` 的 WorkBuddy、豆包、Gemini、OpenClaw 和 Hermes Agent SVG。
+- 资源在 `src/assets/ai-coding-providers/`；具体文件来源和完整许可证见该目录的 [LICENSE.md](src/assets/ai-coding-providers/LICENSE.md)。图标仅用于识别相应客户端，产品名称及商标属于各自所有者。
+
 ## liqui-design
 
 - 上游：[leefanv/liqui-design](https://github.com/leefanv/liqui-design)，固定 commit `fae9f2de55d8a049d77bbaed80f46fa68ae92508`。

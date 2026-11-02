@@ -14,7 +14,19 @@ export function buildHttpApiTrialParameters(parameters: HttpApiParameter[], draf
     }
     let value: unknown = raw
     const type = parameter.schema.type
-    if (type === 'integer' || type === 'number') {
+    if (type === 'array' && parameter.location === 'QUERY') {
+      // 多个值用英文逗号分隔，例如 芋道 createTime：2024-01-01 00:00:00,2024-12-31 23:59:59
+      const itemType = (parameter.schema.items as { type?: string } | undefined)?.type
+      const items = raw.split(',').map(item => item.trim()).filter(Boolean)
+      if (itemType === 'integer' || itemType === 'number') {
+        if (items.some(item => !Number.isFinite(Number(item)) || (itemType === 'integer' && !Number.isSafeInteger(Number(item))))) {
+          errors[key] = itemType === 'integer' ? '请输入用逗号分隔的整数' : '请输入用逗号分隔的数字'
+          continue
+        }
+        value = items.map(Number)
+      } else if (itemType === 'boolean') value = items.map(item => item === 'true')
+      else value = items
+    } else if (type === 'integer' || type === 'number') {
       if (!Number.isFinite(Number(raw)) || (type === 'integer' && !Number.isSafeInteger(Number(raw)))) {
         errors[key] = type === 'integer' ? '请输入整数' : '请输入有效数字'
         continue

@@ -3,7 +3,7 @@
     <LiquidGlassCard as="section" source="wallpaper" class="access-denied-panel" role="alert">
       <el-icon class="access-denied-icon" aria-hidden="true"><WarningFilled /></el-icon>
       <h1>没有访问权限</h1>
-      <p>你当前的角色不能访问这个页面。如需开通，请联系平台管理员分配开发人员或运营人员角色。</p>
+      <p>你当前的角色不能访问这个页面。如需开通，请联系平台管理员分配开发人员或管理人员角色。</p>
       <LiquidGlassButton type="primary" @click="goToWorkspace">返回概览</LiquidGlassButton>
     </LiquidGlassCard>
   </main>

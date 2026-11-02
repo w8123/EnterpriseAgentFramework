@@ -46,11 +46,20 @@ public class BusinessUserSyncService {
                         .eq(ExternalUserBindingEntity::getAppId, appId)
                         .eq(ExternalUserBindingEntity::getExternalUserId, externalUserId)
                         .last("limit 1"));
+        // A case-insensitive database collation must not turn a different opaque account
+        // identifier into proof of this account's identity.
+        if (binding != null && (!tenantId.equals(binding.getTenantId())
+                || !appId.equals(binding.getAppId()) || !externalUserId.equals(binding.getExternalUserId()))) {
+            throw new IllegalStateException("business user binding identity does not match exactly");
+        }
+        // A business system can attest its own local identity, not by itself link that identity
+        // to a person in another system. Only an explicit administrator-managed binding may do so.
         BusinessUserEntity user = binding == null
-                ? findOrCreateUser(tenantId, globalUserId(attested, appId, externalUserId), userName, now)
+                ? createScopedUser(tenantId, userName, now)
                 : businessUserMapper.selectById(binding.getBusinessUserId());
-        if (user == null) {
-            user = findOrCreateUser(tenantId, globalUserId(attested, appId, externalUserId), userName, now);
+        if (user == null || !StringUtils.hasText(user.getTenantId())
+                || !tenantId.equals(tenant(user.getTenantId()))) {
+            throw new IllegalStateException("business user binding has an invalid tenant or owner");
         }
         if (!STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) {
             throw new BusinessUserDisabledException(user.getId());
@@ -95,16 +104,37 @@ public class BusinessUserSyncService {
         return appIds;
     }
 
+    /** Exact origin binding of a personal connection; a different account in the same app is insufficient. */
+    public boolean hasActiveOrigin(String tenantId, Long businessUserId, String appId, String externalUserId) {
+        if (businessUserId == null || !StringUtils.hasText(appId) || !StringUtils.hasText(externalUserId)) return false;
+        String tenant = tenant(tenantId);
+        BusinessUserEntity user = businessUserMapper.selectById(businessUserId);
+        if (user == null || !StringUtils.hasText(user.getTenantId()) || !tenant.equals(tenant(user.getTenantId()))
+                || !STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) return false;
+        var binding = externalUserBindingMapper.selectOne(new LambdaQueryWrapper<ExternalUserBindingEntity>()
+                .eq(ExternalUserBindingEntity::getTenantId, tenant)
+                .eq(ExternalUserBindingEntity::getBusinessUserId, businessUserId)
+                .eq(ExternalUserBindingEntity::getAppId, appId.trim())
+                .eq(ExternalUserBindingEntity::getExternalUserId, externalUserId.trim())
+                .eq(ExternalUserBindingEntity::getStatus, STATUS_ACTIVE).last("limit 1"));
+        // Default MySQL collations can be case-insensitive; verify the returned opaque identity exactly.
+        return binding != null && tenant.equals(binding.getTenantId()) && businessUserId.equals(binding.getBusinessUserId())
+                && appId.trim().equals(binding.getAppId()) && externalUserId.trim().equals(binding.getExternalUserId())
+                && STATUS_ACTIVE.equalsIgnoreCase(binding.getStatus());
+    }
+
     /**
      * The employee's active account in one business system, with the roles last synced or
      * granted there. Empty when the employee or that account is no longer active.
      */
     public Optional<BusinessSystemAccount> activeAccount(String tenantId, Long businessUserId, String appId) {
         BusinessUserEntity user = businessUserId == null ? null : businessUserMapper.selectById(businessUserId);
-        if (user == null || !STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) {
+        String tenant = tenant(tenantId);
+        if (user == null || !StringUtils.hasText(user.getTenantId())
+                || !tenant.equals(tenant(user.getTenantId()))
+                || !STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) {
             return Optional.empty();
         }
-        String tenant = tenant(tenantId);
         ExternalUserBindingEntity binding = externalUserBindingMapper.selectOne(
                 new LambdaQueryWrapper<ExternalUserBindingEntity>()
                         .eq(ExternalUserBindingEntity::getTenantId, tenant)
@@ -127,18 +157,11 @@ public class BusinessUserSyncService {
                 binding.getExternalUserName(), List.copyOf(roles)));
     }
 
-    private BusinessUserEntity findOrCreateUser(String tenantId, String globalUserId,
-                                                String displayName, LocalDateTime now) {
-        BusinessUserEntity existing = businessUserMapper.selectOne(new LambdaQueryWrapper<BusinessUserEntity>()
-                .eq(BusinessUserEntity::getTenantId, tenantId)
-                .eq(BusinessUserEntity::getGlobalUserId, globalUserId)
-                .last("limit 1"));
-        if (existing != null) {
-            return existing;
-        }
+    private BusinessUserEntity createScopedUser(String tenantId, String displayName, LocalDateTime now) {
         BusinessUserEntity created = new BusinessUserEntity();
         created.setTenantId(tenantId);
-        created.setGlobalUserId(globalUserId);
+        // The UUID is an opaque directory identifier, not proof of a cross-system identity.
+        created.setGlobalUserId("local:" + java.util.UUID.randomUUID());
         created.setDisplayName(displayName);
         created.setStatus(STATUS_ACTIVE);
         created.setSource(SOURCE);
@@ -186,16 +209,6 @@ public class BusinessUserSyncService {
             externalUserRoleBindingMapper.insert(role);
         }
         return List.copyOf(normalized);
-    }
-
-    /**
-     * A real cross-system id links the same person in several business systems. Embed falls back
-     * to the external id when the system sends none, which is not unique across systems, so that
-     * case stays scoped to the system.
-     */
-    private static String globalUserId(AttestedBusinessUser attested, String appId, String externalUserId) {
-        String global = StringUtils.hasText(attested.globalUserId()) ? attested.globalUserId().trim() : null;
-        return global == null || global.equals(externalUserId) ? appId + ":" + externalUserId : global;
     }
 
     private static String tenant(String tenantId) {

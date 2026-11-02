@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
+import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
@@ -86,6 +87,43 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
     }
 
     private WorkflowReadOnlyTrialPolicy.TrialCommand command() { return command(41L, revision(), HASH, allowed()); }
+
+    @Test void platformTrialIdentityCannotContainAnArbitraryTrace() {
+        var current = command();
+        rejects(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION, current.workflowId(), current.expectedRevision(),
+                current.graphSha256(), current.projectId(), current.projectCode(), current.platformActorId(), current.allowedTargets(),
+                current.message(), current.inputParams(), current.deadlineEpochMs(), "someone-elses-trace"), "WORKFLOW_TRIAL_REQUEST_INVALID");
+        rejects(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.VERSION, current.workflowId(), current.expectedRevision(),
+                current.graphSha256(), current.projectId(), current.projectCode(), current.platformActorId(), current.allowedTargets(),
+                current.message(), current.inputParams(), current.deadlineEpochMs(), "mcp-trial-" + "a".repeat(32)), "WORKFLOW_TRIAL_REQUEST_INVALID");
+        rejects(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION, current.workflowId(), current.expectedRevision(),
+                current.graphSha256(), current.projectId(), current.projectCode(), current.platformActorId(), current.allowedTargets(),
+                current.message(), current.inputParams(), current.deadlineEpochMs(), null), "WORKFLOW_TRIAL_REQUEST_INVALID");
+    }
+
+    @Test void platformTrialForwardsTheVersionedIdentityAndMapsAnAlreadyClaimedRun() {
+        var current = command();
+        String trace = "mcp-trial-" + "a".repeat(32);
+        var platform = new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION,
+                current.workflowId(), current.expectedRevision(), current.graphSha256(), current.projectId(), current.projectCode(),
+                current.platformActorId(), current.allowedTargets(), current.message(), current.inputParams(), current.deadlineEpochMs(), trace);
+        executeScopes(new RuntimeWorkflowDebugService.DebugRunResult(trace, trace, null, "WORKFLOW", true, "COMPLETED",
+                "ok", "answer", List.of(), null, List.of(), Map.of(), null, null));
+        assertTrue(service.run(platform).success());
+        var audit = ArgumentCaptor.forClass(RuntimeWorkflowDebugService.TrialAudit.class);
+        verify(debug).runReadOnlyTrial(any(), any(), any(), any(), audit.capture());
+        assertEquals(trace, audit.getValue().platformTrialTraceId());
+        when(debug.runReadOnlyTrial(any(), any(), any(), any(), any())).thenThrow(
+                new com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.PlatformTrialAlreadyClaimedException());
+        assertEquals("WORKFLOW_TRIAL_ALREADY_EXISTS", assertThrows(RuntimeWorkflowReadOnlyTrialService.Conflict.class,
+                () -> service.run(platform)).code());
+        var request = new MockHttpServletRequest();
+        request.setAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR,
+                new VerifiedInternalServiceAuth(InternalServiceAuthHeaders.CALLER_CONTROL, "PLATFORM_SESSION", "orders", "42"));
+        var response = new RuntimeWorkflowReadOnlyTrialInternalController(service).run(request, platform);
+        assertEquals(409, response.getStatusCode().value());
+        assertTrue(String.valueOf(response.getBody()).contains("请按原编号查询状态"));
+    }
 
     private void rejects(WorkflowReadOnlyTrialPolicy.TrialCommand command, String code) {
         assertEquals(code, assertThrows(RuntimeWorkflowReadOnlyTrialService.Conflict.class,
@@ -225,14 +263,28 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
         assertNull(result.steps().get(0).output());
     }
 
+    @Test void internalControllerDoesNotExposePersistenceFailures() {
+        var mockService = mock(RuntimeWorkflowReadOnlyTrialService.class);
+        var request = new MockHttpServletRequest();
+        request.setAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR,
+                new VerifiedInternalServiceAuth(InternalServiceAuthHeaders.CALLER_CONTROL, "PLATFORM_SESSION", "orders", "42"));
+        var command = command();
+        when(mockService.run(command)).thenThrow(new com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService
+                .PlatformTrialClaimUnavailableException(new IllegalStateException("private database location")));
+        var response = new RuntimeWorkflowReadOnlyTrialInternalController(mockService).run(request, command);
+        assertEquals(503, response.getStatusCode().value());
+        assertEquals("WORKFLOW_TRIAL_CLAIM_UNAVAILABLE", ((Map<?, ?>) response.getBody()).get("errorCode"));
+        assertFalse(String.valueOf(response.getBody()).contains("private"));
+    }
+
     @Test void internalControllerRequiresVerifiedControlPlatformActorAndProjectBinding() {
         var mockService = mock(RuntimeWorkflowReadOnlyTrialService.class);
         var controller = new RuntimeWorkflowReadOnlyTrialInternalController(mockService);
         var command = command();
         for (var auth : List.of(new VerifiedInternalServiceAuth("RUNTIME", "PLATFORM_SESSION", "orders", "42"),
-                new VerifiedInternalServiceAuth("CONTROL", "A2A_REMOTE_AGENT", "orders", "42"),
-                new VerifiedInternalServiceAuth("CONTROL", "PLATFORM_SESSION", "other", "42"),
-                new VerifiedInternalServiceAuth("CONTROL", "PLATFORM_SESSION", "orders", "other"))) {
+                new VerifiedInternalServiceAuth(InternalServiceAuthHeaders.CALLER_CONTROL, "A2A_REMOTE_AGENT", "orders", "42"),
+                new VerifiedInternalServiceAuth(InternalServiceAuthHeaders.CALLER_CONTROL, "PLATFORM_SESSION", "other", "42"),
+                new VerifiedInternalServiceAuth(InternalServiceAuthHeaders.CALLER_CONTROL, "PLATFORM_SESSION", "orders", "other"))) {
             var request = new MockHttpServletRequest(); request.setAttribute(VerifiedInternalServiceAuth.REQUEST_ATTR, auth);
             assertEquals(401, controller.run(request, command).getStatusCode().value());
         }

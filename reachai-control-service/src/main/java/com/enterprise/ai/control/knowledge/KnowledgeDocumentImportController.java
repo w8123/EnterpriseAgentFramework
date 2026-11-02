@@ -65,7 +65,12 @@ public class KnowledgeDocumentImportController {
             @RequestParam(value = "chunkSize", defaultValue = "500") Integer chunkSize,
             @RequestParam(value = "chunkOverlap", defaultValue = "50") Integer chunkOverlap,
             @RequestParam(value = "extraParams", required = false) String extraParamsJson) {
-        PlatformAuthenticatedSession actor = requireSession(request);
+        return platformSubmit(requireSession(request), file, knowledgeBaseCode, chunkStrategy, chunkSize, chunkOverlap, extraParamsJson);
+    }
+
+    /** Same scope check, audit and owner call as the page upload; platform AI uploads arrive here with their own file. */
+    ResponseEntity<byte[]> platformSubmit(PlatformAuthenticatedSession actor, MultipartFile file, String knowledgeBaseCode,
+                                          String chunkStrategy, Integer chunkSize, Integer chunkOverlap, String extraParamsJson) {
         String code = requiredIdentifier(knowledgeBaseCode, "knowledgeBaseCode", 64);
         ResourceScope scope = authorizeScope(actor, WRITE_PERMISSION,
                 KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT
@@ -96,7 +101,11 @@ public class KnowledgeDocumentImportController {
     public ResponseEntity<byte[]> get(HttpServletRequest request,
                                       @PathVariable String jobId,
                                       @RequestParam(defaultValue = "false") boolean includePreview) {
-        PlatformAuthenticatedSession actor = requireSession(request);
+        return platformJob(requireSession(request), jobId, includePreview);
+    }
+
+    /** Same read chain for console sessions and platform AI connections. */
+    ResponseEntity<byte[]> platformJob(PlatformAuthenticatedSession actor, String jobId, boolean includePreview) {
         String id = requiredIdentifier(jobId, "jobId", 64);
         authorizeScope(actor, READ_PERMISSION, jobScopePath(id));
         String path = jobPath(id) + (includePreview ? "/preview" : "");
@@ -120,7 +129,11 @@ public class KnowledgeDocumentImportController {
 
     @PostMapping("/import-files/{fileId}/reparse")
     public ResponseEntity<byte[]> reparse(HttpServletRequest request, @PathVariable String fileId) {
-        PlatformAuthenticatedSession actor = requireSession(request);
+        return platformReparse(requireSession(request), fileId);
+    }
+
+    /** Same write chain, permission check and audit event for console sessions and platform AI connections. */
+    ResponseEntity<byte[]> platformReparse(PlatformAuthenticatedSession actor, String fileId) {
         String id = requiredIdentifier(fileId, "fileId", 128);
         ResourceScope scope = authorizeScope(actor, WRITE_PERMISSION,
                 KnowledgeBizIndexGateway.DOCUMENT_IMPORT_INTERNAL_ROOT
@@ -174,7 +187,11 @@ public class KnowledgeDocumentImportController {
                                              String rawJobId,
                                              String operation,
                                              String eventType) {
-        PlatformAuthenticatedSession actor = requireSession(request);
+        return platformMutateJob(requireSession(request), rawJobId, operation, eventType);
+    }
+
+    /** Same write chain, permission check and audit event for console sessions and platform AI connections. */
+    ResponseEntity<byte[]> platformMutateJob(PlatformAuthenticatedSession actor, String rawJobId, String operation, String eventType) {
         String jobId = requiredIdentifier(rawJobId, "jobId", 64);
         authorizeScope(actor, WRITE_PERMISSION, jobScopePath(jobId));
         audit(actor, eventType, jobId, Map.of());

@@ -1,6 +1,7 @@
 package com.enterprise.ai.model.controller;
 
 import com.enterprise.ai.common.dto.ApiResult;
+import com.enterprise.ai.common.exception.BizException;
 import com.enterprise.ai.model.service.*;
 import com.enterprise.ai.model.util.ChatDebugLogs;
 import com.enterprise.ai.model.util.EmbeddingDebugLogs;
@@ -37,8 +38,11 @@ public class ModelController {
                 request.getMessages() == null ? 0 : request.getMessages().size());
         ChatDebugLogs.logChatRequest(log, "[ChatStreamEvents] request", request);
         Flux<ModelStreamEvent> events = routingService.chatStreamEvents(request)
+                .onErrorMap(e -> e instanceof BizException ? e
+                        : new BizException(502, "模型流处理失败，请检查模型配置后重试。"))
                 .doOnComplete(() -> log.info("[ChatStreamEvents] completed modelInstanceId={}", request.getModelInstanceId()))
-                .doOnError(e -> log.error("[ChatStreamEvents] failed modelInstanceId={}", request.getModelInstanceId(), e));
+                .doOnError(e -> log.error("[ChatStreamEvents] failed modelInstanceId={}, errorType={}",
+                        request.getModelInstanceId(), e.getClass().getSimpleName()));
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noCache().noTransform())
                 .header("X-Accel-Buffering", "no")

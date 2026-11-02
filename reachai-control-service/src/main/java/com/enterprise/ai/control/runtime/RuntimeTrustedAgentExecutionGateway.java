@@ -3,8 +3,9 @@ package com.enterprise.ai.control.runtime;
 import com.enterprise.ai.control.client.runtime.RuntimeAgentExecutionInternalClient;
 import com.enterprise.ai.control.internalauth.InternalServiceAuthSigner;
 import com.enterprise.ai.control.memory.PersonalMemoryRecallService;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateObservationService;
-import com.enterprise.ai.control.memory.PersonalMemoryCandidateService.ObservationCommand;
+import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
+import com.enterprise.ai.control.memory.PersonalMemoryConversationService;
+import com.enterprise.ai.control.memory.PersonalMemoryConversationService.ObservationCommand;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,6 +40,7 @@ public class RuntimeTrustedAgentExecutionGateway {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
     private static final String WRITE_EXPLICIT = "EXPLICIT";
+    /** Older Agent versions; there are no candidates any more, so it behaves like EXPLICIT. */
     private static final String WRITE_EXPLICIT_AND_CANDIDATE = "EXPLICIT_AND_CANDIDATE";
     private static final long READ_POLICY_TTL_MS = 5 * 60 * 1000L;
 
@@ -48,7 +50,7 @@ public class RuntimeTrustedAgentExecutionGateway {
     private final String runtimeServiceUrl;
     private final RuntimeAgentStreamProxy streamProxy;
     private final PersonalMemoryRecallService personalMemoryRecallService;
-    private final PersonalMemoryCandidateObservationService personalMemoryCandidateObservationService;
+    private final PersonalMemoryConversationService personalMemoryConversationService;
     /**
      * Last memory read flag each Agent's Runtime response reported. Only used to skip a recall the
      * Runtime would discard; Runtime enforces the executed configuration either way.
@@ -79,12 +81,12 @@ public class RuntimeTrustedAgentExecutionGateway {
             RuntimeAgentStreamProxy streamProxy,
             @Value("${services.runtime-service.url:http://localhost:18604}") String runtimeServiceUrl,
             PersonalMemoryRecallService personalMemoryRecallService,
-            PersonalMemoryCandidateObservationService personalMemoryCandidateObservationService) {
+            PersonalMemoryConversationService personalMemoryConversationService) {
         this.signer = signer;
         this.objectMapper = objectMapper;
         this.streamProxy = streamProxy;
         this.personalMemoryRecallService = personalMemoryRecallService;
-        this.personalMemoryCandidateObservationService = personalMemoryCandidateObservationService;
+        this.personalMemoryConversationService = personalMemoryConversationService;
         this.runtimeServiceUrl = normalizeBaseUrl(runtimeServiceUrl);
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
     }
@@ -99,8 +101,16 @@ public class RuntimeTrustedAgentExecutionGateway {
                                                               String identitySource,
                                                               String identityTenantId,
                                                               String identityUserId) {
+        return executeTrusted(body, identitySource, identityTenantId, identityUserId, null);
+    }
+
+    public ResponseEntity<Map<String, Object>> executeTrusted(Map<String, Object> body,
+                                                              String identitySource,
+                                                              String identityTenantId,
+                                                              String identityUserId,
+                                                              PersonalMemoryPrincipal memoryOwner) {
         try {
-            byte[] payload = serializeEnvelope(body, identitySource, identityTenantId, identityUserId);
+            byte[] payload = serializeEnvelope(body, identitySource, identityTenantId, identityUserId, memoryOwner);
             Map<String, String> headers = signer.sign(
                     "POST",
                     RuntimeAgentExecutionInternalClient.EXECUTE_PATH,
@@ -123,7 +133,7 @@ public class RuntimeTrustedAgentExecutionGateway {
             }
             Map<String, Object> responseBody = parseMap(responseBytes);
             if (response.statusCode() >= 200 && response.statusCode() < 300) {
-                observeCompletedTurn(body, responseBody, identitySource, identityTenantId, identityUserId);
+                observeCompletedTurn(body, responseBody, identitySource, identityTenantId, identityUserId, memoryOwner);
             }
             return ResponseEntity.status(response.statusCode()).body(responseBody);
         } catch (InterruptedException ex) {
@@ -152,7 +162,17 @@ public class RuntimeTrustedAgentExecutionGateway {
                               String identityUserId,
                               OutputStream outputStream,
                               SseStreamRelay.FrameHandler handler) throws IOException {
-        byte[] payload = serializeEnvelope(body, identitySource, identityTenantId, identityUserId);
+        streamTrusted(body, identitySource, identityTenantId, identityUserId, null, outputStream, handler);
+    }
+
+    public void streamTrusted(Map<String, Object> body,
+                              String identitySource,
+                              String identityTenantId,
+                              String identityUserId,
+                              PersonalMemoryPrincipal memoryOwner,
+                              OutputStream outputStream,
+                              SseStreamRelay.FrameHandler handler) throws IOException {
+        byte[] payload = serializeEnvelope(body, identitySource, identityTenantId, identityUserId, memoryOwner);
         Map<String, String> headers = signer.sign(
                 "POST",
                 RuntimeAgentExecutionInternalClient.EXECUTE_STREAM_PATH,
@@ -166,7 +186,7 @@ public class RuntimeTrustedAgentExecutionGateway {
             // terminates the stream instead of sending a false successful completion event.
             if ("execution.completed".equals(eventName) && observed.compareAndSet(false, true)) {
                 Map<String, Object> responseBody = parseMapQuietly(data);
-                observeCompletedTurn(body, responseBody, identitySource, identityTenantId, identityUserId);
+                observeCompletedTurn(body, responseBody, identitySource, identityTenantId, identityUserId, memoryOwner);
             }
             handler.handle(eventName, data, downstream);
         };
@@ -182,12 +202,32 @@ public class RuntimeTrustedAgentExecutionGateway {
                                              String identitySource,
                                              String identityTenantId,
                                              String identityUserId) {
+        return clearTrusted(sessionId, identitySource, identityTenantId, identityUserId, null);
+    }
+
+    public ResponseEntity<Void> clearTrusted(String sessionId,
+                                             String identitySource,
+                                             String identityTenantId,
+                                             String identityUserId,
+                                             PersonalMemoryPrincipal memoryOwner) {
         if (!StringUtils.hasText(sessionId) || sessionId.trim().length() > 128) {
             throw new IllegalArgumentException("sessionId is required and must be at most 128 characters");
         }
         String path = RuntimeAgentExecutionInternalClient.SESSION_PATH_PREFIX
                 + UriUtils.encodePathSegment(sessionId.trim(), StandardCharsets.UTF_8);
-        byte[] payload = new byte[0];
+        byte[] payload;
+        try {
+            if ("EMBED_SESSION".equalsIgnoreCase(identitySource)) {
+                PersonalMemoryPrincipal owner = validEmbedOwner(memoryOwner, identityTenantId, identityUserId);
+                if (owner == null) throw new IllegalArgumentException("embed business identity is required");
+                payload = objectMapper.writeValueAsBytes(Map.of(
+                        "projectCode", owner.ownerDomain().substring("BUSINESS:".length())));
+            } else {
+                payload = new byte[0];
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("trusted session clear could not be serialized", ex);
+        }
         Map<String, String> headers = signer.sign(
                 "DELETE", path, identitySource, identityTenantId, identityUserId, payload);
         try {
@@ -196,8 +236,10 @@ public class RuntimeTrustedAgentExecutionGateway {
                     .timeout(Duration.ofSeconds(30))
                     .header("Accept", "application/json");
             headers.forEach(builder::header);
+            if (payload.length > 0) builder.header("Content-Type", "application/json");
             HttpResponse<Void> response = httpClient.send(
-                    builder.DELETE().build(), HttpResponse.BodyHandlers.discarding());
+                    builder.method("DELETE", HttpRequest.BodyPublishers.ofByteArray(payload)).build(),
+                    HttpResponse.BodyHandlers.discarding());
             return ResponseEntity.status(response.statusCode()).build();
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -211,18 +253,32 @@ public class RuntimeTrustedAgentExecutionGateway {
                              String identitySource,
                              String identityTenantId,
                              String identityUserId) throws IOException {
+        return serializeEnvelope(body, identitySource, identityTenantId, identityUserId, null);
+    }
+
+    byte[] serializeEnvelope(Map<String, Object> body,
+                             String identitySource,
+                             String identityTenantId,
+                             String identityUserId,
+                             PersonalMemoryPrincipal memoryOwner) throws IOException {
         Map<String, Object> envelope = new LinkedHashMap<>();
         envelope.put("body", body == null ? Map.of() : body);
         Map<String, Object> identity = new LinkedHashMap<>();
         identity.put("source", identitySource == null ? "" : identitySource);
         identity.put("tenantId", identityTenantId == null ? "default" : identityTenantId);
         identity.put("userId", identityUserId == null ? "" : identityUserId);
+        if ("EMBED_SESSION".equalsIgnoreCase(identitySource)) {
+            PersonalMemoryPrincipal owner = validEmbedOwner(memoryOwner, identityTenantId, identityUserId);
+            if (owner == null) throw new IllegalArgumentException("embed business identity is required");
+            identity.put("projectCode", owner.ownerDomain().substring("BUSINESS:".length()));
+        }
         envelope.put("identity", identity);
         if (personalMemoryRecallService != null
                 && !IDENTITY_SOURCE_A2A_REMOTE_AGENT.equalsIgnoreCase(identitySource)
                 && !knownNotToReadPersonalMemory(body)) {
-            Map<String, Object> personalMemory = personalMemoryRecallService.recall(
-                    identitySource, identityTenantId, identityUserId, body);
+            Map<String, Object> personalMemory = "EMBED_SESSION".equalsIgnoreCase(identitySource)
+                    ? personalMemoryRecallService.recall(validEmbedOwner(memoryOwner, identityTenantId, identityUserId), body)
+                    : personalMemoryRecallService.recall(identitySource, identityTenantId, identityUserId, body);
             if (personalMemory != null && !personalMemory.isEmpty()) {
                 envelope.put("personalMemory", personalMemory);
             }
@@ -266,6 +322,15 @@ public class RuntimeTrustedAgentExecutionGateway {
                                       String identitySource,
                                       String identityTenantId,
                                       String identityUserId) {
+        observeCompletedTurn(body, responseBody, identitySource, identityTenantId, identityUserId, null);
+    }
+
+    private void observeCompletedTurn(Map<String, Object> body,
+                                      Map<String, Object> responseBody,
+                                      String identitySource,
+                                      String identityTenantId,
+                                      String identityUserId,
+                                      PersonalMemoryPrincipal memoryOwner) {
         Map<String, Object> memoryPolicy = mapValue(
                 mapValue(responseBody == null ? null : responseBody.get("metadata")).get("memoryPolicy"));
         rememberReadPolicy(body, responseBody, memoryPolicy);
@@ -275,7 +340,7 @@ public class RuntimeTrustedAgentExecutionGateway {
             return;
         }
         if (IDENTITY_SOURCE_A2A_REMOTE_AGENT.equalsIgnoreCase(identitySource)
-                || personalMemoryCandidateObservationService == null || body == null
+                || personalMemoryConversationService == null || body == null
                 || !Boolean.TRUE.equals(booleanValue(responseBody == null ? null : responseBody.get("success")))) {
             return;
         }
@@ -291,12 +356,23 @@ public class RuntimeTrustedAgentExecutionGateway {
                         firstText(responseBody, "traceId", stringValue(metadata, "traceId"),
                                 stringValue(body, "traceId")),
                         stringValue(body, "agentId"));
-        if (!personalMemoryCandidateObservationService.observeExplicitIfPresent(
-                identitySource, identityTenantId, identityUserId, observation)
-                && WRITE_EXPLICIT_AND_CANDIDATE.equals(writeMode)) {
-            personalMemoryCandidateObservationService.observePassive(
+        if ("EMBED_SESSION".equalsIgnoreCase(identitySource) && memoryOwner != null) {
+            personalMemoryConversationService.rememberExplicitIfPresent(
+                    validEmbedOwner(memoryOwner, identityTenantId, identityUserId), observation);
+        } else {
+            personalMemoryConversationService.rememberExplicitIfPresent(
                     identitySource, identityTenantId, identityUserId, observation);
         }
+    }
+
+    private static PersonalMemoryPrincipal validEmbedOwner(PersonalMemoryPrincipal owner, String tenantId, String userId) {
+        if (owner == null) return null;
+        String tenant = StringUtils.hasText(tenantId) ? tenantId.trim().toLowerCase(java.util.Locale.ROOT) : "default";
+        if (!owner.ownerDomain().startsWith("BUSINESS:") || !tenant.equals(owner.tenantId())
+                || !StringUtils.hasText(userId) || !userId.trim().equals(owner.runtimeUserId())) {
+            throw new IllegalArgumentException("embed memory owner does not match attested identity");
+        }
+        return owner;
     }
 
     private boolean knownNotToReadPersonalMemory(Map<String, Object> body) {

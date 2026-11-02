@@ -155,7 +155,7 @@ describe('HTTP API detail usage', () => {
       summary: { ...owner.summary, sourceStatus: 'CONFLICT', sourceConfirmed: false,
         sourceReason: '活动来源契约不一致，请先处理来源冲突', candidateContractHash: null, activeSourceCount: 2 },
       contract: null, acceptedContract: response('string'), sources: [
-        { id: 11, sourceKind: 'CONTROLLER_SCAN', sourceKey: 'controller:orders', sourceLocation: 'OrdersController.java#find',
+        { id: 11, sourceKind: 'STARTER_MVC', sourceKey: 'starter:orders', sourceLocation: 'OrdersController#find',
           sourceContractHash: 'a', status: 'CONFLICT', confirmedInLatestInventory: true, inventoryComplete: true,
           contract: response('string') },
         { id: 12, sourceKind: 'OPENAPI_SCAN', sourceKey: 'openapi:orders.yaml:get', sourceLocation: 'orders.yaml#/paths/orders/get',

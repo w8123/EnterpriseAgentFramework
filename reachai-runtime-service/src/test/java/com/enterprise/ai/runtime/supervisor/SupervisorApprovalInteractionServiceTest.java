@@ -37,6 +37,22 @@ class SupervisorApprovalInteractionServiceTest {
             new SupervisorApprovalInteractionService(approvals, objectMapper);
 
     @Test
+    void confirmationShowsNestedBusinessValuesAndMasksNestedSecrets() {
+        var config = RuntimeAgentConfigSnapshot.builder().id(12L).build();
+        var tool = RuntimeAgentWorkflowToolSnapshot.builder().toolName("create_customer").riskLevel("WRITE").build();
+        var args = Map.<String, Object>of("createReqVO", Map.of(
+                "name", "测试客户", "status", 0, "sort", 0, "token", "never-display-this"));
+        var created = service.create(new SupervisorExecutionTraceService.TraceHandle("trace", "span", 1L, LocalDateTime.now()),
+                agent(), config, tool, Map.of("sessionId", "session-1"), args, "需要确认", trustedIdentity("u-1"));
+        String visible = created.uiRequest().toString();
+        assertTrue(visible.contains("createReqVO.name=测试客户"));
+        assertTrue(visible.contains("createReqVO.status=0"));
+        assertTrue(visible.contains("createReqVO.sort=0"));
+        assertTrue(visible.contains("createReqVO.token=[已隐藏]"));
+        assertFalse(visible.contains("never-display-this"));
+    }
+
+    @Test
     void persistsApprovalAndResumesOnlyTheConfirmedToolAndArgs() {
         RuntimeAgentConfigSnapshot config = RuntimeAgentConfigSnapshot.builder()
                 .id(12L)

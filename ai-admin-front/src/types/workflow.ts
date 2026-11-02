@@ -322,12 +322,32 @@ export interface WorkflowReleaseValidationResult {
   warnings: WorkflowReleaseValidationItem[]
 }
 
+/** Send the page copilot revision just read, or createTarget when it does not exist yet; never both. */
 export interface PageAssistantWorkflowAttachRequest {
-  projectId?: number | null
-  projectCode?: string | null
-  agentId?: string | null
+  baseRevision?: string | null
+  createTarget?: boolean
   modelInstanceId?: string | null
-  publishedBy?: string | null
+  replaceWorkflowId?: string | null
+}
+
+export interface PageAssistantAttachContext {
+  contractVersion: number
+  projectId: number | null
+  projectCode: string
+  workflowId: string
+  workflowKeySlug: string
+  workflowName: string
+  workflowStatus: string
+  workflowActiveVersionId: number | null
+  targetExists: boolean
+  agentId: string | null
+  agentKeySlug: string | null
+  revision: string | null
+  activeConfigId: number | null
+  activeConfigVersionNo: number | null
+  activeModelInstanceId: string | null
+  attached: boolean
+  attachedWorkflowVersionId: number | null
 }
 
 export interface PageAssistantWorkflowAttachmentResult {

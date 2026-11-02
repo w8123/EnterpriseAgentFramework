@@ -268,7 +268,7 @@ public class CapabilityCatalogGroupingService {
     }
 
     private String controllerClass(String kind, String location) {
-        if (location == null || !("STARTER_MVC".equals(kind) || "CONTROLLER_SCAN".equals(kind))) return null;
+        if (location == null || !"STARTER_MVC".equals(kind)) return null;
         String[] parts = location.split("#");
         if (parts.length < 2) return null;
         String value = parts.length >= 3 ? parts[1] : parts[0];

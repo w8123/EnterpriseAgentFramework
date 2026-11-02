@@ -15,6 +15,17 @@ describe('HTTP API trial input and current evidence', () => {
     })).toEqual({ pathParams: { orderId: 'O-1' }, queryParams: { expanded: false, page: 2 }, errors: {} })
   })
 
+  it('splits comma-separated values for array query parameters', () => {
+    const arrays: HttpApiParameter[] = [
+      { location: 'QUERY', name: 'createTime', required: false, schema: { type: 'array', items: { type: 'string' } }, contentTypes: [] },
+      { location: 'QUERY', name: 'ids', required: false, schema: { type: 'array', items: { type: 'integer' } }, contentTypes: [] },
+    ]
+    expect(buildHttpApiTrialParameters(arrays, {
+      'QUERY:createTime': '2026-01-01 00:00:00, 2026-12-31 23:59:59', 'QUERY:ids': '1,2',
+    })).toEqual({ pathParams: {}, queryParams: { createTime: ['2026-01-01 00:00:00', '2026-12-31 23:59:59'], ids: [1, 2] }, errors: {} })
+    expect(buildHttpApiTrialParameters(arrays, { 'QUERY:ids': '1,x' }).errors).toEqual({ 'QUERY:ids': '请输入用逗号分隔的整数' })
+  })
+
   it('prevents invalid input from becoming a dispatch payload', () => {
     const result = buildHttpApiTrialParameters(parameters, {
       'PATH:orderId': ' ', 'QUERY:page': '2.5', 'QUERY:extra': 'ignored',

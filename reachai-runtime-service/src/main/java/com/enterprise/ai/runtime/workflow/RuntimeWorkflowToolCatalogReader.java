@@ -1,6 +1,7 @@
 package com.enterprise.ai.runtime.workflow;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,7 +66,8 @@ public class RuntimeWorkflowToolCatalogReader implements RuntimeWorkflowToolCata
         var contract = version == null ? null : new Version(version.getId(), version.getVersion(),
                 StringUtils.hasText(version.getGraphSpecSnapshotJson()),
                 RuntimeWorkflowSchemaResolver.inputSchemaJson(json, null, version),
-                RuntimeWorkflowSchemaResolver.outputSchemaJson(json, null, version), httpApiRiskFloor(version));
+                RuntimeWorkflowSchemaResolver.outputSchemaJson(json, null, version), httpApiRiskFloor(version),
+                businessMethodRiskFloor(version));
         return new Entry(metadata, contract);
     }
 
@@ -74,6 +76,33 @@ public class RuntimeWorkflowToolCatalogReader implements RuntimeWorkflowToolCata
         try {
             return "WRITE".equals(json.readTree(version.getSnapshotJson()).path("httpApiRiskFloor").asText()) ? "WRITE" : null;
         } catch (Exception invalid) { throw new IllegalArgumentException("WORKFLOW_PUBLISHED_RISK_INVALID", invalid); }
+    }
+
+    private String businessMethodRiskFloor(RuntimeWorkflowVersionEntity version) {
+        try {
+            var snapshot = StringUtils.hasText(version.getSnapshotJson())
+                    ? json.readTree(version.getSnapshotJson()) : json.createObjectNode();
+            var floor = snapshot.path("businessMethodRiskFloor");
+            if (!floor.isMissingNode() && !floor.isNull()) {
+                String value = floor.asText();
+                if (!"READ".equals(value) && !"WRITE".equals(value) && !"IRREVERSIBLE".equals(value))
+                    throw new IllegalArgumentException("WORKFLOW_PUBLISHED_RISK_INVALID");
+                return value;
+            }
+            // Legacy versions never recorded a trusted business-method floor. Do not silently
+            // allow a read-only Agent binding until the Workflow is republished with one.
+            if (!StringUtils.hasText(version.getGraphSpecSnapshotJson())) return "WRITE";
+            var nodes = json.readTree(version.getGraphSpecSnapshotJson()).path("nodes");
+            if (!nodes.isArray()) return "WRITE";
+            for (var node : nodes) {
+                if (!"TOOL".equals(AgentGraphNodeType.normalize(node.path("type").asText()))) continue;
+                String ref = node.path("ref").path("qualifiedName").asText();
+                if (!ref.startsWith("http-api:") && !node.path("config").has("httpApiAssetId")) return "WRITE";
+            }
+            return null;
+        } catch (Exception invalid) {
+            throw new IllegalArgumentException("WORKFLOW_PUBLISHED_RISK_INVALID", invalid);
+        }
     }
 
     private boolean isPublished(RuntimeWorkflowVersionEntity version) {

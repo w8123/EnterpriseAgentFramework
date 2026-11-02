@@ -50,20 +50,15 @@ import com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper;
 import com.enterprise.ai.runtime.trace.RuntimeTraceQueryService;
 import com.enterprise.ai.text.tooling.scanner.manifest.HttpApiOperation;
 import com.enterprise.ai.text.tooling.scanner.manifest.ProjectMetadata;
-import com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner;
 import com.enterprise.ai.text.tooling.scanner.openapi.OpenApiToolManifestScanner;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -100,12 +95,11 @@ public final class HttpApiBrowserFixtureHost {
 
     public static void main(String[] args) throws Exception {
         int port = args.length > 0 ? Integer.parseInt(args[0]) : 19623;
-        boolean controllerSource = args.length > 1 && "controller".equalsIgnoreCase(args[1]);
-        Fixture fixture = new Fixture(port, controllerSource);
+        Fixture fixture = new Fixture(port);
         Runtime.getRuntime().addShutdownHook(new Thread(fixture::close, "bmapi-3b1-fixture-close"));
         fixture.start();
         System.out.println("BMAPI_FIXTURE_READY port=" + port + " source="
-                + (controllerSource ? "CONTROLLER_SCAN" : "OPENAPI_SCAN") + " apiId=" + fixture.apiId);
+                + "OPENAPI_SCAN apiId=" + fixture.apiId);
         Thread.currentThread().join();
     }
 
@@ -120,9 +114,6 @@ public final class HttpApiBrowserFixtureHost {
         private final RuntimeRunOpsQueryService runOps;
         private final HttpServer upstream;
         private final HttpServer publicServer;
-        private final boolean controllerSource;
-        private final ControllerOrderFixtureController sourceController;
-        private final MockMvc sourceMvc;
         private final MockHttpServletRequest request = new MockHttpServletRequest();
         private final TransactionTemplate tx;
         private final AtomicInteger upstreamCount = new AtomicInteger();
@@ -136,10 +127,7 @@ public final class HttpApiBrowserFixtureHost {
         private String sourceLocation;
         private String sourceRevision;
 
-        Fixture(int port, boolean controllerSource) throws Exception {
-            this.controllerSource = controllerSource;
-            sourceController = controllerSource ? new ControllerOrderFixtureController() : null;
-            sourceMvc = controllerSource ? MockMvcBuilders.standaloneSetup(sourceController).build() : null;
+        Fixture(int port) throws Exception {
             db = new RuntimeQueryTestDatabase(List.of("capability_scan_project", "capability_scan_module", "capability_catalog_group_member", "capability_http_api_asset",
                     "capability_scan_project_tool", "capability_catalog_classification_state", "capability_semantic_doc",
                     "capability_business_method_asset", "capability_business_method_revision", "capability_snapshot",
@@ -167,9 +155,8 @@ public final class HttpApiBrowserFixtureHost {
                     RuntimeGuardDecisionLogMapper.class, ConsoleCapabilityInvocationMapper.class);
             tx = new TransactionTemplate(new DataSourceTransactionManager(db.jdbc().getDataSource()));
             db.jdbc().update("INSERT INTO capability_scan_project "
-                    + "(id,name,project_code,environment,base_url,scan_path,scan_type,status) "
-                    + "VALUES (41,'Orders','orders','dev','https://not-an-execution-origin.invalid','.', ?, 'scanned')",
-                    controllerSource ? "controller" : "openapi");
+                    + "(id,name,project_code,environment,base_url,spec_file,status) "
+                    + "VALUES (41,'Orders','orders','dev','https://not-an-execution-origin.invalid','orders.yaml','scanned')");
             HttpApiAssetMapper assets = db.mapper(HttpApiAssetMapper.class);
             HttpApiSourceBindingMapper bindings = db.mapper(HttpApiSourceBindingMapper.class);
             var grouping = transactional(new com.enterprise.ai.capability.catalog.enrichment.CapabilityCatalogGroupingService(
@@ -201,8 +188,7 @@ public final class HttpApiBrowserFixtureHost {
             var beans = new org.springframework.beans.factory.support.DefaultListableBeanFactory();
             beans.registerSingleton("semanticDocuments", documents);
             catalog.setAdoption(beans.getBeanProvider(com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticDocumentStore.class));
-            apiId = controllerSource ? importController(assetService, bindings)
-                    : importOpenApi(assetService, bindings);
+            apiId = importOpenApi(assetService, bindings);
             credentials = new RuntimeWorkflowCredentialService(db.mapper(RuntimeWorkflowCredentialMapper.class),
                     new RuntimeWorkflowCredentialCipher("isolated-bmapi-3b1-browser-secret"), JSON);
             upstream = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
@@ -241,8 +227,8 @@ public final class HttpApiBrowserFixtureHost {
 
         private long importOpenApi(HttpApiAssetService assetService, HttpApiSourceBindingMapper bindings) {
             Path root = Path.of("src/test/resources/bmapi3b1");
-            var manifest = new OpenApiToolManifestScanner().scan(root, root.resolve("orders.yaml"),
-                    new ProjectMetadata(PROJECT_CODE, "https://not-an-execution-origin.invalid", ""), null, null);
+            var manifest = new OpenApiToolManifestScanner().scan(root.resolve("orders.yaml"),
+                    new ProjectMetadata(PROJECT_CODE, "https://not-an-execution-origin.invalid", ""), null);
             if (!manifest.httpApiInventoryComplete() || manifest.httpApis().size() != 1) {
                 throw new IllegalStateException("OpenAPI fixture must yield exactly one complete API");
             }
@@ -270,44 +256,6 @@ public final class HttpApiBrowserFixtureHost {
                 throw new IllegalStateException("OpenAPI fixture inventory ledger was not persisted by observe");
             }
             return asset.getId();
-        }
-
-        private long importController(HttpApiAssetService assetService, HttpApiSourceBindingMapper bindings) {
-            HttpApiOperation operation = scanController();
-            recordSource(operation);
-            ScanProjectEntity project = new ScanProjectEntity();
-            project.setId(PROJECT_ID); project.setProjectCode(PROJECT_CODE);
-            project.setEnvironment("dev"); project.setContextPath("");
-            var intake = scannerIntake(assetService, bindings,
-                    new HttpApiInventoryStateService(db.mapper(HttpApiInventoryStateMapper.class),
-                            db.mapper(HttpApiInventoryMemberMapper.class)));
-            var plan = intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, List.of(scannerData(operation)), true);
-            var observed = tx.execute(status -> intake.observe(plan));
-            if (observed == null || !observed.supported() || !observed.inventoryComplete()
-                    || observed.observed() != 1) {
-                throw new IllegalStateException("Controller fixture did not observe a complete inventory");
-            }
-            HttpApiAssetEntity asset = db.mapper(HttpApiAssetMapper.class).selectList(null).get(0);
-            HttpApiSourceBindingEntity binding = bindings.selectList(null).get(0);
-            HttpApiInventoryStateEntity state = db.mapper(HttpApiInventoryStateMapper.class).selectList(null).get(0);
-            HttpApiInventoryMemberEntity member = db.mapper(HttpApiInventoryMemberMapper.class).selectList(null).get(0);
-            if (!Boolean.TRUE.equals(state.getSupported()) || !Boolean.TRUE.equals(state.getComplete())
-                    || !Objects.equals(state.getInventoryToken(), member.getInventoryToken())
-                    || !Objects.equals(member.getBindingId(), binding.getId())) {
-                throw new IllegalStateException("Controller fixture inventory ledger was not persisted by observe");
-            }
-            return asset.getId();
-        }
-
-        private HttpApiOperation scanController() {
-            Path source = Path.of("src/test/java/com/enterprise/ai/runtime/runops/consolehttpapi/"
-                    + "ControllerOrderFixtureController.java");
-            var manifest = new ControllerAnnotationToolManifestScanner().scan(source,
-                    new ProjectMetadata(PROJECT_CODE, "https://not-an-execution-origin.invalid", ""));
-            if (!manifest.httpApiInventoryComplete() || manifest.httpApis().size() != 1) {
-                throw new IllegalStateException("Controller fixture must yield exactly one complete API");
-            }
-            return manifest.httpApis().get(0);
         }
 
         private void recordSource(HttpApiOperation operation) {
@@ -455,13 +403,6 @@ public final class HttpApiBrowserFixtureHost {
                             || path.equals(scanBase + "/sensitive-data/status"))) {
                         write(exchange, 200, null); return;
                     }
-                    if ("POST".equals(method) && controllerSource && path.equals(scanBase + "/rescan")) {
-                        write(exchange, 200, rescanController()); return;
-                    }
-                }
-                if ("POST".equals(method) && controllerSource && path.startsWith("/api/fixture/source/")) {
-                    write(exchange, 200, changeControllerSource(path.substring("/api/fixture/source/".length())));
-                    return;
                 }
                 if ("GET".equals(method) && "/api/apis".equals(path)) {
                     Map<String, String> query = query(exchange);
@@ -547,8 +488,7 @@ public final class HttpApiBrowserFixtureHost {
 
         private Map<String, Object> evidence() {
             Map<String, Object> facts = new LinkedHashMap<>();
-            facts.put("apiId", apiId); facts.put("sourceKind", controllerSource
-                    ? HttpApiSourceKind.CONTROLLER_SCAN.name() : HttpApiSourceKind.OPENAPI_SCAN.name());
+            facts.put("apiId", apiId); facts.put("sourceKind", HttpApiSourceKind.OPENAPI_SCAN.name());
             facts.put("sourceKey", sourceKey); facts.put("sourceLocation", sourceLocation);
             facts.put("sourceRevision", sourceRevision);
             facts.put("upstreamOrigin", "http://127.0.0.1:" + upstream.getAddress().getPort());
@@ -579,7 +519,6 @@ public final class HttpApiBrowserFixtureHost {
                     "SELECT COUNT(*) FROM runtime_trace_span WHERE runtime_type='HTTP_API'", Integer.class));
             facts.put("upstreamCount", upstreamCount.get()); facts.put("publicPostCount", publicPostCount.get());
             facts.put("lastRoute", lastRoute); facts.put("credentialMatched", lastCredentialMatched.get());
-            facts.put("controllerMethodCalls", sourceController == null ? 0 : sourceController.methodCalls());
             facts.put("mode", mode);
             facts.put("identity", identity.get());
             return facts;
@@ -588,27 +527,9 @@ public final class HttpApiBrowserFixtureHost {
         private void handleUpstream(HttpExchange exchange) throws IOException {
             upstreamCount.incrementAndGet();
             lastRoute = exchange.getRequestURI().toString();
-            lastCredentialMatched.set(controllerSource
-                    ? exchange.getRequestHeaders().getFirst("X-API-Key") == null
-                            && exchange.getRequestHeaders().getFirst("Authorization") == null
-                    : SECRET.equals(exchange.getRequestHeaders().getFirst("X-API-Key")));
+            lastCredentialMatched.set(SECRET.equals(exchange.getRequestHeaders().getFirst("X-API-Key")));
             if ("close".equals(mode)) { exchange.close(); return; }
             int status = "http401".equals(mode) ? 401 : 200;
-            if (controllerSource && status == 200) {
-                try {
-                    var response = sourceMvc.perform(MockMvcRequestBuilders
-                            .get(exchange.getRequestURI().toString())).andReturn().getResponse();
-                    byte[] responseBody = response.getContentAsByteArray();
-                    exchange.getResponseHeaders().set("Content-Type", response.getContentType() == null
-                            ? "application/json" : response.getContentType());
-                    exchange.sendResponseHeaders(response.getStatus(), responseBody.length);
-                    try (var output = exchange.getResponseBody()) { output.write(responseBody); }
-                } catch (Exception failure) {
-                    write(exchange, 500, Map.of("code", "FIXTURE_MVC_DISPATCH_FAILED",
-                            "type", failure.getClass().getSimpleName()));
-                }
-                return;
-            }
             String orderId = URLDecoder.decode(exchange.getRequestURI().getRawPath()
                     .substring("/orders/".length()), StandardCharsets.UTF_8);
             byte[] body = JSON.writeValueAsBytes(status == 401
@@ -674,60 +595,10 @@ public final class HttpApiBrowserFixtureHost {
                     "PROJECT", null, PROJECT_CODE);
         }
 
-        private Map<String, Object> rescanController() {
-            HttpApiOperation operation = scanController();
-            var summary = observeController(List.of(scannerData(operation)), true);
-            recordSource(operation);
-            return observationView(summary);
-        }
-
-        /** Fixture-only negative states; the success path always scans the unchanged Java source. */
-        private Map<String, Object> changeControllerSource(String state) {
-            HttpApiOperation operation = scanController();
-            CapabilityScannerClient.HttpApiData data = scannerData(operation);
-            if ("partial".equals(state)) {
-                return observationView(observeController(List.of(), false));
-            }
-            if ("drift".equals(state)) {
-                var response = data.responses().get(0);
-                ObjectNode schema = response.schema().deepCopy();
-                ((ObjectNode) schema.path("properties")).putObject("newVersion").put("type", "string");
-                data = new CapabilityScannerClient.HttpApiData(data.sourceKey(), data.sourceLocation(),
-                        data.sourceRevision() + "-synthetic-drift", data.httpMethod(), data.contextPath(),
-                        data.endpointPath(), data.consumes(), data.produces(), data.mappingConditions(),
-                        data.parameters(), data.requestBody(), List.of(new CapabilityScannerClient.HttpApiResponseData(
-                                response.status(), schema, response.contentTypes())), data.authenticationState(),
-                        data.authenticationSchemes(), data.requiredHeaderNames(), data.sideEffect());
-                return observationView(observeController(List.of(data), true));
-            }
-            if ("restore".equals(state)) {
-                return rescanController();
-            }
-            throw new IllegalArgumentException("Unknown fixture source state");
-        }
-
-        private ScannerHttpApiIntakeService.Summary observeController(
-                List<CapabilityScannerClient.HttpApiData> data, boolean complete) {
-            ScanProjectEntity project = new ScanProjectEntity();
-            project.setId(PROJECT_ID); project.setProjectCode(PROJECT_CODE);
-            project.setEnvironment("dev"); project.setContextPath("");
-            var intake = scannerIntake(assetService, sourceBindings,
-                    new HttpApiInventoryStateService(db.mapper(HttpApiInventoryStateMapper.class),
-                            db.mapper(HttpApiInventoryMemberMapper.class)));
-            return tx.execute(status -> intake.observe(intake.prepare(HttpApiSourceKind.CONTROLLER_SCAN, project, data, complete)));
-        }
-
         private ScannerHttpApiIntakeService scannerIntake(HttpApiAssetService assets,
                 HttpApiSourceBindingMapper bindings, HttpApiInventoryStateService inventories) {
             return new ScannerHttpApiIntakeService(new HttpApiInventoryIntakeService(assets, bindings, inventories),
                     new ScannerHttpApiContractAdapter());
-        }
-
-        private Map<String, Object> observationView(ScannerHttpApiIntakeService.Summary summary) {
-            return Map.of("supported", summary != null && summary.supported(),
-                    "inventoryComplete", summary != null && summary.inventoryComplete(),
-                    "observed", summary == null ? 0 : summary.observed(),
-                    "removed", summary == null ? 0 : summary.removed());
         }
 
         private Map<String, Object> projectView() {
@@ -735,9 +606,7 @@ public final class HttpApiBrowserFixtureHost {
             view.put("id", PROJECT_ID); view.put("name", "订单项目"); view.put("projectCode", PROJECT_CODE);
             view.put("projectKind", "SCAN"); view.put("environment", "dev"); view.put("owner", "fixture");
             view.put("visibility", "PROJECT"); view.put("baseUrl", "https://not-an-execution-origin.invalid");
-            view.put("contextPath", ""); view.put("scanPath", controllerSource
-                    ? "ControllerOrderFixtureController.java" : "orders.yaml");
-            view.put("scanType", controllerSource ? "controller" : "openapi");
+            view.put("contextPath", ""); view.put("specFile", "orders.yaml"); view.put("openapiDocumentUploaded", true);
             view.put("toolCount", 1); view.put("status", "scanned");
             return view;
         }

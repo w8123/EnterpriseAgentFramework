@@ -47,6 +47,18 @@ public class ControlWorkflowReadOnlyTrialController {
 
     @PostMapping("/api/workflows/studio/read-only-trials")
     public ResponseEntity<Object> run(@RequestBody(required = false) Map<String, Object> body) {
+        return runAttested(body, null);
+    }
+
+    /** The trace identity is derived from the authenticated platform-AI connection, never the request body. */
+    ResponseEntity<Object> runPlatformAi(Map<String, Object> body, String traceId) {
+        if (traceId == null || !traceId.matches("mcp-trial-[0-9a-f]{32}")) {
+            return error(HttpStatus.BAD_REQUEST, "WORKFLOW_TRIAL_REQUEST_INVALID", "试运行编号无效");
+        }
+        return runAttested(body, traceId);
+    }
+
+    private ResponseEntity<Object> runAttested(Map<String, Object> body, String platformTraceId) {
         PlatformAuthenticatedSession session = access.require(PlatformPermissions.WORKFLOW_DEBUG);
         access.require(PlatformPermissions.CAPABILITY_INVOKE);
         if (body == null || !body.keySet().containsAll(REQUIRED_FIELDS) || !ALLOWED_FIELDS.containsAll(body.keySet())) {
@@ -105,10 +117,11 @@ public class ControlWorkflowReadOnlyTrialController {
             if (approval.rejection() != null) return approval.rejection();
             allowed.add(approval.target());
         }
-        return trials.run(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.VERSION,
+        return trials.run(new WorkflowReadOnlyTrialPolicy.TrialCommand(platformTraceId == null
+                ? WorkflowReadOnlyTrialPolicy.VERSION : WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION,
                 workflowId, revision, HttpApiDraftTrialPolicy.graphSha256(graph), projectId, projectCode, actor,
                 List.copyOf(allowed), message, input,
-                System.currentTimeMillis() + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS));
+                System.currentTimeMillis() + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS, platformTraceId));
     }
 
     private record Approval(WorkflowReadOnlyTrialPolicy.AllowedTarget target, ResponseEntity<Object> rejection) {

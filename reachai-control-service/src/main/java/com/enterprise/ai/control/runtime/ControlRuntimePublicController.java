@@ -55,6 +55,25 @@ public class ControlRuntimePublicController {
     private RuntimeWorkflowReleaseGateway workflowReleaseGateway;
     private RuntimeDebugSessionGateway debugSessionGateway;
     private RuntimeTrustedRunOpsReplayGateway runOpsReplayGateway;
+    private RuntimeAgentDraftGateway agentDraftGateway;
+
+    private RuntimePageAssistantAttachmentGateway pageAssistantAttachmentGateway;
+    private ControlPageAssistantSmokeGateway pageAssistantSmokeGateway;
+
+    @Autowired
+    void setPageAssistantSmokeGateway(ControlPageAssistantSmokeGateway gateway) {
+        this.pageAssistantSmokeGateway = gateway;
+    }
+
+    @Autowired
+    void setPageAssistantAttachmentGateway(RuntimePageAssistantAttachmentGateway gateway) {
+        this.pageAssistantAttachmentGateway = gateway;
+    }
+
+    @Autowired
+    void setAgentDraftGateway(RuntimeAgentDraftGateway gateway) {
+        this.agentDraftGateway = gateway;
+    }
 
     @Autowired
     void setRunOpsReplayGateway(RuntimeTrustedRunOpsReplayGateway gateway) {
@@ -277,6 +296,15 @@ public class ControlRuntimePublicController {
         requireRuntimeProject(PlatformPermissions.RUNOPS_READ, null, projectCode);
         return runtimeProxyClient.runOpsRecent(
                 projectCode, status, runType, entryType, agentId, userId, keyword, limit, days);
+    }
+
+    /** 业务系统内对话按人汇总（只有计数）；「AI 使用情况」经 Control 内部读取，这里按运行记录权限对外。 */
+    @GetMapping("/api/runops/usage/embed-users")
+    public ResponseEntity<List<Map<String, Object>>> runOpsEmbedUserUsage(
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(defaultValue = "30") int days) {
+        requireRuntimeProject(PlatformPermissions.RUNOPS_READ, null, projectCode);
+        return runtimeProxyClient.runOpsEmbedUserUsage(projectCode, days);
     }
 
     @GetMapping("/api/runops/diagnostics")
@@ -599,8 +627,25 @@ public class ControlRuntimePublicController {
 
     @PostMapping("/api/workflows/{workflowId}/ai-coding/page-assistant/smoke-test")
     public ResponseEntity<Object> smokeTestWorkflowAiCodingPageAssistant(@PathVariable String workflowId,
-                                                                         @RequestBody Map<String, Object> body) {
-        return runtimeProxyClient.smokeTestWorkflowAiCodingPageAssistant(workflowId, body);
+                                                                         @RequestBody Map<String, Object> body,
+                                                                         @RequestHeader(value = "X-ReachAI-Embed-Token", required = false) String pageToken) {
+        if (runtimeManagementAccess == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "workflow authorization is unavailable");
+        }
+        var actor = requireRuntimePermission(PlatformPermissions.WORKFLOW_DEBUG);
+        var workflow = runtimeProxyClient.getWorkflow(workflowId);
+        if (workflow == null || !workflow.getStatusCode().is2xxSuccessful()) {
+            return workflow == null ? ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build() : workflow;
+        }
+        requireRuntimeResponseProject(actor, PlatformPermissions.WORKFLOW_DEBUG, workflow);
+        if (!StringUtils.hasText(pageToken)) {
+            return runtimeProxyClient.smokeTestWorkflowAiCodingPageAssistant(workflowId, body);
+        }
+        String project = runtimeManagementAccess.projectCode(workflow.getBody());
+        if (!StringUtils.hasText(project) || pageAssistantSmokeGateway == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "workflow project or page authorization is unavailable");
+        }
+        return pageAssistantSmokeGateway.execute(workflowId, project, pageToken, body);
     }
 
     @GetMapping("/api/workflows/{workflowId}/versions")
@@ -642,16 +687,46 @@ public class ControlRuntimePublicController {
         return workflowReleaseGateway.rollback(workflowId, versionId, body, session);
     }
 
+    /** Read before syncing: the page copilot target, its revision and whether this Workflow is already attached. */
+    @GetMapping("/api/workflows/{id}/page-assistant/attach-context")
+    public ResponseEntity<Object> pageAssistantAttachContext(@PathVariable String id) {
+        ResponseEntity<Object> response = platformPageAssistantAttachContext(id);
+        return ResponseEntity.status(response.getStatusCode()).cacheControl(CacheControl.noStore()).body(response.getBody());
+    }
+
+    ResponseEntity<Object> platformPageAssistantAttachContext(String id) {
+        PageAssistantOwner owner = authorizePageAssistant(id);
+        return pageAssistantAttachmentGateway.context(id, owner.projectId(), owner.projectCode(), owner.session());
+    }
+
+    /** People and AI send the revision they read; the project and publisher come from Control, not the body. */
     @PostMapping("/api/workflows/{id}/page-assistant/attach-tool")
     public ResponseEntity<Object> attachPageAssistantWorkflowTool(@PathVariable String id,
                                                                   @RequestBody Map<String, Object> body) {
-        if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_WRITE);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.WORKFLOW_WRITE, runtimeProxyClient.getWorkflow(id));
-        }
-        return runtimeProxyClient.attachPageAssistantWorkflowTool(id, body);
+        return platformAttachPageAssistant(id, body);
     }
+
+    ResponseEntity<Object> platformAttachPageAssistant(String id, Map<String, Object> body) {
+        PageAssistantOwner owner = authorizePageAssistant(id);
+        return pageAssistantAttachmentGateway.attach(id, owner.projectId(), owner.projectCode(), body, owner.session());
+    }
+
+    private PageAssistantOwner authorizePageAssistant(String id) {
+        PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.WORKFLOW_WRITE);
+        ResponseEntity<Object> workflow = runtimeProxyClient.getWorkflow(id);
+        requireRuntimeResponseProject(session, PlatformPermissions.WORKFLOW_WRITE, workflow);
+        if (workflow == null || !(workflow.getBody() instanceof Map<?, ?> view) || !id.equals(view.get("id"))) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Workflow not found");
+        }
+        Long projectId = view.get("projectId") instanceof Number number ? number.longValue() : null;
+        String projectCode = normalizedText(view.get("projectCode"));
+        if (!StringUtils.hasText(projectCode)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Page Assistant has no project");
+        }
+        return new PageAssistantOwner(session, projectId, projectCode);
+    }
+
+    private record PageAssistantOwner(PlatformAuthenticatedSession session, Long projectId, String projectCode) { }
 
     @GetMapping("/api/workflows/credentials")
     public ResponseEntity<Object> listWorkflowCredentials(
@@ -888,11 +963,160 @@ public class ControlRuntimePublicController {
     public ResponseEntity<Object> listAgentConfigVersions(@PathVariable String agentId) {
         if (runtimeManagementAccess != null) {
             PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_READ);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.AGENT_READ, runtimeProxyClient.getAgent(agentId));
+            ResponseEntity<Object> current = runtimeProxyClient.getAgent(agentId);
+            if (current == null) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+            requireRuntimeResponseProject(session, PlatformPermissions.AGENT_READ, current);
+            if (!current.getStatusCode().is2xxSuccessful()) return current;
         }
         return runtimeProxyClient.listAgentConfigVersions(agentId);
     }
+
+    /** Internal platform-tool entry; owner and binding facts are derived from the human console chain. */
+    ResponseEntity<Object> platformAgentDraftContext(String agentId) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_READ);
+        return verifyAgentDraftResponse(agentId, owner, agentDraftGateway.context(
+                agentId, owner.projectId(), owner.projectCode(), owner.session()));
+    }
+
+    ResponseEntity<Object> platformAgentConfigVersions(String agentId) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_READ);
+        ResponseEntity<Object> response = agentDraftGateway.versions(agentId, owner.projectId(), owner.projectCode(), owner.session());
+        if (response == null) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        if (!(response.getBody() instanceof Map<?, ?> result) || !agentId.equals(result.get("agentId"))
+                || !result.containsKey("projectId") || !result.containsKey("projectCode")
+                || result.get("projectId") != null && !(result.get("projectId") instanceof Number)
+                || result.get("projectCode") != null && !(result.get("projectCode") instanceof String)
+                || !java.util.Objects.equals(owner.projectId(), normalizedLong(result.get("projectId")))
+                || !java.util.Objects.equals(owner.projectCode(), normalizedText(result.get("projectCode")))
+                || !(result.get("versions") instanceof List<?> versions)) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(versions);
+    }
+
+    @GetMapping("/api/agents/{agentId}/config-versions/draft-context")
+    public ResponseEntity<Object> agentDraftContext(@PathVariable String agentId) {
+        ResponseEntity<Object> response = platformAgentDraftContext(agentId);
+        return ResponseEntity.status(response.getStatusCode()).cacheControl(CacheControl.noStore()).body(response.getBody());
+    }
+
+    ResponseEntity<Object> platformAgentPublicationContext(String agentId, Long versionId, String revision) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_PUBLISH);
+        runtimeManagementAccess.requireProject(owner.session(), PlatformPermissions.AGENT_READ, owner.projectId(), owner.projectCode());
+        return verifyAgentDraftResponse(agentId, owner, agentDraftGateway.publicationContext(
+                agentId, owner.projectId(), owner.projectCode(), revision, versionId, owner.session()));
+    }
+
+    ResponseEntity<Object> platformAgentPublishApproved(HttpServletRequest request, String agentId, Long versionId, String revision,
+                                                        Long projectId, String projectCode, Map<String, Long> workflowVersions) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_PUBLISH);
+        runtimeManagementAccess.requireProject(owner.session(), PlatformPermissions.AGENT_READ, owner.projectId(), owner.projectCode());
+        if (!java.util.Objects.equals(projectId, owner.projectId()) || !java.util.Objects.equals(projectCode, owner.projectCode())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("code", "AGENT_DRAFT_CHANGED"));
+        }
+        agentBindingGuard.revalidateForPublish(request, agentId, versionId);
+        return verifyAgentDraftResponse(agentId, owner, agentDraftGateway.publishApproved(
+                agentId, projectId, projectCode, revision, versionId, workflowVersions, owner.session()));
+    }
+
+    @PutMapping("/api/agents/{agentId}/config-versions/draft-if-unchanged")
+    public ResponseEntity<Object> saveAgentDraftIfUnchanged(HttpServletRequest request, @PathVariable String agentId,
+                                                             @RequestBody Map<String, Object> body) {
+        if (body == null || !body.keySet().equals(java.util.Set.of("baseRevision", "changes"))
+                || !(body.get("baseRevision") instanceof String revision) || !revision.matches("[a-f0-9]{64}")
+                || !(body.get("changes") instanceof Map<?, ?> raw) || raw.isEmpty()) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent draft revision and changes are required");
+        }
+        Map<String, Object> changes = new LinkedHashMap<>();
+        for (var entry : raw.entrySet()) {
+            if (!(entry.getKey() instanceof String key)) {
+                throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent draft fields must be strings");
+            }
+            changes.put(key, entry.getValue());
+        }
+        ResponseEntity<Object> response = platformAgentDraftSave(request, agentId, revision, changes);
+        return ResponseEntity.status(response.getStatusCode()).cacheControl(CacheControl.noStore()).body(response.getBody());
+    }
+
+    ResponseEntity<Object> platformAgentDraftSave(HttpServletRequest request, String agentId,
+                                                   String revision, Map<String, Object> changes) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_WRITE);
+        Map<String, Object> attested = agentBindingGuard.assembleDraft(request, agentId, changes);
+        return verifyAgentDraftResponse(agentId, owner, agentDraftGateway.save(
+                agentId, owner.projectId(), owner.projectCode(), revision, attested, owner.session()));
+    }
+
+    @PostMapping("/api/agents/{agentId}/config-versions/{configVersionId}/copy-to-draft-if-unchanged")
+    public ResponseEntity<Object> copyAgentDraftIfUnchanged(@PathVariable String agentId,
+                                                           @PathVariable Long configVersionId,
+                                                           @RequestBody Map<String, Object> body) {
+        ResponseEntity<Object> response = platformAgentDraftCopy(agentId, configVersionId, checkedDraftRevision(body));
+        return ResponseEntity.status(response.getStatusCode()).cacheControl(CacheControl.noStore()).body(response.getBody());
+    }
+
+    ResponseEntity<Object> platformAgentDraftCopy(String agentId, Long configVersionId, String revision) {
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_WRITE);
+        return verifyAgentDraftResponse(agentId, owner, agentDraftGateway.copy(
+                agentId, owner.projectId(), owner.projectCode(), revision, configVersionId, owner.session()));
+    }
+
+    @PostMapping("/api/agents/{agentId}/config-versions/{configVersionId}/publish-if-unchanged")
+    public ResponseEntity<Object> publishAgentDraftIfUnchanged(HttpServletRequest request, @PathVariable String agentId,
+                                                              @PathVariable Long configVersionId,
+                                                              @RequestBody Map<String, Object> body) {
+        String revision = checkedDraftRevision(body);
+        AgentDraftOwner owner = authorizeAgentDraft(agentId, PlatformPermissions.AGENT_PUBLISH);
+        agentBindingGuard.revalidateForPublish(request, agentId, configVersionId);
+        ResponseEntity<Object> response = verifyAgentDraftResponse(agentId, owner, agentDraftGateway.publish(
+                agentId, owner.projectId(), owner.projectCode(), revision, configVersionId, owner.session()));
+        return ResponseEntity.status(response.getStatusCode()).cacheControl(CacheControl.noStore()).body(response.getBody());
+    }
+
+    private String checkedDraftRevision(Map<String, Object> body) {
+        if (body == null || !body.keySet().equals(java.util.Set.of("baseRevision"))
+                || !(body.get("baseRevision") instanceof String revision) || !revision.matches("[a-f0-9]{64}")) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_REQUEST, "Agent draft revision is required");
+        }
+        return revision;
+    }
+
+    private AgentDraftOwner authorizeAgentDraft(String agentId, String permission) {
+        if (runtimeManagementAccess == null || agentDraftGateway == null) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Agent draft service is unavailable");
+        }
+        PlatformAuthenticatedSession session = requireRuntimePermission(permission);
+        ResponseEntity<Object> current = runtimeProxyClient.getAgent(agentId);
+        if (current == null) throw new org.springframework.web.server.ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE);
+        if (!current.getStatusCode().is2xxSuccessful()) throw new org.springframework.web.server.ResponseStatusException(current.getStatusCode());
+        requireRuntimeResponseProject(session, permission, current);
+        if (!(current.getBody() instanceof Map<?, ?> agent) || !agentId.equals(agent.get("id"))
+                || !agent.containsKey("projectId") || !agent.containsKey("projectCode")
+                || agent.get("projectId") != null && !(agent.get("projectId") instanceof Number)
+                || agent.get("projectCode") != null && !(agent.get("projectCode") instanceof String)) {
+            throw new org.springframework.web.server.ResponseStatusException(HttpStatus.BAD_GATEWAY, "Agent owner response is invalid");
+        }
+        Long projectId = normalizedLong(agent.get("projectId"));
+        String projectCode = normalizedText(agent.get("projectCode"));
+        return new AgentDraftOwner(session, projectId, projectCode);
+    }
+
+    private ResponseEntity<Object> verifyAgentDraftResponse(String agentId, AgentDraftOwner owner, ResponseEntity<Object> response) {
+        if (response == null) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        if (!response.getStatusCode().is2xxSuccessful()) return response;
+        if (!(response.getBody() instanceof Map<?, ?> result) || !agentId.equals(result.get("agentId"))
+                || !result.containsKey("projectId") || !result.containsKey("projectCode")
+                || result.get("projectId") != null && !(result.get("projectId") instanceof Number)
+                || result.get("projectCode") != null && !(result.get("projectCode") instanceof String)
+                || !java.util.Objects.equals(owner.projectId(), normalizedLong(result.get("projectId")))
+                || !java.util.Objects.equals(owner.projectCode(), normalizedText(result.get("projectCode")))
+                || !(result.get("revision") instanceof String revision) || !revision.matches("[a-f0-9]{64}")) {
+            return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        }
+        return response;
+    }
+
+    private record AgentDraftOwner(PlatformAuthenticatedSession session, Long projectId, String projectCode) { }
 
     @PutMapping("/api/agents/{agentId}/config-versions/draft")
     public ResponseEntity<Object> saveAgentConfigDraft(HttpServletRequest request,
@@ -903,8 +1127,7 @@ public class ControlRuntimePublicController {
             requireRuntimeResponseProject(
                     session, PlatformPermissions.AGENT_WRITE, runtimeProxyClient.getAgent(agentId));
         }
-        Map<String, Object> runtimeBody = agentBindingGuard.assembleDraft(request, agentId, body);
-        return runtimeProxyClient.saveAgentConfigDraft(agentId, runtimeBody);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 
     @PostMapping("/api/agents/{agentId}/config-versions/{configVersionId}/publish")
@@ -917,11 +1140,7 @@ public class ControlRuntimePublicController {
             requireRuntimeResponseProject(
                     session, PlatformPermissions.AGENT_PUBLISH, runtimeProxyClient.getAgent(agentId));
         }
-        agentBindingGuard.revalidateForPublish(request, agentId, configVersionId);
-        return runtimeProxyClient.publishAgentConfigVersion(
-                agentId,
-                configVersionId,
-                body == null ? Map.of() : body);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 
     private Map<String, Object> stringKeyMap(Map<?, ?> source) {
@@ -953,17 +1172,28 @@ public class ControlRuntimePublicController {
             requireRuntimeResponseProject(
                     session, PlatformPermissions.AGENT_WRITE, runtimeProxyClient.getAgent(agentId));
         }
-        return runtimeProxyClient.copyAgentConfigVersionToDraft(agentId, configVersionId);
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(com.enterprise.ai.common.agent.AgentDraftProtocol.revisionRequired());
     }
 
     @GetMapping("/api/agents/{agentId}/workflow-freshness")
     public ResponseEntity<Object> getAgentWorkflowFreshness(@PathVariable String agentId) {
+        PlatformAuthenticatedSession session = null;
         if (runtimeManagementAccess != null) {
-            PlatformAuthenticatedSession session = requireRuntimePermission(PlatformPermissions.AGENT_READ);
-            requireRuntimeResponseProject(
-                    session, PlatformPermissions.AGENT_READ, runtimeProxyClient.getAgent(agentId));
+            session = requireRuntimePermission(PlatformPermissions.AGENT_READ);
+            ResponseEntity<Object> agent = runtimeProxyClient.getAgent(agentId);
+            if (agent == null) return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+            requireRuntimeResponseProject(session, PlatformPermissions.AGENT_READ, agent);
+            if (!agent.getStatusCode().is2xxSuccessful()) return agent;
         }
-        return runtimeProxyClient.getAgentWorkflowFreshness(agentId);
+        ResponseEntity<Object> freshness = runtimeProxyClient.getAgentWorkflowFreshness(agentId);
+        if (runtimeManagementAccess != null && freshness != null && freshness.getStatusCode().is2xxSuccessful()) {
+            if (!(freshness.getBody() instanceof Map<?, ?> body) || !agentId.equals(body.get("agentId"))
+                    || !body.containsKey("projectId") || !body.containsKey("projectCode")) {
+                return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+            }
+            requireRuntimeResponseProject(session, PlatformPermissions.AGENT_READ, freshness);
+        }
+        return freshness;
     }
 
     /**

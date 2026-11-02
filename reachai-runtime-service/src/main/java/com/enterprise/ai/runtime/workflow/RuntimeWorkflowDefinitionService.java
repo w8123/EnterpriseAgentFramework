@@ -162,6 +162,14 @@ public class RuntimeWorkflowDefinitionService {
         return update(id, update, null);
     }
 
+    /** Recheck ownership under the same lock as the draft update. */
+    @Transactional
+    public RuntimeWorkflowDefinitionEntity updateUserEditable(String id, RuntimeWorkflowDefinitionEntity update,
+                                                               String baseRevision) {
+        RuntimeWorkflowEditingPolicy.requireUserEditable(lockForWrite(id));
+        return update(id, update, baseRevision);
+    }
+
     /**
      * Exposes the Workflow-owned resource scope to Runtime collaborators
      * without bypassing the binding service or its ACTIVE-row semantics.

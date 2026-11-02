@@ -62,6 +62,20 @@ public class RuntimeWorkflowDebugService {
         }
     }
 
+    /** Called only by an internal path after Control verified the business-page session. */
+    public DebugRunResult debugRunTrustedEmbed(DebugRunRequest request, WorkflowExecutionIdentity identity) {
+        DebugRunRequest actual = request == null ? DebugRunRequest.empty() : request;
+        DebugDefinition definition = captureDefinition(actual);
+        if (identity == null || identity.source() != WorkflowExecutionIdentity.Source.EMBED_SESSION
+                || !identity.canResolveUserAcl() || !StringUtils.hasText(definition.projectCode())
+                || !definition.projectCode().equals(identity.projectCode())) {
+            throw new IllegalArgumentException("WORKFLOW_PAGE_IDENTITY_INVALID");
+        }
+        return executeSnapshot(definition, new DebugInput(actual.message(), actual.inputParams(), actual.debugOptions()),
+                DebugRunReference.fresh(), null, false, RuntimeGraphSpecExecutionEventSink.NOOP,
+                RuntimeGraphSpecExecutionCancellation.none(), identity, null);
+    }
+
     /** Resolve saved ownership once; the caller's candidate graph remains an editable debug input. */
     public DebugDefinition captureDefinition(DebugRunRequest request) {
         DebugRunRequest actual = request == null ? DebugRunRequest.empty() : request;
@@ -102,8 +116,10 @@ public class RuntimeWorkflowDebugService {
                 || !identity.authorizeProjectCredential(definition.projectId(), definition.projectCode())) {
             throw new IllegalArgumentException("WORKFLOW_TRIAL_IDENTITY_INVALID");
         }
+        DebugRunReference run = audit.platformTrialTraceId() == null ? DebugRunReference.fresh()
+                : new DebugRunReference(audit.platformTrialTraceId(), audit.platformTrialTraceId());
         return executeSnapshot(definition, new DebugInput(message, Map.of("params", params == null ? Map.of() : params), Map.of()),
-                DebugRunReference.fresh(), null, false, RuntimeGraphSpecExecutionEventSink.NOOP,
+                run, null, false, RuntimeGraphSpecExecutionEventSink.NOOP,
                 RuntimeGraphSpecExecutionCancellation.none(), identity, audit);
     }
 
@@ -413,6 +429,13 @@ public class RuntimeWorkflowDebugService {
                                                        WorkflowExecutionIdentity identity, TrialAudit trial) {
         String rootSpanId = compactId(16);
         Map<String, Object> auditMetadata = trial.metadata();
+        RuntimeRunSnapshots.Workflow snapshot = new RuntimeRunSnapshots.Workflow(definition.workflowId(), definition.workflowKeySlug(),
+                definition.workflowName(), definition.projectId(), definition.projectCode(),
+                definition.executionEngine(), definition.graphSpecJson());
+        if (trial.platformTrialTraceId() != null) {
+            runLifecycleService.beginPlatformAiWorkflowTrial(traceId, rootSpanId, snapshot,
+                    Map.of("inputKeys", trial.inputKeys()), identity, auditMetadata);
+        }
         var root = rootSpans.startBestEffort(RuntimeTraceRootService.Start.builder()
                 .traceId(traceId).spanId(rootSpanId).spanType("WORKFLOW")
                 .runtimeType(definition.executionEngine())
@@ -421,11 +444,10 @@ public class RuntimeWorkflowDebugService {
                 .input(Map.of("inputKeys", trial.inputKeys()))
                 .metadataJson(json(auditMetadata))
                 .startedAt(LocalDateTime.now()).build());
-        runLifecycleService.beginWorkflowTrial(traceId, rootSpanId,
-                new RuntimeRunSnapshots.Workflow(definition.workflowId(), definition.workflowKeySlug(),
-                        definition.workflowName(), definition.projectId(), definition.projectCode(),
-                        definition.executionEngine(), definition.graphSpecJson()),
-                Map.of("inputKeys", trial.inputKeys()), identity, auditMetadata);
+        if (trial.platformTrialTraceId() == null) {
+            runLifecycleService.beginWorkflowTrial(traceId, rootSpanId, snapshot,
+                    Map.of("inputKeys", trial.inputKeys()), identity, auditMetadata);
+        }
         return new WorkflowTraceHandle(root, definition, trial);
     }
 
@@ -583,7 +605,11 @@ public class RuntimeWorkflowDebugService {
 
     /** Server-built audit of one whole-draft read-only trial; the pinned targets never include input values. */
     public record TrialAudit(String actorId, String revision, String graphSha256, List<String> inputKeys,
-                             List<Map<String, Object>> targets) {
+                             List<Map<String, Object>> targets, String platformTrialTraceId) {
+        public TrialAudit(String actorId, String revision, String graphSha256, List<String> inputKeys,
+                          List<Map<String, Object>> targets) {
+            this(actorId, revision, graphSha256, inputKeys, targets, null);
+        }
         public TrialAudit {
             inputKeys = inputKeys == null ? List.of() : List.copyOf(inputKeys);
             targets = targets == null ? List.of() : List.copyOf(targets);

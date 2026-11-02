@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static com.enterprise.ai.common.util.Texts.firstText;
@@ -66,9 +67,10 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
         String toolName = McpDefaultToolNames.sanitize(firstText(
                 text(definition.get("name")),
                 qualifiedName));
+        String risk = riskLevel(text(definition.get("sideEffect")), qualifiedName);
         return new McpToolProjection(toolName, description, inputSchemaJson,
                 McpPublicationItemKind.CAPABILITY, firstText(text(definition.get("qualifiedName")), qualifiedName), null,
-                riskLevel(text(definition.get("sideEffect"))), contractHash);
+                risk, contractHash, risk, 1);
     }
 
     private Map<String, Object> lookup(String qualifiedName) {
@@ -126,24 +128,64 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
         schema.put("type", "object");
         ObjectNode properties = schema.putObject("properties");
         ArrayNode required = schema.putArray("required");
+        Map<String, JsonNode> declared = new LinkedHashMap<>();
         for (JsonNode parameter : parameters) {
             String name = jsonText(parameter.get("name"));
             if (name == null || name.isBlank()) {
                 throw failure("MCP_CAPABILITY_SCHEMA_UNRESOLVABLE", qualifiedName,
                         "capability tool parameter without a name: " + qualifiedName);
             }
+            declared.put(name, parameter);
+        }
+        // The SDK describes a DTO with one object parameter plus one-level dotted field
+        // declarations. These are fields of that object, not additional root arguments.
+        Map<String, ArrayNode> dottedChildren = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> entry : declared.entrySet()) {
+            String name = entry.getKey();
+            int dot = name.indexOf('.');
+            if (dot <= 0 || dot != name.lastIndexOf('.') || dot == name.length() - 1) continue;
+            String parent = name.substring(0, dot);
+            JsonNode parentParameter = declared.get(parent);
+            if (parentParameter == null || !"object".equals(jsonText(parentParameter.get("type")))) continue;
+            ObjectNode child = ((ObjectNode) entry.getValue()).deepCopy();
+            child.put("name", name.substring(dot + 1));
+            dottedChildren.computeIfAbsent(parent, ignored -> objectMapper.createArrayNode()).add(child);
+        }
+        for (JsonNode parameter : parameters) {
+            String name = jsonText(parameter.get("name"));
+            if (name == null || name.isBlank()) {
+                throw failure("MCP_CAPABILITY_SCHEMA_UNRESOLVABLE", qualifiedName,
+                        "capability tool parameter without a name: " + qualifiedName);
+            }
+            int dot = name.indexOf('.');
+            if (dot > 0 && dot == name.lastIndexOf('.') && dot < name.length() - 1
+                    && dottedChildren.containsKey(name.substring(0, dot))) continue;
             ObjectNode property = properties.putObject(name);
             JsonNode children = parameter.get("children");
-            if (children != null && children.isArray() && !children.isEmpty()) {
-                ObjectNode nested = objectSchema((ArrayNode) children, qualifiedName);
-                property.put("type", "object");
-                property.set("properties", nested.get("properties"));
-                if (nested.has("required") && !nested.get("required").isEmpty()) {
-                    property.set("required", nested.get("required"));
+            ArrayNode combined = objectMapper.createArrayNode();
+            if (children != null && children.isArray()) combined.addAll((ArrayNode) children);
+            if (dottedChildren.containsKey(name)) combined.addAll(dottedChildren.get(name));
+            if (!combined.isEmpty()) {
+                ObjectNode nested = objectSchema(combined, qualifiedName);
+                if ("array".equals(jsonText(parameter.get("type")))) {
+                    property.put("type", "array");
+                    property.set("items", nested);
+                } else {
+                    property.put("type", "object");
+                    property.set("properties", nested.get("properties"));
+                    if (nested.has("required") && !nested.get("required").isEmpty()) {
+                        property.set("required", nested.get("required"));
+                    }
                 }
             } else {
                 String type = jsonText(parameter.get("type"));
                 property.put("type", type == null || type.isBlank() ? "string" : type);
+                if ("array".equals(type)) {
+                    String itemsType = firstText(jsonText(parameter.get("itemsType")),
+                            jsonText(parameter.path("metadata").get("itemsType")));
+                    ObjectNode items = property.putObject("items");
+                    if (itemsType != null) items.put("type", itemsType);
+                }
             }
             String description = jsonText(parameter.get("description"));
             if (description != null) {
@@ -168,13 +210,15 @@ public class CapabilityItemContractResolver implements McpItemContractResolver {
         return text.isEmpty() ? null : text;
     }
 
-    /** NONE/READ_ONLY map to READ, IDEMPOTENT_WRITE/WRITE to WRITE, IRREVERSIBLE stays; unknown defaults to WRITE. */
-    private String riskLevel(String sideEffect) {
+    /** An absent or unknown owner declaration cannot establish an irreversible-risk floor. */
+    private String riskLevel(String sideEffect, String sourceRef) {
         String value = sideEffect == null ? "" : sideEffect.trim().toUpperCase(Locale.ROOT);
         return switch (value) {
             case "NONE", "READ_ONLY", "READ" -> "READ";
+            case "IDEMPOTENT_WRITE", "WRITE" -> "WRITE";
             case "IRREVERSIBLE" -> "IRREVERSIBLE";
-            default -> "WRITE";
+            default -> throw failure("MCP_CAPABILITY_RISK_UNRESOLVABLE", sourceRef,
+                    "能力来源未提供可验证的副作用级别，请先核对能力声明");
         };
     }
 

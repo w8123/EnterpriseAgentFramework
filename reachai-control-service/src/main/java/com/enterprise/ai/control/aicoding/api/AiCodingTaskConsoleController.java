@@ -17,6 +17,7 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ArtifactContent;
 import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.ArtifactView;
@@ -48,8 +49,13 @@ public class AiCodingTaskConsoleController {
     private final AiCodingManagedExecutionStreamService managedExecutionStreamService;
 
     @PostMapping
-    public ResponseEntity<TaskView> create(@RequestBody CreateTaskCommand command) {
-        return ResponseEntity.ok(taskService.create(command));
+    public ResponseEntity<TaskView> create(@RequestBody CreateTaskCommand command, HttpServletRequest request) {
+        PlatformAuthenticatedSession session = session(request);
+        if (command == null) throw new IllegalArgumentException("task command is required");
+        requireProject(session, command.projectCode(), true);
+        return ResponseEntity.ok(taskService.create(new CreateTaskCommand(command.projectId(), command.projectCode(), command.taskKind(),
+                command.executorProvider(), command.title(), command.objective(), session.user().getUsername(), command.targets(),
+                command.executionMode(), command.sandboxProfile())));
     }
 
     @GetMapping
@@ -58,18 +64,20 @@ public class AiCodingTaskConsoleController {
             @RequestParam(required = false) String projectCode,
             @RequestParam(required = false) String taskKind,
             @RequestParam(required = false) String executionStatus,
-            @RequestParam(defaultValue = "100") int limit) {
+            @RequestParam(defaultValue = "100") int limit,
+            HttpServletRequest request) {
+        PlatformAuthenticatedSession session = session(request);
         return ResponseEntity.ok(taskService.list(
                 projectId,
                 projectCode,
                 taskKind,
                 executionStatus,
-                limit));
+                limit).stream().filter(task -> allows(session, task.projectCode(), false)).toList());
     }
 
     @GetMapping("/{taskId}")
-    public ResponseEntity<TaskDetailView> detail(@PathVariable String taskId) {
-        return ResponseEntity.ok(taskService.detail(taskId));
+    public ResponseEntity<TaskDetailView> detail(@PathVariable String taskId, HttpServletRequest request) {
+        return ResponseEntity.ok(requireTask(request, taskId, false));
     }
 
     @PostMapping("/{taskId}/managed-execution")
@@ -77,6 +85,7 @@ public class AiCodingTaskConsoleController {
             @PathVariable String taskId,
             @RequestBody(required = false) ManagedExecutionStartCommand command,
             HttpServletRequest request) {
+        requireTask(request, taskId, true);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(managedExecutionService.start(
@@ -87,6 +96,7 @@ public class AiCodingTaskConsoleController {
     public ResponseEntity<ManagedExecutionDetailView> managedExecution(
             @PathVariable String taskId,
             HttpServletRequest request) {
+        requireTask(request, taskId, false);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(managedExecutionService.detail(taskId, actorUserId(request)));
@@ -98,6 +108,7 @@ public class AiCodingTaskConsoleController {
     public ResponseEntity<SseEmitter> managedExecutionEvents(
             @PathVariable String taskId,
             HttpServletRequest request) {
+        requireTask(request, taskId, false);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .contentType(MediaType.TEXT_EVENT_STREAM)
@@ -110,6 +121,7 @@ public class AiCodingTaskConsoleController {
     public ResponseEntity<List<ArtifactView>> managedArtifacts(
             @PathVariable String taskId,
             HttpServletRequest request) {
+        requireTask(request, taskId, false);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(managedExecutionService.artifacts(
@@ -121,6 +133,7 @@ public class AiCodingTaskConsoleController {
             @PathVariable String taskId,
             @PathVariable String artifactId,
             HttpServletRequest request) {
+        requireTask(request, taskId, false);
         ArtifactContent content = managedExecutionService.artifact(
                 taskId, artifactId, actorUserId(request));
         return ResponseEntity.ok()
@@ -142,6 +155,7 @@ public class AiCodingTaskConsoleController {
             @PathVariable String interactionId,
             @RequestBody ManagedApprovalDecisionCommand command,
             HttpServletRequest request) {
+        requireTask(request, taskId, true);
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.noStore())
                 .body(managedExecutionService.resolveApproval(
@@ -153,18 +167,22 @@ public class AiCodingTaskConsoleController {
             @PathVariable String taskId,
             @RequestBody(required = false) HandoffIssueCommand command,
             HttpServletRequest request) {
+        requireTask(request, taskId, true);
         return ResponseEntity.ok(handoffService.issue(
                 taskId,
                 AiCodingRequestSupport.publicBaseUrl(request),
-                command == null ? null : command.issuedBy()));
+                session(request).user().getUsername()));
     }
 
     @PostMapping("/{taskId}/questions/{questionId}/answer")
     public ResponseEntity<?> answerQuestion(
             @PathVariable String taskId,
             @PathVariable String questionId,
-            @RequestBody AnswerQuestionCommand command) {
-        return ResponseEntity.ok(taskService.answerQuestion(taskId, questionId, command));
+            @RequestBody AnswerQuestionCommand command,
+            HttpServletRequest request) {
+        requireTask(request, taskId, true);
+        return ResponseEntity.ok(taskService.answerQuestion(taskId, questionId,
+                new AnswerQuestionCommand(command == null ? null : command.answer(), session(request).user().getUsername())));
     }
 
     @PostMapping("/{taskId}/cancel")
@@ -172,29 +190,34 @@ public class AiCodingTaskConsoleController {
             @PathVariable String taskId,
             @RequestBody(required = false) ActorCommand command,
             HttpServletRequest request) {
+        requireTask(request, taskId, true);
         if (managedExecutionService.managed(taskId)) {
             return ResponseEntity.ok(managedExecutionService.cancel(
                     taskId, actorUserId(request)));
         }
         return ResponseEntity.ok(taskService.cancel(
                 taskId,
-                command == null ? null : command.actor()));
+                session(request).user().getUsername()));
     }
 
     @PostMapping("/{taskId}/acceptance")
     public ResponseEntity<TaskView> acceptance(
             @PathVariable String taskId,
-            @RequestBody AcceptanceCommand command) {
+            @RequestBody AcceptanceCommand command,
+            HttpServletRequest request) {
+        requireTask(request, taskId, true);
         return ResponseEntity.ok(taskService.finishAcceptance(
                 taskId,
                 command != null && command.passed(),
                 command == null ? null : command.message(),
-                command == null ? null : command.actor()));
+                session(request).user().getUsername()));
     }
 
     @PostMapping("/{taskId}/acceptance-verification")
     public ResponseEntity<AcceptanceVerificationView> verifyAcceptanceReadiness(
-            @PathVariable String taskId) {
+            @PathVariable String taskId,
+            HttpServletRequest request) {
+        requireTask(request, taskId, false);
         return ResponseEntity.ok(
                 taskService.verifyAcceptanceReadiness(taskId));
     }
@@ -203,6 +226,41 @@ public class AiCodingTaskConsoleController {
     }
 
     public record AcceptanceCommand(boolean passed, String message, String actor) {
+    }
+
+    /** The console route rule only admits the permission somewhere; each task is checked against its own project. */
+    private TaskDetailView requireTask(HttpServletRequest request, String taskId, boolean write) {
+        PlatformAuthenticatedSession session = session(request);
+        TaskDetailView detail = taskService.detail(taskId);
+        if (detail == null || detail.task() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND, "task not found");
+        }
+        requireProject(session, detail.task().projectCode(), write);
+        return detail;
+    }
+
+    private static void requireProject(PlatformAuthenticatedSession session, String projectCode, boolean write) {
+        if (!allows(session, projectCode, write)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN,
+                    "project permission is required");
+        }
+    }
+
+    static boolean allows(PlatformAuthenticatedSession session, String projectCode, boolean write) {
+        List<String> permissions = write
+                ? List.of(PlatformPermissions.PLATFORM_WRITE, PlatformPermissions.WORKFLOW_WRITE)
+                : List.of(PlatformPermissions.PLATFORM_READ, PlatformPermissions.WORKFLOW_READ);
+        String code = projectCode == null || projectCode.isBlank() ? null : projectCode.trim();
+        return permissions.stream().anyMatch(permission -> session.hasResourcePermission(permission, "PROJECT", null, code));
+    }
+
+    private PlatformAuthenticatedSession session(HttpServletRequest request) {
+        Object candidate = request == null ? null : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        if (!(candidate instanceof PlatformAuthenticatedSession session) || session.user() == null || session.user().getId() == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "platform session is required");
+        }
+        return session;
     }
 
     private String actorUserId(HttpServletRequest request) {

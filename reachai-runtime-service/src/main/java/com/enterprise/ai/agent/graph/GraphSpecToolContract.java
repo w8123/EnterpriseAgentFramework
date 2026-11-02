@@ -13,7 +13,7 @@ public final class GraphSpecToolContract {
             if (graph == null || graph.getNodes() == null) throw new IllegalArgumentException("GraphSpec nodes 缺失");
             for (GraphSpec.Node node : graph.getNodes()) {
                 if (node == null) throw new IllegalArgumentException("GraphSpec node 无效");
-                if (!"TOOL".equals(node.getType())) continue;
+                if (!"TOOL".equals(AgentGraphNodeType.normalize(node.getType()))) continue;
                 String hash = node.getRef() == null ? null : node.getRef().getContractHash();
                 if (hash == null || !hash.matches("[0-9a-f]{64}")) {
                     throw new IllegalArgumentException("CAPABILITY_PUBLISHED_CONTRACT_REQUIRED: 请重新校验并发布 Workflow");

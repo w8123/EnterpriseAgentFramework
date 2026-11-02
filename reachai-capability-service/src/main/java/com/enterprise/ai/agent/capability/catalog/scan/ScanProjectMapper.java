@@ -9,4 +9,7 @@ import org.apache.ibatis.annotations.Param;
 public interface ScanProjectMapper extends BaseMapper<ScanProjectEntity> {
     @Select("SELECT id FROM capability_scan_project WHERE id = #{projectId} FOR UPDATE")
     Long lockCapabilityChanges(@Param("projectId") Long projectId);
+
+    @Select("SELECT openapi_document FROM capability_scan_project WHERE id = #{projectId}")
+    String selectOpenapiDocument(@Param("projectId") Long projectId);
 }

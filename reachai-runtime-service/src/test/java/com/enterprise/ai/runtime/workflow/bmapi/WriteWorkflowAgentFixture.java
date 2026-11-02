@@ -37,6 +37,7 @@ final class WriteWorkflowAgentFixture {
     private final AtomicInteger modelCalls = new AtomicInteger();
     final RuntimeAgentController identities;
     final RuntimeAgentConfigController configurations;
+    final RuntimeAgentDraftEditController drafts;
     final RuntimeAgentExecutionInternalController executions;
 
     WriteWorkflowAgentFixture(SqlSessionTemplate session, DataSource dataSource, ObjectMapper json,
@@ -52,10 +53,19 @@ final class WriteWorkflowAgentFixture {
         var remote = session.getMapper(RuntimeAgentRemoteBindingMapper.class);
         var workflows = session.getMapper(RuntimeWorkflowDefinitionMapper.class);
         var versions = session.getMapper(RuntimeWorkflowVersionMapper.class);
-        var configService = transactional(new RuntimeAgentConfigService(configs, tools, skills, remote, agents,
-                new RuntimeWorkflowToolCatalogReader(workflows, versions, json), json));
+        var configTarget = new RuntimeAgentConfigService(configs, tools, skills, remote, agents,
+                new RuntimeWorkflowToolCatalogReader(workflows, versions, json), json);
+        try {
+            var revisionType = Class.forName("com.enterprise.ai.runtime.agent.RuntimeAgentDraftRevision");
+            var constructor = revisionType.getDeclaredConstructor(ObjectMapper.class, String.class);
+            constructor.setAccessible(true);
+            org.springframework.test.util.ReflectionTestUtils.setField(configTarget, "draftRevision",
+                    constructor.newInstance(json, "fixture-agent-revision-secret-at-least-32bytes"));
+        } catch (ReflectiveOperationException failure) { throw new IllegalStateException("Agent revision fixture wiring failed", failure); }
+        var configService = transactional(configTarget);
         identities = new RuntimeAgentController(transactional(new RuntimeAgentService(agents, configService)), null);
         configurations = new RuntimeAgentConfigController(configService);
+        drafts = new RuntimeAgentDraftEditController(configService);
         var workflowQuery = transactional(new RuntimeWorkflowExecutionReader(workflows, versions));
         var resolver = transactional(new RuntimeAgentExecutionContextResolver(
                 new RuntimeAgentIdentityReader(agents), configs, tools, skills, workflowQuery,
@@ -79,6 +89,7 @@ final class WriteWorkflowAgentFixture {
         };
         var supervisor = new AgentScopeSupervisorRuntimeAdapter(model, null, null, workflowQuery, graphExecutor,
                 interactions, RuntimeSessionMemoryService.transientOnly(), guard, trace, json);
+        supervisor.setBusinessMethodRiskGuard(org.mockito.Mockito.mock(com.enterprise.ai.runtime.supervisor.SupervisorBusinessMethodRiskGuard.class));
         supervisor.setWorkflowInputProtection(inputProtection);
         var execution = new RuntimeAgentExecutionService(resolver, supervisor, approvals,
                 new RuntimeInteractionResumeService(interactions, graphExecutor, json, null),

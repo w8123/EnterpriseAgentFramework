@@ -75,13 +75,21 @@ export const routes: RouteRecordRaw[] = [
         component: () => import('@/views/dashboard/Dashboard.vue'),
         meta: { title: '概览', layoutMode: 'standard', hideBreadcrumb: true, compactSidebarOnNarrow: true },
       },
-      // 没有任何平台角色的账号（业务人员）登录后看到的说明页。
+      // 新安装的首次引导与系统体检，只给平台管理员。
       {
-        path: 'no-role',
-        name: 'NoRoleLanding',
-        component: () => import('@/views/NoRoleLanding.vue'),
-        meta: { title: '欢迎使用 ReachAI', layoutMode: 'standard', hideBreadcrumb: true, hideSidebarProjectPanel: true },
+        path: 'getting-started',
+        name: 'GettingStarted',
+        component: () => import('@/views/getting-started/GettingStarted.vue'),
+        meta: { title: '开始使用', layoutMode: 'standard', hideBreadcrumb: true, requiredPermissions: [PLATFORM_PERMISSION_ADMIN] },
       },
+      // 「我的」首页：人人都有；没有任何平台角色的账号（业务人员）登录后落在这里。
+      {
+        path: 'me',
+        name: 'MyHome',
+        component: () => import('@/views/NoRoleLanding.vue'),
+        meta: { title: '我的', layoutMode: 'standard', hideBreadcrumb: true, hideSidebarProjectPanel: true },
+      },
+      { path: 'no-role', redirect: '/me', meta: { layoutMode: 'standard' } },
 
       // ── Agent 管理 ──
       {
@@ -208,6 +216,18 @@ export const routes: RouteRecordRaw[] = [
           activeMenu: '/run-center',
           breadcrumb: [{ title: '运行与治理' }, { title: '运行中心' }, { title: '对话' }],
           requiredPermissions: [PLATFORM_PERMISSION_RUNOPS_READ],
+        },
+      },
+      {
+        path: 'usage',
+        name: 'AiUsageOverview',
+        component: () => import('@/views/usage/AiUsageOverview.vue'),
+        meta: {
+          title: 'AI 使用情况',
+          layoutMode: 'standard',
+          activeMenu: '/usage',
+          breadcrumb: [{ title: '运行与治理' }, { title: 'AI 使用情况' }],
+          requiredPermissions: [PLATFORM_PERMISSION_MCP_HUB_READ],
         },
       },
       {
@@ -629,6 +649,18 @@ export const routes: RouteRecordRaw[] = [
 
       // ── 设置 / 护栏 ──
       // ── 个人中心 ──
+      {
+        path: 'me/ai-connections',
+        name: 'MyPlatformAiConnections',
+        component: () => import('@/views/me/AiToolAccess.vue'),
+        meta: { breadcrumb: [{ title: '我的' }, { title: 'AI 工具接入' }], title: 'AI 工具接入', layoutMode: 'standard' },
+      },
+      {
+        path: 'me/ai-approvals',
+        name: 'MyAiApprovals',
+        component: () => import('@/views/me/AiApprovals.vue'),
+        meta: { breadcrumb: [{ title: '我的' }, { title: 'AI 操作审核' }], title: 'AI 操作审核', layoutMode: 'standard' },
+      },
       {
         path: 'me/memories',
         name: 'MyMemories',

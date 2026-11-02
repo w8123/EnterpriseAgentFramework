@@ -59,6 +59,7 @@ public class PlatformAccountRoleController {
     private final PlatformPermissionMapper permissionMapper;
     private final PlatformRolePermissionMapper rolePermissionMapper;
     private final PlatformLoginSessionMapper sessionMapper;
+    private final PlatformAiConnectionService aiConnections;
     private final PlatformAuthAuditEventMapper auditEventMapper;
     private final PlatformRequestAuthorization requestAuthorization;
     private final PlatformAuthAuditService auditService;
@@ -570,10 +571,12 @@ public class PlatformAccountRoleController {
     }
 
     private int revokeSessions(Long userId) {
-        return sessionMapper.update(null, new LambdaUpdateWrapper<PlatformLoginSessionEntity>()
+        int revoked = sessionMapper.update(null, new LambdaUpdateWrapper<PlatformLoginSessionEntity>()
                 .eq(PlatformLoginSessionEntity::getUserId, userId)
                 .isNull(PlatformLoginSessionEntity::getRevokedAt)
                 .set(PlatformLoginSessionEntity::getRevokedAt, LocalDateTime.now()));
+        aiConnections.revokeForUser(userId);
+        return revoked;
     }
 
     private PlatformAuthenticatedSession requireAdmin(HttpServletRequest request) {

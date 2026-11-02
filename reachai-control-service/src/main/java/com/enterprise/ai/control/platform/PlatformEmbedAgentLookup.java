@@ -27,7 +27,8 @@ final class PlatformEmbedAgentLookup {
             if ((Objects.equals(String.valueOf(id), agentId) || Objects.equals(String.valueOf(keySlug), agentId))
                     && !Boolean.FALSE.equals(map.get("enabled"))) {
                 Object agentProjectCode = map.get("projectCode");
-                if (agentProjectCode == null || Objects.equals(projectCode, String.valueOf(agentProjectCode))) {
+                if (StringUtils.hasText(projectCode) && agentProjectCode != null
+                        && Objects.equals(projectCode, String.valueOf(agentProjectCode))) {
                     return Optional.of(map);
                 }
             }

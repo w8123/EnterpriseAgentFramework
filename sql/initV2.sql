@@ -905,9 +905,9 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project` (
     `name`          VARCHAR(128) NOT NULL                COMMENT '项目名称',
     `base_url`      VARCHAR(256) NOT NULL                COMMENT '项目域名',
     `context_path`  VARCHAR(128) NOT NULL DEFAULT ''     COMMENT '公共路径前缀',
-    `scan_path`     VARCHAR(512) NOT NULL                COMMENT '磁盘扫描目录',
-    `scan_type`     VARCHAR(32)  NOT NULL                COMMENT '扫描方式: openapi/controller/auto',
-    `spec_file`     VARCHAR(256) DEFAULT NULL            COMMENT 'OpenAPI 规范文件相对路径',
+    `spec_file`     VARCHAR(256) DEFAULT NULL            COMMENT '上传的 OpenAPI 文档文件名（仅作来源标签）',
+    `openapi_document` MEDIUMTEXT DEFAULT NULL          COMMENT '上传的 OpenAPI 文档内容；平台不读取服务器本地文件',
+    `openapi_document_sha256` CHAR(64) DEFAULT NULL     COMMENT 'OpenAPI 文档内容 SHA-256',
     `tool_count`    INT          NOT NULL DEFAULT 0      COMMENT '扫描发现的接口数',
     `status`        VARCHAR(32)  NOT NULL DEFAULT 'created' COMMENT '状态: created/scanning/scanned/failed',
     `error_message` TEXT         DEFAULT NULL            COMMENT '失败原因',
@@ -3258,7 +3258,7 @@ CREATE TABLE IF NOT EXISTS `capability_http_api_source_binding` (
     `project_id` BIGINT NOT NULL,
     `project_code` VARCHAR(96) NOT NULL,
     `environment` VARCHAR(32) NOT NULL,
-    `source_kind` ENUM('STARTER_MVC', 'CONTROLLER_SCAN', 'OPENAPI_SCAN', 'API_MARKET_OPERATION') NOT NULL,
+    `source_kind` ENUM('STARTER_MVC', 'OPENAPI_SCAN', 'API_MARKET_OPERATION') NOT NULL,
     `source_key` VARCHAR(256) NOT NULL COMMENT '来源适配器内稳定键；同范围同类型唯一',
     `source_location` VARCHAR(1024) DEFAULT NULL COMMENT '来源代码/文档位置；不保存调用地址或凭据',
     `source_revision` VARCHAR(256) DEFAULT NULL COMMENT '来源修订事实，不参与 HTTP API identity',
@@ -3447,6 +3447,7 @@ CREATE TABLE IF NOT EXISTS `control_embed_session` (
     `external_user_id`    VARCHAR(128) NOT NULL,
     `external_user_name`  VARCHAR(128) DEFAULT NULL COMMENT '嵌入令牌里的业务用户显示名，仅用于运行中心展示',
     `global_user_id`      VARCHAR(128) DEFAULT NULL,
+    `business_session_id` VARCHAR(128) DEFAULT NULL COMMENT '可信业务登录会话标识；旧会话保持空值',
     `page_key`            VARCHAR(160) DEFAULT NULL,
     `page_instance_id`    VARCHAR(128) NOT NULL,
     `route`               VARCHAR(512) DEFAULT NULL,
@@ -3465,13 +3466,14 @@ CREATE TABLE IF NOT EXISTS `control_embed_session` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话会话与页面实例绑定';
 
 CALL add_col_if_absent('control_embed_session', 'page_key', 'VARCHAR(160) DEFAULT NULL COMMENT ''业务前端页面稳定标识'' AFTER `global_user_id`');
+CALL add_col_if_absent('control_embed_session', 'business_session_id', 'VARCHAR(128) DEFAULT NULL COMMENT ''可信业务登录会话标识；旧会话保持空值'' AFTER `global_user_id`');
 CALL add_col_if_absent('control_embed_session', 'sdk_version', 'VARCHAR(64) DEFAULT NULL COMMENT ''Chat Embed SDK version'' AFTER `origin`');
 CALL add_idx_if_absent('control_embed_session', 'idx_embed_session_page_key', '`project_code`, `agent_id`, `page_key`, `status`, `created_at`');
 
 CREATE TABLE IF NOT EXISTS `control_embed_token_revocation` (
     `id`         BIGINT       NOT NULL AUTO_INCREMENT,
-    `jti`        VARCHAR(128) NOT NULL,
-    `reason`     VARCHAR(256) DEFAULT NULL,
+    `jti`        VARCHAR(128) NOT NULL COMMENT '令牌或带项目范围的业务会话撤销键',
+    `reason`     VARCHAR(256) DEFAULT NULL COMMENT '撤销原因；BUSINESS_SESSION_LOGOUT 为业务会话退出',
     `expires_at` DATETIME     DEFAULT NULL,
     `revoked_at` DATETIME     DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -3780,18 +3782,40 @@ CREATE TABLE IF NOT EXISTS `control_embed_chat_event` (
 -- 本阶段未启用 FULLTEXT（MySQL 5.7/8 中文分词与 ngram 配置差异较大，先用 LIKE 检索）。
 -- ============================================================================
 
+CREATE TABLE IF NOT EXISTS `control_personal_memory_group` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT,
+    `tenant_id`    VARCHAR(96)  NOT NULL,
+    `owner_id`     VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Runtime user ID（记忆所有者）',
+    `owner_domain` VARCHAR(128) NOT NULL DEFAULT 'LEGACY' COMMENT '记忆所有者身份域；旧记录保留 LEGACY',
+    `scope_key`    VARCHAR(128) NOT NULL COMMENT 'personal 或 project:<项目编码>',
+    `project_code` VARCHAR(96)  DEFAULT NULL COMMENT '项目记忆所属项目编码；个人记忆为空',
+    `project_name` VARCHAR(128) DEFAULT NULL COMMENT '项目名称快照，仅用于展示',
+    `name`         VARCHAR(64)  NOT NULL COMMENT '分组名，同一层级内唯一',
+    `kind`         VARCHAR(16)  NOT NULL DEFAULT 'NOTE' COMMENT 'PREFERENCE 偏好 / NOTE 备注；决定召回优先级',
+    `sort_order`   INT          NOT NULL DEFAULT 100,
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_pm_group_owner_domain_name` (`tenant_id`, `owner_domain`, `owner_id`, `scope_key`, `name`),
+    KEY `idx_pm_group_owner_domain` (`tenant_id`, `owner_domain`, `owner_id`, `scope_key`, `sort_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆分组：个人记忆 / 项目记忆两层，每层下用户自建分组';
+
 CREATE TABLE IF NOT EXISTS `control_personal_memory` (
     `id`                BIGINT        NOT NULL AUTO_INCREMENT,
     `memory_key`        VARCHAR(128)  NOT NULL COMMENT '幂等键；客户端请求 ID 派生或随机',
     `tenant_id`         VARCHAR(96)   NOT NULL,
-    `owner_id`          VARCHAR(128)  NOT NULL COMMENT 'Runtime user ID（记忆所有者）',
+    `owner_id`          VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL COMMENT 'Runtime user ID（记忆所有者）',
+    `owner_domain`      VARCHAR(128)  NOT NULL DEFAULT 'LEGACY' COMMENT '记忆所有者身份域；旧记录保留 LEGACY',
+    `scope_key`         VARCHAR(128)  NOT NULL DEFAULT 'personal' COMMENT 'personal 或 project:<项目编码>',
+    `project_code`      VARCHAR(96)   DEFAULT NULL COMMENT '项目记忆所属项目编码；个人记忆为空',
+    `group_id`          BIGINT        DEFAULT NULL COMMENT 'control_personal_memory_group.id',
     `memory_type`       VARCHAR(16)   NOT NULL COMMENT 'FACT/PREFERENCE/RULE/NOTE',
     `title`             VARCHAR(256)  DEFAULT NULL,
     `content`           TEXT          NOT NULL,
-    `content_sha256`    CHAR(64)      NOT NULL COMMENT '规范化正文摘要；同一所有者内去重',
+    `content_sha256`    CHAR(64)      NOT NULL COMMENT '规范化正文摘要；同一层级内去重',
     `semantic_key`      VARCHAR(80)   DEFAULT NULL COMMENT '语义键哈希（如 profile:location），同键覆盖',
     `tags_json`         VARCHAR(2000) DEFAULT NULL,
-    `source_type`       VARCHAR(24)   NOT NULL COMMENT 'MANUAL/CONVERSATION/CANDIDATE',
+    `source_type`       VARCHAR(24)   NOT NULL COMMENT 'MANUAL/CONVERSATION/AI_TOOL',
     `source_agent_id`   VARCHAR(128)  DEFAULT NULL,
     `source_session_id` VARCHAR(128)  DEFAULT NULL,
     `expires_at`        DATETIME      DEFAULT NULL,
@@ -3799,65 +3823,13 @@ CREATE TABLE IF NOT EXISTS `control_personal_memory` (
     `updated_at`        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_personal_memory_key` (`memory_key`),
-    UNIQUE KEY `uk_personal_memory_content` (`tenant_id`, `owner_id`, `content_sha256`),
-    UNIQUE KEY `uk_personal_memory_semantic` (`tenant_id`, `owner_id`, `semantic_key`),
-    KEY `idx_personal_memory_owner` (`tenant_id`, `owner_id`, `updated_at`),
-    KEY `idx_personal_memory_agent` (`tenant_id`, `owner_id`, `source_agent_id`),
+    UNIQUE KEY `uk_pm_owner_domain_content` (`tenant_id`, `owner_domain`, `owner_id`, `scope_key`, `content_sha256`),
+    UNIQUE KEY `uk_pm_owner_domain_semantic` (`tenant_id`, `owner_domain`, `owner_id`, `scope_key`, `semantic_key`),
+    KEY `idx_pm_owner_domain` (`tenant_id`, `owner_domain`, `owner_id`, `updated_at`),
+    KEY `idx_pm_owner_domain_group` (`tenant_id`, `owner_domain`, `owner_id`, `group_id`),
+    KEY `idx_pm_owner_domain_agent` (`tenant_id`, `owner_domain`, `owner_id`, `source_agent_id`),
     KEY `idx_personal_memory_expiry` (`expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人长期记忆；删除即物理删除';
-
-CREATE TABLE IF NOT EXISTS `control_personal_memory_candidate` (
-    `id`                 BIGINT        NOT NULL AUTO_INCREMENT,
-    `candidate_key`      VARCHAR(128)  NOT NULL,
-    `tenant_id`          VARCHAR(96)   NOT NULL,
-    `owner_id`           VARCHAR(128)  NOT NULL,
-    `memory_type`        VARCHAR(16)   NOT NULL COMMENT 'FACT/PREFERENCE/RULE/NOTE',
-    `title`              VARCHAR(256)  DEFAULT NULL,
-    `content`            TEXT          NOT NULL,
-    `content_sha256`     CHAR(64)      NOT NULL,
-    `dedupe_key`         VARCHAR(128)  DEFAULT NULL COMMENT '仅 PENDING 阶段持有的去重键；审核后清空',
-    `semantic_key`       VARCHAR(128)  DEFAULT NULL COMMENT '提取器给出的语义键（明文，如 profile:location）',
-    `reason`             VARCHAR(512)  DEFAULT NULL,
-    `confidence`         DECIMAL(5,4)  NOT NULL DEFAULT 0.7000,
-    `status`             VARCHAR(16)   NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING/APPROVED/REJECTED',
-    `source_agent_id`    VARCHAR(128)  DEFAULT NULL,
-    `source_session_id`  VARCHAR(128)  DEFAULT NULL,
-    `source_trace_id`    VARCHAR(128)  DEFAULT NULL,
-    `conflict_memory_id` BIGINT        DEFAULT NULL COMMENT '同语义键下将被替换的既有记忆',
-    `approved_memory_id` BIGINT        DEFAULT NULL,
-    `occurrence_count`   INT           NOT NULL DEFAULT 1,
-    `last_seen_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `reviewed_at`        DATETIME      DEFAULT NULL,
-    `extraction_version` VARCHAR(32)   DEFAULT NULL,
-    `expires_at`         DATETIME      DEFAULT NULL,
-    `created_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at`         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_personal_memory_candidate_key` (`candidate_key`),
-    UNIQUE KEY `uk_personal_memory_candidate_dedupe` (`dedupe_key`),
-    KEY `idx_personal_memory_candidate_owner` (`tenant_id`, `owner_id`, `status`, `last_seen_at`),
-    KEY `idx_personal_memory_candidate_memory` (`approved_memory_id`),
-    KEY `idx_personal_memory_candidate_conflict` (`conflict_memory_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆候选（用户确认前缓冲）';
-
-CREATE TABLE IF NOT EXISTS `control_personal_memory_audit` (
-    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
-    `tenant_id`   VARCHAR(96)  NOT NULL,
-    `owner_id`    VARCHAR(128) NOT NULL,
-    `memory_id`   BIGINT       DEFAULT NULL,
-    `event_type`  VARCHAR(32)  NOT NULL COMMENT 'CREATE/UPDATE/DELETE/ERASE_ALL/EXPIRE/SEARCH/CANDIDATE_*',
-    `actor_type`  VARCHAR(24)  NOT NULL COMMENT 'USER/SYSTEM',
-    `agent_id`    VARCHAR(128) DEFAULT NULL,
-    `session_id`  VARCHAR(128) DEFAULT NULL,
-    `trace_id`    VARCHAR(128) DEFAULT NULL,
-    `decision`    VARCHAR(16)  DEFAULT NULL COMMENT 'ALLOW/SKIP',
-    `reason`      VARCHAR(64)  DEFAULT NULL,
-    `metadata_json` VARCHAR(2000) DEFAULT NULL COMMENT '只存摘要和计数，不存记忆正文',
-    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`id`),
-    KEY `idx_personal_memory_audit_owner` (`tenant_id`, `owner_id`, `created_at`),
-    KEY `idx_personal_memory_audit_memory` (`memory_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='个人记忆审计（不存正文）';
 
 CREATE TABLE IF NOT EXISTS `control_personal_memory_outbox` (
     `id`              BIGINT        NOT NULL AUTO_INCREMENT,
@@ -4126,6 +4098,49 @@ CREATE TABLE IF NOT EXISTS `control_platform_login_session` (
     KEY `idx_platform_session_user` (`user_id`, `expires_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理端登录会话';
 
+CREATE TABLE IF NOT EXISTS `control_platform_ai_connection` (
+    `id`           BIGINT       NOT NULL AUTO_INCREMENT,
+    `user_id`      BIGINT       NOT NULL,
+    `label`        VARCHAR(128) NOT NULL,
+    `tool_kind`    VARCHAR(32)  NOT NULL,
+    `token_hash`   CHAR(64)     NOT NULL,
+    `token_hint`   VARCHAR(12)  NOT NULL,
+    `roles_json`   MEDIUMTEXT   NOT NULL,
+    `grants_json`  MEDIUMTEXT   NOT NULL,
+    `status`       VARCHAR(16)  NOT NULL,
+    `expires_at`   DATETIME     NOT NULL,
+    `revoked_at`   DATETIME     DEFAULT NULL,
+    `last_used_at` DATETIME     DEFAULT NULL,
+    `created_at`   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_ai_connection_token` (`token_hash`),
+    KEY `idx_platform_ai_connection_user` (`user_id`, `status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台用户授权 AI 工具的连接';
+
+CREATE TABLE IF NOT EXISTS `control_platform_ai_approval` (
+    `id`                 VARCHAR(64)  NOT NULL,
+    `connection_id`      BIGINT       NOT NULL,
+    `owner_user_id`      BIGINT       NOT NULL,
+    `action`             VARCHAR(64)  NOT NULL,
+    `subject`            VARCHAR(200) NOT NULL,
+    `request_key`        VARCHAR(64)  NOT NULL,
+    `request_digest`     CHAR(64)     NOT NULL,
+    `payload_key_id`     VARCHAR(96)  DEFAULT NULL,
+    `payload_nonce`      VARCHAR(32)  DEFAULT NULL,
+    `payload_ciphertext` MEDIUMTEXT   DEFAULT NULL,
+    `status`             VARCHAR(24)  NOT NULL,
+    `result_code`        VARCHAR(96)  DEFAULT NULL,
+    `expires_at`         DATETIME     NOT NULL,
+    `decided_at`         DATETIME     DEFAULT NULL,
+    `started_at`         DATETIME     DEFAULT NULL,
+    `completed_at`       DATETIME     DEFAULT NULL,
+    `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_platform_ai_approval_request` (`connection_id`, `action`, `request_key`),
+    KEY `idx_platform_ai_approval_owner` (`owner_user_id`, `created_at`),
+    KEY `idx_platform_ai_approval_expiry` (`status`, `expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台 AI 操作的个人审批';
+
 CREATE TABLE IF NOT EXISTS `control_platform_auth_provider` (
     `id`              BIGINT       NOT NULL AUTO_INCREMENT,
     `provider_code`   VARCHAR(32)  NOT NULL,
@@ -4154,15 +4169,14 @@ CREATE TABLE IF NOT EXISTS `control_platform_auth_audit_event` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台认证与高风险身份映射管理操作审计';
 
 -- 平台角色（2026-10-17 人员角色与权限重设计，2026-10-24 角色账号权限整理）：开发人员按项目授权，
--- 运营人员负责 Workflow/Agent/知识/MCP/使用者与调用权限，管理人员查看使用记录（谁、用什么 AI 工具、做了什么）
+-- 开发人员接入系统并开发 Agent/Workflow/Skill/知识/MCP/A2A；管理人员上线和运营智能体、查看使用记录、审批写操作、管理使用者与调用权限
 -- 并可断开员工连接，平台管理员拥有全部权限。普通用户（业务系统员工）不是平台角色，用业务系统账号在嵌入式对话
 -- 或自己的 AI 工具里使用，由业务用户目录与调用权限（control_tool_acl）管理。
 INSERT IGNORE INTO `control_platform_role` (`role_code`, `role_name`, `description`, `role_kind`, `status`)
 VALUES
 ('PLATFORM_ADMIN', '平台管理员', '账号与角色、认证源、模型、合规等平台管理，拥有全部权限', 'SYSTEM', 'ACTIVE'),
-('DEVELOPER', '开发人员', 'Java 接入开发者：项目接入、SDK 凭证、业务方法与 HTTP API、变化评审；建议按项目授权', 'SYSTEM', 'ACTIVE'),
-('OPERATOR', '运营人员', 'Agent / Workflow 实施与日常运营：编排、发布、知识、运行中心、使用者与调用权限', 'SYSTEM', 'ACTIVE'),
-('MANAGER', '管理人员', '查看使用记录：谁、用什么 AI 工具、对哪个系统做了什么；可断开员工连接，其他只读', 'SYSTEM', 'ACTIVE');
+('DEVELOPER', '开发人员', '接入业务系统并开发智能体：项目接入、业务方法与 HTTP API、Agent、Workflow、Skill、知识库、MCP 与 A2A；建议按项目授权', 'SYSTEM', 'ACTIVE'),
+('MANAGER', '管理人员', '上线和运营智能体：编排发布 Agent / Workflow、知识、运行中心、自动化；查看员工 AI 使用情况、审批写操作、管理员工连接、业务用户与调用权限', 'SYSTEM', 'ACTIVE');
 
 INSERT IGNORE INTO `control_platform_permission` (`permission_code`, `permission_name`, `resource_type`, `action`)
 VALUES
@@ -4230,12 +4244,19 @@ INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
 WHERE r.role_code = 'DEVELOPER'
   AND p.permission_code IN ('platform:read', 'platform:write', 'capability:invoke',
-                            'agent:read', 'workflow:read', 'runops:read', 'automation:read',
-                            'knowledge:read', 'model:read');
+                            'agent:read', 'agent:write', 'agent:debug', 'agent:evaluate', 'agent:publish',
+                            'workflow:read', 'workflow:write', 'workflow:debug', 'workflow:publish',
+                            'workflow:credential:manage',
+                            'runops:read', 'automation:read',
+                            'knowledge:read', 'knowledge:write', 'model:read',
+                            'skill:read', 'skill:import', 'skill:bind',
+                            'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
+                            'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
+                            'a2a-hub:task:operate', 'a2a-hub:conformance:run');
 
 INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
 SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'OPERATOR'
+WHERE r.role_code = 'MANAGER'
   AND p.permission_code IN ('platform:read', 'capability:invoke',
                             'agent:read', 'agent:write', 'agent:debug', 'agent:evaluate', 'agent:publish',
                             'workflow:read', 'workflow:write', 'workflow:debug', 'workflow:publish',
@@ -4250,14 +4271,6 @@ WHERE r.role_code = 'OPERATOR'
                             'mcp-hub:employee-connection:manage', 'mcp-hub:write-approval:manage',
                             'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
                             'a2a-hub:task:operate', 'a2a-hub:conformance:run');
-
-INSERT IGNORE INTO `control_platform_role_permission` (`role_id`, `permission_id`)
-SELECT r.id, p.id FROM `control_platform_role` r JOIN `control_platform_permission` p
-WHERE r.role_code = 'MANAGER'
-  AND p.permission_code IN ('agent:read', 'workflow:read', 'runops:read', 'automation:read',
-                            'knowledge:read', 'tool-acl:read', 'embed:read', 'identity:business-user:read',
-                            'skill:read', 'mcp-hub:read', 'mcp-hub:employee-connection:manage',
-                            'mcp-hub:write-approval:manage');
 
 INSERT IGNORE INTO `control_platform_auth_provider` (`provider_code`, `provider_name`, `provider_type`, `status`, `config_json`)
 VALUES
@@ -4283,6 +4296,14 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_workflow_credential` (
     KEY `idx_workflow_credential_project` (`project_id`, `status`),
     KEY `idx_workflow_credential_code` (`project_code`, `status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Workflow Studio 节点凭证';
+
+CREATE TABLE IF NOT EXISTS `knowledge_internal_auth_nonce` (
+    `nonce`      VARCHAR(128) NOT NULL COMMENT '调用 Knowledge 的 HMAC nonce',
+    `caller`     VARCHAR(96)  NOT NULL COMMENT '调用方服务 ID',
+    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '写入时间',
+    PRIMARY KEY (`nonce`),
+    KEY `idx_knowledge_internal_auth_nonce_created` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Knowledge internal service auth nonce anti-replay store';
 
 CREATE TABLE IF NOT EXISTS `control_internal_auth_nonce` (
     `nonce`      VARCHAR(128) NOT NULL COMMENT 'Runtime→Control HMAC nonce',

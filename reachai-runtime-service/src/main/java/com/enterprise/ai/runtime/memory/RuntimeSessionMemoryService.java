@@ -146,10 +146,17 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
         if (tenantId.length() > 96 || trustedUserId.length() > 128) {
             throw new IllegalArgumentException("trusted tenantId or userId exceeds the persistence contract");
         }
-        String userKey = "u:" + sha256(tenantId + "\n" + trustedUserId);
+        String businessProject = businessProject(identity);
+        if (businessProject != null && (agent == null
+                || !businessProject.equals(normalizeBusinessProject(agent.projectCode())))) {
+            throw new IllegalArgumentException("session identity must match the Agent business project");
+        }
+        String userKey = businessProject == null
+                ? "u:" + sha256(tenantId + "\n" + trustedUserId)
+                : businessStateUserKey(tenantId, trustedUserId, identity.source().name(), businessProject);
         String sessionKey = "a:" + sha256(agentId) + ":s:" + sha256(publicSessionId);
         return new RuntimeSessionMemoryKey(true, tenantId, trustedUserId, agentId, publicSessionId,
-                userKey, sessionKey, identity.source().name(), Math.max(0, contextWindow));
+                userKey, sessionKey, identity.source().name(), Math.max(0, contextWindow), businessProject);
     }
 
     public AgentStateStore stateStore() {
@@ -469,8 +476,24 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
                         .eq(RuntimeConversationSessionEntity::getSessionId, publicSessionId.trim())
                         .eq(RuntimeConversationSessionEntity::getUserId, identity.userId().trim())
                         .last("LIMIT 1"));
-        if (session == null) {
+        if (session == null || !tenantId.equals(session.getTenantId())
+                || !publicSessionId.trim().equals(session.getSessionId())
+                || !identity.userId().trim().equals(session.getUserId())
+                || !identity.source().name().equals(session.getIdentitySource())) {
             return;
+        }
+        if (isBusinessIdentity(identity)) {
+            String project;
+            try {
+                project = businessProject(identity);
+            } catch (IllegalArgumentException missingProject) {
+                throw RuntimeSessionRetentionException.scopedIdentityRequired();
+            }
+            if (!project.equals(normalizeBusinessProject(session.getProjectCode()))
+                    || !businessStateUserKey(tenantId, identity.userId().trim(), identity.source().name(), project)
+                    .equals(session.getStateUserKey())) {
+                throw RuntimeSessionRetentionException.notFound();
+            }
         }
         if (retentionStore != null && stateEraser != null) {
             String owner = UUID.randomUUID().toString();
@@ -595,10 +618,44 @@ public class RuntimeSessionMemoryService implements RuntimeSessionClearPort {
 
 
     private void assertOwner(RuntimeConversationSessionEntity session, RuntimeSessionMemoryKey key) {
-        if (!key.trustedUserId().equals(session.getUserId()) || !key.agentId().equals(session.getAgentId())) {
+        if (!key.tenantId().equals(session.getTenantId())
+                || !key.publicSessionId().equals(session.getSessionId())
+                || !key.trustedUserId().equals(session.getUserId())
+                || !key.agentId().equals(session.getAgentId())
+                || !key.identitySource().equals(session.getIdentitySource())
+                || (key.businessProjectCode() != null
+                    && (!key.businessProjectCode().equals(normalizeBusinessProject(session.getProjectCode()))
+                        || !key.stateUserKey().equals(session.getStateUserKey())
+                        || !key.stateSessionKey().equals(session.getStateSessionKey())))) {
             throw new RuntimeSessionOwnershipException(
-                    "sessionId already belongs to another trusted user or Agent");
+                    "sessionId already belongs to another trusted identity or Agent");
         }
+    }
+
+    private static boolean isBusinessIdentity(WorkflowExecutionIdentity identity) {
+        return identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION
+                || identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE;
+    }
+
+    private static String businessProject(WorkflowExecutionIdentity identity) {
+        if (!isBusinessIdentity(identity)) return null;
+        String project = normalizeBusinessProject(identity.projectCode());
+        if (!identity.projectTrusted() || project == null) {
+            throw new IllegalArgumentException("trusted business project is required for session memory");
+        }
+        return project;
+    }
+
+    private static String normalizeBusinessProject(String projectCode) {
+        if (!StringUtils.hasText(projectCode)) return null;
+        String project = projectCode.trim().toLowerCase(java.util.Locale.ROOT);
+        return project.matches("[a-z0-9._:-]{1,96}") ? project : null;
+    }
+
+    private static String businessStateUserKey(String tenant, String user, String source, String project) {
+        return "u:" + sha256("business-v1|" + tenant.length() + ":" + tenant
+                + user.length() + ":" + user + source.length() + ":" + source
+                + project.length() + ":" + project);
     }
 
     private boolean eventExists(Long sessionId, String turnId) {

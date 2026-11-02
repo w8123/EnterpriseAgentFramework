@@ -9,6 +9,15 @@ The SVG files in this directory were copied from
 - `claude-code.svg` from `icons/claudecode-color.svg`
 - `opencode.svg` from `icons/opencode.svg`
 
+Additional icons copied from `@lobehub/icons-static-svg` version `1.101.0`
+on 2026-10-30, under the same MIT license:
+
+- `workbuddy-color.svg` from `icons/workbuddy-color.svg`
+- `doubao-color.svg` from `icons/doubao-color.svg`
+- `gemini-color.svg` from `icons/gemini-color.svg`
+- `openclaw-color.svg` from `icons/openclaw-color.svg`
+- `hermesagent.svg` from `icons/hermesagent.svg`
+
 Source: <https://github.com/lobehub/lobe-icons>
 
 The Cursor and OpenCode SVG fills were pinned to `#111111` so locally loaded

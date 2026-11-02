@@ -59,7 +59,27 @@ public class RuntimeCapabilityInternalAuthSigner {
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED, projectCode, "", exactBody);
     }
 
+    public static String projectLookupPath(Long projectId) {
+        if (projectId == null || projectId <= 0) throw new IllegalArgumentException("projectId must be positive");
+        return "/internal/capability/projects/by-id/" + projectId;
+    }
+
+    /** Capability only accepts signed project-by-id lookups; Runtime reads them as a service, without a user. */
+    public Map<String, String> signProjectLookup(Long projectId) {
+        return sign("GET", projectLookupPath(projectId),
+                InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_UNTRUSTED, "", "", new byte[0]);
+    }
+
     private Map<String, String> sign(String path,
+                                     String identitySource,
+                                     String identityTenantId,
+                                     String identityUserId,
+                                     byte[] exactBody) {
+        return sign("POST", path, identitySource, identityTenantId, identityUserId, exactBody);
+    }
+
+    private Map<String, String> sign(String method,
+                                     String path,
                                      String identitySource,
                                      String identityTenantId,
                                      String identityUserId,
@@ -93,7 +113,7 @@ public class RuntimeCapabilityInternalAuthSigner {
         String nonce = UUID.randomUUID().toString();
         String bodySha256 = InternalServiceHmac.bodySha256Hex(exactBody);
         String canonical = InternalServiceHmac.canonical(
-                "POST", path, InternalServiceAuthHeaders.CALLER_RUNTIME,
+                method, path, InternalServiceAuthHeaders.CALLER_RUNTIME,
                 source, tenantId, userId, timestamp, nonce, bodySha256);
         String signature = InternalServiceHmac.sign(serviceSecret, canonical);
 

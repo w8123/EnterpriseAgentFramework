@@ -62,6 +62,10 @@ public class RuntimeSessionRetentionStore {
         return sessionMapper.countOwnerSessions(tenantId, runtimeUserId);
     }
 
+    public long countBusinessOwnerSessions(String tenantId, String runtimeUserId) {
+        return sessionMapper.countBusinessOwnerSessions(tenantId, runtimeUserId);
+    }
+
     public EffectivePolicy effectivePolicy(String tenantId) {
         RuntimeSessionRetentionPolicyEntity custom = policyMapper.selectOne(
                 new LambdaQueryWrapper<RuntimeSessionRetentionPolicyEntity>()
@@ -363,9 +367,31 @@ public class RuntimeSessionRetentionStore {
             String actorHash,
             String owner,
             LocalDateTime now) {
+        return claimManualPurgeChecked(tenantId, sessionId, reasonCode, referenceId, actorHash, owner, now, null, null);
+    }
+
+    @Transactional
+    public RuntimeConversationSessionEntity claimOwnerPurge(
+            RuntimeConversationSessionEntity candidate, String expectedUser, String reasonCode,
+            String referenceId, String actorHash, String owner, LocalDateTime now) {
+        if (candidate == null || candidate.getId() == null || expectedUser == null) {
+            throw RuntimeSessionRetentionException.scopedIdentityRequired();
+        }
+        return claimManualPurgeChecked(candidate.getTenantId(), candidate.getSessionId(), reasonCode,
+                referenceId, actorHash, owner, now, candidate.getId(), expectedUser);
+    }
+
+    private RuntimeConversationSessionEntity claimManualPurgeChecked(
+            String tenantId, String sessionId, String reasonCode, String referenceId,
+            String actorHash, String owner, LocalDateTime now, Long expectedId, String expectedUser) {
         RuntimeConversationSessionEntity session = findSession(tenantId, sessionId);
         if (session == null) {
             throw RuntimeSessionRetentionException.notFound();
+        }
+        if (expectedId != null && (!expectedId.equals(session.getId()) || !expectedUser.equals(session.getUserId())
+                || "EMBED_SESSION".equalsIgnoreCase(session.getIdentitySource())
+                || "MCP_EMPLOYEE".equalsIgnoreCase(session.getIdentitySource()))) {
+            throw RuntimeSessionRetentionException.scopedIdentityRequired();
         }
         if (Boolean.TRUE.equals(session.getLegalHold())) {
             throw RuntimeSessionRetentionException.legalHold();

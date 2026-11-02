@@ -180,6 +180,23 @@ describe('createPendingPageActionPollScheduler', () => {
     expect(poll).not.toHaveBeenCalled()
   })
 
+  it('does not report an in-flight poll failure after destruction', async () => {
+    let fail!: (error: Error) => void
+    const onError = vi.fn()
+    const scheduler = createPendingPageActionPollScheduler({
+      getSessionId: () => 'sess', hasRegisteredActions: () => true,
+      isDestroyed: () => false, isDocumentHidden: () => false, onError,
+      poll: () => new Promise<void>((_, reject) => { fail = reject }),
+    })
+    scheduler.notifyActivity()
+    await vi.advanceTimersByTimeAsync(0)
+    scheduler.destroy()
+    fail(new Error('cancelled'))
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(onError).not.toHaveBeenCalled()
+  })
+
   it('uses safe default timings that cannot become a 500ms storm', () => {
     expect(PENDING_POLL_DEFAULTS.activeIntervalMs).toBeGreaterThanOrEqual(1_000)
     expect(PENDING_POLL_DEFAULTS.idleIntervalMs).toBeGreaterThanOrEqual(10_000)

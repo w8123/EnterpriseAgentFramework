@@ -102,7 +102,7 @@ class RuntimeKnowledgeQaWorkflowTemplateTest {
                 WorkflowExecutionIdentity.fromAgent(1L, "yudao-erp", "u1"));
 
         assertTrue(result.success(), result.code() + " / " + result.answer());
-        assertEquals("资料《ERP 制度》里没有找到与「年假有几天」相关的内容。", result.answer());
+        assertEquals("当前未在可访问的资料《ERP 制度》中找到与「年假有几天」相关的内容，无法据此回答。", result.answer());
         verify(modelClient, never()).chat(any(ModelChatRequest.class));
     }
 

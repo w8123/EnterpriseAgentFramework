@@ -18,11 +18,61 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PlatformPageBridgeCommandServiceTest {
 
     @Test
+    void crossPageNavigationRequiresConfirmationBeforeTheTargetAction() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+        when(events.insert(any())).thenAnswer(invocation -> {
+            PlatformPageActionEventEntity event = invocation.getArgument(0);
+            created.add(event);
+            event.setId(1L);
+            event.setStatus("USER_CANCELLED");
+            return 1;
+        });
+        when(events.selectById(any())).thenAnswer(invocation -> created.get(0));
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
+        var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), true,
+                2_000, 30_000, "EMBED_SESSION", "tenant-a", "user-a"));
+        assertEquals("PAGE_BRIDGE_NAVIGATION_FAILED", result.code());
+        assertEquals(1, created.size());
+        assertEquals(PlatformPageBridgeCommandService.NAVIGATE_ACTION, created.get(0).getActionKey());
+        assertEquals(Boolean.TRUE, created.get(0).getConfirmRequired());
+    }
+
+    @Test
+    void cannotDispatchPageActionToAnotherUsersOrTenantsSession() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("Alice");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
+        for (var identity : java.util.List.of(
+                java.util.List.of("EMBED_SESSION", "tenant-b", "Alice"),
+                java.util.List.of("EMBED_SESSION", "tenant-a", "alice"),
+                java.util.List.of("AGENT", "tenant-a", "Alice"),
+                java.util.List.of("", "", ""))) {
+            var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                    "embed-1", "erp", "bot", "orders", "orders", "/orders", "open", Map.of(), false,
+                    2_000, 2_000, identity.get(0), identity.get(1), identity.get(2)));
+            assertEquals("PAGE_BRIDGE_IDENTITY_MISMATCH", result.code());
+        }
+        verifyNoInteractions(events);
+    }
+
+    @Test
     void pureChatSessionRejectsPageExecutionWithoutEnqueuingUnreachableNavigation() {
         PlatformEmbedSessionMapper sessions = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper events = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-global");
+        session.setSessionId("embed-global"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageInstanceId("chat-only");
@@ -35,7 +85,7 @@ class PlatformPageBridgeCommandServiceTest {
             var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
                     "embed-global", "qmssmp", "team-agent", null, "teamArchive.list",
                     "/team-build/depart-management", "dictionary.showChildren", Map.of("parentId", "DT0000000008"),
-                    false, 2_000, 30_000));
+                    false, 2_000, 30_000, "EMBED_SESSION", "default", "user-1"));
             assertTrue(!result.success());
             assertEquals("PAGE_BRIDGE_PAGE_NOT_BOUND", result.code());
             assertTrue(result.status().contains("打开目标业务页面"));
@@ -48,7 +98,7 @@ class PlatformPageBridgeCommandServiceTest {
     void resolvesOnlyTheTrustedActiveEmbedContextForMatchingWorkflowProject() {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-1");
+        session.setSessionId("embed-1"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageKey("teamArchive.list");
@@ -79,7 +129,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-1");
+        session.setSessionId("embed-1"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageKey("qmssmp.global");
@@ -96,7 +146,7 @@ class PlatformPageBridgeCommandServiceTest {
             event.setId(id);
             event.setStatus("SUCCESS");
             if (PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey())) {
-                event.setResultJson("{\"data\":{\"pageKey\":\"teamArchive.list\","
+                event.setResultJson("{\"data\":{\"pageInstanceId\":\"team-page-1\",\"pageKey\":\"teamArchive.list\","
                         + "\"route\":\"/team-build/depart-management\",\"ready\":true}}");
                 session.setPageKey("teamArchive.list");
                 session.setPageInstanceId("team-page-1");
@@ -124,7 +174,7 @@ class PlatformPageBridgeCommandServiceTest {
                         Map.of("pageIndex", 1, "pageSize", 10),
                         false,
                         2_000,
-                        2_000));
+                        2_000, "EMBED_SESSION", "default", "user-1"));
         long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
 
         assertTrue(result.success());
@@ -139,7 +189,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-1");
+        session.setSessionId("embed-1"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageKey("teamArchive.list");
@@ -170,7 +220,7 @@ class PlatformPageBridgeCommandServiceTest {
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
                         "embed-1", "qmssmp", "team-agent", "teamArchive.list",
                         "teamArchive.list", null, "qmssmp.teamArchive.open", Map.of(), false,
-                        2_000, 2_000));
+                        2_000, 2_000, "EMBED_SESSION", "default", "user-1"));
 
         assertTrue(result.success());
         assertEquals("PAGE_BRIDGE_BUSINESS_TERMINAL", result.code());
@@ -186,7 +236,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-confirm");
+        session.setSessionId("embed-confirm"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageKey("teamArchive.list");
@@ -215,7 +265,7 @@ class PlatformPageBridgeCommandServiceTest {
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
                         "embed-confirm", "qmssmp", "team-agent", "teamArchive.list",
                         "teamArchive.list", null, "setEnabled", Map.of("enabled", true), true,
-                        2_000, 2_000));
+                        2_000, 2_000, "EMBED_SESSION", "default", "user-1"));
 
         assertTrue(result.success());
         assertEquals("PAGE_BRIDGE_COMPLETED", result.code());
@@ -231,7 +281,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
         PlatformPageActionEventMapper eventMapper = mock(PlatformPageActionEventMapper.class);
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
-        session.setSessionId("embed-phased-timeout");
+        session.setSessionId("embed-phased-timeout"); session.setTenantId("default"); session.setExternalUserId("user-1");
         session.setProjectCode("qmssmp");
         session.setAgentId("team-agent");
         session.setPageKey("teamArchive.list");
@@ -272,7 +322,7 @@ class PlatformPageBridgeCommandServiceTest {
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
                         "embed-phased-timeout", "qmssmp", "team-agent", "teamArchive.list",
                         "teamArchive.list", null, "setEnabled", Map.of("enabled", true), true,
-                        1_000, 1_000));
+                        1_000, 1_000, "EMBED_SESSION", "default", "user-1"));
         long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
 
         assertTrue(result.success());

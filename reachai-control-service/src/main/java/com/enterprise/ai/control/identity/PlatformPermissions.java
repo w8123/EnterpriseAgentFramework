@@ -55,12 +55,18 @@ public final class PlatformPermissions {
     public static final String SESSION_RETENTION_MANAGE = "runtime:session:retention:manage";
 
     public static final String SKILL_READ = "skill:read";
+    public static final String SKILL_REVIEW = "skill:review";
+    public static final String SKILL_PUBLISH = "skill:publish";
+    public static final String SKILL_IMPORT = "skill:import";
     public static final String MCP_HUB_READ = "mcp-hub:read";
+    public static final String MCP_PUBLICATION_MANAGE = "mcp-hub:publication:manage";
+    public static final String MCP_CREDENTIAL_MANAGE = "mcp-hub:credential:manage";
     /** Review and disconnect employees' personal AI-tool connections (managers, operators). */
     public static final String MCP_EMPLOYEE_CONNECTION_MANAGE = "mcp-hub:employee-connection:manage";
     /** Approve or reject write calls from employees' own AI tools (managers, operators). */
     public static final String MCP_WRITE_APPROVAL_MANAGE = "mcp-hub:write-approval:manage";
     public static final String A2A_HUB_READ = "a2a-hub:read";
+    public static final String A2A_HUB_PAYLOAD_READ = "a2a-hub:payload:read";
 
     private PlatformPermissions() {
     }

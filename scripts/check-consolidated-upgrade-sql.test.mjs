@@ -14,7 +14,7 @@ function fixture(t) {
   const temporary = mkdtempSync(path.join(os.tmpdir(), 'reachai-sql-check-'))
   assert.equal(path.dirname(temporary), path.resolve(os.tmpdir()))
   t.after(() => rmSync(temporary, { recursive: true, force: true }))
-  for (const file of [script, migration, 'sql/initV2.sql']) {
+  for (const file of [script, migration, 'sql/initV2.sql', 'sql/upgrade-20261030-personal-memory-groups.sql']) {
     cpSync(path.join(root, file), path.join(temporary, file), { recursive: true })
   }
   return temporary

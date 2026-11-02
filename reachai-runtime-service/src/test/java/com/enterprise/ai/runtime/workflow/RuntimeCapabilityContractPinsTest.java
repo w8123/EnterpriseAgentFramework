@@ -20,6 +20,35 @@ class RuntimeCapabilityContractPinsTest {
             """;
 
     @Test
+    void businessMethodFloorComesFromTheSameVerifiedPinnedOwnerContract() {
+        var owner = new java.util.LinkedHashMap<>(definition("a".repeat(64), "READY"));
+        owner.put("sideEffect", "WRITE");
+        when(catalog.getToolDefinition("orders:query")).thenReturn(owner);
+        String published = pins.pin(GRAPH);
+        assertEquals("WRITE", pins.businessMethodRiskFloor(published));
+        owner.put("sideEffect", "READ_ONLY");
+        assertEquals("READ", pins.businessMethodRiskFloor(published));
+        owner.put("sideEffect", "IRREVERSIBLE");
+        assertEquals("IRREVERSIBLE", pins.businessMethodRiskFloor(published));
+        owner.remove("sideEffect");
+        assertThrows(IllegalArgumentException.class, () -> pins.businessMethodRiskFloor(published));
+        owner.put("acceptedRevisionId", 999L);
+        assertThrows(IllegalArgumentException.class, () -> pins.businessMethodRiskFloor(published));
+    }
+
+    @Test
+    void lowercaseToolCannotBypassPinOrBusinessRiskClassification() {
+        var owner = new java.util.LinkedHashMap<>(definition("a".repeat(64), "READY"));
+        owner.put("sideEffect", "WRITE");
+        when(catalog.getToolDefinition("orders:query")).thenReturn(owner);
+        String lower = GRAPH.replace("\"type\":\"TOOL\"", "\"type\":\"tool\"");
+        assertThrows(IllegalArgumentException.class, () -> GraphSpecToolContract.requirePublishedPins(lower));
+        String published = pins.pin(lower);
+        assertDoesNotThrow(() -> GraphSpecToolContract.requirePublishedPins(published));
+        assertEquals("WRITE", pins.businessMethodRiskFloor(published));
+    }
+
+    @Test
     void publicationPinsOwnerContractAndRollbackRejectsChangedContract() throws Exception {
         when(catalog.getToolDefinition("orders:query")).thenReturn(definition("a".repeat(64), "READY"));
         String published = pins.pin(GRAPH);

@@ -46,6 +46,268 @@ import static org.mockito.Mockito.when;
 class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
+    void downgradedBusinessMethodWorkflowNeverReachesExecutor() throws Exception {
+        var tool = tool("wf-risk", "customer_create");
+        stubWorkflow(tool);
+        var responses = List.of(calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "create", "steps", List.of("create"), "workflowToolNames", List.of("customer_create")))),
+                calls(call("create", "customer_create", Map.of("name", "fixture"))));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> {
+            int round = rounds.getAndIncrement();
+            return new ModelChatResult(200, "success", round < responses.size() ? responses.get(round) : text("Cannot complete"));
+        });
+        var riskGuard = mock(SupervisorBusinessMethodRiskGuard.class);
+        org.mockito.Mockito.doThrow(new IllegalArgumentException("BUSINESS_METHOD_WORKFLOW_RISK_DOWNGRADE"))
+                .when(riskGuard).requireCompatible(any(), any());
+        runtime.setBusinessMethodRiskGuard(riskGuard);
+
+        runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "create customer", "sessionId", "risk-test")));
+
+        verify(riskGuard).requireCompatible(any(), any());
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
+    void soleRequiredKnowledgeNoEvidenceIsDeliveredWithoutAnotherModelRound() throws Exception {
+        var tool = tool("wf-knowledge", "knowledge_lookup");
+        stubWorkflow(tool);
+        workflowVersions.get(tool.getWorkflowVersionId()).setGraphSpecSnapshotJson(SupervisorKnowledgeTerminalAnswerTest.REQUIRED_GRAPH);
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(SupervisorKnowledgeTerminalAnswerTest.noEvidence());
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())),
+                text("An invented manual and menu"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        List<String> deltas = new ArrayList<>();
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "lookup", "sessionId", "knowledge-no-evidence"), null,
+                (event, data) -> { if ("message.delta".equals(event)) deltas.add(String.valueOf(((Map<?, ?>) data).get("text"))); }));
+        assertTrue(result.success(), result.code());
+        assertEquals("当前未找到可用资料。", result.answer());
+        assertEquals(List.of(result.answer()), deltas);
+        assertEquals(2, rounds.get(), "No final model generation may rewrite the fixed answer");
+    }
+
+    @Test
+    void soleRequiredKnowledgeNoEvidenceOverridesUngatedModelTextAndForcedGeneration() throws Exception {
+        var tool = tool("wf-knowledge-skips-final", "knowledge_lookup");
+        stubWorkflow(tool);
+        workflowVersions.get(tool.getWorkflowVersionId()).setGraphSpecSnapshotJson(SupervisorKnowledgeTerminalAnswerTest.REQUIRED_GRAPH);
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(SupervisorKnowledgeTerminalAnswerTest.noEvidence());
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())),
+                text("fabricated manual"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        List<String> deltas = new ArrayList<>();
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "lookup", "sessionId", "knowledge-no-evidence-ungated"), null,
+                (event, data) -> { if ("message.delta".equals(event)) deltas.add(String.valueOf(((Map<?, ?>) data).get("text"))); }));
+        assertTrue(result.success(), result.code());
+        assertEquals("当前未找到可用资料。", result.answer());
+        assertEquals(List.of(result.answer()), deltas);
+        assertEquals(2, rounds.get(), "The model must not produce or persist an ungated draft");
+    }
+
+    @Test
+    void noEvidenceAnswerIsStoredAndVisibleToTheNextTrustedTurn() throws Exception {
+        var mapperConfig = new org.apache.ibatis.session.Configuration();
+        var assistant = new org.apache.ibatis.builder.MapperBuilderAssistant(mapperConfig, "knowledge-memory-test");
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant,
+                com.enterprise.ai.runtime.memory.RuntimeConversationSessionEntity.class);
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(assistant,
+                com.enterprise.ai.runtime.memory.RuntimeConversationEventEntity.class);
+        var tool = tool("wf-knowledge-persistent", "knowledge_lookup");
+        stubWorkflow(tool);
+        workflowVersions.get(tool.getWorkflowVersionId()).setGraphSpecSnapshotJson(SupervisorKnowledgeTerminalAnswerTest.REQUIRED_GRAPH);
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(SupervisorKnowledgeTerminalAnswerTest.noEvidence());
+        var sessionMapper = mock(com.enterprise.ai.runtime.memory.RuntimeConversationSessionMapper.class);
+        var eventMapper = mock(com.enterprise.ai.runtime.memory.RuntimeConversationEventMapper.class);
+        var session = new com.enterprise.ai.runtime.memory.RuntimeConversationSessionEntity();
+        session.setId(1L); session.setTenantId("default"); session.setSessionId("knowledge-persistent");
+        session.setUserId("1"); session.setAgentId("agent-1"); session.setStatus("ACTIVE"); session.setEventCount(0);
+        session.setIdentitySource("AGENT");
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+        when(eventMapper.selectCount(any())).thenReturn(0L);
+        var store = new io.agentscope.core.state.InMemoryAgentStateStore();
+        var memory = new RuntimeSessionMemoryService(store, sessionMapper, eventMapper,
+                new com.enterprise.ai.runtime.memory.RuntimeSessionMemoryProperties(
+                        true, "in-memory", "", "", "", false, 40, 65535, 600));
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())));
+        AtomicInteger rounds = new AtomicInteger();
+        AtomicReference<String> nextTurnContext = new AtomicReference<>();
+        var runtime = adapter(request -> {
+            int round = rounds.getAndIncrement();
+            if (round < sequence.size()) return new ModelChatResult(200, "success", sequence.get(round));
+            nextTurnContext.set(request.getMessages().stream().map(m -> String.valueOf(m.getContent()))
+                    .reduce("", (a, b) -> a + "\n" + b));
+            return new ModelChatResult(200, "success", text("知道了"));
+        }, null, memory);
+        var identity = WorkflowExecutionIdentity.fromAgent("default", 7L, "qmssmp", "1");
+        var input = Map.<String, Object>of("message", "lookup", "sessionId", "knowledge-persistent");
+        var request = new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool), input,
+                null, null, null, identity);
+
+        var first = runtime.execute(request);
+        assertTrue(first.success(), first.code() + " " + first.metadata());
+        assertEquals("当前未找到可用资料。", first.answer());
+        assertEquals(true, first.metadata().get("sessionMemoryPersisted"));
+        var key = memory.resolve(agent(), "knowledge-persistent", identity);
+        assertTrue(memory.history(key).stream().anyMatch(msg -> first.answer().equals(msg.getTextContent())));
+
+        var second = runtime.execute(request.withInput(Map.of("message", "继续", "sessionId", "knowledge-persistent")));
+        assertTrue(second.success(), second.code());
+        assertTrue(nextTurnContext.get().contains(first.answer()), nextTurnContext.get());
+        assertFalse(nextTurnContext.get().contains("fabricated manual"));
+        assertEquals(3, rounds.get());
+    }
+
+    @Test
+    void realGraphNoEvidenceFlowsThroughSupervisorWithoutRewriting() throws Exception {
+        var tool = tool("wf-knowledge-real-graph", "knowledge_lookup");
+        stubWorkflow(tool);
+        workflowVersions.get(tool.getWorkflowVersionId()).setGraphSpecSnapshotJson("""
+                {"entryNodeId":"kr","exitNodeIds":["yes","none"],"nodes":[
+                  {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{"knowledgeBaseCodes":["kb"],
+                   "query":"{{ params.question }}","evidencePolicy":"REQUIRED"}},
+                  {"id":"yes","type":"ANSWER","config":{"template":"found"}},
+                  {"id":"none","type":"ANSWER","config":{"template":"当前未找到可用资料。"}}
+                 ],"edges":[{"from":"kr","to":"yes","condition":"route:evidence"},
+                             {"from":"kr","to":"none","condition":"route:no_evidence"}]}
+                """);
+        var knowledge = mock(com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.class);
+        when(knowledge.retrieve(any())).thenReturn(new com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalResult(
+                200, "ok", new com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalData(
+                        "question", List.of(), 0, "NO_EVIDENCE", true, Map.of())));
+        var realGraph = new RuntimeGraphSpecExecutor(objectMapper, mock(RuntimeModelServiceClient.class),
+                mock(com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient.class),
+                mock(RuntimeControlCatalogClient.class), knowledge, null);
+        AtomicReference<RuntimeGraphSpecExecutionResult> observed = new AtomicReference<>();
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            var execution = realGraph.execute(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2), inv.getArgument(3), inv.getArgument(4));
+            observed.set(execution);
+            return execution;
+        });
+        var sequence = List.of(calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup",
+                        "steps", List.of("lookup"), "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of("question", "question"))),
+                calls(call("final", "begin_final_answer", Map.of())), text("fabricated manual"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "lookup", "sessionId", "real-graph-no-evidence")));
+        assertTrue(result.success(), result.code() + " / " + result.answer() + " / " + result.metadata());
+        assertEquals("当前未找到可用资料。", result.answer(), () -> "graph result: " + observed.get());
+        assertEquals(2, rounds.get());
+        verify(knowledge).retrieve(any());
+    }
+
+    @Test
+    void knowledgeNoEvidenceDoesNotSuppressOtherPlannedToolResults() throws Exception {
+        var knowledge = tool("wf-knowledge", "knowledge_lookup");
+        var orders = tool("wf-orders", "order_lookup");
+        stubWorkflow(knowledge); stubWorkflow(orders);
+        workflowVersions.get(knowledge.getWorkflowVersionId()).setGraphSpecSnapshotJson(SupervisorKnowledgeTerminalAnswerTest.REQUIRED_GRAPH);
+        when(graphExecutor.execute(any(), any(), any(), any(), any()))
+                .thenReturn(SupervisorKnowledgeTerminalAnswerTest.noEvidence(), success("订单 3 条"));
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("knowledge", "orders"),
+                        "workflowToolNames", List.of("knowledge_lookup", "order_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())),
+                calls(call("orders", "order_lookup", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())),
+                text("资料未找到；订单 3 条。"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false),
+                List.of(knowledge, orders), Map.of("message", "lookup", "sessionId", "knowledge-and-orders")));
+        assertTrue(result.success(), result.code());
+        assertEquals("资料未找到；订单 3 条。", result.answer());
+        assertEquals(2, result.metadata().get("workflowCallCount"));
+        assertEquals(5, rounds.get());
+    }
+
+    @Test
+    void abandonedKnowledgeFailureReturnsUnavailableWithoutInventingAnAnswer() throws Exception {
+        var tool = tool("wf-knowledge-unavailable", "knowledge_lookup");
+        stubWorkflow(tool);
+        workflowVersions.get(tool.getWorkflowVersionId()).setGraphSpecSnapshotJson("""
+                {"entryNodeId":"kr","exitNodeIds":["none"],"nodes":[
+                  {"id":"kr","type":"KNOWLEDGE_RETRIEVAL","config":{
+                    "knowledgeBaseCodes":["kb"],"query":"input","evidencePolicy":"REQUIRED"}},
+                  {"id":"none","type":"ANSWER","config":{"template":"no evidence"}}
+                ],"edges":[{"from":"kr","to":"none","condition":"route:no_evidence"}]}
+                """);
+        var knowledge = mock(com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.class);
+        when(knowledge.retrieve(any())).thenReturn(new com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient.KnowledgeRetrievalResult(
+                500, "upstream error", null));
+        var realGraph = new RuntimeGraphSpecExecutor(objectMapper, mock(RuntimeModelServiceClient.class),
+                mock(com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient.class),
+                mock(RuntimeControlCatalogClient.class), knowledge, null);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(inv ->
+                realGraph.execute(inv.getArgument(0), inv.getArgument(1), inv.getArgument(2), inv.getArgument(3), inv.getArgument(4)));
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())),
+                calls(call("abandon", "record_supervisor_plan", Map.of("summary", "unavailable", "steps", List.of("explain"),
+                        "workflowToolNames", List.of()))),
+                text("no evidence, invented manual"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        List<String> deltas = new ArrayList<>();
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "lookup", "sessionId", "knowledge-unavailable"), null,
+                (event, data) -> { if ("message.delta".equals(event)) deltas.add(String.valueOf(((Map<?, ?>) data).get("text"))); }));
+        assertTrue(result.success(), result.code());
+        assertEquals("知识检索暂时不可用，请稍后重试。", result.answer());
+        assertEquals(List.of(result.answer()), deltas);
+        assertEquals(3, rounds.get());
+        verify(knowledge).retrieve(any());
+    }
+
+    @Test
+    void knowledgeFailureCanStillRecoverThroughASecondTool() throws Exception {
+        var knowledge = tool("wf-knowledge-fails", "knowledge_lookup");
+        var alternative = tool("wf-knowledge-alternative", "alternative_lookup");
+        stubWorkflow(knowledge); stubWorkflow(alternative);
+        var failed = new RuntimeGraphSpecExecutionResult(false, "RUNTIME_KNOWLEDGE_FAILED", "upstream error",
+                "kr", "KNOWLEDGE_RETRIEVAL", List.of(), Map.of("workflowNodeTraces", List.of(
+                        Map.of("nodeId", "kr", "nodeType", "KNOWLEDGE_RETRIEVAL", "status", "FAILED"))));
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(failed, success("备选来源有资料"));
+        var sequence = List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "lookup", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("knowledge_lookup")))),
+                calls(call("knowledge", "knowledge_lookup", Map.of())),
+                calls(call("replan", "record_supervisor_plan", Map.of("summary", "alternative", "steps", List.of("lookup"),
+                        "workflowToolNames", List.of("alternative_lookup")))),
+                calls(call("alternative", "alternative_lookup", Map.of())),
+                calls(call("final", "begin_final_answer", Map.of())), text("备选来源有资料"));
+        AtomicInteger rounds = new AtomicInteger();
+        var runtime = adapter(request -> new ModelChatResult(200, "success", sequence.get(rounds.getAndIncrement())));
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false),
+                List.of(knowledge, alternative), Map.of("message", "lookup", "sessionId", "knowledge-recovery")));
+        assertTrue(result.success(), result.code());
+        assertEquals("备选来源有资料", result.answer());
+        assertEquals(2, result.metadata().get("workflowCallCount"));
+        assertEquals(6, rounds.get());
+    }
+
+    @Test
     void returnsConfirmationWithoutAnotherModelRoundAfterCreatingTheCard() throws Exception {
         var tool = tool("wf-confirm", "confirm_inventory").toBuilder().riskLevel("WRITE").readOnly(false).build();
         stubWorkflow(tool);
@@ -141,6 +403,69 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         verify(graphExecutor, org.mockito.Mockito.times(3)).execute(any(), inputs.capture(), any(), any(), any());
         assertEquals("SKU-001", inputs.getAllValues().get(1).get("sku"));
         verify(approvalService).create(any(), any(), any(), any(RuntimeAgentWorkflowToolSnapshot.class), any(), any(), any(), any());
+    }
+
+    @Test
+    void repeatedReadPositionsSurviveApprovalWithoutReplayingWrite() throws Exception {
+        var query = tool("wf-query-repeat", "query_stock");
+        var write = tool("wf-write-repeat", "write_stock").toBuilder().riskLevel("WRITE").readOnly(false).build();
+        List.of(query, write).forEach(this::stubWorkflow);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("done"));
+        var saved = new AtomicReference<Map<String, Object>>();
+        when(approvalService.create(any(), any(), any(), any(RuntimeAgentWorkflowToolSnapshot.class), any(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    saved.set(objectMapper.convertValue(invocation.getArgument(4), Map.class));
+                    return new SupervisorApprovalInteractionService.ApprovalRequest("spv-repeat", Map.of("type", "CONFIRM"));
+                });
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenAnswer(invocation ->
+                "query_stock".equals(((RuntimeAgentWorkflowToolSnapshot) invocation.getArgument(0)).getToolName()));
+        var initial = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "stock", "steps", List.of("read one", "read two", "write"),
+                        "workflowToolNames", List.of("query_stock", "query_stock", "write_stock")))),
+                calls(call("read1", "query_stock", Map.of("warehouse", 1))),
+                calls(call("read2", "query_stock", Map.of("warehouse", 2))),
+                calls(call("write", "write_stock", Map.of("sku", "SKU-001"))), text("Confirm"))));
+        initial.setRepeatableReadPolicy(policy);
+        var waiting = initial.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(query, write), Map.of("message", "Update stock")));
+        assertEquals("SUPERVISOR_CONFIRMATION_REQUIRED", waiting.code());
+        var continuation = (Map<?, ?>) saved.get().get("__supervisorContinuation");
+        assertEquals(List.of(0, 1), continuation.get("completedPlanPositions"));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-repeat", write.getPermissionKey(), write.getToolName(), Map.of("sku", "SKU-001"), "1");
+        var resumed = adapter(model(List.of(
+                calls(call("replay", "write_stock", Map.of("sku", "FORGED"))),
+                calls(call("final", "begin_final_answer", Map.of())), text("done"))));
+        resumed.setRepeatableReadPolicy(policy);
+        var result = resumed.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(query, write), saved.get(), grant));
+        assertTrue(result.success(), result.code() + " " + result.metadata());
+        var inputs = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(graphExecutor, org.mockito.Mockito.times(3)).execute(any(), inputs.capture(), any(), any(), any());
+        assertEquals(1, inputs.getAllValues().get(0).get("warehouse"));
+        assertEquals(2, inputs.getAllValues().get(1).get("warehouse"));
+        assertEquals("SKU-001", inputs.getAllValues().get(2).get("sku"));
+    }
+
+    @Test
+    void repeatedReadDoesNotExecuteWhenOwnerRiskChangesDuringTheRun() throws Exception {
+        var query = tool("wf-risk-drift", "query_stock");
+        stubWorkflow(query);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("done"));
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenReturn(true, false);
+        var adapter = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "stock", "steps", List.of("read one", "read two"),
+                        "workflowToolNames", List.of("query_stock", "query_stock")))),
+                calls(call("read1", "query_stock", Map.of("warehouse", 1))),
+                calls(call("read2", "query_stock", Map.of("warehouse", 2))),
+                calls(call("final", "begin_final_answer", Map.of())), text("done"), text("done"))));
+        adapter.setRepeatableReadPolicy(policy);
+        var result = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(query), Map.of("message", "Check stock")));
+        assertFalse(result.success());
+        verify(graphExecutor).execute(any(), any(), any(), any(), any());
     }
 
     @Test
@@ -304,6 +629,56 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     @Test
+    void repeatedToolCallsBeforePlanningStopWithoutPublishingSuccess() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot workflowTool = tool("wf-unplanned", "query_team");
+        stubWorkflow(workflowTool);
+        AtomicInteger modelCalls = new AtomicInteger();
+        List<ModelChatData> unplannedCalls = List.of(
+                calls(call("unplanned-1", "query_team", Map.of())),
+                calls(call("unplanned-2", "query_team", Map.of())),
+                calls(call("unplanned-3", "query_team", Map.of())));
+        AgentScopeSupervisorRuntimeAdapter runtime = adapter(request -> {
+            int round = modelCalls.getAndIncrement();
+            return new ModelChatResult(200, "success", unplannedCalls.get(Math.min(round, 2)));
+        });
+        List<String> publicText = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(workflowTool),
+                Map.of("message", "查询班组", "sessionId", "unplanned-loop"), null,
+                (event, data) -> { if ("message.delta".equals(event)) publicText.add(String.valueOf(data)); }));
+
+        assertFalse(result.success());
+        assertEquals("SUPERVISOR_PLAN_REQUIRED", result.code());
+        assertEquals(3, result.metadata().get("unplannedToolAttemptCount"));
+        assertEquals(3, modelCalls.get());
+        assertEquals(0, result.metadata().get("workflowCallCount"));
+        assertTrue(publicText.isEmpty());
+        verify(graphExecutor, never()).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void toolCallBeforePlanningCanRecoverWithAValidPlan() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot workflowTool = tool("wf-recovery", "query_team");
+        stubWorkflow(workflowTool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("查询成功"));
+        AgentScopeSupervisorRuntimeAdapter runtime = adapter(model(List.of(
+                calls(call("unplanned", "query_team", Map.of())),
+                calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "查询班组", "steps", List.of("查询"), "workflowToolNames", List.of("query_team")))),
+                calls(call("query", "query_team", Map.of())), text("查询成功"), text("查询成功"))));
+
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(workflowTool),
+                Map.of("message", "查询班组", "sessionId", "unplanned-recovery")));
+
+        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertEquals(1, result.metadata().get("unplannedToolAttemptCount"));
+        assertEquals(1, result.metadata().get("workflowCallCount"));
+        verify(graphExecutor).execute(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void rejectedPlanDoesNotIncrementPlanCount() throws Exception {
         RuntimeAgentWorkflowToolSnapshot tool = tool("wf-team", "query_team");
         stubWorkflow(tool);
@@ -438,6 +813,8 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 .filter(message -> "system".equals(message.getRole()))
                 .map(RuntimeModelServiceClient.ModelChatRequest.ChatMessage::getContent)
                 .findFirst().orElseThrow();
+        assertTrue(systemPrompt.contains("Do not infer that the business system lacks the feature"));
+        assertTrue(systemPrompt.contains("do not suggest that this assistant can perform other specific business queries"));
         String workflowSection = systemPrompt.split("Permitted published Workflow tools:\\n", 2)[1]
                 .split("Permitted fixed A2A remote-Agent tools:", 2)[0];
         List<String> advertisedNames = workflowSection.lines()
@@ -1343,6 +1720,71 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     @Test
+    void interactionResumeExecutesLaterOccurrenceOfTheSameRead() throws Exception {
+        var read = tool("wf-repeat-stock", "query_stock");
+        var wait = tool("wf-wait", "wait_form");
+        List.of(read, wait).forEach(this::stubWorkflow);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("stock"));
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenAnswer(invocation ->
+                "query_stock".equals(((RuntimeAgentWorkflowToolSnapshot) invocation.getArgument(0)).getToolName()));
+        var adapter = adapter(model(List.of(
+                calls(call("read-next", "query_stock", Map.of("warehouse", 2))),
+                calls(call("final", "begin_final_answer", Map.of())), text("done"))));
+        adapter.setRepeatableReadPolicy(policy);
+        var plan = List.of("query_stock", "wait_form", "query_stock");
+        var continuation = new LinkedHashMap<String, Object>();
+        continuation.put("continuationSchemaVersion", 4);
+        continuation.put("traceId", "trace-1");
+        continuation.put("planNo", 1);
+        continuation.put("executionCallCounts", Map.of("workflow", 2, "a2a", 0, "managed", 0));
+        continuation.put("waitingToolName", "wait_form");
+        continuation.put("plannedWorkflowToolNames", plan);
+        continuation.put("plannedWorkflowCursor", 1);
+        continuation.put("completedWorkflowToolNames", List.of("query_stock"));
+        continuation.put("completedPlanPositions", List.of(0));
+        continuation.put("blockedWorkflowToolNames", List.of());
+        continuation.put("recordedPlan", Map.of("workflowToolNames", plan));
+        var result = adapter.continueAfterWorkflowInteraction(continuation,
+                Map.of("success", true, "status", "COMPLETED", "answer", "confirmed"),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(read, wait),
+                        Map.of("message", "confirm", "sessionId", "s-resume", "traceId", "trace-1")));
+        assertTrue(result.success(), result.code() + " " + result.metadata());
+        assertEquals(3, result.metadata().get("workflowCallCount"));
+        verify(graphExecutor).execute(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void interactionResumeDoesNotRepeatAReadThatCompletedOutOfOrder() {
+        var read = tool("wf-parallel-stock", "query_stock");
+        var wait = tool("wf-parallel-wait", "wait_form");
+        List.of(read, wait).forEach(this::stubWorkflow);
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenAnswer(invocation ->
+                "query_stock".equals(((RuntimeAgentWorkflowToolSnapshot) invocation.getArgument(0)).getToolName()));
+        var adapter = adapter(model(List.of()));
+        adapter.setRepeatableReadPolicy(policy);
+        var plan = List.of("wait_form", "query_stock");
+        var continuation = new LinkedHashMap<String, Object>();
+        continuation.put("continuationSchemaVersion", 4);
+        continuation.put("traceId", "trace-1");
+        continuation.put("executionCallCounts", Map.of("workflow", 2, "a2a", 0, "managed", 0));
+        continuation.put("waitingToolName", "wait_form");
+        continuation.put("plannedWorkflowToolNames", plan);
+        continuation.put("plannedWorkflowCursor", 0);
+        continuation.put("completedWorkflowToolNames", List.of("query_stock"));
+        continuation.put("completedPlanPositions", List.of(1));
+        continuation.put("blockedWorkflowToolNames", List.of());
+        continuation.put("recordedPlan", Map.of("workflowToolNames", plan));
+        var result = adapter.continueAfterWorkflowInteraction(continuation,
+                Map.of("success", true, "status", "COMPLETED", "answer", "confirmed"),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(read, wait),
+                        Map.of("message", "confirm", "sessionId", "s-resume", "traceId", "trace-1")));
+        assertTrue(result.success(), result.code() + " " + result.metadata());
+        verifyNoInteractions(graphExecutor);
+    }
+
+    @Test
     void workflowContinuationCannotResetAnAlreadyConsumedCallBudget() throws Exception {
         var first = tool("wf-first", "first_query");
         var next = tool("wf-next", "next_query");
@@ -1661,7 +2103,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), approvalService, objectMapper);
         if (memoryService != null) {
-            return new AgentScopeSupervisorRuntimeAdapter(
+            return withRiskGuard(new AgentScopeSupervisorRuntimeAdapter(
                     modelClient,
                     null,
                     controlCatalogClient,
@@ -1671,9 +2113,9 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                     memoryService,
                     policy,
                     traceService,
-                    objectMapper);
+                    objectMapper));
         }
-        return new AgentScopeSupervisorRuntimeAdapter(
+        return withRiskGuard(new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
                 null,
                 controlCatalogClient,
@@ -1683,7 +2125,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 new RuntimeChatMemoryStore(20),
                 policy,
                 traceService,
-                objectMapper);
+                objectMapper));
     }
 
     private AgentScopeSupervisorRuntimeAdapter adapterWithContextEngineering(
@@ -1700,7 +2142,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         when(traceService.resume(any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), mock(SupervisorApprovalInteractionService.class), objectMapper);
-        return new AgentScopeSupervisorRuntimeAdapter(
+        return withRiskGuard(new AgentScopeSupervisorRuntimeAdapter(
                 modelClient,
                 null,
                 null,
@@ -1711,7 +2153,12 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 policy,
                 traceService,
                 objectMapper,
-                contextEngineeringService);
+                contextEngineeringService));
+    }
+
+    private AgentScopeSupervisorRuntimeAdapter withRiskGuard(AgentScopeSupervisorRuntimeAdapter adapter) {
+        adapter.setBusinessMethodRiskGuard(mock(SupervisorBusinessMethodRiskGuard.class));
+        return adapter;
     }
 
     private RuntimeModelServiceClient model(List<ModelChatData> responses) {

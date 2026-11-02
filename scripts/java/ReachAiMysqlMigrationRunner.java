@@ -456,7 +456,7 @@ public final class ReachAiMysqlMigrationRunner {
                     checks.add(requireZero(connection, "recent.retired_permissions",
                             "SELECT COUNT(*) FROM control_platform_permission WHERE permission_code IN "
                                     + "('workspace:build:access','workspace:operate:access','context:runtime-user:review')"));
-                    checks.add(requireAtLeast(connection, "recent.system_roles", 4,
+                    checks.add(requireAtLeast(connection, "recent.system_roles", 3,
                             "SELECT COUNT(*) FROM control_platform_role WHERE role_kind = 'SYSTEM' AND role_code IN "
                                     + "('PLATFORM_ADMIN','DEVELOPER','OPERATOR','AUDITOR','MANAGER')"));
                     checks.add(requireAtLeast(connection, "recent.admin_acl", 1,

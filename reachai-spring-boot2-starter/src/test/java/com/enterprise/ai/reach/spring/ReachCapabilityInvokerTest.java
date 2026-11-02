@@ -4,16 +4,75 @@ import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
 import com.enterprise.ai.reach.sdk.annotation.ReachParam;
 import org.junit.jupiter.api.Test;
 import org.springframework.aop.framework.ProxyFactory;
+import org.springframework.context.ApplicationContext;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class ReachCapabilityInvokerTest {
+
+    @Test
+    void rejectsAmbiguousCapabilityNameWithoutExecutingEitherBean() {
+        DuplicateCapability first = new DuplicateCapability();
+        DuplicateCapability second = new DuplicateCapability();
+        ReachCapabilityInvoker invoker = new ReachCapabilityInvoker(new Object[]{first, second});
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> invoker.invoke("duplicate.op", null));
+        assertTrue(failure.getMessage().contains("duplicate.op"));
+        assertEquals(0, first.calls + second.calls);
+        assertThrows(IllegalStateException.class, () -> invoker.invoke("duplicate.op", null));
+        assertEquals(0, first.calls + second.calls);
+    }
+
+    @Test
+    void concurrentFirstCallsInitializeTheCapabilityIndexOnlyOnce() throws Exception {
+        ApplicationContext context = mock(ApplicationContext.class);
+        AtomicInteger scans = new AtomicInteger();
+        when(context.getBeansOfType(Object.class, false, false)).thenAnswer(invocation -> {
+            scans.incrementAndGet();
+            Thread.sleep(100);
+            Map<String, Object> beans = new LinkedHashMap<String, Object>();
+            beans.put("capability", new ZeroArgCapability());
+            return beans;
+        });
+        ReachCapabilityInvoker invoker = new ReachCapabilityInvoker(context);
+        ExecutorService pool = Executors.newFixedThreadPool(12);
+        CountDownLatch ready = new CountDownLatch(12);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<Object>> calls = new ArrayList<Future<Object>>();
+        try {
+            for (int i = 0; i < 12; i++) {
+                calls.add(pool.submit(() -> {
+                    ready.countDown();
+                    if (!start.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("start timeout");
+                    return invoker.invoke("zero.op", null);
+                }));
+            }
+            assertTrue(ready.await(5, TimeUnit.SECONDS));
+            start.countDown();
+            for (Future<Object> call : calls) assertEquals("pong", call.get(5, TimeUnit.SECONDS));
+            assertEquals(1, scans.get());
+        } finally {
+            start.countDown();
+            pool.shutdownNow();
+        }
+    }
 
     @Test
     void invokesAnnotatedBeanMethodByCapabilityName() {
@@ -145,15 +204,25 @@ class ReachCapabilityInvokerTest {
     }
 
     @Test
-    void wrapsTargetFailureAndRetainsOriginalCause() {
+    void preservesTargetRuntimeExceptionForHostExceptionHandling() {
         FailingCapability capability = new FailingCapability();
         ReachCapabilityInvoker invoker = new ReachCapabilityInvoker(new Object[]{capability});
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
+        RuntimeException ex = assertThrows(RuntimeException.class,
                 () -> invoker.invoke("fail.op", null));
+        assertSame(capability.failure, ex);
+    }
 
-        assertTrue(ex.getMessage().contains("fail.op"));
-        assertTrue(hasCause(ex, capability.failure));
+    @Test
+    void wrapsCheckedTargetExceptionWithCapabilityContext() {
+        CheckedFailureCapability capability = new CheckedFailureCapability();
+        ReachCapabilityInvoker invoker = new ReachCapabilityInvoker(new Object[]{capability});
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> invoker.invoke("checked.fail", null));
+
+        assertTrue(ex.getMessage().contains("checked.fail"));
+        assertSame(capability.failure, ex.getCause());
     }
 
     @Test
@@ -344,6 +413,12 @@ class ReachCapabilityInvokerTest {
         }
     }
 
+    static class DuplicateCapability {
+        int calls;
+        @ReachCapability(name = "duplicate.op")
+        public String run() { calls++; return "should not execute"; }
+    }
+
     static class MultiParamCapability {
         @ReachCapability(name = "multi.op")
         public String combine(@ReachParam(name = "first", required = true) String first, String second) {
@@ -378,6 +453,15 @@ class ReachCapabilityInvokerTest {
 
         @ReachCapability(name = "fail.op")
         public String explode() {
+            throw failure;
+        }
+    }
+
+    static class CheckedFailureCapability {
+        private final Exception failure = new Exception("checked failure");
+
+        @ReachCapability(name = "checked.fail")
+        public String explode() throws Exception {
             throw failure;
         }
     }

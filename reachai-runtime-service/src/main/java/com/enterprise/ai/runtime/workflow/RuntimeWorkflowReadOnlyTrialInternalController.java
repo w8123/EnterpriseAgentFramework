@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.workflow;
 import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.runtime.internalauth.VerifiedInternalServiceAuth;
+import com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -37,7 +38,12 @@ public class RuntimeWorkflowReadOnlyTrialInternalController {
         try {
             return ResponseEntity.ok(service.run(command));
         } catch (RuntimeWorkflowReadOnlyTrialService.Conflict rejected) {
-            return ResponseEntity.status(409).body(error(rejected.code(), "试运行条件已变化，请检查草稿和业务方法/API 状态"));
+            String message = "WORKFLOW_TRIAL_ALREADY_EXISTS".equals(rejected.code())
+                    ? "试运行编号已使用，本次未重复执行；请按原编号查询状态，勿换编号盲目重试"
+                    : "试运行条件已变化，请检查草稿和业务方法/API 状态";
+            return ResponseEntity.status(409).body(error(rejected.code(), message));
+        } catch (RuntimeRunLifecycleService.PlatformTrialClaimUnavailableException unavailable) {
+            return ResponseEntity.status(503).body(error("WORKFLOW_TRIAL_CLAIM_UNAVAILABLE", "试运行记录不可用，未执行"));
         } catch (IllegalArgumentException invalid) {
             return ResponseEntity.badRequest().body(error("WORKFLOW_TRIAL_REQUEST_INVALID", "试运行参数无效"));
         }

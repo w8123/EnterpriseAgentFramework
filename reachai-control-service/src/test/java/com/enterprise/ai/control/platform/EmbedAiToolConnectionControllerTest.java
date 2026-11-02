@@ -135,6 +135,9 @@ class EmbedAiToolConnectionControllerTest {
         var session = portalSessions.redeem(ticket).orElseThrow();
         assertEquals(new EmployeeOwner("tenant-a", 7L, "yudao-erp", "yudao-erp", "1", "张三",
                 List.of("erp_user")), session.owner());
+        assertEquals("agent-erp", session.chat().agentId());
+        assertEquals("1", session.chat().externalUserId());
+        assertEquals(List.of("erp_user"), session.chat().roles());
     }
 
     private PlatformEmbedTokenClaims claims() {
@@ -142,6 +145,7 @@ class EmbedAiToolConnectionControllerTest {
         claims.setTenantId("Tenant-A");
         claims.setAppId("yudao-erp");
         claims.setProjectCode("yudao-erp");
+        claims.setAgentId("agent-erp");
         claims.setExternalUserId("1");
         claims.setUserName("张三");
         claims.setRoles(List.of("erp_user"));

@@ -69,7 +69,7 @@ public class ModelInstanceService {
     public ModelInstanceEntity getActiveEntity(String id) {
         ModelInstanceEntity entity = requireEntity(id);
         if (!ModelInstanceStatus.ACTIVE.name().equals(entity.getStatus())) {
-            throw new BizException(400, "Model instance is not active: " + entity.getName());
+            throw new BizException(400, "模型「" + entity.getName() + "」已停用，请到模型中心启用它，或换一个启用中的模型");
         }
         return entity;
     }
@@ -78,7 +78,7 @@ public class ModelInstanceService {
     public ModelInstanceEntity getEntityForTest(String id) {
         ModelInstanceEntity entity = requireEntity(id);
         if (ModelInstanceStatus.ARCHIVED.name().equals(entity.getStatus())) {
-            throw new BizException(400, "Archived model instance cannot be tested: " + entity.getName());
+            throw new BizException(400, "模型「" + entity.getName() + "」已归档，不能再测试或调用");
         }
         return entity;
     }
@@ -119,16 +119,39 @@ public class ModelInstanceService {
         return toResponse(entity);
     }
 
+    public ModelInstanceResponse createConnectionModel(
+            String sourceId, ModelInstanceController.ConnectionModelCreateRequest request) {
+        if (request == null || !StringUtils.hasText(request.name()) || request.name().length() > 128
+                || request.modelType() == null || !StringUtils.hasText(request.modelName())
+                || request.modelName().length() > 256) {
+            throw new BizException(400, "请填写模型名称、类型和供应商模型名");
+        }
+        ModelInstanceEntity source = getEntityForTest(sourceId);
+        if (StringUtils.hasText(source.getProviderAccountId())) {
+            throw new BizException(400, "该模型使用厂商账号，请从厂商账号接入其他模型");
+        }
+        ModelInstanceRequest target = new ModelInstanceRequest();
+        target.setName(request.name().trim());
+        target.setProvider(source.getProvider());
+        target.setModelType(request.modelType());
+        target.setModelName(request.modelName().trim());
+        target.setProtocol(ModelProtocol.valueOf(source.getProtocol()));
+        target.setProjectCode(source.getProjectCode());
+        target.setConnection(readConnection(source));
+        target.setDefaultOptions(Map.of());
+        return create(target);
+    }
+
     public ModelInstanceResponse createFromTemplate(String templateId, ModelInstanceRequest request) {
         if (request == null) {
             throw new BizException(400, "Request body is required");
         }
         if (!StringUtils.hasText(request.getName())) {
-            throw new BizException(400, "Model instance name is required");
+            throw new BizException(400, "请填写模型名称");
         }
         ModelTemplateEntity template = modelTemplateService.getEntity(templateId);
         if (!Boolean.TRUE.equals(template.getEnabled())) {
-            throw new BizException(400, "Template is disabled");
+            throw new BizException(400, "这个模型模板已停用，请换一个模板");
         }
 
         Map<String, Object> connection;
@@ -184,13 +207,13 @@ public class ModelInstanceService {
     public ModelInstanceResponse update(String id, ModelInstanceRequest request) {
         ModelInstanceEntity entity = requireEntity(id);
         if (ModelInstanceStatus.ARCHIVED.name().equals(entity.getStatus())) {
-            throw new BizException(400, "Archived model instance cannot be edited");
+            throw new BizException(400, "已归档的模型不能再修改");
         }
         if (request == null) {
             throw new BizException(400, "Request body is required");
         }
         if (!StringUtils.hasText(request.getName())) {
-            throw new BizException(400, "Model instance name is required");
+            throw new BizException(400, "请填写模型名称");
         }
         if (request.getModelType() != null && !request.getModelType().name().equals(entity.getModelType())) {
             throw new BizException(400, "modelType is immutable");
@@ -363,7 +386,7 @@ public class ModelInstanceService {
             query.ne(ModelInstanceEntity::getId, excludeId);
         }
         if (mapper.selectCount(query) > 0) {
-            throw new BizException(400, "Model instance name already exists in scope: " + name.trim());
+            throw new BizException(400, "已经有一个叫「" + name.trim() + "」的模型了，请换个名称");
         }
     }
 
@@ -386,7 +409,7 @@ public class ModelInstanceService {
         if (id != null) {
             ModelInstanceEntity entity = requireEntity(id);
             if (ModelInstanceStatus.ARCHIVED.name().equals(entity.getStatus())) {
-                throw new BizException(400, "Archived model instance cannot be tested");
+                throw new BizException(400, "已归档的模型不能再测试");
             }
             if (request.getModelType() != null && !request.getModelType().name().equals(entity.getModelType())) {
                 throw new IllegalArgumentException("modelType is immutable");
@@ -412,13 +435,13 @@ public class ModelInstanceService {
             ModelProtectedOptions.assertAllowed(entityType, defaultOptions, "defaultOptions");
         } else {
             if (request.getModelType() == null) {
-                throw new IllegalArgumentException("Model type is required");
+                throw new IllegalArgumentException("请选择模型类型");
             }
             if (!StringUtils.hasText(request.getProvider())) {
-                throw new IllegalArgumentException("Provider is required");
+                throw new IllegalArgumentException("请选择模型供应商");
             }
             if (!StringUtils.hasText(request.getModelName())) {
-                throw new IllegalArgumentException("Model name is required");
+                throw new IllegalArgumentException("请填写供应商的模型名称");
             }
             connection = ConnectionConfigSupport.normalize(request.getConnection());
             provider = request.getProvider().trim();
@@ -443,11 +466,11 @@ public class ModelInstanceService {
 
     private ModelInstanceEntity requireEntity(String id) {
         if (!StringUtils.hasText(id)) {
-            throw new BizException(400, "Model instance id is required");
+            throw new BizException(400, "缺少模型 ID");
         }
         ModelInstanceEntity entity = mapper.selectById(id);
         if (entity == null) {
-            throw new BizException(404, "Model instance not found: " + id);
+            throw new BizException(404, "找不到这个模型（" + id + "），它可能已被删除。请到模型中心重新选择模型");
         }
         return entity;
     }
@@ -457,17 +480,17 @@ public class ModelInstanceService {
             throw new BizException(400, "Request body is required");
         }
         if (!StringUtils.hasText(request.getName())) {
-            throw new BizException(400, "Model instance name is required");
+            throw new BizException(400, "请填写模型名称");
         }
         if (requireProviderAndType) {
             if (!StringUtils.hasText(request.getProvider())) {
-                throw new BizException(400, "Provider is required");
+                throw new BizException(400, "请选择模型供应商");
             }
             if (request.getModelType() == null) {
-                throw new BizException(400, "Model type is required");
+                throw new BizException(400, "请选择模型类型");
             }
             if (!StringUtils.hasText(request.getModelName())) {
-                throw new BizException(400, "Model name is required");
+                throw new BizException(400, "请填写供应商的模型名称");
             }
         }
     }
@@ -548,7 +571,7 @@ public class ModelInstanceService {
                                                   Map<String, Object> instanceConnection,
                                                   Map<String, Object> defaultOptions) {
         if (account == null || !StringUtils.hasText(account.getId())) {
-            throw new BizException(400, "Provider account is required");
+            throw new BizException(400, "请先选择供应商账号");
         }
         Map<String, Object> options = defaultOptions == null ? Map.of() : defaultOptions;
         Map<String, Object> own = ConnectionConfigSupport.withoutAccountKeys(instanceConnection);

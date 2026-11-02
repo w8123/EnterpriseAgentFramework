@@ -61,9 +61,7 @@ public class RuntimeWorkflowManagementService {
             throw new RuntimeWorkflowEditingException("WORKFLOW_REVISION_REQUIRED", "保存 Workflow 必须携带已读取的草稿修订");
         }
         RuntimeWorkflowDefinitionEntity current = definitions.lockForWrite(workflowId);
-        if (!"USER".equals(current.getDefinitionAuthority()) || "AI_QUICK_ACCESS".equals(current.getCreationChannel())) {
-            throw new RuntimeWorkflowEditingException("WORKFLOW_DEFINITION_READ_ONLY", "该 Workflow 由其他入口维护，请从其定义来源更新");
-        }
+        RuntimeWorkflowEditingPolicy.requireUserEditable(current);
         assertOwnedField("definitionAuthority", command.definitionAuthority(), current.getDefinitionAuthority());
         assertOwnedField("creationChannel", command.creationChannel(), current.getCreationChannel());
         assertOwnedField("status", command.status(), current.getStatus());

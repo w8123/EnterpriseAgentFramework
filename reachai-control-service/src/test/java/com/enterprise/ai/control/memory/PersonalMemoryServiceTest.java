@@ -16,10 +16,10 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,10 +39,8 @@ class PersonalMemoryServiceTest {
     static void initializeMyBatisMetadata() {
         Configuration configuration = new Configuration();
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "pm"), PersonalMemoryEntity.class);
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "pm-audit"),
-                PersonalMemoryAuditEntity.class);
-        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "pm-candidate"),
-                PersonalMemoryCandidateEntity.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(configuration, "pm-group"),
+                PersonalMemoryGroupEntity.class);
     }
 
     @Test
@@ -56,7 +54,7 @@ class PersonalMemoryServiceTest {
         PersonalMemoryService.RememberResult result = fixture.service.remember(principal("user-1"),
                 new RememberCommand("PREFERENCE", "response-language", "回复语言", "请默认使用中文回答",
                         List.of("language"), null, "request-1", PersonalMemoryService.SOURCE_CONVERSATION,
-                        "session-1", "trace-1", "agent-1"));
+                        "session-1", "trace-1", "agent-1", null, null));
 
         assertTrue(result.created());
         assertEquals(List.of("language"), result.memory().tags());
@@ -68,10 +66,9 @@ class PersonalMemoryServiceTest {
         assertEquals("CONVERSATION", row.getValue().getSourceType());
         assertEquals(PersonalMemoryService.semanticSourceRef("response-language"), row.getValue().getSemanticKey());
         assertEquals(PersonalMemoryService.contentHash("请默认使用中文回答"), row.getValue().getContentSha256());
+        assertEquals("personal", row.getValue().getScopeKey());
+        assertEquals(PREFERENCE_GROUP, row.getValue().getGroupId());
         verify(fixture.outbox).enqueueUpsert(any(), eq(row.getValue()));
-        ArgumentCaptor<PersonalMemoryAuditEntity> audit = ArgumentCaptor.forClass(PersonalMemoryAuditEntity.class);
-        verify(fixture.auditMapper).insert(audit.capture());
-        assertFalse(audit.getValue().getMetadataJson().contains("中文"));
     }
 
     @Test
@@ -82,7 +79,7 @@ class PersonalMemoryServiceTest {
 
         PersonalMemoryService.RememberResult result = fixture.service.remember(principal("user-1"),
                 new RememberCommand("PREFERENCE", null, null, "请始终  简洁回答", null, null, null,
-                        null, null, null, null));
+                        null, null, null, null, null, null));
 
         assertTrue(result.idempotentReplay());
         assertEquals(9L, result.memory().id());
@@ -98,7 +95,7 @@ class PersonalMemoryServiceTest {
 
         PersonalMemoryService.RememberResult result = fixture.service.remember(principal("user-1"),
                 new RememberCommand("FACT", "profile:location", "常住地", "我住在上海", null, null, null,
-                        null, null, null, "agent-2"));
+                        null, null, null, "agent-2", null, null));
 
         assertTrue(result.updated());
         assertEquals("我住在上海", city.getContent());
@@ -110,13 +107,13 @@ class PersonalMemoryServiceTest {
     @Test
     void newMemoryReturns429WhenTheOwnerQuotaIsFull() {
         PersonalMemoryMapper memoryMapper = mock(PersonalMemoryMapper.class);
-        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, mock(PersonalMemoryCandidateMapper.class),
-                mock(PersonalMemoryAuditMapper.class), new ObjectMapper(), null, null, null, 2);
+        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, groups(),
+                new ObjectMapper(), null, null, null, 2);
         when(memoryMapper.selectCount(any(Wrapper.class))).thenReturn(2L);
 
         ResponseStatusException error = assertThrows(ResponseStatusException.class,
                 () -> service.remember(principal("user-1"), new RememberCommand("NOTE", null, null, "新的记忆",
-                        null, null, null, null, null, null, null)));
+                        null, null, null, null, null, null, null, null, null)));
 
         assertEquals(429, error.getStatusCode().value());
         verify(memoryMapper, never()).insert(any(PersonalMemoryEntity.class));
@@ -128,7 +125,7 @@ class PersonalMemoryServiceTest {
 
         assertEquals(400, assertThrows(ResponseStatusException.class,
                 () -> fixture.service.remember(principal("user-1"), new RememberCommand("NOTE", null, null,
-                        "api_key=sk-abcdefghijklmnopqrstuvwxyz123456", null, null, null, null, null, null, null)))
+                        "api_key=sk-abcdefghijklmnopqrstuvwxyz123456", null, null, null, null, null, null, null, null, null)))
                 .getStatusCode().value());
         assertEquals(400, assertThrows(ResponseStatusException.class,
                 () -> fixture.service.remember(principal("user-1"), null)).getStatusCode().value());
@@ -153,20 +150,28 @@ class PersonalMemoryServiceTest {
     }
 
     @Test
-    void forgetDeletesTheRowItsCandidatesAndProjection() {
+    void sameUserIdInAnotherBusinessDomainCannotReadOrDeleteMemory() {
+        Fixture fixture = fixture();
+        var secret = memory(9L, "user-1", "FACT", "private fact");
+        secret.setOwnerDomain("BUSINESS:erp-a");
+        when(fixture.memoryMapper.selectById(9L)).thenReturn(secret);
+        when(fixture.memoryMapper.selectByIdForUpdate(9L)).thenReturn(secret);
+        var other = PersonalMemoryPrincipal.business("default", "user-1", "ERP-B");
+        assertEquals(404, assertThrows(ResponseStatusException.class, () -> fixture.service.get(other, 9L)).getStatusCode().value());
+        assertEquals(404, assertThrows(ResponseStatusException.class, () -> fixture.service.forget(other, 9L)).getStatusCode().value());
+        assertEquals(404, assertThrows(ResponseStatusException.class, () -> fixture.service.get(principal("user-1"), 9L)).getStatusCode().value());
+        verify(fixture.memoryMapper, never()).deleteById(any(Long.class));
+    }
+
+    @Test
+    void forgetDeletesTheRowAndItsProjection() {
         Fixture fixture = fixture();
         when(fixture.memoryMapper.selectByIdForUpdate(9L)).thenReturn(memory(9L, "user-1", "FACT", "我的身份证信息"));
 
         fixture.service.forget(principal("user-1"), 9L);
 
         verify(fixture.memoryMapper).deleteById(9L);
-        verify(fixture.candidateMapper).deleteRelatedToMemory(9L);
-        verify(fixture.auditMapper).update(isNull(), any(Wrapper.class));
         verify(fixture.outbox).enqueueDelete(any(), eq(9L), isNull());
-        ArgumentCaptor<PersonalMemoryAuditEntity> audit = ArgumentCaptor.forClass(PersonalMemoryAuditEntity.class);
-        verify(fixture.auditMapper).insert(audit.capture());
-        assertEquals("DELETE", audit.getValue().getEventType());
-        assertEquals(null, audit.getValue().getMemoryId());
     }
 
     @Test
@@ -175,22 +180,22 @@ class PersonalMemoryServiceTest {
         assertEquals(400, assertThrows(ResponseStatusException.class,
                 () -> fixture.service.eraseAll(principal("user-1"), new EraseAllCommand("yes")))
                 .getStatusCode().value());
-        verify(fixture.memoryMapper, never()).selectOwnedForUpdate(any(), any());
+        verify(fixture.memoryMapper, never()).selectOwnedForUpdate(any(), any(), any());
 
-        when(fixture.memoryMapper.selectOwnedForUpdate("default", "user-1")).thenReturn(List.of(
+        when(fixture.memoryMapper.selectOwnedForUpdate("default", "user-1", "LEGACY")).thenReturn(List.of(
                 memory(1L, "user-1", "FACT", "a"), memory(2L, "user-1", "NOTE", "b")));
-        when(fixture.candidateMapper.deleteAllForOwner("default", "user-1")).thenReturn(3);
+        when(fixture.groupService.deleteAll(principal("user-1"))).thenReturn(4);
 
         PersonalMemoryService.EraseAllView result = fixture.service.eraseAll(principal("user-1"),
                 new EraseAllCommand(PersonalMemoryService.ERASE_ALL_CONFIRMATION), "request-42");
 
         assertEquals(2, result.memoriesErased());
-        assertEquals(3, result.candidatesErased());
+        assertEquals(4, result.groupsErased());
         verify(fixture.memoryMapper).deleteById(1L);
         verify(fixture.memoryMapper).deleteById(2L);
         verify(fixture.outbox).enqueueDelete(any(), eq(1L), eq("request-42"));
         verify(fixture.outbox).enqueueDelete(any(), eq(2L), eq("request-42"));
-        verify(fixture.auditMapper).delete(any(Wrapper.class));
+        verify(fixture.groupService).deleteAll(principal("user-1"));
     }
 
     @Test
@@ -202,7 +207,7 @@ class PersonalMemoryServiceTest {
         when(fixture.memoryMapper.selectList(any(Wrapper.class))).thenReturn(List.of(city, language));
 
         PersonalMemoryService.QueryResult result = fixture.service.query(principal("user-1"),
-                new QueryCommand("中文回答", null, 5, 256, "session-1", "trace-1", "agent-1"));
+                new QueryCommand("中文回答", null, 5, 256, "session-1", "trace-1", "agent-1", null));
 
         assertEquals(List.of(1L), result.hits().stream().map(PersonalMemoryService.QueryHit::id).toList());
         assertTrue(result.usedChars() <= result.maxChars());
@@ -219,7 +224,7 @@ class PersonalMemoryServiceTest {
         when(fixture.memoryMapper.selectList(any(Wrapper.class))).thenReturn(List.of(unrelated, language, city));
 
         PersonalMemoryService.QueryResult result = fixture.service.query(principal("user-1"),
-                new QueryCommand("我住在哪个城市？", null, 5, 512, null, null, null));
+                new QueryCommand("我住在哪个城市？", null, 5, 512, null, null, null, null));
 
         assertEquals(List.of(2L, 1L), result.hits().stream().map(PersonalMemoryService.QueryHit::id).toList());
     }
@@ -229,8 +234,8 @@ class PersonalMemoryServiceTest {
         PersonalMemoryMapper memoryMapper = mock(PersonalMemoryMapper.class);
         PersonalMemoryKnowledgeQueryClient queryClient = mock(PersonalMemoryKnowledgeQueryClient.class);
         PersonalMemoryRetrievalTelemetry telemetry = mock(PersonalMemoryRetrievalTelemetry.class);
-        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, mock(PersonalMemoryCandidateMapper.class),
-                mock(PersonalMemoryAuditMapper.class), new ObjectMapper(), null, queryClient, telemetry, 1000);
+        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, groups(),
+                new ObjectMapper(), null, queryClient, telemetry, 1000);
         when(queryClient.query("default", "user-1", "帮我准备发布说明", 15, 512))
                 .thenReturn(new PersonalMemoryKnowledgeQueryClient.QueryAttempt(
                         PersonalMemoryKnowledgeQueryMode.ACTIVE, true, true, List.of(99L), 1L, "SUCCESS"));
@@ -239,7 +244,7 @@ class PersonalMemoryServiceTest {
                 List.of(memory(1L, "user-1", "PREFERENCE", "请始终简洁回答")));
 
         PersonalMemoryService.QueryResult active = service.query(principal("user-1"),
-                new QueryCommand("帮我准备发布说明", null, 5, 512, null, null, null));
+                new QueryCommand("帮我准备发布说明", null, 5, 512, null, null, null, null));
         assertEquals(List.of(99L, 1L), active.hits().stream().map(PersonalMemoryService.QueryHit::id).toList());
 
         PersonalMemoryKnowledgeQueryClient.QueryAttempt shadow = new PersonalMemoryKnowledgeQueryClient.QueryAttempt(
@@ -251,9 +256,44 @@ class PersonalMemoryServiceTest {
                 List.of());
 
         PersonalMemoryService.QueryResult result = service.query(principal("user-1"),
-                new QueryCommand("发布说明", null, 5, 512, null, null, null));
+                new QueryCommand("发布说明", null, 5, 512, null, null, null, null));
         assertEquals(List.of(1L), result.hits().stream().map(PersonalMemoryService.QueryHit::id).toList());
         verify(telemetry).record(shadow, List.of(1L), Set.of(1L, 2L), 5);
+    }
+
+    @Test
+    void projectMemoryLandsInThatProjectLayerAndShowsItsGroup() {
+        Fixture fixture = fixture();
+
+        PersonalMemoryService.RememberResult result = fixture.service.remember(principal("user-1"),
+                new RememberCommand(null, null, null, "查库存默认看 1 号仓", null, null, null,
+                        PersonalMemoryService.SOURCE_AI_TOOL, null, null, null, "yudao-erp", null));
+
+        ArgumentCaptor<PersonalMemoryEntity> row = ArgumentCaptor.forClass(PersonalMemoryEntity.class);
+        verify(fixture.memoryMapper).insert(row.capture());
+        assertEquals("project:yudao-erp", row.getValue().getScopeKey());
+        assertEquals("yudao-erp", row.getValue().getProjectCode());
+        assertEquals(PROJECT_NOTE_GROUP, row.getValue().getGroupId());
+        assertEquals("NOTE", row.getValue().getMemoryType());
+        assertEquals("PROJECT", result.memory().layer());
+        assertEquals("芋道 ERP", result.memory().layerName());
+        assertEquals("备注", result.memory().groupName());
+    }
+
+    @Test
+    void movingAMemoryIntoAPreferenceGroupMakesItAPreference() {
+        Fixture fixture = fixture();
+        PersonalMemoryEntity note = memory(9L, "user-1", "NOTE", "报表用表格展示");
+        note.setGroupId(NOTE_GROUP);
+        when(fixture.memoryMapper.selectByIdForUpdate(9L)).thenReturn(note);
+
+        PersonalMemoryService.MemoryView moved = fixture.service.update(principal("user-1"), 9L,
+                new PersonalMemoryService.UpdateCommand(null, null, null, null, null, PREFERENCE_GROUP));
+
+        assertEquals(PREFERENCE_GROUP, note.getGroupId());
+        assertEquals("PREFERENCE", note.getMemoryType());
+        assertEquals("偏好", moved.groupName());
+        verify(fixture.memoryMapper).updateById(note);
     }
 
     @Test
@@ -272,20 +312,55 @@ class PersonalMemoryServiceTest {
         verify(fixture.memoryMapper, times(1)).deleteById(any(Long.class));
         verify(fixture.memoryMapper).deleteById(9L);
         verify(fixture.outbox).enqueueDelete(any(), eq(9L), isNull());
-        ArgumentCaptor<PersonalMemoryAuditEntity> audit = ArgumentCaptor.forClass(PersonalMemoryAuditEntity.class);
-        verify(fixture.auditMapper).insert(audit.capture());
-        assertEquals("EXPIRE", audit.getValue().getEventType());
-        assertEquals("SYSTEM", audit.getValue().getActorType());
     }
+
+    private static final Long PREFERENCE_GROUP = 11L;
+    private static final Long NOTE_GROUP = 12L;
+    private static final Long PROJECT_NOTE_GROUP = 21L;
 
     private static Fixture fixture() {
         PersonalMemoryMapper memoryMapper = mock(PersonalMemoryMapper.class);
-        PersonalMemoryCandidateMapper candidateMapper = mock(PersonalMemoryCandidateMapper.class);
-        PersonalMemoryAuditMapper auditMapper = mock(PersonalMemoryAuditMapper.class);
+        PersonalMemoryGroupService groupService = groups();
         PersonalMemoryIndexOutboxService outbox = mock(PersonalMemoryIndexOutboxService.class);
-        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, candidateMapper, auditMapper,
+        PersonalMemoryService service = new PersonalMemoryService(memoryMapper, groupService,
                 new ObjectMapper(), outbox, null, null, 1000);
-        return new Fixture(service, memoryMapper, candidateMapper, auditMapper, outbox);
+        return new Fixture(service, memoryMapper, groupService, outbox);
+    }
+
+    /** Personal layer 「偏好」/「备注」 and one project layer 「备注」, resolved the way the real service does. */
+    private static PersonalMemoryGroupService groups() {
+        PersonalMemoryGroupService groupService = mock(PersonalMemoryGroupService.class);
+        PersonalMemoryGroupEntity preference = group(PREFERENCE_GROUP, null, "偏好", "PREFERENCE");
+        PersonalMemoryGroupEntity note = group(NOTE_GROUP, null, "备注", "NOTE");
+        PersonalMemoryGroupEntity projectNote = group(PROJECT_NOTE_GROUP, "yudao-erp", "备注", "NOTE");
+        when(groupService.target(any(), any(), any(), any())).thenAnswer(invocation -> {
+            Long groupId = invocation.getArgument(2);
+            if (groupId != null) {
+                return List.of(preference, note, projectNote).stream()
+                        .filter(group -> group.getId().equals(groupId)).findFirst().orElseThrow();
+            }
+            PersonalMemoryScope scope = invocation.getArgument(1);
+            if (!scope.personal()) return projectNote;
+            return "PREFERENCE".equals(PersonalMemoryGroupService.kindFor(invocation.getArgument(3)))
+                    ? preference : note;
+        });
+        when(groupService.groupsById(any())).thenReturn(Map.of(PREFERENCE_GROUP, preference, NOTE_GROUP, note,
+                PROJECT_NOTE_GROUP, projectNote));
+        return groupService;
+    }
+
+    private static PersonalMemoryGroupEntity group(Long id, String projectCode, String name, String kind) {
+        PersonalMemoryGroupEntity group = new PersonalMemoryGroupEntity();
+        group.setId(id);
+        group.setTenantId("default");
+        group.setOwnerId("user-1");
+        group.setOwnerDomain("LEGACY");
+        group.setScopeKey(PersonalMemoryScope.of(projectCode).key());
+        group.setProjectCode(projectCode);
+        group.setProjectName(projectCode == null ? null : "芋道 ERP");
+        group.setName(name);
+        group.setKind(kind);
+        return group;
     }
 
     static PersonalMemoryPrincipal principal(String userId) {
@@ -298,6 +373,8 @@ class PersonalMemoryServiceTest {
         memory.setMemoryKey("pm-" + id);
         memory.setTenantId("default");
         memory.setOwnerId(userId);
+        memory.setOwnerDomain("LEGACY");
+        memory.setScopeKey("personal");
         memory.setMemoryType(type);
         memory.setContent(content);
         memory.setContentSha256(PersonalMemoryService.contentHash(content));
@@ -309,8 +386,7 @@ class PersonalMemoryServiceTest {
 
     private record Fixture(PersonalMemoryService service,
                            PersonalMemoryMapper memoryMapper,
-                           PersonalMemoryCandidateMapper candidateMapper,
-                           PersonalMemoryAuditMapper auditMapper,
+                           PersonalMemoryGroupService groupService,
                            PersonalMemoryIndexOutboxService outbox) {
     }
 }

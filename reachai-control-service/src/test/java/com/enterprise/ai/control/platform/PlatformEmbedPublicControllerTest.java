@@ -3,6 +3,9 @@ package com.enterprise.ai.control.platform;
 import com.enterprise.ai.common.dto.ApiResult;
 import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
+import com.enterprise.ai.control.identity.BusinessUserSyncService;
+import com.enterprise.ai.control.knowledge.CapabilityProjectRequestVerificationGateway;
+import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -17,15 +20,250 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class PlatformEmbedPublicControllerTest {
+
+    @Test
+    void embedContextClearUsesVerifiedSessionOwnerAndPropagatesRuntimeFailure() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
+        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("tenant-a").appId("erp").projectCode("erp").agentId("bot")
+                .pageInstanceId("page-1").origin("http://localhost:5173")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
+                        "user-1", "user-1", "Employee", List.of(), Map.of())).build()).token();
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("session-1"); session.setTenantId("tenant-a");
+        session.setProjectCode("erp"); session.setExternalUserId("user-1");
+        when(sessions.requireActiveSession(eq("session-1"), any())).thenReturn(session);
+        when(gateway.clearTrusted(eq("session-1"), eq("EMBED_SESSION"), eq("tenant-a"), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.status(HttpStatus.CONFLICT).build());
+        assertEquals(HttpStatus.CONFLICT, controller.clearSessionContext("session-1", "Bearer " + token).getStatusCode());
+        verify(gateway).clearTrusted(eq("session-1"), eq("EMBED_SESSION"), eq("tenant-a"), eq("user-1"),
+                argThat(owner -> "BUSINESS:erp".equals(owner.ownerDomain())));
+        assertEquals(HttpStatus.UNAUTHORIZED, controller.clearSessionContext("session-1", "Bearer invalid").getStatusCode());
+        verify(gateway, times(1)).clearTrusted(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void exchangeAppliesTheSignedHostExpiryToTheIssuedToken() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties,
+                java.time.Clock.fixed(java.time.Instant.ofEpochSecond(1000), java.time.ZoneOffset.UTC));
+        var capability = mock(CapabilityProxyClient.class);
+        var runtime = mock(RuntimeProxyClient.class);
+        var controller = new PlatformEmbedPublicController(tokens, mock(PlatformEmbedSessionService.class),
+                mock(PlatformEmbedChatEventService.class), capability, runtime,
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
+        when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
+        when(runtime.listAgents(null, "erp")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+                "id", "agent", "keySlug", "bot", "projectCode", "erp", "enabled", true))));
+        var request = new PlatformEmbedPublicController.EmbedTokenExchangeRequest("erp", "bot", "page",
+                "page-1", "/", "http://localhost", new PlatformEmbedPublicController.BusinessPrincipal(
+                "user", "user", "User", List.of(), Map.of()), null, 1030L);
+        var response = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(30, response.getBody().getData().expiresIn());
+        assertEquals(1030, tokens.verify(response.getBody().getData().token()).getExpiresAt());
+    }
+
+    @Test
+    void exchangeRejectsAgentWhoseProjectOwnershipIsMissing() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var capability = mock(CapabilityProxyClient.class);
+        var runtime = mock(RuntimeProxyClient.class);
+        var controller = new PlatformEmbedPublicController(tokens, mock(PlatformEmbedSessionService.class),
+                mock(PlatformEmbedChatEventService.class), capability, runtime,
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
+        when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
+        when(runtime.listAgents(null, "erp")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+                "id", "agent", "keySlug", "bot", "enabled", true))));
+        var request = new PlatformEmbedPublicController.EmbedTokenExchangeRequest("erp", "bot", "page",
+                "page-1", "/", "http://localhost", new PlatformEmbedPublicController.BusinessPrincipal(
+                "user", "user", "User", List.of(), Map.of()), null, null);
+        assertEquals(HttpStatus.FORBIDDEN,
+                exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request).getStatusCode());
+    }
+
+    @Test
+    void businessSessionRevocationRequiresBodyBoundProjectAuthentication() {
+        var verifier = mock(CapabilityProjectRequestVerificationGateway.class);
+        var revocation = mock(PlatformEmbedBusinessSessionRevocation.class);
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var controller = new PlatformEmbedPublicController(new PlatformEmbedTokenService(new ObjectMapper(), properties),
+                mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(verifier);
+        controller.setBusinessSessionRevocation(revocation);
+        byte[] body = ("{\"projectCode\":\"erp\",\"businessSessionId\":\""
+                + "abcdefghijklmnopqrstuvwxyz0123456789ABCDE\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String digest = InternalServiceHmac.bodySha256Hex(body);
+        assertEquals(HttpStatus.FORBIDDEN, controller.revokeBusinessSession(
+                "key", "1", "nonce", "wrong", "signature", body).getStatusCode());
+        verifyNoInteractions(verifier, revocation);
+        assertEquals(HttpStatus.OK, controller.revokeBusinessSession(
+                "key", "1", "nonce", digest, "signature", body).getStatusCode());
+        verify(verifier).verify(argThat(request -> "erp".equals(request.projectCode())
+                && "/api/embed/token/business-session/revoke".equals(request.path())
+                && digest.equals(request.bodySha256())));
+        verify(revocation).revoke("erp", "abcdefghijklmnopqrstuvwxyz0123456789ABCDE");
+        org.mockito.Mockito.reset(verifier, revocation);
+        when(verifier.verify(any())).thenThrow(new org.springframework.web.server.ResponseStatusException(
+                HttpStatus.UNAUTHORIZED, "invalid signature"));
+        assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.revokeBusinessSession("key", "1", "nonce", digest, "invalid", body));
+        verifyNoInteractions(revocation);
+    }
+
+    @Test
+    void embedMessageDoesNotPresentRuntimeFailureAsSuccessfulAnswer() {
+        PlatformEmbedTokenProperties properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        PlatformEmbedTokenService tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        PlatformEmbedSessionService sessions = mock(PlatformEmbedSessionService.class);
+        PlatformEmbedChatEventService events = mock(PlatformEmbedChatEventService.class);
+        var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
+        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(tokens, sessions, events,
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("1").appId("erp").projectCode("erp").agentId("erp-bot")
+                .pageInstanceId("page-1").origin("http://localhost:5173")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
+                        "user-1", "user-1", "Employee", List.of(), Map.of()))
+                .build()).token();
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("session-1");
+        session.setProjectCode("erp");
+        session.setAgentId("erp-bot");
+        session.setExternalUserId("user-1");
+        when(sessions.requireActiveSession(eq("session-1"), any())).thenReturn(session);
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false,
+                        "answer", "Agent has no published Supervisor configuration: erp-bot",
+                        "metadata", Map.of("code", "RUNTIME_AGENT_CONFIG_NOT_PUBLISHED"))));
+
+        var result = controller.sendMessage("session-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedChatMessageRequest("你好"));
+
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, result.getStatusCode());
+        assertEquals(503, result.getBody().getCode());
+        assertEquals("助手暂时无法完成请求，请稍后重试或联系管理员", result.getBody().getMessage());
+        var interaction = controller.submitInteraction("session-1", "interaction-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, interaction.getStatusCode());
+        assertEquals(503, interaction.getBody().getCode());
+        verify(events).recordUserMessage(session, "你好");
+        verify(events, never()).recordAssistantMessage(any(), any(), any(), any());
+    }
+
+    @Test
+    void returnsOnlyValidPendingInteractionsFromNonStreamingEmbedCalls() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var events = mock(PlatformEmbedChatEventService.class);
+        var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
+        var controller = new PlatformEmbedPublicController(tokens, sessions, events,
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("1").appId("erp").projectCode("erp").agentId("erp-bot")
+                .pageInstanceId("page-1").origin("http://localhost:5173")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
+                        "user-1", "user-1", "Employee", List.of(), Map.of()))
+                .build()).token();
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("session-1");
+        session.setProjectCode("erp");
+        session.setAgentId("erp-bot");
+        session.setExternalUserId("user-1");
+        when(sessions.requireActiveSession(eq("session-1"), any())).thenReturn(session);
+        var ui = Map.of("interactionId", "interaction-1", "component", "confirm");
+        for (String code : List.of("SUPERVISOR_CONFIRMATION_REQUIRED", "RUNTIME_GRAPH_INTERACTION_WAITING")) {
+            when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                    .thenReturn(ResponseEntity.ok(Map.of("success", false, "answer", "需要确认",
+                            "metadata", Map.of("code", code), "uiRequest", ui)));
+            var result = controller.sendMessage("session-1", "Bearer " + token,
+                    new PlatformEmbedPublicController.EmbedChatMessageRequest("执行"));
+            assertEquals(HttpStatus.OK, result.getStatusCode());
+            assertEquals(ui, result.getBody().getData().uiRequest());
+        }
+        var next = controller.submitInteraction("session-1", "interaction-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
+        assertEquals(HttpStatus.OK, next.getStatusCode());
+        assertEquals(ui, next.getBody().getData().uiRequest());
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false,
+                        "metadata", Map.of("code", "SUPERVISOR_CONFIRMATION_REQUIRED"),
+                        "uiRequest", Map.of("component", "confirm"))));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.sendMessage("session-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedChatMessageRequest("执行")).getStatusCode());
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false,
+                        "metadata", Map.of("code", "RUNTIME_EXECUTION_FAILED"), "uiRequest", ui)));
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, controller.sendMessage("session-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedChatMessageRequest("执行")).getStatusCode());
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false, "answer", "internal approval detail",
+                        "metadata", Map.of("code", "SUPERVISOR_APPROVAL_INVALID"))));
+        var conflict = controller.submitInteraction("session-1", "interaction-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
+        assertEquals(HttpStatus.CONFLICT, conflict.getStatusCode());
+        assertEquals("确认请求无效或已结束，请刷新对话查看结果", conflict.getBody().getMessage());
+        verify(events, times(3)).recordAssistantMessage(eq(session), any(), any(), any());
+    }
+
+    @Test
+    void rejectsMissingOrTamperedBodySignatureBeforeIdentityIsAccepted() {
+        CapabilityProjectRequestVerificationGateway verifier = mock(CapabilityProjectRequestVerificationGateway.class);
+        CapabilityProxyClient capability = mock(CapabilityProxyClient.class);
+        PlatformEmbedTokenProperties properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+                new PlatformEmbedTokenService(new ObjectMapper(), properties),
+                mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class),
+                capability, mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(verifier);
+        byte[] alteredBody = "{\"principal\":{\"externalUserId\":\"admin\"}}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String originalDigest = InternalServiceHmac.bodySha256Hex("{}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals(HttpStatus.FORBIDDEN, controller.exchangeToken("key", null, "1", null, "nonce", null,
+                "legacy", null, originalDigest, "signed", alteredBody).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, controller.exchangeToken("key", null, "1", null, "nonce", null,
+                "legacy", null, null, null, alteredBody).getStatusCode());
+        verifyNoInteractions(verifier, capability);
+    }
 
     @Test
     void rejectsMissingEmbedTokenSigningKey() {
@@ -110,6 +348,10 @@ class PlatformEmbedPublicControllerTest {
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
+        BusinessUserSyncService businessUsers = mock(BusinessUserSyncService.class);
+        controller.setBusinessUserSyncService(businessUsers);
+        CapabilityProjectRequestVerificationGateway verifier = mock(CapabilityProjectRequestVerificationGateway.class);
+        controller.setProjectRequestVerifier(verifier);
         when(capabilityProxyClient.verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
                 eq("1700000000000"),
@@ -126,7 +368,7 @@ class PlatformEmbedPublicControllerTest {
                 "enabled", true))));
 
         ResponseEntity<ApiResult<PlatformEmbedPublicController.EmbedTokenExchangeResponse>> response =
-                controller.exchangeToken(
+                exchange(controller,
                         "app-bzjs12",
                         null,
                         "1700000000000",
@@ -147,7 +389,7 @@ class PlatformEmbedPublicControllerTest {
                                         "global-1",
                                         "Alice",
                                         List.of("operator"),
-                                        Map.of("dept", "ops"))));
+                                        Map.of("dept", "ops", "tenantId", "42"))));
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(200, response.getBody().getCode());
@@ -159,6 +401,17 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("bzjs12", claims.getProjectCode());
         assertEquals("orders-bot", claims.getAgentId());
         assertEquals("user-1", claims.getExternalUserId());
+        assertEquals("42", claims.getTenantId());
+        verify(verifier).verify(argThat(signed -> "bzjs12".equals(signed.projectCode())
+                && "app-bzjs12".equals(signed.appKey())
+                && "POST".equals(signed.method())
+                && "/api/embed/token/exchange".equals(signed.path())
+                && "1700000000000".equals(signed.timestamp())
+                && "nonce-1".equals(signed.nonce())
+                && signed.bodySha256().matches("[0-9a-f]{64}")
+                && "body-signature".equals(signed.signature())));
+        verify(businessUsers).sync(argThat(user -> "42".equals(user.tenantId())
+                && "user-1".equals(user.externalUserId())));
         assertEquals("page-1", claims.getPageInstanceId());
         verify(capabilityProxyClient).verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
@@ -184,6 +437,7 @@ class PlatformEmbedPublicControllerTest {
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
         when(capabilityProxyClient.verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
                 eq("1700000000000"),
@@ -192,7 +446,7 @@ class PlatformEmbedPublicControllerTest {
                 any())).thenThrow(new RuntimeException("forbidden"));
 
         ResponseEntity<ApiResult<PlatformEmbedPublicController.EmbedTokenExchangeResponse>> response =
-                controller.exchangeToken(
+                exchange(controller,
                         "app-bzjs12",
                         null,
                         "1700000000000",
@@ -270,7 +524,7 @@ class PlatformEmbedPublicControllerTest {
         session.setOrigin("http://localhost:5173");
         session.setStatus("ACTIVE");
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
-        when(trustedExecutionClient.executeTrusted(any(), eq("EMBED_SESSION"), eq("user-1"))).thenReturn(ResponseEntity.ok(Map.of(
+        when(trustedExecutionClient.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any())).thenReturn(ResponseEntity.ok(Map.of(
                 "success", true,
                 "sessionId", "embed-1",
                 "answer", "订单已找到",
@@ -287,7 +541,7 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(200, response.getBody().getCode());
         assertEquals("订单已找到", response.getBody().getData().answer());
         assertEquals("embed-1", response.getBody().getData().sessionId());
-        verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null && "orders-bot".equals(body.get("agentId")) && "embed-1".equals(body.get("sessionId")) && "查订单".equals(body.get("message")) && "EMBED_CHAT".equals(body.get("intentHint"))), eq("EMBED_SESSION"), eq("user-1"));
+        verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null && "orders-bot".equals(body.get("agentId")) && "embed-1".equals(body.get("sessionId")) && "查订单".equals(body.get("message")) && "EMBED_CHAT".equals(body.get("intentHint"))), eq("EMBED_SESSION"), any(), eq("user-1"), any());
         verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null
                         && "Alice".equals(body.get("userName"))
                         && List.of("operator").equals(body.get("roles"))
@@ -295,7 +549,7 @@ class PlatformEmbedPublicControllerTest {
                         && "Operations".equals(body.get("deptName"))
                         && Map.of("deptId", "dept-1", "deptName", "Operations", "region", "east")
                         .equals(body.get("attributes"))),
-                eq("EMBED_SESSION"), eq("user-1"));
+                eq("EMBED_SESSION"), any(), eq("user-1"), any());
         verify(chatEventMapper, times(2)).insert(any());
         verify(chatEventMapper).insert(argThat(event ->
                 "MESSAGE".equals(event.getEventType())
@@ -351,7 +605,7 @@ class PlatformEmbedPublicControllerTest {
         session.setOrigin("http://localhost:5173");
         session.setStatus("ACTIVE");
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
-        when(trustedExecutionClient.executeTrusted(any(), eq("EMBED_SESSION"), eq("user-1"))).thenReturn(ResponseEntity.ok(Map.of(
+        when(trustedExecutionClient.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any())).thenReturn(ResponseEntity.ok(Map.of(
                 "success", true,
                 "sessionId", "embed-1",
                 "answer", "订单已更新",
@@ -367,7 +621,7 @@ class PlatformEmbedPublicControllerTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("订单已更新", response.getBody().getData().answer());
-        verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null && "orders-bot".equals(body.get("agentId")) && "embed-1".equals(body.get("sessionId")) && "spv_1".equals(body.get("interactionId")) && "EMBED_INTERACTION_RESUME".equals(body.get("intentHint")) && "confirm".equals(((Map<?, ?>) body.get("uiSubmit")).get("action"))), eq("EMBED_SESSION"), eq("user-1"));
+        verify(trustedExecutionClient).executeTrusted(argThat(body -> body != null && "orders-bot".equals(body.get("agentId")) && "embed-1".equals(body.get("sessionId")) && "spv_1".equals(body.get("interactionId")) && "EMBED_INTERACTION_RESUME".equals(body.get("intentHint")) && "confirm".equals(((Map<?, ?>) body.get("uiSubmit")).get("action"))), eq("EMBED_SESSION"), any(), eq("user-1"), any());
     }
 
     @Test
@@ -500,7 +754,7 @@ class PlatformEmbedPublicControllerTest {
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setRequestId("req-1");
-        event.setSessionId("embed-1");
+        event.setSessionId("embed-1"); bindEvent(event);
         event.setNodeId("node-1");
         event.setActionKey("orders.open");
         event.setTitle("打开订单");
@@ -521,6 +775,35 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("page-1", request.target().get("pageInstanceId"));
         assertEquals(12, request.args().get("orderId"));
         assertEquals("orders.list", request.metadata().get("pageKey"));
+    }
+
+    @Test
+    void foreignTenantAndCaseMismatchedPageActionsCannotBeListedClaimedOrCompleted() {
+        var properties = new PlatformEmbedTokenProperties(); properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), events);
+        var auth = "Bearer " + embedToken(tokens);
+        when(sessions.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
+        var event = new PlatformPageActionEventEntity();
+        event.setId(42L); event.setSessionId("embed-1"); bindEvent(event); event.setTenantId("other-tenant");
+        event.setRequestId("req-1"); event.setActionKey("orders.open"); event.setStatus("REQUESTED");
+        when(events.selectList(any())).thenReturn(List.of(event));
+        when(events.selectOne(any())).thenReturn(event);
+        assertTrue(controller.listPendingPageActions("embed-1", auth, 10).getBody().getData().isEmpty());
+        assertEquals(HttpStatus.NOT_FOUND, controller.claimPageAction("embed-1", "req-1", auth,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-1", "orders.open")).getStatusCode());
+        assertEquals(HttpStatus.NOT_FOUND, controller.submitPageActionResult("embed-1", "req-1", auth,
+                new PlatformEmbedPublicController.PageActionResultRequest("1.0", "page.action.result", "req-1",
+                        "orders.open", "USER_CANCELLED", Map.of(), null, null, false)).getStatusCode());
+        event.setTenantId("default"); event.setRequestId("REQ-1");
+        assertEquals(HttpStatus.NOT_FOUND, controller.claimPageAction("embed-1", "req-1", auth,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-1", "orders.open")).getStatusCode());
+        verify(events, never()).update(any(), any());
     }
 
     @Test
@@ -545,7 +828,7 @@ class PlatformEmbedPublicControllerTest {
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setRequestId("req-1");
-        event.setSessionId("embed-1");
+        event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.open");
         event.setStatus("EXECUTING");
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
@@ -590,7 +873,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setId(42L);
         event.setRequestId("req-claim");
-        event.setSessionId("embed-1");
+        event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.enable");
         event.setStatus("REQUESTED");
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
@@ -625,7 +908,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setId(43L);
         event.setRequestId("req-timeout");
-        event.setSessionId("embed-1");
+        event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.enable");
         event.setStatus("TIMEOUT");
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
@@ -671,15 +954,16 @@ class PlatformEmbedPublicControllerTest {
                         "user-1", "global-1", "Alice", List.of("operator"), Map.of()))
                 .build()).token();
         PlatformEmbedSessionEntity session = activeSession();
-        session.setPageKey("orders.audit");
-        session.setPageInstanceId("page-2");
-        session.setRoute("/orders/audit");
+        session.setPageKey("orders.list");
+        session.setPageInstanceId("page-1");
+        session.setRoute("/orders");
         PlatformPageActionEventEntity navigation = new PlatformPageActionEventEntity();
         navigation.setRequestId("navigate-1");
-        navigation.setSessionId("embed-1");
+        navigation.setSessionId("embed-1"); bindEvent(navigation);
         navigation.setCommandType("NAVIGATE");
         navigation.setActionKey(PlatformPageBridgeCommandService.NAVIGATE_ACTION);
         navigation.setTargetPageKey("orders.audit");
+        navigation.setTargetPageInstanceId("page-1");
         navigation.setTargetRoute("/orders/audit");
         // The source page can acknowledge router navigation before the target
         // component has registered its Page Bridge. The target rebind remains
@@ -687,6 +971,7 @@ class PlatformEmbedPublicControllerTest {
         navigation.setStatus("SUCCESS");
         when(sessionService.requireActiveSessionForNavigationRebind(eq("embed-1"), any())).thenReturn(session);
         when(pageActionEventMapper.selectOne(any())).thenReturn(navigation);
+        when(pageActionEventMapper.updateById(any(PlatformPageActionEventEntity.class))).thenReturn(1);
 
         ResponseEntity<ApiResult<PlatformEmbedPublicController.PageBridgeRebindResponse>> response =
                 controller.rebindPageBridge(
@@ -732,19 +1017,21 @@ class PlatformEmbedPublicControllerTest {
                         "user-1", "global-1", "Alice", List.of(), Map.of()))
                 .build()).token();
         PlatformEmbedSessionEntity session = activeSession();
-        session.setPageKey("team.cycle-audit");
-        session.setPageInstanceId("page-2");
-        session.setRoute(targetRoute);
+        session.setPageKey("orders.list");
+        session.setPageInstanceId("page-1");
+        session.setRoute("/orders");
         PlatformPageActionEventEntity navigation = new PlatformPageActionEventEntity();
         navigation.setRequestId("navigate-2");
-        navigation.setSessionId("embed-1");
+        navigation.setSessionId("embed-1"); bindEvent(navigation);
         navigation.setCommandType("NAVIGATE");
         navigation.setActionKey(PlatformPageBridgeCommandService.NAVIGATE_ACTION);
         navigation.setTargetPageKey("team.cycle-audit");
+        navigation.setTargetPageInstanceId("page-1");
         navigation.setTargetRoute("/team-build/cycle-management/audit/:depart/:cycle");
-        navigation.setStatus("REQUESTED");
+        navigation.setStatus("EXECUTING");
         when(sessionService.requireActiveSessionForNavigationRebind(eq("embed-1"), any())).thenReturn(session);
         when(pageActionEventMapper.selectOne(any())).thenReturn(navigation);
+        when(pageActionEventMapper.updateById(any(PlatformPageActionEventEntity.class))).thenReturn(1);
 
         ResponseEntity<ApiResult<PlatformEmbedPublicController.PageBridgeRebindResponse>> response =
                 controller.rebindPageBridge("embed-1", "Bearer " + token,
@@ -777,7 +1064,7 @@ class PlatformEmbedPublicControllerTest {
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setRequestId("req-1");
-        event.setSessionId("embed-1");
+        event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.open");
         event.setStatus("EXECUTING");
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
@@ -821,6 +1108,23 @@ class PlatformEmbedPublicControllerTest {
                         List.of("operator"),
                         Map.of("dept", "ops")))
                 .build()).token();
+    }
+
+    private static ResponseEntity<ApiResult<PlatformEmbedPublicController.EmbedTokenExchangeResponse>> exchange(
+            PlatformEmbedPublicController controller, String appKey, String eafAppKey,
+            String timestamp, String eafTimestamp, String nonce, String eafNonce,
+            String signature, String eafSignature, PlatformEmbedPublicController.EmbedTokenExchangeRequest request) {
+        try {
+            byte[] body = new ObjectMapper().writeValueAsBytes(request);
+            return controller.exchangeToken(appKey, eafAppKey, timestamp, eafTimestamp, nonce, eafNonce,
+                    signature, eafSignature, InternalServiceHmac.bodySha256Hex(body), "body-signature", body);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException ex) {
+            throw new IllegalStateException(ex);
+        }
+    }
+
+    private void bindEvent(PlatformPageActionEventEntity event) {
+        event.setTenantId("default"); event.setAppId("bzjs12"); event.setAgentId("orders-bot");
     }
 
     private PlatformEmbedSessionEntity activeSession() {

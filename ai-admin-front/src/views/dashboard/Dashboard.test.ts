@@ -46,8 +46,6 @@ function mockAllReady() {
         projectCode: 'ORDER',
         baseUrl: '',
         contextPath: '',
-        scanPath: '',
-        scanType: 'auto',
         toolCount: 12,
         status: 'scanned',
       },
@@ -192,7 +190,26 @@ describe('Dashboard 智能体运营中心', () => {
     expect(text).toContain('当前范围暂无 Agent 运行样本')
     expect(text).toContain('当前时间范围暂无运行样本')
     expect(text).toContain('暂无可确认的 Token 记录')
-    expect(text).toContain('尚未创建 Workflow')
+    expect(text).not.toContain('尚未创建 Workflow')
+    expect(wrapper.find('.ops-data-warning').exists()).toBe(false)
+  })
+
+  it('Workflow 为空时仍显示运行样本达到上限的提示', async () => {
+    mockAllReady()
+    mocks.listWorkflows.mockResolvedValue({ data: [] })
+    mocks.getRecentRunOps.mockResolvedValue({
+      data: Array.from({ length: 100 }, (_, index) => ({
+        traceId: `trace-${index}`,
+        runType: 'AGENT',
+        status: 'COMPLETED',
+        startedAt: new Date().toISOString(),
+      })),
+    })
+    const wrapper = mountDashboard()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('运行记录达到 100 条接口上限')
+    expect(wrapper.text()).not.toContain('尚未创建 Workflow')
   })
 
   it('畸形 payload 进入错误态而不是伪装成空数据', async () => {

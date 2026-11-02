@@ -1,1 +1,2 @@
 *.patch -whitespace
+.githooks/* text eol=lf

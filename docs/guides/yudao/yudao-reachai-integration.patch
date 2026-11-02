@@ -1,16 +1,3 @@
-diff --git a/pom.xml b/pom.xml
-index 3e8c815ec5..c29f31533a 100644
---- a/pom.xml
-+++ b/pom.xml
-@@ -22,7 +22,7 @@
- <!--        <module>yudao-module-pay</module>-->
- <!--        <module>yudao-module-mall</module>-->
- <!--        <module>yudao-module-crm</module>-->
--<!--        <module>yudao-module-erp</module>-->
-+        <module>yudao-module-erp</module>
- <!--        <module>yudao-module-iot</module>-->
- <!--        <module>yudao-module-mes</module>-->
- <!--        <module>yudao-module-wms</module>-->
 diff --git a/yudao-module-erp/pom.xml b/yudao-module-erp/pom.xml
 index ce377fff12..d2de3c9a53 100644
 --- a/yudao-module-erp/pom.xml
@@ -54,7 +41,7 @@ index aba64d8d80..8adadd3106 100644
 +    @ReachCapability(name = "erpProductPage", title = "查询产品",
 +            description = "按产品名称或分类分页查询 ERP 产品，返回产品编号、名称、条码、规格、单位、分类、采购价、销售价和最低价。查库存、下单前先用它把产品名称换成产品编号。",
 +            domain = "erp", module = "product", tags = {"产品", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得产品分页")
      @PreAuthorize("@ss.hasPermission('erp:product:query')")
@@ -65,7 +52,7 @@ index aba64d8d80..8adadd3106 100644
 +    @ReachCapability(name = "erpProductSimpleList", title = "获取全部启用产品",
 +            description = "返回全部启用状态的 ERP 产品精简列表（编号、名称、单位、价格），适合把产品名称匹配为产品编号。",
 +            domain = "erp", module = "product", tags = {"产品"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/simple-list")
      @Operation(summary = "获得产品精简列表", description = "只包含被开启的产品，主要用于前端的下拉选项")
      public CommonResult<List<ErpProductRespVO>> getProductSimpleList() {
@@ -113,7 +100,7 @@ index c3d36e97b4..397bb6e579 100644
 +    @ReachCapability(name = "erpPurchaseOrderPage", title = "查询采购订单",
 +            description = "按采购单号、供应商编号、产品编号、审核状态、入库状态分页查询 ERP 采购订单，返回订单号、供应商、采购时间、产品摘要、数量、金额和入库进度。",
 +            domain = "erp", module = "purchase", tags = {"采购订单", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得采购订单分页")
      @PreAuthorize("@ss.hasPermission('erp:purchase-order:query')")
@@ -137,7 +124,7 @@ index affc0cadb0..16aea9a524 100644
 +    @ReachCapability(name = "erpSupplierPage", title = "查询供应商",
 +            description = "按供应商名称、手机号或联系电话分页查询 ERP 供应商。",
 +            domain = "erp", module = "purchase", tags = {"供应商", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得供应商分页")
      @PreAuthorize("@ss.hasPermission('erp:supplier:query')")
@@ -232,7 +219,7 @@ index 5a1c4a8914..1f789ef66f 100644
 +    @ReachCapability(name = "erpCustomerCreate", title = "新建客户",
 +            description = "在 ERP 中新建一个客户。name、status（0 开启 1 关闭）和 sort 必填，其余联系方式、税务和银行信息可选。返回新客户编号。",
 +            domain = "erp", module = "sale", tags = {"客户", "新建"},
-+            sideEffect = ReachSideEffectLevel.WRITE)
++            sideEffect = ReachSideEffectLevel.WRITE, businessIdentityRequired = true)
      @PostMapping("/create")
      @Operation(summary = "创建客户")
      @PreAuthorize("@ss.hasPermission('erp:customer:create')")
@@ -243,7 +230,7 @@ index 5a1c4a8914..1f789ef66f 100644
 +    @ReachCapability(name = "erpCustomerPage", title = "查询客户",
 +            description = "按客户名称、手机号或联系电话分页查询 ERP 客户，返回客户编号、联系人、联系方式、税号和开户信息。",
 +            domain = "erp", module = "sale", tags = {"客户", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得客户分页")
      @PreAuthorize("@ss.hasPermission('erp:customer:query')")
@@ -267,7 +254,7 @@ index 0e4d28661a..c97dba8deb 100644
 +    @ReachCapability(name = "erpSaleOrderPage", title = "查询销售订单",
 +            description = "按销售单号、客户编号、产品编号、审核状态、出库状态分页查询 ERP 销售订单，返回订单号、客户、下单时间、产品摘要、数量、金额、已出库和已退货数量。",
 +            domain = "erp", module = "sale", tags = {"销售订单", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得销售订单分页")
      @PreAuthorize("@ss.hasPermission('erp:sale-order:query')")
@@ -420,7 +407,7 @@ index be0258dabe..22d83d4b4e 100644
 +    @ReachCapability(name = "erpPurchaseSummary", title = "采购统计概览",
 +            description = "返回今天、昨天、本月、今年的 ERP 采购额汇总。",
 +            domain = "erp", module = "statistics", tags = {"采购统计"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/summary")
      @Operation(summary = "获得采购统计")
      @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
@@ -444,7 +431,7 @@ index c43c971fe8..e457e4d3eb 100644
 +    @ReachCapability(name = "erpSaleSummary", title = "销售统计概览",
 +            description = "返回今天、昨天、本月、今年的 ERP 销售额汇总，用于回答“今天/本月卖了多少”。",
 +            domain = "erp", module = "statistics", tags = {"销售统计"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/summary")
      @Operation(summary = "获得销售统计")
      @PreAuthorize("@ss.hasPermission('erp:statistics:query')")
@@ -468,7 +455,7 @@ index b63f82d7df..bf66792c77 100644
 +    @ReachCapability(name = "erpStockPage", title = "查询产品库存",
 +            description = "按产品编号、仓库编号分页查询 ERP 产品库存，返回产品名称、仓库名称、库存数量和单位。只能按编号过滤，按名称查询时先用 erpProductPage 找到产品编号。",
 +            domain = "erp", module = "stock", tags = {"库存", "列表查询"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/page")
      @Operation(summary = "获得产品库存分页")
      @PreAuthorize("@ss.hasPermission('erp:stock:query')")
@@ -492,7 +479,7 @@ index 9de214b80c..6688671ae3 100644
 +    @ReachCapability(name = "erpWarehouseSimpleList", title = "获取全部仓库",
 +            description = "返回全部启用仓库的编号和名称，用于把仓库名称换成仓库编号。",
 +            domain = "erp", module = "stock", tags = {"仓库"},
-+            sideEffect = ReachSideEffectLevel.READ)
++            sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)
      @GetMapping("/simple-list")
      @Operation(summary = "获得仓库精简列表", description = "只包含被开启的仓库，主要用于前端的下拉选项")
      public CommonResult<List<ErpWarehouseRespVO>> getWarehouseSimpleList() {
@@ -521,46 +508,124 @@ index f7f3fa3439..cf1a104dd9 100644
      private Long warehouseId;
  
 diff --git a/yudao-server/pom.xml b/yudao-server/pom.xml
-index 88ebde578b..f9a715c686 100644
 --- a/yudao-server/pom.xml
 +++ b/yudao-server/pom.xml
-@@ -95,11 +95,18 @@
- <!--        </dependency>-->
- 
-         <!-- ERP 相关模块。默认注释，保证编译速度 -->
--<!--        <dependency>-->
--<!--            <groupId>cn.iocoder.boot</groupId>-->
--<!--            <artifactId>yudao-module-erp</artifactId>-->
--<!--            <version>${revision}</version>-->
--<!--        </dependency>-->
-+        <dependency>
-+            <groupId>cn.iocoder.boot</groupId>
-+            <artifactId>yudao-module-erp</artifactId>
-+            <version>${revision}</version>
+@@ -99,6 +99,12 @@
+             <groupId>cn.iocoder.boot</groupId>
+             <artifactId>yudao-module-erp</artifactId>
+             <version>${revision}</version>
 +        </dependency>
 +
-+        <!-- ReachAI 接入：项目注册、心跳、能力同步与调用入口 -->
 +        <dependency>
 +            <groupId>com.enterprise.ai</groupId>
 +            <artifactId>reachai-spring-boot2-starter</artifactId>
 +            <version>1.0.0-SNAPSHOT</version>
-+        </dependency>
+         </dependency>
  
          <!-- AI 大模型相关模块。默认注释，保证编译速度 -->
- <!--        <dependency>-->
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
+new file mode 100644
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
+@@ -0,0 +1,83 @@
++package cn.iocoder.yudao.server.reachai;
++
++import cn.hutool.core.util.NumberUtil;
++import cn.hutool.core.util.StrUtil;
++import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
++import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
++import cn.iocoder.yudao.framework.common.exception.ServiceException;
++import cn.iocoder.yudao.framework.security.core.LoginUser;
++import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
++import cn.iocoder.yudao.framework.tenant.core.service.TenantFrameworkService;
++import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
++import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
++import cn.iocoder.yudao.module.system.service.user.AdminUserService;
++import com.enterprise.ai.reach.spring.ReachAiInvocationContext;
++import com.enterprise.ai.reach.spring.ReachAiSecurityContextBridge;
++import lombok.extern.slf4j.Slf4j;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.context.SecurityContext;
++import org.springframework.security.core.context.SecurityContextHolder;
++
++import java.util.Collections;
++import java.util.HashMap;
++import java.util.Map;
++
++/**
++ * 把 ReachAI 已验签的调用身份映射为芋道的租户和登录用户，让 {@code @PreAuthorize}、数据权限和多租户插件照常生效。
++ *
++ * <p>仅使用调用令牌中的芋道租户编号和外部用户编号，缺失或无效时拒绝调用。</p>
++ */
++@Slf4j
++public class YudaoReachAiSecurityBridge implements ReachAiSecurityContextBridge {
++
++    private final AdminUserService adminUserService;
++    private final TenantFrameworkService tenantFrameworkService;
++
++    public YudaoReachAiSecurityBridge(AdminUserService adminUserService, TenantFrameworkService tenantFrameworkService) {
++        this.adminUserService = adminUserService;
++        this.tenantFrameworkService = tenantFrameworkService;
++    }
++
++    @Override
++    public Object runWith(ReachAiInvocationContext context, Invocation invocation) throws Exception {
++        if (!NumberUtil.isLong(context.getTenantId()) || !NumberUtil.isLong(context.getExternalUserId())) {
++            throw new ServiceException(403, "调用需要有效的芋道用户和租户身份，请通过业务页面发起");
++        }
++        Long tenantId = Long.valueOf(context.getTenantId());
++        // /reachai/** 不属于芋道的 /admin-api 或 /app-api，须主动执行租户有效性校验。
++        tenantFrameworkService.validTenant(tenantId);
++        // 用户查询本身也受多租户约束，所以在目标租户内解析
++        AdminUserDO user = TenantUtils.execute(tenantId, () -> adminUserService.getUser(Long.valueOf(context.getExternalUserId())));
++        if (user == null || !CommonStatusEnum.ENABLE.getStatus().equals(user.getStatus())) {
++            throw new ServiceException(403, "当前身份无法映射到可用的芋道用户");
++        }
++        LoginUser loginUser = new LoginUser().setId(user.getId()).setUserType(UserTypeEnum.ADMIN.getValue())
++                .setTenantId(tenantId).setInfo(buildInfo(user)).setScopes(Collections.emptyList());
++
++        Long oldTenantId = TenantContextHolder.getTenantId();
++        Boolean oldIgnore = TenantContextHolder.isIgnore();
++        SecurityContext oldSecurityContext = SecurityContextHolder.getContext();
++        try {
++            TenantContextHolder.setTenantId(tenantId);
++            TenantContextHolder.setIgnore(false);
++            SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
++            securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
++            SecurityContextHolder.setContext(securityContext);
++            log.info("[ReachAI] capability={} agent={} trace={} -> yudao user={} tenant={}",
++                    context.getCapabilityName(), context.getAgentId(), context.getTraceId(), user.getId(), tenantId);
++            return invocation.proceed();
++        } finally {
++            SecurityContextHolder.setContext(oldSecurityContext);
++            TenantContextHolder.setTenantId(oldTenantId);
++            TenantContextHolder.setIgnore(oldIgnore);
++        }
++    }
++
++    private static Map<String, String> buildInfo(AdminUserDO user) {
++        Map<String, String> info = new HashMap<>();
++        info.put(LoginUser.INFO_KEY_NICKNAME, user.getNickname());
++        info.put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId()));
++        return info;
++    }
++
++}
 diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
 new file mode 100644
-index 0000000000..47e77e5df1
+index 0000000..fa47422
 --- /dev/null
 +++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiConfiguration.java
-@@ -0,0 +1,49 @@
+@@ -0,0 +1,56 @@
 +package cn.iocoder.yudao.server.reachai;
 +
 +import cn.iocoder.yudao.framework.security.config.AuthorizeRequestsCustomizer;
++import cn.iocoder.yudao.framework.security.config.SecurityProperties;
++import cn.iocoder.yudao.framework.tenant.core.service.TenantFrameworkService;
 +import cn.iocoder.yudao.module.system.service.permission.PermissionService;
 +import cn.iocoder.yudao.module.system.service.permission.RoleService;
 +import cn.iocoder.yudao.module.system.service.user.AdminUserService;
-+import org.springframework.beans.factory.annotation.Value;
++import cn.iocoder.yudao.module.system.service.oauth2.OAuth2TokenService;
 +import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 +import org.springframework.context.annotation.Bean;
 +import org.springframework.context.annotation.Configuration;
@@ -588,35 +653,42 @@ index 0000000000..47e77e5df1
 +    }
 +
 +    @Bean
-+    public YudaoReachAiSecurityBridge yudaoReachAiSecurityBridge(
-+            AdminUserService adminUserService,
-+            @Value("${yudao.reachai.default-tenant-id:1}") Long defaultTenantId,
-+            @Value("${yudao.reachai.default-user-id:}") Long defaultUserId) {
-+        return new YudaoReachAiSecurityBridge(adminUserService, defaultTenantId, defaultUserId);
++    public YudaoReachAiSecurityBridge yudaoReachAiSecurityBridge(AdminUserService adminUserService,
++                                                                TenantFrameworkService tenantFrameworkService) {
++        return new YudaoReachAiSecurityBridge(adminUserService, tenantFrameworkService);
 +    }
 +
 +    /** 提供后 Starter 自动暴露 POST /reachai/embed/token，供嵌入式对话用当前登录用户换取令牌。 */
 +    @Bean
++    public YudaoReachAiBusinessSession yudaoReachAiBusinessSession(
++            OAuth2TokenService tokens, SecurityProperties security) {
++        return new YudaoReachAiBusinessSession(tokens, security);
++    }
++
++    @Bean
 +    public YudaoReachAiEmbedPrincipalResolver yudaoReachAiEmbedPrincipalResolver(
-+            AdminUserService adminUserService, PermissionService permissionService, RoleService roleService) {
-+        return new YudaoReachAiEmbedPrincipalResolver(adminUserService, permissionService, roleService);
++            AdminUserService adminUserService, PermissionService permissionService, RoleService roleService,
++            TenantFrameworkService tenantFrameworkService, YudaoReachAiBusinessSession businessSession) {
++        return new YudaoReachAiEmbedPrincipalResolver(adminUserService, permissionService, roleService, tenantFrameworkService, businessSession);
 +    }
 +
 +}
 diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java
 new file mode 100644
-index 0000000000..24ce67f817
+index 0000000..53b72d8
 --- /dev/null
 +++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiEmbedPrincipalResolver.java
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,90 @@
 +package cn.iocoder.yudao.server.reachai;
 +
 +import cn.hutool.core.collection.CollUtil;
 +import cn.hutool.core.util.StrUtil;
 +import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
++import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
 +import cn.iocoder.yudao.framework.security.core.LoginUser;
 +import cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils;
 +import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
++import cn.iocoder.yudao.framework.tenant.core.service.TenantFrameworkService;
 +import cn.iocoder.yudao.module.system.dal.dataobject.permission.RoleDO;
 +import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
 +import cn.iocoder.yudao.module.system.service.permission.PermissionService;
@@ -644,21 +716,31 @@ index 0000000000..24ce67f817
 +    private final AdminUserService adminUserService;
 +    private final PermissionService permissionService;
 +    private final RoleService roleService;
++    private final TenantFrameworkService tenantFrameworkService;
++    private final YudaoReachAiBusinessSession businessSession;
 +
 +    public YudaoReachAiEmbedPrincipalResolver(AdminUserService adminUserService,
 +                                              PermissionService permissionService,
-+                                              RoleService roleService) {
++                                              RoleService roleService,
++                                              TenantFrameworkService tenantFrameworkService,
++                                              YudaoReachAiBusinessSession businessSession) {
 +        this.adminUserService = adminUserService;
 +        this.permissionService = permissionService;
 +        this.roleService = roleService;
++        this.tenantFrameworkService = tenantFrameworkService;
++        this.businessSession = businessSession;
 +    }
 +
 +    @Override
 +    public ReachAiEmbedPrincipal resolve(String agentId) {
 +        LoginUser loginUser = SecurityFrameworkUtils.getLoginUser();
-+        if (loginUser == null || loginUser.getId() == null || loginUser.getTenantId() == null) {
++        if (loginUser == null || loginUser.getId() == null || loginUser.getTenantId() == null
++                || !UserTypeEnum.ADMIN.getValue().equals(loginUser.getUserType())) {
 +            return null;
 +        }
++        tenantFrameworkService.validTenant(loginUser.getTenantId());
++        YudaoReachAiBusinessSession.Session session = businessSession.resolve(loginUser);
++        if (session == null) return null;
 +        return TenantUtils.execute(loginUser.getTenantId(), () -> {
 +            AdminUserDO user = adminUserService.getUser(loginUser.getId());
 +            if (user == null || !CommonStatusEnum.ENABLE.getStatus().equals(user.getStatus())) {
@@ -670,7 +752,8 @@ index 0000000000..24ce67f817
 +            attributes.put("username", user.getUsername());
 +            String userId = String.valueOf(user.getId());
 +            String displayName = StrUtil.isNotBlank(user.getNickname()) ? user.getNickname() : user.getUsername();
-+            return new ReachAiEmbedPrincipal(userId, userId, displayName, roleCodes(user.getId()), attributes);
++            return new ReachAiEmbedPrincipal(userId, userId, displayName, roleCodes(user.getId()), attributes,
++                    session.getId(), session.getExpiresAt());
 +        });
 +    }
 +
@@ -686,107 +769,237 @@ index 0000000000..24ce67f817
 +    }
 +
 +}
-diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiBusinessSession.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiBusinessSession.java
 new file mode 100644
-index 0000000000..fedc0e879a
+index 0000000..c800d4a
 --- /dev/null
-+++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiSecurityBridge.java
-@@ -0,0 +1,98 @@
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiBusinessSession.java
+@@ -0,0 +1,65 @@
 +package cn.iocoder.yudao.server.reachai;
 +
-+import cn.hutool.core.util.NumberUtil;
 +import cn.hutool.core.util.StrUtil;
-+import cn.iocoder.yudao.framework.common.enums.CommonStatusEnum;
-+import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
++import cn.hutool.crypto.digest.DigestUtil;
++import cn.iocoder.yudao.framework.common.exception.ServiceException;
++import cn.iocoder.yudao.framework.common.util.servlet.ServletUtils;
++import cn.iocoder.yudao.framework.security.config.SecurityProperties;
 +import cn.iocoder.yudao.framework.security.core.LoginUser;
-+import cn.iocoder.yudao.framework.tenant.core.context.TenantContextHolder;
-+import cn.iocoder.yudao.framework.tenant.core.util.TenantUtils;
-+import cn.iocoder.yudao.module.system.dal.dataobject.user.AdminUserDO;
-+import cn.iocoder.yudao.module.system.service.user.AdminUserService;
-+import com.enterprise.ai.reach.spring.ReachAiInvocationContext;
-+import com.enterprise.ai.reach.spring.ReachAiSecurityContextBridge;
-+import lombok.extern.slf4j.Slf4j;
-+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-+import org.springframework.security.core.context.SecurityContext;
-+import org.springframework.security.core.context.SecurityContextHolder;
++import cn.iocoder.yudao.framework.security.core.util.SecurityFrameworkUtils;
++import cn.iocoder.yudao.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
++import cn.iocoder.yudao.module.system.service.oauth2.OAuth2TokenService;
 +
-+import java.util.Collections;
-+import java.util.HashMap;
-+import java.util.Map;
++import javax.servlet.http.HttpServletRequest;
++import java.time.Instant;
++import java.time.ZoneId;
++import java.util.Objects;
 +
-+/**
-+ * 把 ReachAI 已验签的调用身份映射为芋道的租户和登录用户，让 {@code @PreAuthorize}、数据权限和多租户插件照常生效。
-+ *
-+ * <p>用户映射顺序：调用令牌里的外部用户编号（芋道用户 id）→ 同名芋道账号 → 配置的默认服务账号。
-+ * 都找不到时拒绝调用，而不是匿名执行。</p>
-+ */
-+@Slf4j
-+public class YudaoReachAiSecurityBridge implements ReachAiSecurityContextBridge {
++/** Derives a stable, opaque identifier from a verified host login session. */
++public class YudaoReachAiBusinessSession {
++    private final OAuth2TokenService tokens;
++    private final SecurityProperties security;
 +
-+    private final AdminUserService adminUserService;
-+    private final Long defaultTenantId;
-+    private final Long defaultUserId;
++    public YudaoReachAiBusinessSession(OAuth2TokenService tokens, SecurityProperties security) {
++        this.tokens = tokens;
++        this.security = security;
++    }
 +
-+    public YudaoReachAiSecurityBridge(AdminUserService adminUserService, Long defaultTenantId, Long defaultUserId) {
-+        this.adminUserService = adminUserService;
-+        this.defaultTenantId = defaultTenantId;
-+        this.defaultUserId = defaultUserId;
++    public Session resolve(LoginUser user) {
++        HttpServletRequest request = ServletUtils.getRequest();
++        if (request == null || user == null) return null;
++        String accessToken = SecurityFrameworkUtils.obtainAuthorization(request,
++                security.getTokenHeader(), security.getTokenParameter());
++        if (StrUtil.isBlank(accessToken)) return null;
++        OAuth2AccessTokenDO token;
++        try {
++            token = tokens.checkAccessToken(accessToken);
++        } catch (ServiceException invalid) {
++            return null;
++        }
++        if (token == null || !Objects.equals(token.getUserId(), user.getId())
++                || !Objects.equals(token.getUserType(), user.getUserType())
++                || !Objects.equals(token.getTenantId(), user.getTenantId())) return null;
++        // Yudao also accepts a refresh token as an access token for some legacy
++        // integrations. It must not extend an Embed token to the refresh lifetime.
++        if (Objects.equals(accessToken, token.getRefreshToken())) return null;
++        String id = fromRefreshToken(token.getRefreshToken());
++        if (id == null || token.getExpiresTime() == null) return null;
++        long expiresAt = token.getExpiresTime().atZone(ZoneId.systemDefault()).toEpochSecond();
++        if (expiresAt <= Instant.now().getEpochSecond()) return null;
++        return new Session(id, expiresAt);
++    }
++
++    public static String fromRefreshToken(String refreshToken) {
++        if (StrUtil.isBlank(refreshToken)) return null;
++        return DigestUtil.sha256Hex("reachai-yudao-session-v1:" + refreshToken);
++    }
++
++    public static final class Session {
++        private final String id;
++        private final long expiresAt;
++        public Session(String id, long expiresAt) { this.id = id; this.expiresAt = expiresAt; }
++        public String getId() { return id; }
++        public long getExpiresAt() { return expiresAt; }
++    }
++}
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutOutbox.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutOutbox.java
+new file mode 100644
+index 0000000..c35a891
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutOutbox.java
+@@ -0,0 +1,55 @@
++package cn.iocoder.yudao.server.reachai;
++
++import cn.iocoder.yudao.framework.common.enums.UserTypeEnum;
++import cn.iocoder.yudao.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
++import cn.iocoder.yudao.module.system.service.oauth2.OAuth2SessionRemovalListener;
++import com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient;
++import org.slf4j.Logger;
++import org.slf4j.LoggerFactory;
++import org.springframework.jdbc.core.JdbcTemplate;
++import org.springframework.scheduling.annotation.Scheduled;
++
++import java.sql.Timestamp;
++import java.time.Instant;
++import java.util.List;
++
++/** Transactional logout notification; only opaque session hashes enter the outbox. */
++public class YudaoReachAiLogoutOutbox implements OAuth2SessionRemovalListener {
++    private static final Logger log = LoggerFactory.getLogger(YudaoReachAiLogoutOutbox.class);
++    private final JdbcTemplate jdbc;
++    private final ReachAiEmbedTokenClient client;
++
++    public YudaoReachAiLogoutOutbox(JdbcTemplate jdbc, ReachAiEmbedTokenClient client) {
++        this.jdbc = jdbc;
++        this.client = client;
 +    }
 +
 +    @Override
-+    public Object runWith(ReachAiInvocationContext context, Invocation invocation) throws Exception {
-+        Long tenantId = NumberUtil.isLong(context.getTenantId()) ? Long.valueOf(context.getTenantId()) : defaultTenantId;
-+        // 用户查询本身也受多租户约束，所以在目标租户内解析
-+        AdminUserDO user = TenantUtils.execute(tenantId, () -> resolveUser(context));
-+        if (user == null || !CommonStatusEnum.ENABLE.getStatus().equals(user.getStatus())) {
-+            throw new IllegalStateException("ReachAI 调用无法映射到可用的芋道用户");
-+        }
-+        LoginUser loginUser = new LoginUser().setId(user.getId()).setUserType(UserTypeEnum.ADMIN.getValue())
-+                .setTenantId(tenantId).setInfo(buildInfo(user)).setScopes(Collections.emptyList());
-+
-+        Long oldTenantId = TenantContextHolder.getTenantId();
-+        Boolean oldIgnore = TenantContextHolder.isIgnore();
-+        SecurityContext oldSecurityContext = SecurityContextHolder.getContext();
-+        try {
-+            TenantContextHolder.setTenantId(tenantId);
-+            TenantContextHolder.setIgnore(false);
-+            SecurityContext securityContext = SecurityContextHolder.createEmptyContext();
-+            securityContext.setAuthentication(new UsernamePasswordAuthenticationToken(loginUser, null, Collections.emptyList()));
-+            SecurityContextHolder.setContext(securityContext);
-+            log.info("[ReachAI] capability={} agent={} trace={} -> yudao user={} tenant={}",
-+                    context.getCapabilityName(), context.getAgentId(), context.getTraceId(), user.getId(), tenantId);
-+            return invocation.proceed();
-+        } finally {
-+            SecurityContextHolder.setContext(oldSecurityContext);
-+            TenantContextHolder.setTenantId(oldTenantId);
-+            TenantContextHolder.setIgnore(oldIgnore);
-+        }
++    public void beforeRemoval(OAuth2AccessTokenDO token) {
++        if (token == null || !UserTypeEnum.ADMIN.getValue().equals(token.getUserType())) return;
++        String id = YudaoReachAiBusinessSession.fromRefreshToken(token.getRefreshToken());
++        if (id == null) return; // Such a session cannot receive a bound Embed Token.
++        jdbc.update("INSERT INTO system_reachai_logout_outbox (session_id, next_attempt_at) VALUES (?, ?) "
++                        + "ON DUPLICATE KEY UPDATE session_id = VALUES(session_id)",
++                id, Timestamp.from(Instant.now()));
 +    }
 +
-+    private AdminUserDO resolveUser(ReachAiInvocationContext context) {
-+        String externalUserId = context.getExternalUserId();
-+        if (NumberUtil.isLong(externalUserId)) {
-+            AdminUserDO user = adminUserService.getUser(Long.valueOf(externalUserId));
-+            if (user != null) {
-+                return user;
++    @Scheduled(fixedDelayString = "${reachai.logout-revocation.retry-delay-ms:2000}")
++    public void deliverPending() {
++        List<String> pending = jdbc.query("SELECT session_id FROM system_reachai_logout_outbox "
++                        + "WHERE next_attempt_at <= ? ORDER BY next_attempt_at, id LIMIT 20",
++                (rs, row) -> rs.getString(1), Timestamp.from(Instant.now()));
++        for (String id : pending) {
++            try {
++                client.revokeBusinessSession(id);
++                jdbc.update("DELETE FROM system_reachai_logout_outbox WHERE session_id = ?", id);
++            } catch (RuntimeException failure) {
++                // No token, session identifier, response body, or credential in the log.
++                log.warn("ReachAI logout notification failed; it will be retried");
++                jdbc.update("UPDATE system_reachai_logout_outbox SET attempts = attempts + 1, "
++                                + "next_attempt_at = ? WHERE session_id = ?",
++                        Timestamp.from(Instant.now().plusSeconds(30)), id);
 +            }
 +        }
-+        for (String username : new String[]{externalUserId, context.getUserName()}) {
-+            if (StrUtil.isNotBlank(username)) {
-+                AdminUserDO user = adminUserService.getUserByUsername(username);
-+                if (user != null) {
-+                    return user;
-+                }
-+            }
-+        }
-+        return defaultUserId == null ? null : adminUserService.getUser(defaultUserId);
 +    }
-+
-+    private static Map<String, String> buildInfo(AdminUserDO user) {
-+        Map<String, String> info = new HashMap<>();
-+        info.put(LoginUser.INFO_KEY_NICKNAME, user.getNickname());
-+        info.put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId()));
-+        return info;
-+    }
-+
 +}
+diff --git a/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutConfiguration.java b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutConfiguration.java
+new file mode 100644
+index 0000000..9c5d77d
+--- /dev/null
++++ b/yudao-server/src/main/java/cn/iocoder/yudao/server/reachai/YudaoReachAiLogoutConfiguration.java
+@@ -0,0 +1,19 @@
++package cn.iocoder.yudao.server.reachai;
++
++import com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient;
++import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.jdbc.core.JdbcTemplate;
++import org.springframework.scheduling.annotation.EnableScheduling;
++
++/** Enable only after the host outbox table and ReachAI revocation endpoint are installed. */
++@Configuration(proxyBeanMethods = false)
++@ConditionalOnProperty(prefix = "reachai.logout-revocation", name = "enabled", havingValue = "true")
++@EnableScheduling
++public class YudaoReachAiLogoutConfiguration {
++    @Bean
++    public YudaoReachAiLogoutOutbox yudaoReachAiLogoutOutbox(JdbcTemplate jdbc, ReachAiEmbedTokenClient client) {
++        return new YudaoReachAiLogoutOutbox(jdbc, client);
++    }
++}
+diff --git a/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2SessionRemovalListener.java b/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2SessionRemovalListener.java
+new file mode 100644
+index 0000000..ba68c10
+--- /dev/null
++++ b/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2SessionRemovalListener.java
+@@ -0,0 +1,8 @@
++package cn.iocoder.yudao.module.system.service.oauth2;
++
++import cn.iocoder.yudao.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
++
++/** Invoked within the token removal transaction before the login session is removed. */
++public interface OAuth2SessionRemovalListener {
++    void beforeRemoval(OAuth2AccessTokenDO token);
++}
+diff --git a/sql/mysql/reachai-logout-outbox.sql b/sql/mysql/reachai-logout-outbox.sql
+new file mode 100644
+index 0000000..567a6fc
+--- /dev/null
++++ b/sql/mysql/reachai-logout-outbox.sql
+@@ -0,0 +1,12 @@
++-- 芋道 ReachAI 退出通知队列；执行前备份并核对目标库。
++-- 只有完成该表及 ReachAI 服务端升级后，才启用 reachai.logout-revocation.enabled。
++CREATE TABLE IF NOT EXISTS `system_reachai_logout_outbox` (
++  `id` BIGINT NOT NULL AUTO_INCREMENT,
++  `session_id` CHAR(64) NOT NULL COMMENT '不可逆业务会话标识',
++  `attempts` INT NOT NULL DEFAULT 0,
++  `next_attempt_at` DATETIME(3) NOT NULL,
++  `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
++  PRIMARY KEY (`id`),
++  UNIQUE KEY `uk_reachai_logout_session` (`session_id`),
++  KEY `idx_reachai_logout_next` (`next_attempt_at`, `id`)
++) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='ReachAI 退出撤销通知';
+diff --git a/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2TokenServiceImpl.java b/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2TokenServiceImpl.java
+index b216832..593d594 100644
+--- a/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2TokenServiceImpl.java
++++ b/yudao-module-system/src/main/java/cn/iocoder/yudao/module/system/service/oauth2/OAuth2TokenServiceImpl.java
+@@ -24,6 +24,7 @@ import cn.iocoder.yudao.module.system.dal.mysql.oauth2.OAuth2RefreshTokenMapper;
+ import cn.iocoder.yudao.module.system.dal.redis.oauth2.OAuth2AccessTokenRedisDAO;
+ import cn.iocoder.yudao.module.system.service.user.AdminUserService;
+ import org.springframework.context.annotation.Lazy;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+ import org.springframework.transaction.annotation.Transactional;
+ 
+@@ -58,6 +59,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
+     @Lazy // 懒加载，避免循环依赖
+     private AdminUserService adminUserService;
+ 
++    @Autowired(required = false)
++    private List<OAuth2SessionRemovalListener> sessionRemovalListeners = Collections.emptyList();
++
+     @Override
+     @Transactional(rollbackFor = Exception.class)
+     public OAuth2AccessTokenDO createAccessToken(Long userId, Integer userType, String clientId, List<String> scopes) {
+@@ -147,6 +151,7 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
+         if (accessTokenDO == null) {
+             return null;
+         }
++        sessionRemovalListeners.forEach(listener -> listener.beforeRemoval(accessTokenDO));
+         oauth2AccessTokenMapper.deleteById(accessTokenDO.getId());
+         oauth2AccessTokenRedisDAO.delete(accessToken);
+         // 删除刷新令牌
+@@ -156,11 +161,14 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
+     }
+ 
+     @Override
++    @Transactional(rollbackFor = Exception.class)
+     public void removeAccessToken(Long userId, Integer userType) {
+         List<OAuth2AccessTokenDO> accessTokens = oauth2AccessTokenMapper.selectListByUserIdAndUserType(userId, userType);
+         if (CollUtil.isEmpty(accessTokens)) {
+             return;
+         }
++        accessTokens.forEach(accessToken ->
++                sessionRemovalListeners.forEach(listener -> listener.beforeRemoval(accessToken)));
+         accessTokens.forEach(accessToken -> {
+             // 删除访问令牌
+             oauth2AccessTokenMapper.deleteById(accessToken.getId());

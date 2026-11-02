@@ -25,7 +25,7 @@ class HttpApiChangeImpactBrowserLauncherTest {
             Map<String, Object> state = new LinkedHashMap<>();
             state.put("controlOrigin", surface.controlOrigin()); state.put("workflowId", surface.workflowId());
             state.put("projectId", 41); state.put("projectCode", "orders"); state.put("publicationId", fixture.changePublicationId());
-            state.put("scanPath", surface.scanPath()); state.put("specFile", surface.specFile());
+            state.put("documentDirectory", surface.documentDirectory()); state.put("specFile", surface.specFile());
             state.put("upstreamOrigin", surface.upstreamOrigin()); state.put("authStatePath", surface.authStatePath());
             state.put("initialEvidence", fixture.multiSourceEvidence()); ready(manifest, json, state, "READY_FOR_NORMAL_SCANS_AND_PUBLICATION");
             await(root, "initial-published", deadline);

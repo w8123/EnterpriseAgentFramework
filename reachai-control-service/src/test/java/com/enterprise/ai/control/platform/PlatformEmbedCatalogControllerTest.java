@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -236,6 +237,8 @@ class PlatformEmbedCatalogControllerTest {
         session.setSessionId("sess-debug");
         session.setTenantId("tenant-1");
         session.setAppId("bzjs12");
+        session.setProjectCode("bzjs12");
+        session.setPageKey("contract-list");
         session.setAgentId("agent-1");
         session.setPageInstanceId("page-instance-1");
         session.setStatus("ACTIVE");
@@ -256,6 +259,86 @@ class PlatformEmbedCatalogControllerTest {
         assertEquals("contract-list", event.getTargetPageKey());
         assertEquals("/contracts", event.getTargetRoute());
         assertEquals("search", event.getActionKey());
+        assertEquals(false, event.getConfirmRequired());
+    }
+
+    @Test
+    void debugPageActionPreservesRequiredConfirmation() {
+        Fixture fixture = fixture();
+        PageView page = page(true);
+        when(fixture.pageCatalog.findAction(21L)).thenReturn(Optional.of(page.actions().get(0)));
+        when(fixture.pageCatalog.findPageForAction(21L)).thenReturn(Optional.of(page));
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("sess-debug");
+        session.setTenantId("tenant-1");
+        session.setAppId("bzjs12");
+        session.setProjectCode("bzjs12");
+        session.setPageKey("contract-list");
+        session.setAgentId("agent-1");
+        session.setPageInstanceId("page-instance-1");
+        session.setStatus("ACTIVE");
+        when(fixture.sessionMapper.selectOne(any())).thenReturn(session);
+
+        fixture.controller.debugPageActionCatalog(21L,
+                new PlatformEmbedCatalogController.PageActionDebugRequest(null, Map.of()));
+
+        ArgumentCaptor<PlatformPageActionEventEntity> event = ArgumentCaptor.forClass(PlatformPageActionEventEntity.class);
+        verify(fixture.eventMapper).insert(event.capture());
+        assertEquals(true, event.getValue().getConfirmRequired());
+    }
+
+    @Test
+    void debugPageActionRejectsExplicitForeignSessionWithoutFallback() {
+        Fixture fixture = fixture();
+        PageView page = page();
+        when(fixture.pageCatalog.findAction(21L)).thenReturn(Optional.of(page.actions().get(0)));
+        when(fixture.pageCatalog.findPageForAction(21L)).thenReturn(Optional.of(page));
+        PlatformEmbedSessionEntity foreign = new PlatformEmbedSessionEntity();
+        foreign.setSessionId("foreign-session");
+        foreign.setProjectCode("other-project");
+        foreign.setPageKey("contract-list");
+        foreign.setStatus("ACTIVE");
+        when(fixture.sessionMapper.selectOne(any())).thenReturn(foreign);
+
+        var response = fixture.controller.debugPageActionCatalog(21L,
+                new PlatformEmbedCatalogController.PageActionDebugRequest("foreign-session", Map.of()));
+
+        assertEquals("NO_ACTIVE_SESSION", response.getBody().status());
+        verify(fixture.sessionMapper).selectOne(any());
+        verify(fixture.eventMapper, never()).insert(any(PlatformPageActionEventEntity.class));
+    }
+
+    @Test
+    void debugPageActionRejectsAgentOutsideActionAllowList() {
+        Fixture fixture = fixture();
+        PageView page = page(false, List.of("other-agent"));
+        when(fixture.pageCatalog.findAction(21L)).thenReturn(Optional.of(page.actions().get(0)));
+        when(fixture.pageCatalog.findPageForAction(21L)).thenReturn(Optional.of(page));
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setProjectCode("bzjs12");
+        session.setPageKey("contract-list");
+        session.setAgentId("agent-1");
+        session.setStatus("ACTIVE");
+        when(fixture.sessionMapper.selectOne(any())).thenReturn(session);
+
+        var response = fixture.controller.debugPageActionCatalog(21L, null);
+
+        assertEquals("NO_ACTIVE_SESSION", response.getBody().status());
+        verify(fixture.eventMapper, never()).insert(any(PlatformPageActionEventEntity.class));
+    }
+
+    @Test
+    void debugPageActionRejectsDisabledAction() {
+        Fixture fixture = fixture();
+        PageView page = page(false, List.of(), "DISABLED");
+        when(fixture.pageCatalog.findAction(21L)).thenReturn(Optional.of(page.actions().get(0)));
+        when(fixture.pageCatalog.findPageForAction(21L)).thenReturn(Optional.of(page));
+
+        ResponseStatusException error = assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.debugPageActionCatalog(21L, null));
+
+        assertEquals(409, error.getStatusCode().value());
+        verifyNoInteractions(fixture.sessionMapper, fixture.eventMapper);
     }
 
     private Fixture fixture() {
@@ -283,6 +366,18 @@ class PlatformEmbedCatalogControllerTest {
     }
 
     private PageView page() {
+        return page(false);
+    }
+
+    private PageView page(boolean confirmRequired) {
+        return page(confirmRequired, List.of());
+    }
+
+    private PageView page(boolean confirmRequired, List<String> allowedAgentIds) {
+        return page(confirmRequired, allowedAgentIds, "ACTIVE");
+    }
+
+    private PageView page(boolean confirmRequired, List<String> allowedAgentIds, String actionStatus) {
         ActionView action = new ActionView(
                 21L,
                 11L,
@@ -294,15 +389,15 @@ class PlatformEmbedCatalogControllerTest {
                 "Search contracts",
                 "PAGE_ACTION",
                 "READ",
-                false,
+                confirmRequired,
                 null,
                 JsonNodeFactory.instance.objectNode(),
                 JsonNodeFactory.instance.objectNode(),
                 JsonNodeFactory.instance.objectNode(),
-                List.of(),
+                allowedAgentIds,
                 null,
                 "SDK",
-                "ACTIVE",
+                actionStatus,
                 JsonNodeFactory.instance.objectNode(),
                 LocalDateTime.of(2026, 7, 1, 9, 0));
         return new PageView(

@@ -67,6 +67,29 @@ public class PersonalMemoryIndexIdentity {
         }
     }
 
+    /** Versioned cryptographic domain separation preserves legacy hashes without sharing their namespace. */
+    public String hash(String tenantId, String runtimeUserId, String ownerDomain) {
+        if (!StringUtils.hasText(ownerDomain) || "LEGACY".equals(ownerDomain)) return hash(tenantId, runtimeUserId);
+        if (!ownerDomain.matches("BUSINESS:[a-z0-9._:-]{1,96}")
+                || !StringUtils.hasText(tenantId) || !StringUtils.hasText(runtimeUserId)
+                || !StringUtils.hasText(hmacSecret)) throw new IllegalArgumentException("invalid scoped memory identity");
+        try {
+            Mac derivation = Mac.getInstance("HmacSHA256");
+            derivation.init(new SecretKeySpec(hmacSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            byte[] scopedKey = derivation.doFinal("reachai-personal-memory-domain-v2".getBytes(StandardCharsets.UTF_8));
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(scopedKey, "HmacSHA256"));
+            String tenant = tenantId.trim().toLowerCase(Locale.ROOT);
+            String user = runtimeUserId.trim();
+            String value = frame(tenant) + frame(ownerDomain) + frame(user);
+            return java.util.HexFormat.of().formatHex(mac.doFinal(value.getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception failure) {
+            throw new IllegalStateException("scoped personal memory identity hashing failed", failure);
+        }
+    }
+
+    private static String frame(String value) { return value.length() + ":" + value; }
+
     private static boolean isProduction(Environment environment) {
         return environment != null && Arrays.stream(environment.getActiveProfiles())
                 .map(profile -> profile.trim().toLowerCase(Locale.ROOT))

@@ -1,13 +1,50 @@
 {
-  "findings": [],
+  "findings": [
+    {
+      "category": "unresolved",
+      "file": "DESIGN.md",
+      "line": null,
+      "message": "The configured UX contract has no Canonical UI Map with the required columns.",
+      "remediation": "Add the exact Capability, Canonical owner, Source of truth, Allowed variants, and Verification columns.",
+      "ruleId": "canonical.map-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/KnowledgeList.vue",
+      "line": 149,
+      "message": "Enabled literal button has no detectable action or submit behavior.",
+      "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
+      "ruleId": "affordance.actionless-button",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/components/memory/MemoryWorkspace.vue",
+      "line": 89,
+      "message": "Application-owned form does not declare its validation owner.",
+      "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
+      "ruleId": "form.novalidate-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/BizIndexDetail.vue",
+      "line": 40,
+      "message": "Application-owned form does not declare its validation owner.",
+      "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
+      "ruleId": "form.novalidate-missing",
+      "severity": "error"
+    }
+  ],
   "mode": "strict",
-  "projectRoot": "D:\\work\\EnterpriseAgentFramework\\ai-admin-front",
+  "projectRoot": "D:\\work\\EnterpriseAgentFramework-dev\\ai-admin-front",
   "schemaVersion": 1,
   "summary": {
-    "errors": 0,
-    "total": 0,
-    "unresolved": 0,
-    "violations": 0,
+    "errors": 4,
+    "total": 4,
+    "unresolved": 1,
+    "violations": 3,
     "warnings": 0
   }
 }

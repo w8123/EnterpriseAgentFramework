@@ -63,10 +63,12 @@ class RuntimeCapabilityCatalogClientContractTest {
         assertArrayEquals(new String[] {"/internal/capability/projects/{projectCode}"}, projectMapping.value());
         assertEquals(Map.class, getProject.getReturnType());
 
-        Method getProjectById = RuntimeCapabilityCatalogFeignClient.class.getMethod("getProjectById", Long.class);
+        Method getProjectById = RuntimeCapabilityCatalogFeignClient.class.getMethod("getProjectById", Long.class, Map.class);
         GetMapping projectByIdMapping = getProjectById.getAnnotation(GetMapping.class);
         assertArrayEquals(new String[] {"/internal/capability/projects/by-id/{projectId}"},
                 projectByIdMapping.value());
+        assertEquals(RequestHeader.class,
+                getProjectById.getParameterAnnotations()[1][0].annotationType());
         assertEquals(Map.class, getProjectById.getReturnType());
 
         Method listProjectTools = RuntimeCapabilityCatalogFeignClient.class.getMethod("listProjectTools", Long.class);

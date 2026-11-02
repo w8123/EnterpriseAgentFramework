@@ -72,6 +72,12 @@ export interface PageActionExecutionOptions {
    * ReachAI Embed uses it to atomically claim a still-active server request.
    */
   beforeExecute?: PageActionBeforeExecute
+  /** Rechecked synchronously just before calling a host handler. */
+  isActive?: () => boolean
+  /** Cancels pending confirmation when the embedding client is destroyed. */
+  signal?: AbortSignal
+  /** Optional host fallback, subject to the same target, confirmation and claim checks. */
+  fallbackHandler?: PageActionHandler
 }
 
 /**
@@ -123,6 +129,8 @@ export interface EafPageActionDefinition extends PageActionRegisterOptions {
 export interface EafPageBridge {
   readonly pageInstanceId: string
   readonly route?: string
+  /** Whether this bridge can handle platform-requested cross-page navigation. */
+  readonly supportsNavigation?: boolean
   readonly registeredActions: string[]
   readonly actionDefinitions: EafPageActionDefinition[]
   registerAction(actionKey: string, handler: PageActionHandler, options?: PageActionRegisterOptions): () => void
@@ -145,6 +153,7 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
   const actionTimeoutMs = Math.max(1000, options.actionTimeoutMs || 15000)
   const handlers = new Map<string, PageActionHandler>()
   const definitions = new Map<string, PageActionRegisterOptions>()
+  const registrations = new Map<string, symbol>()
   const listeners = new Set<(result: PageActionResult) => void>()
   const definitionListeners = new Set<(definitions: EafPageActionDefinition[]) => void>()
 
@@ -167,6 +176,7 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
   return {
     pageInstanceId,
     route: options.route,
+    supportsNavigation: typeof options.onNavigate === 'function',
     get registeredActions() {
       return Array.from(handlers.keys())
     },
@@ -174,10 +184,14 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
       return actionDefinitions()
     },
     registerAction(actionKey, handler, registerOptions = {}) {
+      const registration = Symbol(actionKey)
+      registrations.set(actionKey, registration)
       handlers.set(actionKey, handler)
       definitions.set(actionKey, registerOptions)
       emitDefinitionsChange()
       return () => {
+        if (registrations.get(actionKey) !== registration) return
+        registrations.delete(actionKey)
         handlers.delete(actionKey)
         definitions.delete(actionKey)
         emitDefinitionsChange()
@@ -188,7 +202,8 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
       const targetPageInstanceId = event.target?.pageInstanceId
       if (targetPageInstanceId && targetPageInstanceId !== pageInstanceId) return null
       if (event.actionKey === EAF_PAGE_NAVIGATE_ACTION) {
-        const userConfirmed = await confirmIfNeeded(event, options.confirmAction)
+        const userConfirmed = await confirmIfNeeded(event, options.confirmAction, executionOptions?.signal)
+        if (executionOptions?.isActive?.() === false) return null
         if (!userConfirmed.accepted) {
           const result = resultOf(
             event,
@@ -199,17 +214,20 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
           emit(result)
           return result
         }
-        if (!await executionAllowed(event, executionOptions)) {
+        const allowed = await executionAllowed(event, executionOptions)
+        if (executionOptions?.isActive?.() === false) return null
+        if (!allowed) {
           const result = expiredBeforeExecution(event)
           emit(result)
           return result
         }
         const result = await handleNavigation(event, options.onNavigate)
+        if (executionOptions?.isActive?.() === false) return null
         if (userConfirmed.confirmed) result.userConfirmed = true
         emit(result)
         return result
       }
-      const handler = handlers.get(event.actionKey)
+      const handler = handlers.get(event.actionKey) || executionOptions?.fallbackHandler
       if (!handler) {
         const result = resultOf(
           event,
@@ -221,7 +239,8 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         emit(result)
         return result
       }
-      const userConfirmed = await confirmIfNeeded(event, options.confirmAction)
+      const userConfirmed = await confirmIfNeeded(event, options.confirmAction, executionOptions?.signal)
+      if (executionOptions?.isActive?.() === false) return null
       if (!userConfirmed.accepted) {
         const result = resultOf(
           event,
@@ -232,18 +251,22 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         emit(result)
         return result
       }
-      if (!await executionAllowed(event, executionOptions)) {
+      const allowed = await executionAllowed(event, executionOptions)
+      if (executionOptions?.isActive?.() === false) return null
+      if (!allowed) {
         const result = expiredBeforeExecution(event)
         emit(result)
         return result
       }
       try {
         const data = await withTimeout(handler(event.args || {}, event), actionTimeoutMs)
+        if (executionOptions?.isActive?.() === false) return null
         const result = resultFromHandler(event, data)
         if (userConfirmed.confirmed) result.userConfirmed = true
         emit(result)
         return result
       } catch (error) {
+        if (executionOptions?.isActive?.() === false) return null
         const message = error instanceof Error ? error.message : String(error)
         const result = resultOf(
           event,
@@ -337,12 +360,23 @@ async function handleNavigation(
 async function confirmIfNeeded(
   request: PageActionRequest,
   confirmAction?: PageActionConfirm,
+  signal?: AbortSignal,
 ): Promise<{ accepted: boolean; confirmed: boolean }> {
   if (!request.confirm) return { accepted: true, confirmed: false }
+  if (signal?.aborted) return { accepted: false, confirmed: true }
   if (confirmAction) {
-    return { accepted: await confirmAction(request), confirmed: true }
+    const decision = Promise.resolve().then(() => signal?.aborted ? false : confirmAction(request))
+    if (!signal) return { accepted: await decision, confirmed: true }
+    const accepted = await new Promise<boolean>((resolve, reject) => {
+      const abort = () => { signal.removeEventListener('abort', abort); resolve(false) }
+      signal.addEventListener('abort', abort, { once: true })
+      if (signal.aborted) { abort(); return }
+      decision.then(value => { signal.removeEventListener('abort', abort); resolve(value) },
+        error => { signal.removeEventListener('abort', abort); reject(error) })
+    })
+    return { accepted, confirmed: true }
   }
-  return { accepted: await showReachAiPageActionConfirmation(request), confirmed: true }
+  return { accepted: await showReachAiPageActionConfirmation(request, signal), confirmed: true }
 }
 
 /**
@@ -351,11 +385,13 @@ async function confirmIfNeeded(
  * and makes the confirmation invisible to accessibility/browser tooling.
  * Keep the default confirmation inside the host page instead.
  */
-function showReachAiPageActionConfirmation(request: PageActionRequest): Promise<boolean> {
-  if (typeof document === 'undefined' || !document.body) return Promise.resolve(false)
+let cancelActiveConfirmation: (() => void) | undefined
 
-  const existing = document.querySelector<HTMLElement>('[data-reachai-page-action-confirm]')
-  existing?.remove()
+function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: AbortSignal): Promise<boolean> {
+  if (typeof document === 'undefined' || !document.body) return Promise.resolve(false)
+  if (signal?.aborted) return Promise.resolve(false)
+
+  cancelActiveConfirmation?.()
 
   return new Promise((resolve) => {
     const backdrop = document.createElement('div')
@@ -434,9 +470,12 @@ function showReachAiPageActionConfirmation(request: PageActionRequest): Promise<
       if (settled) return
       settled = true
       document.removeEventListener('keydown', onKeydown, true)
+      signal?.removeEventListener('abort', onAbort)
+      if (cancelActiveConfirmation === onAbort) cancelActiveConfirmation = undefined
       backdrop.remove()
       resolve(accepted)
     }
+    const onAbort = () => finish(false)
     const onKeydown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
       event.preventDefault()
@@ -445,6 +484,9 @@ function showReachAiPageActionConfirmation(request: PageActionRequest): Promise<
     cancel.addEventListener('click', () => finish(false), { once: true })
     confirm.addEventListener('click', () => finish(true), { once: true })
     document.addEventListener('keydown', onKeydown, true)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    cancelActiveConfirmation = onAbort
+    if (signal?.aborted) { onAbort(); return }
     confirm.focus()
   })
 }

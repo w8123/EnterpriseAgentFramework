@@ -121,7 +121,9 @@ class ControlAiCodingProjectControllerTest {
         byte[] body = """
                 {"schema":"ai-coding-error.v1","code":"WORKFLOW_NOT_FOUND","message":"workflow not found: missing","details":{},"requestId":"abc123"}
                 """.getBytes(java.nio.charset.StandardCharsets.UTF_8);
-        when(runtimeClient.attachAgentSupervisorWorkflowTool(org.mockito.ArgumentMatchers.eq(7L),
+        var gateway = mock(ControlAiCodingWorkflowAttachmentGateway.class);
+        controller.setAttachmentGateway(gateway);
+        when(gateway.attach(org.mockito.ArgumentMatchers.eq(7L), org.mockito.ArgumentMatchers.anyMap(),
                 org.mockito.ArgumentMatchers.anyMap()))
                 .thenThrow(new feign.FeignException.NotFound("not found", feignRequest, body, Map.of()));
 
@@ -166,11 +168,17 @@ class ControlAiCodingProjectControllerTest {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
         ControlModelCatalogClient modelClient = mock(ControlModelCatalogClient.class);
+        var draftGateway = mock(ControlProjectAgentProvisioningDraftGateway.class);
+        var drafts = mock(ControlProjectAgentProvisioningDraftGateway.Drafts.class);
+        when(draftGateway.open(7L, "orders")).thenReturn(drafts);
+        var emptyContext = new java.util.LinkedHashMap<String, Object>();
+        emptyContext.put("base", null); emptyContext.put("revision", "a".repeat(64));
+        when(drafts.context("agent-1")).thenReturn(emptyContext);
         ControlProjectAgentProvisioningService provisioningService =
                 new ControlProjectAgentProvisioningService(
                         client,
                         runtimeClient,
-                        modelClient);
+                        modelClient, draftGateway);
         ControlAiCodingProjectController controller = new ControlAiCodingProjectController(client, runtimeClient,
                 provisioningService);
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
@@ -184,6 +192,7 @@ class ControlAiCodingProjectControllerTest {
         when(runtimeClient.createAgent(org.mockito.ArgumentMatchers.anyMap()))
                 .thenReturn(ResponseEntity.ok(Map.of(
                         "id", "agent-1",
+                        "projectId", 7L,
                         "keySlug", "orders-page-copilot",
                         "name", "Orders 页面副驾驶 Agent",
                         "projectCode", "orders",
@@ -197,9 +206,9 @@ class ControlAiCodingProjectControllerTest {
                         "status", "ACTIVE")))));
         when(runtimeClient.listAgentConfigVersions("agent-1"))
                 .thenReturn(ResponseEntity.ok(List.of()));
-        when(runtimeClient.saveAgentConfigDraft(org.mockito.ArgumentMatchers.eq("agent-1"),
+        when(drafts.save(org.mockito.ArgumentMatchers.eq("agent-1"), org.mockito.ArgumentMatchers.eq("a".repeat(64)),
                 org.mockito.ArgumentMatchers.anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+                .thenReturn(Map.of("revision", "b".repeat(64), "base", Map.of(
                         "id", 21L,
                         "agentId", "agent-1",
                         "versionNo", 1,
@@ -208,10 +217,8 @@ class ControlAiCodingProjectControllerTest {
                         "status", "DRAFT",
                         "tools", List.of()
                 )));
-        when(runtimeClient.publishAgentConfigVersion(org.mockito.ArgumentMatchers.eq("agent-1"),
-                org.mockito.ArgumentMatchers.eq(21L),
-                org.mockito.ArgumentMatchers.anyMap()))
-                .thenReturn(ResponseEntity.ok(Map.of(
+        when(drafts.publish("agent-1", "b".repeat(64), 21L))
+                .thenReturn(Map.of("revision", "c".repeat(64), "base", Map.of(
                         "id", 21L,
                         "agentId", "agent-1",
                         "versionNo", 1,
@@ -241,7 +248,7 @@ class ControlAiCodingProjectControllerTest {
         assertFalse(agentBodyCaptor.getValue().containsKey("modelInstanceId"));
         assertFalse(agentBodyCaptor.getValue().containsKey("entryConfigJson"));
         ArgumentCaptor<Map<String, Object>> configBodyCaptor = ArgumentCaptor.forClass(Map.class);
-        verify(runtimeClient).saveAgentConfigDraft(org.mockito.ArgumentMatchers.eq("agent-1"), configBodyCaptor.capture());
+        verify(drafts).save(org.mockito.ArgumentMatchers.eq("agent-1"), org.mockito.ArgumentMatchers.eq("a".repeat(64)), configBodyCaptor.capture());
         assertEquals("model-1", configBodyCaptor.getValue().get("modelInstanceId"));
         assertEquals(
                 ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT,
@@ -254,14 +261,20 @@ class ControlAiCodingProjectControllerTest {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         RuntimeProxyClient runtimeClient = mock(RuntimeProxyClient.class);
         ControlModelCatalogClient modelClient = mock(ControlModelCatalogClient.class);
+        var draftGateway = mock(ControlProjectAgentProvisioningDraftGateway.class);
+        var drafts = mock(ControlProjectAgentProvisioningDraftGateway.Drafts.class);
+        when(draftGateway.open(7L, "bzjs16")).thenReturn(drafts);
+        when(drafts.context("agent-1")).thenReturn(Map.of("revision", "a".repeat(64), "base", Map.of(
+                "id", 20L, "agentId", "agent-1", "status", "ACTIVE", "systemPrompt", "你是班组档案查询助手。", "tools", List.of())));
         ControlProjectAgentProvisioningService provisioningService =
-                new ControlProjectAgentProvisioningService(client, runtimeClient, modelClient);
+                new ControlProjectAgentProvisioningService(client, runtimeClient, modelClient, draftGateway);
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
                 "id", 7L,
                 "name", "班组建设16",
                 "projectCode", "bzjs16"));
         when(runtimeClient.listAgents(7L, "bzjs16")).thenReturn(ResponseEntity.ok(List.of(Map.of(
                 "id", "agent-1",
+                "projectId", 7L, "projectCode", "bzjs16",
                 "keySlug", "bzjs16-page-copilot",
                 "name", "班组建设知识助手",
                 "description", "仅处理班组档案查询。"))));

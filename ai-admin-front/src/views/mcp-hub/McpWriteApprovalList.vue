@@ -22,7 +22,16 @@ const loadError = ref('')
 const rows = ref<McpWriteApproval[]>([])
 const total = ref(0)
 const pendingCount = ref(0)
-const query = reactive({ keyword: '', projectCode: '', state: 'PENDING', limit: 20, offset: 0 })
+// 从「AI 使用情况」跳来时带上员工账号；state=ALL 表示全部状态。
+const routeKeyword = typeof route.query.keyword === 'string' ? route.query.keyword.trim() : ''
+const routeState = typeof route.query.state === 'string' ? route.query.state.trim().toUpperCase() : ''
+const query = reactive({
+  keyword: routeKeyword,
+  projectCode: '',
+  state: routeState === 'ALL' ? '' : routeState || 'PENDING',
+  limit: 20,
+  offset: 0,
+})
 const hasFilters = computed(() => Boolean(query.keyword.trim() || query.projectCode.trim() || query.state !== 'PENDING'))
 
 const detailOpen = ref(false)

@@ -37,8 +37,6 @@ spec:
                 secretKeyRef:
                   name: ai-secrets
                   key: mysql-password
-            - name: REDIS_HOST
-              value: redis
             - name: RUNTIME_SERVICE_URL
               value: http://reachai-runtime-service:18604
             - name: CAPABILITY_SERVICE_URL

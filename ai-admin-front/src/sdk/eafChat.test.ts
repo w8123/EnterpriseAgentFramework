@@ -48,6 +48,24 @@ describe('createEafChat facade', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('exposes context clear using the current authenticated session', async () => {
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/chat/sessions')) return sessionResponse('sess-clear')
+      if (String(url).endsWith('/context/clear')) return new Response(null, { status: 204 })
+      return sse(['event: message.completed\ndata: {"sessionId":"sess-clear","answer":"ok","metadata":{}}\n\n'])
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await chat.send('hello')
+    await chat.clearContext()
+    const call = (globalThis.fetch as any).mock.calls.find(([url]: [string]) => String(url).endsWith('/context/clear'))
+    expect(call[0]).toContain('/chat/sessions/sess-clear/context/clear')
+    expect(call[1]).toMatchObject({ method: 'POST', headers: { Authorization: 'Bearer tok' } })
+    chat.destroy()
+  })
+
   it('mounts the launcher before the initial tokenProvider settles', async () => {
     let resolveToken: ((token: string) => void) | undefined
     const tokenProvider = vi.fn(() => new Promise<string>((resolve) => {
@@ -429,6 +447,33 @@ describe('createEafChat facade', () => {
     const sessionInit = (globalThis.fetch as any).mock.calls[0][1] as RequestInit
     expect((sessionInit.headers as Record<string, string>).Authorization).toBe('Bearer tok-fresh')
     chat.destroy()
+  })
+
+  it('does not run a claimed page action after the host has been destroyed', async () => {
+    let resolveClaim!: (response: Response) => void
+    const handler = vi.fn()
+    const bridge = createEafPageBridge({ route: '/', pageInstanceId: 'page-one' })
+    bridge.registerAction('refresh', handler)
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/chat/sessions')) return sessionResponse('session-one')
+      if (path.includes('/messages/stream')) return sse([
+        'event: message.completed\ndata: {"sessionId":"session-one","answer":"ok","metadata":{"pageActionQueue":[{"type":"page.action.requested","requestId":"claim-on-logout","actionKey":"refresh"}]}}\n\n',
+      ])
+      if (path.endsWith('/claim')) return new Promise<Response>((resolve) => { resolveClaim = resolve })
+      if (path.includes('/page-actions/pending')) return new Response(JSON.stringify({ data: [] }), { status: 200 })
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl,
+      tokenProvider: () => 'tok', apiBase: 'http://localhost/embed', bridge })
+    await flushMicrotasks()
+    const sending = chat.send('hello')
+    await vi.waitFor(() => expect(resolveClaim).toBeTypeOf('function'))
+    chat.destroy()
+    resolveClaim(pageActionClaimResponse())
+    await sending.catch(() => undefined)
+    await flushMicrotasks()
+    expect(handler).not.toHaveBeenCalled()
   })
 
   it('does not create session while idle for 2 seconds', async () => {
@@ -1610,6 +1655,43 @@ describe('createEafChat facade', () => {
     await chat.send('hello')
     await vi.advanceTimersByTimeAsync(60_000)
     expect(pendingFetchCalls()).toHaveLength(0)
+    chat.destroy()
+  })
+
+  it('receives and confirms pending navigation when the page has no ordinary actions', async () => {
+    const navigate = vi.fn(async () => undefined)
+    const confirmAction = vi.fn(async () => true)
+    const navigation = {
+      type: 'page.action.requested', requestId: 'nav-only', actionKey: '__reachai.navigate',
+      confirm: true, target: { pageInstanceId: 'source-instance' },
+      metadata: { pageKey: 'orders', route: '/orders' },
+    }
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/page-actions/pending')) return new Response(JSON.stringify({ data: [navigation] }), { status: 200 })
+      if (path.includes('/page-actions/nav-only/claim')) return pageActionClaimResponse()
+      if (path.includes('/page-actions/nav-only/result')) return new Response(JSON.stringify({ data: {} }), { status: 200 })
+      if (path.includes('/messages/stream')) return sse([
+        'event: message.completed\ndata: {"sessionId":"sess-nav","answer":"ok","metadata":{}}\n\n',
+      ])
+      if (path.includes('/chat/sessions')) return sessionResponse('sess-nav')
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+    const bridge = createEafPageBridge({
+      route: '/', pageInstanceId: 'source-instance', onNavigate: navigate, confirmAction,
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed', bridge,
+    })
+    await chat.send('hello')
+    await vi.advanceTimersByTimeAsync(0)
+    await flushMicrotasks(30)
+    expect(pendingFetchCalls().length).toBeGreaterThanOrEqual(1)
+    expect(confirmAction).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledTimes(1)
+    expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ targetPageKey: 'orders', route: '/orders' }))
+    expect((globalThis.fetch as any).mock.calls.some((call: unknown[]) => String(call[0]).includes('/nav-only/claim'))).toBe(true)
     chat.destroy()
   })
 

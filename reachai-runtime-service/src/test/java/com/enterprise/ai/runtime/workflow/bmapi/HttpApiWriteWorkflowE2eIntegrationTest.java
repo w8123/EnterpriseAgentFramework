@@ -217,14 +217,18 @@ class HttpApiWriteWorkflowE2eIntegrationTest {
         config.put("configJson", "{\"policy\":{\"allowedTenantIds\":[\"default\"]}}");
         config.put("tools", List.of(Map.of("workflowId", workflowId, "toolName", "append_order_note", "riskLevel", "READ",
                 "readOnly", true, "permissionKey", "orders:notes:append", "enabled", true)));
-        var downgraded = request("PUT", "/api/agents/" + agentId + "/config-versions/draft", config);
+        var context = request("GET", "/api/agents/" + agentId + "/config-versions/draft-context", null);
+        assertEquals(200, context.statusCode());
+        String revision = String.valueOf(body(context).get("revision"));
+        var downgraded = request("PUT", "/api/agents/" + agentId + "/config-versions/draft-if-unchanged", Map.of("baseRevision", revision, "changes", config));
         assertEquals(400, downgraded.statusCode(), fixture.writeWorkflowTransportDiagnostic());
         assertTrue(String.valueOf(body(downgraded).get("message")).contains("HTTP_API_WORKFLOW_RISK_DOWNGRADE"));
         config.put("tools", List.of(Map.of("workflowId", workflowId, "toolName", "append_order_note", "riskLevel", "WRITE",
                 "readOnly", false, "permissionKey", "orders:notes:append", "enabled", true)));
-        var draft = request("PUT", "/api/agents/" + agentId + "/config-versions/draft", config);
+        var draft = request("PUT", "/api/agents/" + agentId + "/config-versions/draft-if-unchanged", Map.of("baseRevision", revision, "changes", config));
         assertEquals(200, draft.statusCode(), "normal Agent draft save");
-        var published = request("POST", "/api/agents/" + agentId + "/config-versions/" + body(draft).get("id") + "/publish", Map.of());
+        var published = request("POST", "/api/agents/" + agentId + "/config-versions/" + ((Map<?, ?>) body(draft).get("base")).get("id") + "/publish-if-unchanged",
+                Map.of("baseRevision", body(draft).get("revision")));
         assertEquals(200, published.statusCode(), "normal Agent configuration publish");
         return agentId;
     }

@@ -38,6 +38,13 @@ public class KnowledgeRetrievalCore {
                 : snapshot.fileIds().stream().filter(request.getAccessibleFileIds()::contains).toList());
         internal.setFileIdFilterExpression(authorization.filter(snapshot));
         RetrievalTestResponse response = engine.execute(internal);
+        // A failed source must never be indistinguishable from a successful empty
+        // result, including for legacy RAG and duplicate checks using this core.
+        if (response == null || response.getDiagnostics() != null
+                && response.getDiagnostics().get("failedKnowledgeBaseCount") instanceof Number failed
+                && failed.longValue() > 0) {
+            throw new com.enterprise.ai.common.exception.BizException("知识检索暂时不可用，请稍后重试");
+        }
         var result = toCore(response);
         result.setAccessSnapshot(snapshot);
         return result;
@@ -64,23 +71,13 @@ public class KnowledgeRetrievalCore {
         internal.setRecordHit(request.getRecordHit());
         internal.setHitSource(request.getHitSource());
         internal.setTraceId(request.getTraceId());
-        internal.setUserId(request.getUserId());
+        internal.setUserId(request.getAuditUserId() == null ? request.getUserId() : request.getAuditUserId());
         internal.setAccessibleFileIds(request.getAccessibleFileIds());
         internal.setFileIdFilterExpression(request.getFileIdFilterExpression());
         return internal;
     }
 
     private static KnowledgeRetrievalCoreResponse toCore(RetrievalTestResponse response) {
-        if (response == null) {
-            return KnowledgeRetrievalCoreResponse.builder()
-                    .query("")
-                    .searchMode("hybrid")
-                    .totalResults(0)
-                    .costMs(0L)
-                    .items(List.of())
-                    .diagnostics(Map.of())
-                    .build();
-        }
         List<KnowledgeRetrievalCoreResponse.RetrievalItem> items = new ArrayList<>();
         if (response.getItems() != null) {
             for (RetrievalTestResponse.RetrievalItem item : response.getItems()) {

@@ -296,7 +296,7 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
 
     @Override
     public Map<String, Object> getProjectById(Long projectId) {
-        return transport.getProjectById(projectId);
+        return transport.getProjectById(projectId, signer.signProjectLookup(projectId));
     }
 
     @Override

@@ -36,7 +36,7 @@ describe('EmployeePortal', () => {
     expect(window.location.hash).toBe('')
     expect(sessionStorage.getItem('reachai.employee-portal.token')).toBe('sess')
     expect(wrapper.text()).toContain('张三 · 芋道 ERP')
-    expect(wrapper.findAll('[data-testid="portal-call"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="call-record"]')).toHaveLength(1)
     const panelCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/ai-tool-connections/options'))
     expect((panelCall?.[1]?.headers as Record<string, string>).Authorization).toBe('Bearer sess')
   })
@@ -60,5 +60,114 @@ describe('EmployeePortal', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('链接已失效')
+  })
+
+  it('opens 我的记忆 as its own tab with the portal session, layered and grouped', async () => {
+    sessionStorage.setItem('reachai.employee-portal.token', 'sess')
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      void init
+      if (url === '/api/employee-portal/me') return reply(me)
+      if (url === '/api/employee-portal/memories/tree') {
+        return reply({
+          layers: [
+            { layer: 'PERSONAL', scope: 'personal', name: '个人记忆', count: 1, groups: [
+              { id: 11, name: '偏好', kind: 'PREFERENCE', count: 1 }, { id: 12, name: '备注', kind: 'NOTE', count: 0 }] },
+            { layer: 'PROJECT', scope: 'project:yudao-erp', projectCode: 'yudao-erp', name: '芋道 ERP', count: 0, groups: [
+              { id: 21, name: '偏好', kind: 'PREFERENCE', count: 0 }] },
+          ],
+          addableProjects: [],
+          total: 1,
+        })
+      }
+      if (url.startsWith('/api/employee-portal/memories?')) {
+        return reply({ items: [{
+          id: 3, type: 'PREFERENCE', content: '喜欢先看库存', layer: 'PERSONAL', scope: 'personal',
+          layerName: '个人记忆', groupId: 11, groupName: '偏好', sourceType: 'AI_TOOL', updatedAt: '2026-10-29T08:00:00',
+        }], total: 1, limit: 100, offset: 0 })
+      }
+      return reply([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(EmployeePortal, { global: { stubs: { LiquidGlassButton: { template: '<button><slot /></button>' } } } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="portal-memories"]').exists()).toBe(false)
+
+    await wrapper.get('[data-portal-tab="memories"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="portal-memories"]').exists()).toBe(true)
+    const memoryCall = fetchMock.mock.calls.find(([url]) => String(url).startsWith('/api/employee-portal/memories?'))
+    expect((memoryCall?.[1]?.headers as Record<string, string>).Authorization).toBe('Bearer sess')
+    expect(wrapper.text()).toContain('喜欢先看库存')
+    expect(wrapper.text()).toContain('个人记忆 · 偏好')
+    expect(wrapper.text()).toContain('芋道 ERP')
+    expect(wrapper.text()).toContain('AI 工具记录')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/candidates'))).toBe(false)
+  })
+
+  it('opens 我的助手 with a chat token minted from the portal session for this page instance', async () => {
+    sessionStorage.setItem('reachai.employee-portal.token', 'sess')
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      void init
+      if (url === '/api/employee-portal/me') return reply(me)
+      if (url === '/api/employee-portal/assistant/token') {
+        return reply({ token: 'embed-tok', expiresIn: 600, expiresAt: 'x', agentId: 'agent-erp' })
+      }
+      if (url.startsWith('/api/embed/chat/sessions')) return reply({ sessionId: 'embed-1', agentId: 'agent-erp', principal: {} })
+      return reply([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(EmployeePortal, { global: { stubs: { LiquidGlassButton: { template: '<button><slot /></button>' } } } })
+    await flushPromises()
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/employee-portal/assistant/token')).toBe(false)
+
+    await wrapper.get('[data-portal-tab="assistant"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="employee-assistant"]').exists()).toBe(true)
+    const tokenCall = fetchMock.mock.calls.find(([url]) => String(url) === '/api/employee-portal/assistant/token')
+    expect((tokenCall?.[1]?.headers as Record<string, string>).Authorization).toBe('Bearer sess')
+    expect(JSON.parse(String(tokenCall?.[1]?.body)).pageInstanceId).toMatch(/^page-/)
+  })
+
+  it('turns a new credential into an install prompt and lists what the AI can do', async () => {
+    sessionStorage.setItem('reachai.employee-portal.token', 'sess')
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url === '/api/employee-portal/me') return reply(me)
+      if (url.endsWith('/ai-tool-connections/options')) return reply([{ projectCode: 'yudao-erp', name: '芋道 ERP', toolCount: 2, current: true }])
+      if (url === '/api/employee-portal/capabilities') {
+        return reply([{ projectCode: 'yudao-erp', name: '芋道 ERP', current: true, tools: [
+          { name: 'yudao_erp_stock_page', description: '查询库存', readOnly: true, approvalRequired: false },
+          { name: 'yudao_erp_customer_create', description: '新建客户', readOnly: false, approvalRequired: true },
+        ] }])
+      }
+      if (url === '/api/employee-portal/ai-tool-connections' && init?.method === 'POST') {
+        return reply({
+          connection: { id: 5, toolKind: 'CLAUDE_CODE', keyPrefix: 'rai_ab12', state: 'ACTIVE', systems: [{ projectCode: 'yudao-erp', name: '芋道 ERP' }] },
+          setup: { endpointUrl: 'https://r/mcp/employee', kind: 'COMMAND', content: 'claude mcp add --transport http reachai https://r/mcp/employee --header "Authorization: Bearer rai_secret"', hint: '在终端运行这一行，然后重新打开 Claude Code。' },
+        })
+      }
+      return reply([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(EmployeePortal, { global: { stubs: { LiquidGlassButton: { template: '<button v-bind="$attrs"><slot /></button>' } } } })
+    await flushPromises()
+    await wrapper.get('[data-testid="get-install-prompt"]').trigger('click')
+    await flushPromises()
+
+    const create = fetchMock.mock.calls.find(([url, init]) => url === '/api/employee-portal/ai-tool-connections' && init?.method === 'POST')
+    expect(JSON.parse(String(create?.[1]?.body))).toEqual({ toolKind: 'CLAUDE_CODE', systems: ['yudao-erp'] })
+    const prompt = wrapper.get('[data-testid="install-prompt"]').text()
+    expect(prompt).toContain('操作「芋道 ERP」')
+    expect(prompt).toContain('Bearer rai_secret')
+    expect(JSON.stringify(sessionStorage)).not.toContain('rai_secret')
+
+    await wrapper.get('[data-portal-tab="capabilities"]').trigger('click')
+    const capabilities = wrapper.get('[data-testid="portal-capabilities"]').text()
+    expect(capabilities).toContain('查询库存')
+    expect(capabilities).toContain('需要审核')
   })
 })

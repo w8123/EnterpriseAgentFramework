@@ -160,7 +160,7 @@ routing evidence.
 
 `POST /api/ai-coding/projects/{projectId}/agent-supervisor/workflow-tools/attach`
 
-Body uses `workflowId` plus optional `agentKeySlug` (preferred) or internal `agentId` (mutually exclusive). Prefer omitting agent identifiers so the project default page-copilot keySlug is used. Attachment is additive by default. Set `replaceWorkflowId` only after reading the current attached catalog and selecting the exact predecessor to supersede; ReachAI requires the same project and workflowKind, and for PAGE_ASSISTANT also the same exact TARGET PAGE. It replaces that one entry and preserves every other Workflow. Never infer replacement from pageKey or name. Invalid targets return `ai-coding-error.v1` with `WORKFLOW_REPLACEMENT_INVALID` and do not publish a new config. The Page Assistant-specific endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `WORKFLOW_KIND_NOT_SUPPORTED` for GENERAL.
+Create or provision the target Agent first. Read its Agent context and send `workflowId`, an explicit `agentKeySlug` or internal `agentId` (mutually exclusive), and that context's `baseRevision`. The revision belongs to the Agent, not the Workflow. Missing target or revision is rejected; `409 AGENT_DRAFT_CHANGED` requires re-reading and reviewing changes, never blind refresh-and-retry. Attachment creates a new ACTIVE config while preserving any editable draft; read Agent context again after success. Attachment is additive by default. Set `replaceWorkflowId` only after reading the current attached catalog and selecting the exact predecessor to supersede; ReachAI requires the same project and workflowKind, and for PAGE_ASSISTANT also the same exact TARGET PAGE. It replaces that one entry and preserves every other Workflow. Never infer replacement from pageKey or name. Invalid targets return `ai-coding-error.v1` with `WORKFLOW_REPLACEMENT_INVALID` and do not publish a new config. The Page Assistant-specific endpoint `/api/workflows/{id}/page-assistant/attach-tool` accepts PAGE_ASSISTANT only and returns `WORKFLOW_KIND_NOT_SUPPORTED` for GENERAL.
 
 ### Validate
 
@@ -252,30 +252,7 @@ Fields:
 - `runtimeContext`
 - `dryRun`
 
-Safety gates:
-
-- Side-effect nodes (`HTTP_REQUEST`, `TOOL`, `MCP_CALL`, `KNOWLEDGE_WRITE`) require `runtimeContext.confirmSideEffects=true`
-- `PAGE_ACTION` nodes require page bridge context (`embedSessionId`, `pageBridge`, `pageContext`, or `bridgeGlobal`)
-
-Example safe dry run:
-
-```json
-{
-  "dryRun": true,
-  "message": "hello"
-}
-```
-
-Example execute with side effects:
-
-```json
-{
-  "message": "hello",
-  "runtimeContext": {
-    "confirmSideEffects": true
-  }
-}
-```
+Do not assume `dryRun` or a caller-provided `confirmSideEffects` flag isolates or authorizes external writes. Inspect the graph and its actual execution policy before any debug run. A graph containing `PAGE_ACTION` cannot be executed through this direct run endpoint without an independently authenticated business-page user. Follow the page-assistant reference for the guarded smoke-test path; never request the user's page token or place it in model context, logs, artifacts, or tool arguments.
 
 ### Versions / release readiness
 

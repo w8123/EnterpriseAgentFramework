@@ -20,7 +20,7 @@
       class="page-alert"
       type="warning"
       title="当前项目不是 SDK 接入项目"
-      description="项目接入工作台仅适用于 SDK 接入或混合接入项目；扫描方式项目请继续使用 API 目录和扫描项目工作台。"
+      description="项目接入工作台仅适用于 SDK 接入或混合接入项目；OpenAPI 导入项目请继续使用 API 目录和项目来源工作台。"
     />
 
     <ProjectRouteMissingState

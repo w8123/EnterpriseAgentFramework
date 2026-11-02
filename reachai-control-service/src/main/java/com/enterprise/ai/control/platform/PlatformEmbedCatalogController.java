@@ -248,8 +248,12 @@ public class PlatformEmbedCatalogController {
         if (page == null) {
             return ResponseEntity.notFound().build();
         }
+        if (!"ACTIVE".equalsIgnoreCase(page.lifecycleStatus()) || !"ACTIVE".equalsIgnoreCase(action.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Page or action is not active");
+        }
         PlatformEmbedSessionEntity session = resolveDebugSession(page, request);
-        if (session == null) {
+        if (session == null || (action.allowedAgentIds() != null && !action.allowedAgentIds().isEmpty()
+                && !action.allowedAgentIds().contains(session.getAgentId()))) {
             return ResponseEntity.ok(new PageActionDebugResponse(
                     null,
                     null,
@@ -274,7 +278,7 @@ public class PlatformEmbedCatalogController {
         event.setTargetPageInstanceId(session.getPageInstanceId());
         event.setTargetPageKey(page.pageKey());
         event.setTargetRoute(page.routePattern());
-        event.setConfirmRequired(false);
+        event.setConfirmRequired(action.confirmRequired());
         event.setStatus("REQUESTED");
         event.setRequestedAt(LocalDateTime.now());
         pageActionEventMapper.insert(event);
@@ -430,18 +434,25 @@ public class PlatformEmbedCatalogController {
         if (request != null && StringUtils.hasText(request.sessionId())) {
             PlatformEmbedSessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
                     .eq(PlatformEmbedSessionEntity::getSessionId, request.sessionId())
+                    .eq(PlatformEmbedSessionEntity::getProjectCode, page.projectCode())
+                    .eq(PlatformEmbedSessionEntity::getPageKey, page.pageKey())
                     .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
                     .last("limit 1"));
-            if (session != null) {
-                return session;
-            }
+            return matchesDebugPage(session, page) ? session : null;
         }
-        return sessionMapper.selectOne(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
+        PlatformEmbedSessionEntity session = sessionMapper.selectOne(new LambdaQueryWrapper<PlatformEmbedSessionEntity>()
                 .eq(PlatformEmbedSessionEntity::getProjectCode, page.projectCode())
                 .eq(PlatformEmbedSessionEntity::getPageKey, page.pageKey())
                 .eq(PlatformEmbedSessionEntity::getStatus, "ACTIVE")
                 .orderByDesc(PlatformEmbedSessionEntity::getId)
                 .last("limit 1"));
+        return matchesDebugPage(session, page) ? session : null;
+    }
+
+    private boolean matchesDebugPage(PlatformEmbedSessionEntity session, PageView page) {
+        return session != null && "ACTIVE".equals(session.getStatus())
+                && page.projectCode().equals(session.getProjectCode())
+                && page.pageKey().equals(session.getPageKey());
     }
 
     private String requireText(String value, String field) {

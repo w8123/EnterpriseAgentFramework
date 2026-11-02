@@ -46,25 +46,23 @@ watch(() => route.path, async (path, _previous, onCleanup) => {
       action-presentation="inline"
       domain="platform"
       title="MCP 开放"
-    >
-      <template #actions>
-        <div class="hub-navigation">
-          <LiquidGlassNav source="wallpaper" class="hub-nav" aria-label="MCP 开放工作区">
-            <router-link
-              v-for="item in items"
-              :key="item.path"
-              :to="item.path"
-              :class="{ 'is-active': activePath === item.path }"
-              :aria-current="activePath === item.path ? 'page' : undefined"
-            >
-              <el-icon aria-hidden="true"><component :is="item.icon" /></el-icon>
-              {{ item.label }}
-              <span v-if="item.path === '/mcp-hub/write-approvals' && pendingCount" class="pending-count" :aria-label="`${pendingCount} 项待审批`">{{ pendingCount }}</span>
-            </router-link>
-          </LiquidGlassNav>
-        </div>
-      </template>
-    </PageHeader>
+    />
+
+    <div class="hub-navigation">
+      <LiquidGlassNav source="wallpaper" class="hub-nav" aria-label="MCP 开放工作区">
+        <router-link
+          v-for="item in items"
+          :key="item.path"
+          :to="item.path"
+          :class="{ 'is-active': activePath === item.path }"
+          :aria-current="activePath === item.path ? 'page' : undefined"
+        >
+          <el-icon aria-hidden="true"><component :is="item.icon" /></el-icon>
+          {{ item.label }}
+          <span v-if="item.path === '/mcp-hub/write-approvals' && pendingCount" class="pending-count" :aria-label="`${pendingCount} 项待审批`">{{ pendingCount }}</span>
+        </router-link>
+      </LiquidGlassNav>
+    </div>
 
     <router-view @pending-count="pendingCount = $event" @help="helpOpen = true" />
 

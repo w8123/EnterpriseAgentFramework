@@ -16,7 +16,13 @@ import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PublishedWorkflowView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.WorkflowDeliveryView;
+import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
+import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformPermissions;
+import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -115,15 +121,36 @@ public class PageWorkbenchConsoleController {
         return ResponseEntity.ok(publishedService.list(projectCode, pageKey));
     }
 
+    /**
+     * Delivery publishes the Workflow and, with an Agent, a new live Agent config, so the caller needs the same
+     * publish permissions on the project as the Workflow and Agent pages ask for. The publisher is the session account.
+     */
     @PostMapping("/workflow-engineering/tasks/{taskId}/deliver")
     public ResponseEntity<WorkflowDeliveryView> deliverWorkflow(
+            HttpServletRequest request,
             @PathVariable String projectCode,
             @PathVariable String taskId,
             @RequestBody DeliveryCommand command) {
+        PlatformAuthenticatedSession session = requireDeliveryPermission(request, projectCode, command);
+        DeliveryCommand attributed = new DeliveryCommand(command.pageKey(), command.version(), command.agentId(),
+                command.modelInstanceId(), session.user().getUsername(), command.replaceWorkflowId());
         return ResponseEntity.ok(workflowDeliveryService.deliver(
                 projectCode,
                 taskId,
-                command));
+                attributed));
+    }
+
+    static PlatformAuthenticatedSession requireDeliveryPermission(HttpServletRequest request, String projectCode, DeliveryCommand command) {
+        Object candidate = request == null ? null : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        if (!(candidate instanceof PlatformAuthenticatedSession session) || session.user() == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "live ReachAI platform login is required");
+        }
+        if (command == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "workflow delivery command is required");
+        boolean allowed = session.hasResourcePermission(PlatformPermissions.WORKFLOW_PUBLISH, "PROJECT", null, projectCode)
+                && (command.agentId() == null || command.agentId().isBlank()
+                        || session.hasResourcePermission(PlatformPermissions.AGENT_PUBLISH, "PROJECT", null, projectCode));
+        if (!allowed) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Workflow and Agent publish permission is required");
+        return session;
     }
 
     public record FindingStatusRequest(String status, String reviewedBy) {

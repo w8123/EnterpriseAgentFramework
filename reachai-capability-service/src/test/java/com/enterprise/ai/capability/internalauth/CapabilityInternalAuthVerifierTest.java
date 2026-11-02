@@ -191,6 +191,44 @@ class CapabilityInternalAuthVerifierTest {
     }
 
     @Test
+    void runtimeProjectLookupAcceptsSignedServiceReadAndRejectsReplayIdentityAndOtherRoutes() {
+        String path = "/internal/capability/projects/by-id/7";
+        Map<String, String> headers = signRuntimeLookup("GET", path, "RUNTIME_UNTRUSTED", "", SECRET);
+        CapabilityVerifiedInternalServiceAuth verified = verifyRuntimeLookup("GET", path, headers).orElseThrow();
+        assertEquals(InternalServiceAuthHeaders.CALLER_RUNTIME, verified.caller());
+        assertNull(verified.identityUserId());
+        assertTrue(verifyRuntimeLookup("GET", path, headers).isEmpty(), "replay");
+
+        assertTrue(verifyRuntimeLookup("GET", path,
+                signRuntimeLookup("GET", path, "RUNTIME_TRUSTED", "user-7", SECRET)).isEmpty(), "user identity");
+        assertTrue(verifyRuntimeLookup("GET", path,
+                signRuntimeLookup("GET", path, "RUNTIME_UNTRUSTED", "", "another-secret-of-32-bytes-or-more!!")).isEmpty(),
+                "wrong secret");
+        String onboarding = path + "/onboarding";
+        assertTrue(verifyRuntimeLookup("GET", onboarding,
+                signRuntimeLookup("GET", onboarding, "RUNTIME_UNTRUSTED", "", SECRET)).isEmpty(), "other route");
+        assertTrue(verifyRuntimeLookup("POST", path,
+                signRuntimeLookup("POST", path, "RUNTIME_UNTRUSTED", "", SECRET)).isEmpty(), "write method");
+    }
+
+    private Map<String, String> signRuntimeLookup(String method, String path, String source, String user, String secret) {
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String nonce = UUID.randomUUID().toString();
+        String digest = InternalServiceHmac.bodySha256Hex(new byte[0]);
+        String canonical = InternalServiceHmac.canonical(method, path, InternalServiceAuthHeaders.CALLER_RUNTIME,
+                source, "", user, timestamp, nonce, digest);
+        return Map.of("source", source, "user", user, "timestamp", timestamp, "nonce", nonce,
+                "digest", digest, "signature", InternalServiceHmac.sign(secret, canonical));
+    }
+
+    private java.util.Optional<CapabilityVerifiedInternalServiceAuth> verifyRuntimeLookup(
+            String method, String path, Map<String, String> headers) {
+        return verifier.verifyRuntimeProjectLookup(method, path, InternalServiceAuthHeaders.CALLER_RUNTIME,
+                headers.get("source"), "", headers.get("user"), headers.get("timestamp"), headers.get("nonce"),
+                headers.get("digest"), headers.get("signature"), new byte[0], System.currentTimeMillis());
+    }
+
+    @Test
     void projectCredentialVerificationBindsInternalIdentityToBody() {
         byte[] body = ("{\"projectCode\":\"orders\",\"appKey\":\"rak_orders\"," +
                 "\"method\":\"POST\",\"path\":\"/api/knowledge-ingress/projects/orders/biz-index/orders_idx/batch\"}")

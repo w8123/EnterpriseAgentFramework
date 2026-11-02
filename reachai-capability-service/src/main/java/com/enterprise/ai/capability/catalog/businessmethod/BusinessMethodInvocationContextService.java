@@ -47,7 +47,7 @@ public class BusinessMethodInvocationContextService {
         RegistryCredentialEntity credential = registrySecurityService.findPrimaryActiveCredential(asset.getProjectCode()).orElse(null);
         String executionRevision = BusinessMethodExecutionRevision.of(method, credential);
         boolean credentialAvailable = executionRevision != null;
-        boolean businessIdentityRequired = ConsoleBusinessMethodDeclaration.hasRequiredRoles(declaration.metadata(), objectMapper);
+        boolean businessIdentityRequired = ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(declaration.metadata(), objectMapper);
 
         String code = null;
         String message = null;

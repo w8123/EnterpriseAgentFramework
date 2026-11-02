@@ -10,6 +10,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class PersonalMemoryIndexIdentityTest {
 
     @Test
+    void businessDomainsAreIndependentAndLegacyHashIsUnchanged() {
+        var identity = new PersonalMemoryIndexIdentity("test-personal-memory-secret");
+        String legacy = identity.hash("tenant-a", "1");
+        assertEquals(legacy, identity.hash("tenant-a", "1", null));
+        assertEquals(legacy, identity.hash("tenant-a", "1", "LEGACY"));
+        String a = identity.hash("tenant-a", "1", "BUSINESS:erp-a");
+        assertNotEquals(a, legacy);
+        assertNotEquals(a, identity.hash("tenant-a", "1", "BUSINESS:erp-b"));
+        assertNotEquals(a, identity.hash("tenant-b", "1", "BUSINESS:erp-a"));
+        assertThrows(IllegalArgumentException.class, () -> identity.hash("tenant-a", "1", "BUSINESS:BAD"));
+    }
+
+    @Test
     void productionRequiresIndependentStrongIdentitySecret() {
         MockEnvironment production = new MockEnvironment();
         production.setActiveProfiles("production");

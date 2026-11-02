@@ -32,6 +32,7 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
 
     public static final String PREFIX = "/internal/knowledge/console/biz-index";
     public static final String DOCUMENT_IMPORT_PREFIX = "/internal/knowledge/console/document-import";
+    public static final String CATALOG_PREFIX = "/internal/knowledge/console/catalog";
     public static final String VERIFIED_TENANT_ATTRIBUTE =
             "reachai.knowledge.console.verified-tenant";
     public static final String VERIFIED_ACTOR_ATTRIBUTE =
@@ -77,7 +78,7 @@ public class KnowledgeBizIndexConsoleAuthFilter extends OncePerRequestFilter {
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = normalizedPath(request);
-        return !matches(path, PREFIX) && !matches(path, DOCUMENT_IMPORT_PREFIX);
+        return !matches(path, PREFIX) && !matches(path, DOCUMENT_IMPORT_PREFIX) && !matches(path, CATALOG_PREFIX);
     }
 
     @Override

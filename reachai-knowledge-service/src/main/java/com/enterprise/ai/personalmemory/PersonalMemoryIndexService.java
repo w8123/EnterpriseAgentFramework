@@ -62,7 +62,7 @@ public class PersonalMemoryIndexService {
         JsonNode payload = parsePayload(request.payloadJson());
         long memoryId = requiredLong(payload, "memoryId");
         String tenantId = requiredText(payload, "tenantId").toLowerCase(Locale.ROOT);
-        String userHash = identity.hash(tenantId, requiredText(payload, "runtimeUserId"));
+        String userHash = identity.hash(tenantId, requiredText(payload, "runtimeUserId"), optionalText(payload, "ownerDomain"));
         long sourceVersion = requiredLong(payload, "sourceVersion");
         KnowledgePersonalMemoryIndexEntity projection = "PERSONAL_MEMORY_DELETE".equals(request.eventType())
                 ? deleteProjection(memoryId, tenantId, userHash, sourceVersion)
@@ -81,7 +81,7 @@ public class PersonalMemoryIndexService {
         int topK = Math.max(1, Math.min(request.topK() == null ? 8 : request.topK(), 20));
         int maxChars = Math.max(256, Math.min(request.maxChars() == null ? 6_000 : request.maxChars(), 32_000));
         String tenant = request.tenantId().trim().toLowerCase(Locale.ROOT);
-        String userHash = identity.hash(tenant, request.runtimeUserId().trim());
+        String userHash = identity.hash(tenant, request.runtimeUserId().trim(), request.ownerDomain());
         LocalDateTime now = LocalDateTime.now();
         String boundedQuery = boundedQuery(request.query());
         String normalizedQuery = normalize(boundedQuery);
@@ -150,7 +150,7 @@ public class PersonalMemoryIndexService {
         }
         String tenant = request.tenantId().trim().toLowerCase(Locale.ROOT);
         String runtimeUserId = request.runtimeUserId().trim();
-        String ownerHash = identity.hash(tenant, runtimeUserId);
+        String ownerHash = identity.hash(tenant, runtimeUserId, request.ownerDomain());
         PersonalMemoryOwnerProjectionStatusRow row =
                 indexMapper.selectOwnerProjectionStatus(tenant, ownerHash);
         long total = count(row == null ? null : row.getTotalCount());
@@ -405,11 +405,18 @@ public class PersonalMemoryIndexService {
 
     public record IndexEvent(String eventId, String eventType, String payloadJson) {}
     public record ApplyResult(String eventId, String status, boolean idempotentReplay) {}
-    public record QueryRequest(String tenantId, String runtimeUserId, String query, Integer topK, Integer maxChars) {}
+    public record QueryRequest(String tenantId, String runtimeUserId, String query, Integer topK, Integer maxChars,
+                               String ownerDomain) {
+        public QueryRequest(String tenantId, String runtimeUserId, String query, Integer topK, Integer maxChars) {
+            this(tenantId, runtimeUserId, query, topK, maxChars, null);
+        }
+    }
     /** Candidate identity only; canonical content is re-read and authorized by Control. */
     public record QueryHit(Long memoryId) {}
     public record QueryResult(List<QueryHit> hits, boolean truncated) {}
-    public record OwnerStatusRequest(String tenantId, String runtimeUserId) {}
+    public record OwnerStatusRequest(String tenantId, String runtimeUserId, String ownerDomain) {
+        public OwnerStatusRequest(String tenantId, String runtimeUserId) { this(tenantId, runtimeUserId, null); }
+    }
     public record OwnerStatus(String runtimeUserHash,
                               long totalCount,
                               long activeCount,

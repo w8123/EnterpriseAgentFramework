@@ -40,7 +40,8 @@ public interface RuntimeCapabilityCatalogFeignClient {
     Map<String, Object> getProject(@PathVariable("projectCode") String projectCode);
 
     @GetMapping("/internal/capability/projects/by-id/{projectId}")
-    Map<String, Object> getProjectById(@PathVariable("projectId") Long projectId);
+    Map<String, Object> getProjectById(@PathVariable("projectId") Long projectId,
+                                       @RequestHeader Map<String, String> internalAuthHeaders);
 
     @GetMapping("/internal/capability/projects/by-id/{projectId}/tools")
     List<Map<String, Object>> listProjectTools(@PathVariable("projectId") Long projectId);

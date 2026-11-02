@@ -26,6 +26,76 @@ class WorkflowItemContractResolverTest {
     private RuntimeProxyClient runtimeProxyClient;
     private WorkflowItemContractResolver resolver;
 
+    @Test
+    void ownerRiskFloorCannotBeDowngradedAndUnclassifiedLegacyToolsFailClosed() {
+        stubWorkflowLookup();
+        Map<String, Object> version = version("ACTIVE", "{\"inputSchemaJson\":\"{}\",\"businessMethodRiskFloor\":\"WRITE\"}");
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"tool\",\"ref\":{\"assetType\":\"BUSINESS_METHOD\",\"qualifiedName\":\"orders:create\"}}]}");
+        stubVersions(version);
+        McpToolProjection resolved = resolver.resolve(WORKFLOW_ID);
+        assertEquals("WRITE", resolved.minimumRiskLevel());
+        assertTrue(resolved.hasTrustedRiskContract());
+        assertThrows(com.enterprise.ai.control.mcp.domain.McpDomainException.class,
+                () -> new McpToolProjection(resolved.name(), resolved.description(), resolved.inputSchemaJson(),
+                        resolved.sourceKind(), resolved.sourceRef(), resolved.workflowVersionId(), "READ", null,
+                        resolved.minimumRiskLevel(), resolved.riskContractVersion()));
+        version.put("snapshotJson", "{\"inputSchemaJson\":\"{}\"}");
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+    }
+
+    @Test
+    void irreversibleFloorAndUnclassifiedSideEffectNodesFailClosed() {
+        stubWorkflowLookup();
+        Map<String, Object> version = version("ACTIVE", "{\"inputSchemaJson\":\"{}\",\"businessMethodRiskFloor\":\"IRREVERSIBLE\"}");
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"TOOL\",\"ref\":{\"assetType\":\"BUSINESS_METHOD\",\"qualifiedName\":\"orders:delete\"}}]}");
+        stubVersions(version);
+        McpToolProjection resolved = resolver.resolve(WORKFLOW_ID);
+        assertEquals("IRREVERSIBLE", resolved.minimumRiskLevel());
+        assertThrows(com.enterprise.ai.control.mcp.domain.McpDomainException.class,
+                () -> new McpToolProjection(resolved.name(), resolved.description(), resolved.inputSchemaJson(),
+                        resolved.sourceKind(), resolved.sourceRef(), resolved.workflowVersionId(), "WRITE", null,
+                        resolved.minimumRiskLevel(), resolved.riskContractVersion()));
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"http\"}]}");
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+    }
+
+    @Test
+    void httpReadNeedsOwnerClassificationAndWriteRetainsItsFloor() {
+        stubWorkflowLookup();
+        Map<String, Object> version = version("ACTIVE", "{\"inputSchemaJson\":\"{}\"}");
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"TOOL\",\"ref\":{\"assetType\":\"HTTP_API\",\"qualifiedName\":\"http-api:12\"}}]}");
+        stubVersions(version);
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+        version.put("snapshotJson", "{\"inputSchemaJson\":\"{}\",\"httpApiRiskClassified\":true}");
+        assertEquals("READ", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+        version.put("snapshotJson", "{\"inputSchemaJson\":\"{}\",\"httpApiRiskFloor\":\"WRITE\"}");
+        assertEquals("WRITE", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+    }
+
+    @Test
+    void supportedCanvasAliasesAreClassifiedButUnclassifiedIntegrationAliasesAreNot() {
+        stubWorkflowLookup();
+        Map<String, Object> version = version("ACTIVE", "{\"inputSchemaJson\":\"{}\"}");
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"condition\"},{\"type\":\"variable\"},{\"type\":\"knowledge\"}]}");
+        stubVersions(version);
+        assertEquals("READ", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"mcp\"}]}");
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+    }
+
+    @Test
+    void mixedGraphUsesHighestOwnerFloorEvenWhenHttpReferenceUsesName() {
+        stubWorkflowLookup();
+        Map<String, Object> version = version("ACTIVE", "{\"inputSchemaJson\":\"{}\",\"businessMethodRiskFloor\":\"READ\",\"httpApiRiskFloor\":\"WRITE\"}");
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"TOOL\",\"ref\":{\"assetType\":\"BUSINESS_METHOD\",\"qualifiedName\":\"erp:read\"}},{\"type\":\"tool\",\"ref\":{\"assetType\":\"HTTP_API\",\"name\":\"http-api:12\"}}]}");
+        stubVersions(version);
+        assertEquals("WRITE", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+    }
+
     @BeforeEach
     void setUp() {
         runtimeProxyClient = mock(RuntimeProxyClient.class);
@@ -49,7 +119,7 @@ class WorkflowItemContractResolverTest {
         body.put("version", "v1.2.0");
         body.put("status", status);
         body.put("snapshotJson", snapshotJson);
-        body.put("graphSpecSnapshotJson", null);
+        body.put("graphSpecSnapshotJson", "{\"nodes\":[]}");
         return body;
     }
 
@@ -98,7 +168,9 @@ class WorkflowItemContractResolverTest {
         String snapshotJson = """
                 {"graphSpec":"{\\"inputSchema\\":{\\"type\\":\\"object\\",\\"properties\\":{\\"region\\":{\\"type\\":\\"string\\"}}}}"}
                 """;
-        stubVersions(version("ACTIVE", snapshotJson));
+        Map<String, Object> version = version("ACTIVE", snapshotJson);
+        version.put("graphSpecSnapshotJson", "{\"nodes\":[],\"inputSchema\":{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\"}}}}");
+        stubVersions(version);
 
         McpToolProjection projection = resolver.resolve(WORKFLOW_ID);
 
@@ -118,7 +190,7 @@ class WorkflowItemContractResolverTest {
 
         assertEquals("{\"type\":\"object\",\"properties\":{\"force\":{\"type\":\"boolean\"}}}",
                 projection.inputSchemaJson());
-        assertEquals("UNKNOWN", projection.riskLevel());
+        assertEquals("READ", projection.riskLevel());
     }
 
     @Test

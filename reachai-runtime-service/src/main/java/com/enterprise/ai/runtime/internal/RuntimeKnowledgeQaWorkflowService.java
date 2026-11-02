@@ -221,7 +221,7 @@ public class RuntimeKnowledgeQaWorkflowService {
         return "查询知识库《" + kbName + "》里的制度、流程、说明等资料并据此回答。"
                 + "用户问到这些资料涉及的内容时调用，question 传用户的完整问题。"
                 + "回答最后一行是「出处：《…》」，转述给用户时必须原样保留这一行；"
-                + "返回资料里没有时，如实告诉用户资料里没有，不要自行补充或猜测。";
+                + "未检索到证据时，说明当前未找到可用资料，不要断言资料不存在，也不要自行补充或猜测。";
     }
 
     static GraphSpec graphSpec(String code, String kbName, String model) {
@@ -245,7 +245,7 @@ public class RuntimeKnowledgeQaWorkflowService {
         Map<String, Object> llm = new LinkedHashMap<>();
         llm.put("modelInstanceId", model);
         llm.put("systemPrompt", "你是企业知识助手。只根据下面「资料」回答用户问题，不要编造资料里没有的内容；"
-                + "资料不足以回答时直接说资料里没有。回答简洁，最后一行写「出处：《" + kbName + "》」并附上资料标题或文件名。");
+                + "资料不足以回答时说明当前未找到足够的可用资料，不要断言资料不存在。回答简洁，最后一行写「出处：《" + kbName + "》」并附上资料标题或文件名。");
         llm.put("userPrompt", "问题：{{ params.question }}\n\n资料（JSON，hits 为检索到的段落）：\n{{ var.hits }}");
 
         Map<String, Object> inputSchema = new LinkedHashMap<>();
@@ -266,8 +266,8 @@ public class RuntimeKnowledgeQaWorkflowService {
                         .config(llm).build())
                 .node(GraphSpec.Node.builder().id("answer").type("ANSWER").name("回复")
                         .config(Map.of("template", "{{ nodeOutput.answer_llm }}")).build())
-                .node(GraphSpec.Node.builder().id("no_evidence_answer").type("ANSWER").name("资料里没有")
-                        .config(Map.of("template", "资料《" + kbName + "》里没有找到与「{{ params.question }}」相关的内容。"))
+                .node(GraphSpec.Node.builder().id("no_evidence_answer").type("ANSWER").name("未找到可用资料")
+                        .config(Map.of("template", "当前未在可访问的资料《" + kbName + "》中找到与「{{ params.question }}」相关的内容，无法据此回答。"))
                         .build())
                 .edge(GraphSpec.Edge.builder().id("e_input_kr").from("user_input").to("kr").condition("always").build())
                 .edge(GraphSpec.Edge.builder().id("e_kr_llm").from("kr").to("answer_llm")

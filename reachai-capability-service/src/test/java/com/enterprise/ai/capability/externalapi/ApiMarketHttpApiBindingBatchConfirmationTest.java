@@ -125,7 +125,7 @@ class ApiMarketHttpApiBindingBatchConfirmationTest {
     @Test
     void nonMarketSourcesNeedNoMarketOwnerReads() {
         var source = new HttpApiSourceBindingEntity();
-        source.setSourceKind("CONTROLLER_SCAN");
+        source.setSourceKind("OPENAPI_SCAN");
         assertTrue(service.confirmationReasons(List.of(), List.of(source), Map.of()).isEmpty());
         verifyNoInteractions(integrations, selections, entries, versions, operations);
     }

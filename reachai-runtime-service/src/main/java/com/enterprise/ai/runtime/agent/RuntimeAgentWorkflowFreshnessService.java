@@ -40,9 +40,11 @@ public class RuntimeAgentWorkflowFreshnessService {
     private final RuntimeAgentConfigService configService;
     private final RuntimeWorkflowToolCatalogQuery workflowCatalog;
 
-    @Transactional(readOnly = true)
+    @Transactional(isolation = org.springframework.transaction.annotation.Isolation.READ_COMMITTED)
     public AgentWorkflowFreshnessView agentFreshness(String agentId) {
         if (!StringUtils.hasText(agentId)) throw new IllegalArgumentException("agentId is required");
+        // Keep owner and referenced configuration together while another actor may move or edit the Agent.
+        agentMapper.lockById(agentId.trim());
         RuntimeAgentEntity agent = agentMapper.selectById(agentId.trim());
         if (agent == null) throw new IllegalArgumentException("agent not found: " + agentId);
         RuntimeAgentConfigVersionEntity active = configService.resolveActive(agent.getId()).orElse(null);

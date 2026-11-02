@@ -11,6 +11,8 @@ import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
@@ -27,18 +29,30 @@ public class PlatformEmbedTokenService {
     private final ObjectMapper objectMapper;
     private final PlatformEmbedTokenProperties properties;
     private final Clock clock;
+    private final PlatformEmbedBusinessSessionRevocation businessSessions;
 
     @Autowired
+    public PlatformEmbedTokenService(ObjectMapper objectMapper, PlatformEmbedTokenProperties properties,
+                                     PlatformEmbedBusinessSessionRevocation businessSessions) {
+        this(objectMapper, properties, Clock.systemUTC(), businessSessions);
+    }
+
     public PlatformEmbedTokenService(ObjectMapper objectMapper, PlatformEmbedTokenProperties properties) {
-        this(objectMapper, properties, Clock.systemUTC());
+        this(objectMapper, properties, Clock.systemUTC(), null);
     }
 
     PlatformEmbedTokenService(ObjectMapper objectMapper,
                               PlatformEmbedTokenProperties properties,
                               Clock clock) {
+        this(objectMapper, properties, clock, null);
+    }
+
+    PlatformEmbedTokenService(ObjectMapper objectMapper, PlatformEmbedTokenProperties properties,
+                              Clock clock, PlatformEmbedBusinessSessionRevocation businessSessions) {
         this.objectMapper = objectMapper;
         this.properties = properties;
         this.clock = clock;
+        this.businessSessions = businessSessions;
         requireSigningKey(properties);
     }
 
@@ -54,11 +68,30 @@ public class PlatformEmbedTokenService {
         if (principal == null || !StringUtils.hasText(principal.externalUserId())) {
             throw new PlatformEmbedTokenException("principal.externalUserId is required");
         }
+        if (command.getBusinessSessionId() != null) {
+            requireActiveBusinessSession(command.getProjectCode(), command.getBusinessSessionId());
+        }
 
         long ttl = command.getTtlSeconds() == null || command.getTtlSeconds() <= 0
                 ? properties.getDefaultTokenTtlSeconds()
                 : command.getTtlSeconds();
         Instant now = clock.instant();
+        if (command.getBusinessSessionExpiresAt() != null) {
+            long expiresAt = command.getBusinessSessionExpiresAt();
+            if (expiresAt <= 0) {
+                throw new PlatformEmbedTokenException("embed business session expiry is invalid");
+            }
+            long remaining;
+            try {
+                remaining = Duration.between(now, Instant.ofEpochSecond(expiresAt)).getSeconds();
+            } catch (DateTimeException | ArithmeticException invalid) {
+                throw new PlatformEmbedTokenException("embed business session expiry is invalid", invalid);
+            }
+            if (remaining < 1) {
+                throw new PlatformEmbedTokenException("embed business session is expired");
+            }
+            ttl = Math.min(ttl, remaining);
+        }
         Instant expiresAt = now.plusSeconds(ttl);
         String keyId = activeKeyId();
         Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT", "kid", keyId);
@@ -76,6 +109,9 @@ public class PlatformEmbedTokenService {
         claims.put("pageInstanceId", command.getPageInstanceId());
         claims.put("route", command.getRoute());
         claims.put("origin", command.getOrigin());
+        if (command.getBusinessSessionId() != null) {
+            claims.put("businessSessionId", command.getBusinessSessionId());
+        }
         claims.put("roles", principal.roles() == null ? List.of() : principal.roles());
         claims.put("attributes", principal.attributes() == null ? Map.of() : principal.attributes());
         claims.put("iat", now.getEpochSecond());
@@ -114,6 +150,10 @@ public class PlatformEmbedTokenService {
         if (exp <= 0 || !clock.instant().isBefore(Instant.ofEpochSecond(exp))) {
             throw new PlatformEmbedTokenException("embed token is expired");
         }
+        String businessSessionId = asString(claims.get("businessSessionId"));
+        if (businessSessionId != null) {
+            requireActiveBusinessSession(asString(claims.get("projectCode")), businessSessionId);
+        }
         PlatformEmbedTokenClaims result = new PlatformEmbedTokenClaims();
         result.setIssuer(asString(claims.get("iss")));
         result.setAudience(asString(claims.get("aud")));
@@ -128,12 +168,20 @@ public class PlatformEmbedTokenService {
         result.setPageInstanceId(asString(claims.get("pageInstanceId")));
         result.setRoute(asString(claims.get("route")));
         result.setOrigin(asString(claims.get("origin")));
+        result.setBusinessSessionId(businessSessionId);
         result.setJti(asString(claims.get("jti")));
         result.setIssuedAt(asLong(claims.get("iat")));
         result.setExpiresAt(exp);
         result.setRoles(asStringList(claims.get("roles")));
         result.setAttributes(asMap(claims.get("attributes")));
         return result;
+    }
+
+    private void requireActiveBusinessSession(String projectCode, String sessionId) {
+        if (businessSessions == null) {
+            throw new PlatformEmbedTokenException("embed business session verification is unavailable");
+        }
+        businessSessions.requireActive(projectCode, sessionId);
     }
 
     private Map<String, Object> readPart(String value, String label) {

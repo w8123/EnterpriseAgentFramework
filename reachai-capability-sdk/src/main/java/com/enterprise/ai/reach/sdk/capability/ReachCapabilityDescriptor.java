@@ -22,6 +22,7 @@ public class ReachCapabilityDescriptor {
     private ReachSideEffectLevel sideEffect;
     private ReachCapabilityAssetType assetType;
     private List<String> requiredRoles = new ArrayList<String>();
+    private boolean businessIdentityRequired;
     private int timeoutMs;
     private int retryLimit;
     private String className;
@@ -102,6 +103,14 @@ public class ReachCapabilityDescriptor {
 
     public void setRequiredRoles(List<String> requiredRoles) {
         this.requiredRoles = requiredRoles == null ? new ArrayList<String>() : new ArrayList<String>(requiredRoles);
+    }
+
+    public boolean isBusinessIdentityRequired() {
+        return businessIdentityRequired;
+    }
+
+    public void setBusinessIdentityRequired(boolean businessIdentityRequired) {
+        this.businessIdentityRequired = businessIdentityRequired;
     }
 
     public int getTimeoutMs() {

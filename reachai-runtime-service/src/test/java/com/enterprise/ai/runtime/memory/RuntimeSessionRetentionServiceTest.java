@@ -85,14 +85,17 @@ class RuntimeSessionRetentionServiceTest {
         RuntimeSessionStateEraser eraser = mock(RuntimeSessionStateEraser.class);
         RuntimeConversationSessionEntity active = session(1L, "ACTIVE");
         RuntimeConversationSessionEntity held = session(2L, "ACTIVE");
+        active.setUserId("runtime-user-secret");
+        held.setUserId("runtime-user-secret");
         held.setLegalHold(true);
         RuntimeConversationSessionEntity busy = session(3L, "ACTIVE");
+        busy.setUserId("runtime-user-secret");
         when(store.ownerEraseCandidates("tenant-a", "runtime-user-secret", 25))
                 .thenReturn(List.of(active, held, busy));
-        when(store.claimManualPurge(eq("tenant-a"), eq("session-1"),
+        when(store.claimOwnerPurge(eq(active), eq("runtime-user-secret"),
                 eq("PRIVACY_REQUEST"), eq("REQ-7"), anyString(), anyString(), any()))
                 .thenReturn(active);
-        when(store.claimManualPurge(eq("tenant-a"), eq("session-3"),
+        when(store.claimOwnerPurge(eq(busy), eq("runtime-user-secret"),
                 eq("PRIVACY_REQUEST"), eq("REQ-7"), anyString(), anyString(), any()))
                 .thenThrow(RuntimeSessionRetentionException.activeTurn());
         when(store.countOwnerSessions("tenant-a", "runtime-user-secret")).thenReturn(2L);
@@ -142,6 +145,72 @@ class RuntimeSessionRetentionServiceTest {
 
         verify(store, never()).ownerEraseCandidates(anyString(), anyString(),
                 org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void ownerEraseRejectsBusinessSessionsBeforeFetchingAnyBatchOrPurging() {
+        RuntimeSessionRetentionStore store = mock(RuntimeSessionRetentionStore.class);
+        RuntimeSessionStateEraser eraser = mock(RuntimeSessionStateEraser.class);
+        when(store.countBusinessOwnerSessions("tenant-a", "user-a")).thenReturn(1L);
+        var failure = assertThrows(RuntimeSessionRetentionException.class, () -> service(store, eraser)
+                .eraseOwner("tenant-a", "user-a", "PRIVACY_REQUEST", null, 10, "42"));
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", failure.code());
+        verify(store, never()).ownerEraseCandidates(anyString(), anyString(), org.mockito.ArgumentMatchers.anyInt());
+        verify(eraser, never()).purgeAll(any());
+    }
+
+    @Test
+    void caseInsensitiveDatabaseMatchCannotEraseADifferentOpaqueUserId() {
+        RuntimeSessionRetentionStore store = mock(RuntimeSessionRetentionStore.class);
+        RuntimeSessionStateEraser eraser = mock(RuntimeSessionStateEraser.class);
+        var exact = session(1L, "ACTIVE"); exact.setUserId("Alice");
+        var differentCase = session(2L, "ACTIVE"); differentCase.setUserId("alice");
+        when(store.ownerEraseCandidates("tenant-a", "Alice", 10)).thenReturn(List.of(exact, differentCase));
+        var failure = assertThrows(RuntimeSessionRetentionException.class, () -> service(store, eraser)
+                .eraseOwner("tenant-a", "Alice", "PRIVACY_REQUEST", null, 10, "42"));
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", failure.code());
+        verify(store, never()).claimOwnerPurge(any(), anyString(), anyString(), any(), anyString(), anyString(), any());
+        verify(eraser, never()).purgeAll(any());
+    }
+
+    @Test
+    void businessSessionAppearingBetweenGuardAndScanCannotBeErased() {
+        RuntimeSessionRetentionStore store = mock(RuntimeSessionRetentionStore.class);
+        RuntimeSessionStateEraser eraser = mock(RuntimeSessionStateEraser.class);
+        var business = session(1L, "ACTIVE"); business.setUserId("Alice"); business.setIdentitySource("EMBED_SESSION");
+        when(store.ownerEraseCandidates("tenant-a", "Alice", 10)).thenReturn(List.of(business));
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", assertThrows(RuntimeSessionRetentionException.class,
+                () -> service(store, eraser).eraseOwner("tenant-a", "Alice", "PRIVACY_REQUEST", null, 10, "42")).code());
+        verify(eraser, never()).purgeAll(any());
+    }
+
+    @Test
+    void changedOwnerAtClaimIsReportedAsScopeConflictEvenWhenRemainingCountWouldBeZero() {
+        var store = mock(RuntimeSessionRetentionStore.class);
+        var eraser = mock(RuntimeSessionStateEraser.class);
+        var candidate = session(1L, "ACTIVE"); candidate.setUserId("Alice");
+        when(store.ownerEraseCandidates("tenant-a", "Alice", 10)).thenReturn(List.of(candidate));
+        when(store.claimOwnerPurge(eq(candidate), eq("Alice"), anyString(), any(), anyString(), anyString(), any()))
+                .thenThrow(RuntimeSessionRetentionException.scopedIdentityRequired());
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", assertThrows(RuntimeSessionRetentionException.class,
+                () -> service(store, eraser).eraseOwner("tenant-a", "Alice", "PRIVACY_REQUEST", null, 10, "42")).code());
+        verify(store, never()).countOwnerSessions(anyString(), anyString());
+        verify(eraser, never()).purgeAll(any());
+    }
+
+    @Test
+    void failedClaimNeverReportsCompletionJustBecauseRemainingCountIsZero() {
+        var store = mock(RuntimeSessionRetentionStore.class);
+        var candidate = session(1L, "ACTIVE"); candidate.setUserId("Alice");
+        when(store.ownerEraseCandidates("tenant-a", "Alice", 10)).thenReturn(List.of(candidate));
+        when(store.claimOwnerPurge(eq(candidate), eq("Alice"), anyString(), any(), anyString(), anyString(), any()))
+                .thenThrow(new IllegalStateException("storage unavailable"));
+        when(store.countOwnerSessions("tenant-a", "Alice")).thenReturn(0L);
+        var result = service(store, mock(RuntimeSessionStateEraser.class))
+                .eraseOwner("tenant-a", "Alice", "PRIVACY_REQUEST", null, 10, "42");
+        assertFalse(result.complete());
+        assertEquals("RETRY_REQUIRED", result.status());
+        assertEquals(1, result.failed());
     }
 
     private static RuntimeSessionRetentionService service(

@@ -152,7 +152,7 @@ class RuntimeWorkflowProposalGenerationServiceTest {
                 List.of(),
                 List.of()));
 
-        assertEquals(List.of("requirement and modelInstanceId are required"), result.validationErrors());
+        assertEquals(List.of("请填写需求并选择模型；还没有模型的话先到模型中心添加"), result.validationErrors());
         assertTrue(modelClient.requests.isEmpty());
     }
 

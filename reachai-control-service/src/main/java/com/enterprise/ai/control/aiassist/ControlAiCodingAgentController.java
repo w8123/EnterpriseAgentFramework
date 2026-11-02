@@ -91,4 +91,14 @@ public class ControlAiCodingAgentController {
     public ResponseEntity<Map<String, Object>> handle(ControlAiCodingAgentException exception) {
         return ResponseEntity.status(exception.status()).body(exception.toBody());
     }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleRuntime(org.springframework.web.server.ResponseStatusException exception) {
+        int status = exception.getStatusCode().value();
+        String code = status == 409 ? "AGENT_DRAFT_CONFLICT" : "AGENT_RUNTIME_COMMAND_FAILED";
+        var mapped = new ControlAiCodingAgentException(code, exception.getReason(),
+                org.springframework.http.HttpStatus.resolve(status) == null ? org.springframework.http.HttpStatus.BAD_GATEWAY
+                        : org.springframework.http.HttpStatus.resolve(status));
+        return ResponseEntity.status(exception.getStatusCode()).body(mapped.toBody());
+    }
 }

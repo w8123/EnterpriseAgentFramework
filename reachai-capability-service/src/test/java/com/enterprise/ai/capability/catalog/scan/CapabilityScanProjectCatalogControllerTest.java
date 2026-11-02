@@ -245,7 +245,6 @@ class CapabilityScanProjectCatalogControllerTest {
                         null,
                         "https://api.example.com",
                         null,
-                        "/openapi.json",
                         null,
                         null
                 );
@@ -272,7 +271,6 @@ class CapabilityScanProjectCatalogControllerTest {
                         null,
                         "https://api.example.com",
                         null,
-                        "/openapi.json",
                         null,
                         null
                 );
@@ -298,8 +296,7 @@ class CapabilityScanProjectCatalogControllerTest {
                         "PRIVATE",
                         "https://api.example.com",
                         "",
-                        "",
-                        "auto",
+                        null,
                         null
                 );
         when(service.update(7L, request.toServiceRequest())).thenReturn(project);
@@ -649,8 +646,6 @@ class CapabilityScanProjectCatalogControllerTest {
         project.setVisibility("PRIVATE");
         project.setBaseUrl("https://api.example.com");
         project.setContextPath("");
-        project.setScanPath("/openapi.json");
-        project.setScanType("openapi");
         project.setToolCount(4);
         project.setStatus("created");
         project.setAuthType(null);

@@ -61,6 +61,44 @@ class RuntimeSessionMemoryServiceTest {
     }
 
     @Test
+    void businessSessionStateIsIsolatedAndLegacyRowsAreNotAutomaticallyAdopted() {
+        var store = new InMemoryAgentStateStore();
+        var mapper = mock(RuntimeConversationSessionMapper.class);
+        var service = service(store, mapper);
+        var firstAgent = agent("agent-a");
+        var secondAgent = new RuntimeAgentView("agent-a", 8L, "other", "a", "a", null,
+                "PROJECT", null, true, null, null, null, null, "AGENTSCOPE", 0, null, null);
+        var first = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "p", "1");
+        var second = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 8L, "other", "1");
+        var a = service.resolve(firstAgent, "session-1", first);
+        var b = service.resolve(secondAgent, "session-1", second);
+        assertNotEquals(a.stateUserKey(), b.stateUserKey());
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(firstAgent, "session-1", second));
+        assertThrows(IllegalArgumentException.class, () -> service.resolve(firstAgent, "session-1",
+                WorkflowExecutionIdentity.fromEmbedSession("tenant-a", null, null, "1")));
+
+        var row = existingSession("tenant-a", "session-1", "1", "agent-a");
+        row.setIdentitySource("EMBED_SESSION");
+        row.setProjectCode("p");
+        row.setStateUserKey("legacy-unverified-key");
+        row.setStateSessionKey(a.stateSessionKey());
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
+        assertThrows(RuntimeSessionOwnershipException.class, () -> service.prepare(a, firstAgent, 1L));
+        row.setStateUserKey(a.stateUserKey());
+        assertThrows(RuntimeSessionOwnershipException.class, () -> service.prepare(b, secondAgent, 1L));
+        store.save(a.stateUserKey(), a.stateSessionKey(), RuntimeSessionMemoryService.STATE_NAME,
+                AgentState.builder().userId(a.stateUserKey()).sessionId(a.stateSessionKey()).build());
+        assertEquals("RUNTIME_SESSION_NOT_FOUND", assertThrows(RuntimeSessionRetentionException.class,
+                () -> service.clear("session-1", second)).code());
+        assertEquals("RUNTIME_OWNER_SCOPE_REQUIRED", assertThrows(RuntimeSessionRetentionException.class,
+                () -> service.clear("session-1", WorkflowExecutionIdentity.fromEmbedSession(
+                        "tenant-a", null, null, "1"))).code());
+        assertTrue(store.exists(a.stateUserKey(), a.stateSessionKey()));
+        service.clear("session-1", first);
+        assertFalse(store.exists(a.stateUserKey(), a.stateSessionKey()));
+    }
+
+    @Test
     void rejectsAnOversizedSessionIdBeforeCreatingPersistentState() {
         RuntimeSessionMemoryService service = service(new InMemoryAgentStateStore());
 
@@ -110,6 +148,7 @@ class RuntimeSessionMemoryServiceTest {
         sharedStore.save(key.stateUserKey(), key.stateSessionKey(), RuntimeSessionMemoryService.STATE_NAME, state);
         RuntimeConversationSessionEntity row = new RuntimeConversationSessionEntity();
         row.setId(1L);
+        row.setTenantId("tenant-a"); row.setSessionId("session-1"); row.setUserId("user-1"); row.setIdentitySource("AGENT");
         row.setStateUserKey(key.stateUserKey());
         row.setStateSessionKey(key.stateSessionKey());
         when(sessionMapper.selectOne(any(Wrapper.class))).thenReturn(row);
@@ -141,6 +180,43 @@ class RuntimeSessionMemoryServiceTest {
         org.junit.jupiter.api.Assertions.assertThrows(
                 RuntimeSessionOwnershipException.class,
                 () -> service.prepare(attacker, agent("agent-a"), 1L));
+    }
+
+    @Test
+    void identicalNumericUserFromAnotherIdentitySourceCannotReadOrClearSession() {
+        var store = new InMemoryAgentStateStore();
+        var mapper = mock(RuntimeConversationSessionMapper.class);
+        var row = existingSession("tenant-a", "session-1", "1", "agent-a");
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
+        var service = service(store, mapper);
+        var platform = WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "p", "1");
+        var embed = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "p", "1");
+        var key = service.resolve(agent("agent-a"), "session-1", platform);
+        store.save(key.stateUserKey(), key.stateSessionKey(), RuntimeSessionMemoryService.STATE_NAME,
+                AgentState.builder().userId(key.stateUserKey()).sessionId(key.stateSessionKey()).build());
+        row.setStateUserKey(key.stateUserKey()); row.setStateSessionKey(key.stateSessionKey());
+        var other = service.resolve(agent("agent-a"), "session-1", embed);
+        assertThrows(RuntimeSessionOwnershipException.class,
+                () -> service.acquireTurn(other, agent("agent-a"), 7L));
+        service.clear("session-1", embed);
+        assertTrue(store.exists(key.stateUserKey(), key.stateSessionKey()));
+        verify(mapper, never()).update(any(), any(Wrapper.class));
+    }
+
+    @Test
+    void databaseCaseInsensitiveMatchCannotClearAnotherSessionOrUser() {
+        var store = new InMemoryAgentStateStore();
+        var mapper = mock(RuntimeConversationSessionMapper.class);
+        var row = existingSession("tenant-a", "Session-A", "Alice", "agent-a");
+        row.setStateUserKey("owner"); row.setStateSessionKey("session");
+        store.save("owner", "session", RuntimeSessionMemoryService.STATE_NAME,
+                AgentState.builder().userId("owner").sessionId("session").build());
+        when(mapper.selectOne(any(Wrapper.class))).thenReturn(row);
+        var service = service(store, mapper);
+        service.clear("session-a", WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "p", "Alice"));
+        service.clear("Session-A", WorkflowExecutionIdentity.fromAgent("tenant-a", 7L, "p", "alice"));
+        assertTrue(store.exists("owner", "session"));
+        verify(mapper, never()).update(any(), any(Wrapper.class));
     }
 
     @Test
@@ -423,6 +499,7 @@ class RuntimeSessionMemoryServiceTest {
         session.setAgentId(agentId);
         session.setEventCount(0);
         session.setStatus("ACTIVE");
+        session.setIdentitySource("AGENT");
         return session;
     }
 

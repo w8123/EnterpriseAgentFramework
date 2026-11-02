@@ -129,6 +129,8 @@ const additionalPaths = [
   'AGENTS.md', 'CONTRIBUTING.md', 'sql/README.md',
   'deploy/quickstart/README.md', 'managed-executor-worker/README.md',
   'ai-admin-front/DESIGN.md', 'ai-admin-front/THIRD_PARTY_NOTICES.md',
+  // 官网仅在开发库分发；下面会过滤开源检出中不存在的文件。
+  'reachai-website/README.md', 'reachai-website/DESIGN.md',
   '.cursor/rules/reachai-project.mdc',
 ]
 const additionalRoots = [

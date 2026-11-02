@@ -15,4 +15,8 @@ public interface KnowledgeHealthClient {
     /** Knowledge service uses servlet context-path `/ai`. */
     @GetMapping("/ai/actuator/health")
     Map<String, Object> health();
+
+    /** Reachability of Knowledge's optional dependencies (Milvus, Docling). */
+    @GetMapping("/ai/actuator/info")
+    Map<String, Object> info();
 }

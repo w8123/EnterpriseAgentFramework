@@ -24,6 +24,8 @@ public class KnowledgeRetrievalCoreRequest {
     /** RUNTIME / CONSOLE; written to knowledge_hit_log.source. */
     private String hitSource;
     private String traceId;
+    /** User attached to the hit log only; it must never be used to authorize file grants. */
+    private String auditUserId;
     private String userId;
     private List<String> accessibleFileIds;
     private String fileIdFilterExpression;

@@ -47,6 +47,8 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class CapabilityScanProjectCatalogService {
 
+    private static final int MAX_OPENAPI_SPEC_CHARS = 5 * 1024 * 1024;
+
     private final ScanProjectMapper scanProjectMapper;
     private final ScanProjectToolMapper scanProjectToolMapper;
     private final ScanModuleMapper scanModuleMapper;
@@ -297,7 +299,7 @@ public class CapabilityScanProjectCatalogService {
             return new ScanPreparation(project, scanRevision(project));
         });
         try {
-            CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project(), null);
+            CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project());
             return shortTransaction(() -> {
                 ScanProjectEntity current = requireCurrentScan(projectId, prepared.revision());
                 requireScanAllowed(projectId);
@@ -330,13 +332,13 @@ public class CapabilityScanProjectCatalogService {
             requireCatalogWritable(getTool(projectId, scanToolId, true));
             return new ScanPreparation(project, scanRevision(project));
         });
-        CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project(), null);
+        CapabilityScannerClient.ManifestData manifest = scanManifest(prepared.project());
         return shortTransaction(() -> {
         ScanProjectEntity project = requireCurrentScan(projectId, prepared.revision());
         ScanProjectToolEntity existing = getTool(projectId, scanToolId, true);
         requireCatalogWritable(existing);
         CapabilityScannerClient.ToolData matched = findManifestTool(project, existing, manifest);
-        HttpApiSourceKind kind = usesControllerScanner(project) ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
+        HttpApiSourceKind kind = HttpApiSourceKind.OPENAPI_SCAN;
         ScannerHttpApiSingleSourceIntakeService.Plan plan = singleSourceIntake.prepare(kind, project, existing, manifest.httpApis());
         if (matched != null) {
             applyManifestTool(project, matched, existing, false, existing.getName());
@@ -468,11 +470,9 @@ public class CapabilityScanProjectCatalogService {
     }
 
     private ScanResult performScan(ScanProjectEntity project, boolean merge, CapabilityScannerClient.ManifestData manifest) {
-        boolean controllerScan = usesControllerScanner(project);
-        // Both Controller and OpenAPI HTTP facts reconcile only from a full inventory. Legacy Tool
-        // rows remain on their own path; a partial/unchanged document delta must never tombstone
-        // an unreported source binding.
-        HttpApiSourceKind sourceKind = controllerScan ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
+        // OpenAPI HTTP facts reconcile only from a full inventory. Legacy Tool rows remain on their
+        // own path; a partial document must never tombstone an unreported source binding.
+        HttpApiSourceKind sourceKind = HttpApiSourceKind.OPENAPI_SCAN;
         ScannerHttpApiIntakeService.Plan httpApiPlan = scannerHttpApiIntake.prepare(
                 sourceKind, project, manifest.httpApis(), manifest.httpApiInventoryComplete());
         List<String> toolNames = persistManifestTools(project, manifest, merge);
@@ -485,23 +485,20 @@ public class CapabilityScanProjectCatalogService {
         return new ScanResult(project.getId(), project.getName(), toolNames.size(), List.copyOf(toolNames));
     }
 
-    private CapabilityScannerClient.ManifestData scanManifest(ScanProjectEntity project, Long incrementalSinceMs) {
+    private CapabilityScannerClient.ManifestData scanManifest(ScanProjectEntity project) {
+        String specContent = scanProjectMapper.selectOpenapiDocument(project.getId());
+        if (!StringUtils.hasText(specContent)) {
+            throw new IllegalArgumentException("请先上传 OpenAPI 文档");
+        }
         ScanSettings settings = ScanSettingsJson.parseOrDefault(project.getScanSettings(), objectMapper);
         CapabilityScannerClient.ScanRequest request = new CapabilityScannerClient.ScanRequest(
                 scannerProjectMetadataName(project),
                 project.getBaseUrl(),
                 normalizeContextPath(project.getContextPath()),
-                project.getScanPath(),
                 project.getSpecFile(),
-                toScannerOptions(settings),
-                incrementalSinceMs);
-        String type = normalizeScanType(project.getScanType());
-        ApiResult<CapabilityScannerClient.ManifestData> response;
-        if (usesControllerScanner(project)) {
-            response = scannerClient.scanController(request);
-        } else {
-            response = scannerClient.scanOpenApi(request);
-        }
+                specContent,
+                toScannerOptions(settings));
+        ApiResult<CapabilityScannerClient.ManifestData> response = scannerClient.scanOpenApi(request);
         if (response == null) {
             throw new IllegalArgumentException("Scanner service returned empty response");
         }
@@ -514,11 +511,6 @@ public class CapabilityScanProjectCatalogService {
         return response.getData();
     }
 
-    private boolean usesControllerScanner(ScanProjectEntity project) {
-        String type = normalizeScanType(project.getScanType());
-        return "controller".equals(type) || ("auto".equals(type) && shouldAutoUseController(project));
-    }
-
     private List<String> persistManifestTools(ScanProjectEntity project,
                                               CapabilityScannerClient.ManifestData manifest,
                                               boolean merge) {
@@ -529,11 +521,10 @@ public class CapabilityScanProjectCatalogService {
         for (ScanProjectToolEntity tool : existing) {
             existingByName.put(tool.getName(), tool);
         }
-        boolean useProjectPrefix = !isControllerScannerManifest(manifestTools);
         List<String> names = new ArrayList<>();
         List<String> seen = new ArrayList<>();
         for (CapabilityScannerClient.ToolData tool : manifestTools) {
-            String name = buildUniqueToolName(project.getName(), tool.name(), useProjectPrefix, seen, existingByName);
+            String name = buildUniqueToolName(project.getName(), tool.name(), seen, existingByName);
             ScanProjectToolEntity entity = merge ? existingByName.get(name) : null;
             boolean inserting = entity == null;
             if (inserting) {
@@ -625,8 +616,8 @@ public class CapabilityScanProjectCatalogService {
                                                               ScanProjectToolEntity existing,
                                                               CapabilityScannerClient.ManifestData manifest) {
         List<CapabilityScannerClient.ToolData> tools = manifest.tools() == null ? List.of() : manifest.tools();
-        HttpApiSourceKind kind = usesControllerScanner(project) ? HttpApiSourceKind.CONTROLLER_SCAN : HttpApiSourceKind.OPENAPI_SCAN;
-        String sourceKind = kind == HttpApiSourceKind.CONTROLLER_SCAN ? "controller" : "openapi";
+        HttpApiSourceKind kind = HttpApiSourceKind.OPENAPI_SCAN;
+        String sourceKind = "openapi";
         String method = ScannerHttpApiSourceIdentity.method(existing.getHttpMethod());
         String route = ScannerHttpApiSourceIdentity.route(existing.getContextPath(), existing.getEndpointPath());
         List<CapabilityScannerClient.ToolData> matches = tools.stream().filter(Objects::nonNull)
@@ -646,25 +637,8 @@ public class CapabilityScanProjectCatalogService {
 
     private CapabilityScannerClient.ScanOptions toScannerOptions(ScanSettings settings) {
         return new CapabilityScannerClient.ScanOptions(
-                settings.getDescriptionSourceOrder(),
-                settings.getParamDescriptionSourceOrder(),
-                settings.getDescriptionSourceEnabled(),
-                settings.getParamDescriptionSourceEnabled(),
-                settings.isOnlyRestController(),
                 settings.getHttpMethodWhitelist() == null ? List.of() : settings.getHttpMethodWhitelist(),
-                settings.getClassIncludeRegex(),
-                settings.getClassExcludeRegex(),
-                settings.isSkipDeprecated(),
-                settings.getIncrementalMode());
-    }
-
-    private boolean shouldAutoUseController(ScanProjectEntity project) {
-        String scanPath = project.getScanPath();
-        if (!StringUtils.hasText(scanPath)) {
-            return true;
-        }
-        String lower = scanPath.trim().toLowerCase(Locale.ROOT);
-        return !(lower.endsWith(".json") || lower.endsWith(".yaml") || lower.endsWith(".yml"));
+                settings.isSkipDeprecated());
     }
 
     private String scannerProjectMetadataName(ScanProjectEntity project) {
@@ -677,12 +651,9 @@ public class CapabilityScanProjectCatalogService {
 
     private String buildUniqueToolName(String projectName,
                                        String rawToolName,
-                                       boolean useProjectPrefix,
                                        List<String> seen,
                                        Map<String, ScanProjectToolEntity> existingByName) {
-        String base = useProjectPrefix
-                ? normalizeName(projectName) + "__" + normalizeName(rawToolName)
-                : normalizeName(rawToolName);
+        String base = normalizeName(projectName) + "__" + normalizeName(rawToolName);
         if (!StringUtils.hasText(base) || base.endsWith("__")) {
             base = "tool";
         }
@@ -692,18 +663,6 @@ public class CapabilityScanProjectCatalogService {
             candidate = base + "_" + suffix++;
         }
         return candidate;
-    }
-
-    private boolean isControllerScannerManifest(List<CapabilityScannerClient.ToolData> tools) {
-        if (tools.isEmpty()) {
-            return false;
-        }
-        for (CapabilityScannerClient.ToolData tool : tools) {
-            if (tool.source() == null || !"controller".equals(tool.source().scanner())) {
-                return false;
-            }
-        }
-        return true;
     }
 
     private String resolveManifestBaseUrl(ScanProjectEntity project) {
@@ -841,11 +800,10 @@ public class CapabilityScanProjectCatalogService {
         if (!isValidRestClientBaseUrl(normalizedBaseUrl)) {
             throw new IllegalArgumentException("Project baseUrl must be an absolute URL with host");
         }
-        String kind = normalizeProjectKind(request.projectKind());
-        if (!"REGISTERED".equals(kind) && !StringUtils.hasText(request.scanPath())) {
-            throw new IllegalArgumentException("Scan path is required");
+        normalizeProjectKind(request.projectKind());
+        if (request.specContent() != null && request.specContent().length() > MAX_OPENAPI_SPEC_CHARS) {
+            throw new IllegalArgumentException("OpenAPI 文档过大（上限 5 MB）");
         }
-        normalizeScanType(request.scanType());
     }
 
 
@@ -860,9 +818,12 @@ public class CapabilityScanProjectCatalogService {
         entity.setVisibility(normalizeVisibility(request.visibility()));
         entity.setBaseUrl(normalizeHttpBaseUrl(request.baseUrl()));
         entity.setContextPath(normalizeContextPath(request.contextPath()));
-        entity.setScanPath(StringUtils.hasText(request.scanPath()) ? request.scanPath().trim() : "");
-        entity.setScanType(normalizeScanType(request.scanType()));
-        entity.setSpecFile(StringUtils.hasText(request.specFile()) ? request.specFile().trim() : null);
+        if (StringUtils.hasText(request.specContent())) {
+            // A new upload replaces the stored document; omitting it keeps the current one.
+            entity.setOpenapiDocument(request.specContent());
+            entity.setOpenapiDocumentSha256(sha256(request.specContent()));
+            entity.setSpecFile(StringUtils.hasText(request.specFile()) ? request.specFile().trim() : "openapi.yaml");
+        }
         return entity;
     }
 
@@ -895,12 +856,13 @@ public class CapabilityScanProjectCatalogService {
         return normalized;
     }
 
-    private String normalizeScanType(String value) {
-        String normalized = StringUtils.hasText(value) ? value.trim().toLowerCase(Locale.ROOT) : "openapi";
-        if (!List.of("openapi", "controller", "auto").contains(normalized)) {
-            throw new IllegalArgumentException("Unsupported scan type: " + value);
+    private static String sha256(String value) {
+        try {
+            return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
         }
-        return normalized;
     }
 
     private String normalizeContextPath(String contextPath) {
@@ -955,9 +917,8 @@ public class CapabilityScanProjectCatalogService {
             String visibility,
             String baseUrl,
             String contextPath,
-            String scanPath,
-            String scanType,
-            String specFile
+            String specFile,
+            String specContent
     ) {
     }
 

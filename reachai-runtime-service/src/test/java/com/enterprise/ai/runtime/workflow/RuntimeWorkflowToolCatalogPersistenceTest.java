@@ -73,6 +73,19 @@ class RuntimeWorkflowToolCatalogPersistenceTest {
     }
 
     @Test
+    void businessMethodRiskUsesPublishedFloorAndFailsClosedForLegacyGraphs() {
+        workflow("orders", "ACTIVE");
+        version(11, "orders", "RETIRED", 100, "{}",
+                "{\"nodes\":[{\"id\":\"n\",\"type\":\"tool\",\"ref\":{\"qualifiedName\":\"orders:create\"}}]}");
+        version(12, "orders", "RETIRED", 100, "{\"businessMethodRiskFloor\":\"READ\"}", "{\"nodes\":[]}");
+        version(13, "orders", "ACTIVE", 100, "{\"businessMethodRiskFloor\":\"WRITE\"}", "{\"nodes\":[]}");
+        var result = catalog.pinned(List.of(new Reference("orders", 11L), new Reference("orders", 12L), new Reference("orders", 13L)));
+        assertEquals("WRITE", result.get(new Reference("orders", 11L)).version().businessMethodRiskFloor());
+        assertEquals("READ", result.get(new Reference("orders", 12L)).version().businessMethodRiskFloor());
+        assertEquals("WRITE", result.get(new Reference("orders", 13L)).version().businessMethodRiskFloor());
+    }
+
+    @Test
     void wrongOwnerMissingUnpinnedAndUnpublishedReferencesHaveNoPublishedContract() {
         workflow("orders", "ACTIVE");
         workflow("foreign", "ACTIVE");

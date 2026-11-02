@@ -40,12 +40,18 @@ public class PersonalMemoryKnowledgeQueryClient {
     }
 
     public QueryAttempt query(String tenantId, String runtimeUserId, String query, int topK, int maxChars) {
+        return query(tenantId, runtimeUserId, query, topK, maxChars, null);
+    }
+
+    public QueryAttempt query(String tenantId, String runtimeUserId, String query, int topK, int maxChars,
+                              String ownerDomain) {
         if (!mode.queriesKnowledge()) return QueryAttempt.off();
         long startedAt = System.nanoTime();
         try {
             Map<String, Object> request = new LinkedHashMap<>();
             request.put("tenantId", tenantId);
             request.put("runtimeUserId", runtimeUserId);
+            if (ownerDomain != null && !ownerDomain.isBlank()) request.put("ownerDomain", ownerDomain);
             request.put("query", query == null ? "" : query);
             request.put("topK", topK);
             request.put("maxChars", maxChars);

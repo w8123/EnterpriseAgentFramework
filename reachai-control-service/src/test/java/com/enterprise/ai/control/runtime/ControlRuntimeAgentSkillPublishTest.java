@@ -36,22 +36,20 @@ class ControlRuntimeAgentSkillPublishTest {
         config.put("skills", List.of(binding));
         when(runtime.listAgentConfigVersions("agent-1"))
                 .thenReturn(ResponseEntity.ok(List.of(config)));
-        when(runtime.getAgent("agent-1"))
-                .thenReturn(ResponseEntity.ok(Map.of("id", "agent-1", "projectCode", "finance-core")));
+        var gateway = AgentDraftPublishTestAccess.configure(controller, runtime, "finance-core");
         when(assembler.assemble(eq(request), eq(config), eq("finance-core"))).thenReturn(config);
         when(runtime.publishAgentConfigVersion("agent-1", 31L, Map.of("publishedBy", "alice")))
                 .thenReturn(ResponseEntity.ok(Map.of("id", 31L, "status", "ACTIVE")));
 
-        ResponseEntity<Object> response = controller.publishAgentConfigVersion(
-                request, "agent-1", 31L, Map.of("publishedBy", "alice"));
+        ResponseEntity<Object> response = controller.publishAgentDraftIfUnchanged(
+                request, "agent-1", 31L, Map.of("baseRevision", AgentDraftPublishTestAccess.REVISION));
 
         assertEquals(200, response.getStatusCode().value());
-        var ordered = inOrder(runtime, assembler);
+        var ordered = inOrder(runtime, assembler, gateway);
         ordered.verify(runtime).listAgentConfigVersions("agent-1");
         ordered.verify(runtime).getAgent("agent-1");
         ordered.verify(assembler).assemble(request, config, "finance-core");
-        ordered.verify(runtime).publishAgentConfigVersion(
-                "agent-1", 31L, Map.of("publishedBy", "alice"));
+        ordered.verify(gateway).publish(eq("agent-1"), eq(7L), eq("finance-core"), eq(AgentDraftPublishTestAccess.REVISION), eq(31L), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -78,14 +76,14 @@ class ControlRuntimeAgentSkillPublishTest {
 
         when(runtime.listAgentConfigVersions("agent-1"))
                 .thenReturn(ResponseEntity.ok(List.of(config)));
-        when(runtime.getAgent("agent-1"))
-                .thenReturn(ResponseEntity.ok(Map.of("id", "agent-1", "projectCode", "finance-core")));
+        var gateway = AgentDraftPublishTestAccess.configure(controller, runtime, "finance-core");
         when(assembler.assemble(eq(request), eq(config), eq("finance-core"))).thenReturn(canonical);
 
         var failure = assertThrows(org.springframework.web.server.ResponseStatusException.class,
-                () -> controller.publishAgentConfigVersion(request, "agent-1", 31L, Map.of()));
+                () -> controller.publishAgentDraftIfUnchanged(request, "agent-1", 31L, Map.of("baseRevision", AgentDraftPublishTestAccess.REVISION)));
 
         assertEquals(409, failure.getStatusCode().value());
+        org.mockito.Mockito.verifyNoInteractions(gateway);
         verify(runtime, never()).publishAgentConfigVersion(
                 eq("agent-1"), eq(31L), org.mockito.ArgumentMatchers.anyMap());
     }

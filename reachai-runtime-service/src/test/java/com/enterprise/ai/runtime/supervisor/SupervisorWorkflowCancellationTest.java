@@ -489,10 +489,12 @@ class SupervisorWorkflowCancellationTest {
         when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
         SupervisorToolPolicyService policy = new SupervisorToolPolicyService(
                 org.mockito.Mockito.mock(com.enterprise.ai.runtime.runops.RuntimeGuardDecisionWriter.class), mock(SupervisorApprovalInteractionService.class), objectMapper);
-        return new AgentScopeSupervisorRuntimeAdapter(
+        var adapter = new AgentScopeSupervisorRuntimeAdapter(
                 modelClient, null, null, new com.enterprise.ai.runtime.workflow.RuntimeWorkflowExecutionReader(workflowMapper, versionMapper), graphExecutor,
                 interactionSessionService,
                 memory, policy, traceService, objectMapper);
+        adapter.setBusinessMethodRiskGuard(mock(SupervisorBusinessMethodRiskGuard.class));
+        return adapter;
     }
 
     private void stubWorkflow(RuntimeAgentWorkflowToolSnapshot tool) {

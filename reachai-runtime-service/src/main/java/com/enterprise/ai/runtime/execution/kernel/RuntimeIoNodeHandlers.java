@@ -98,8 +98,8 @@ final class RuntimeIoNodeHandlers {
         Boolean rerankRequested = config.get("rerankEnabled") instanceof Boolean enabled ? enabled : null;
         String evidencePolicy = normalizeKnowledgeEvidencePolicy(config.get("evidencePolicy"));
         WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
-        // Without a trusted end user (evaluation, Studio trial runs) no user id is sent, so Knowledge
-        // returns only ALL_CALLERS bases; request maps can never supply the ACL user.
+        // The verified user is sent for audit only. Knowledge currently allows runtime retrieval
+        // from ALL_CALLERS bases until identity-scoped file grants are supported.
         String userId = identity.canResolveUserAcl() ? identity.userId() : null;
         try {
             KnowledgeRetrievalResult result = knowledgeClient.retrieve(KnowledgeRetrievalRequest.builder()

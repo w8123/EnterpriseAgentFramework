@@ -29,7 +29,7 @@ class HttpApiWriteWorkflowBrowserLauncherTest {
             String workflowId = createEmptyAuthorDraft(f, json);
             var state = new LinkedHashMap<String, Object>();
             state.put("controlOrigin", surface.controlOrigin()); state.put("upstreamOrigin", surface.upstreamOrigin());
-            state.put("authStatePath", surface.authStatePath()); state.put("scanPath", surface.scanPath());
+            state.put("authStatePath", surface.authStatePath()); state.put("documentDirectory", surface.documentDirectory());
             state.put("workflowId", workflowId); state.put("apiId", 1); state.put("qualifiedName", f.writeApiOwner().summary().qualifiedName());
             state.put("projectId", 41); state.put("projectCode", "orders"); state.put("environment", "dev");
             ready(manifest, json, state, "READY_FOR_NORMAL_POST_AUTHORING");

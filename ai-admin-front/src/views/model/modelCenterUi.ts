@@ -201,6 +201,8 @@ export function testStatusTone(status: ModelTestStatus | string | null | undefin
   }
 }
 
+const MODEL_SERVICE_HINT_PREFIX = /^(?:模型供应商|连不上模型服务|找不到模型服务地址|连接模型服务|和模型服务|调用模型|调用向量模型|调用重排模型|读取模型列表|这个模型还没有填写接口地址)/
+
 /**
  * Converts provider-specific test failures into stable, actionable UI copy.
  * Keep the card summary bounded and do not echo arbitrary upstream payloads,
@@ -209,6 +211,8 @@ export function testStatusTone(status: ModelTestStatus | string | null | undefin
 export function modelTestFailureHint(error: string | null | undefined): string {
   const value = String(error || '').trim()
   if (!value) return '请重新测试；仍失败时进入“管理”检查模型连接配置。'
+  // 模型服务已经给出中文原因和下一步，去掉附带的供应商原文后直接展示。
+  if (MODEL_SERVICE_HINT_PREFIX.test(value)) return value.split(' 供应商原文：')[0]
   if (/\b(?:http\s*)?402\b|insufficient\s+(?:balance|quota)|余额不足|额度不足/i.test(value)) {
     return '供应商额度不足（HTTP 402），请充值或切换可用模型后重新测试。'
   }
@@ -221,7 +225,7 @@ export function modelTestFailureHint(error: string | null | undefined): string {
   if (/\b(?:http\s*)?429\b|rate\s*limit|too\s+many\s+requests/i.test(value)) {
     return '供应商触发限流（HTTP 429），请稍后重试或调整限流配置。'
   }
-  if (/timed?\s*out|timeout|connection\s+refused|unreachable|unknown\s+host|network\s+error|dns/i.test(value)) {
+  if (/timed?\s*out|timeout|connection\s+refused|connectexception|unreachable|unknown\s*host|network\s+error|dns/i.test(value)) {
     return '模型服务网络不可达或超时，请检查 BaseURL、DNS、代理和防火墙。'
   }
   if (/\b(?:http\s*)?5\d\d\b|bad\s+gateway|service\s+unavailable/i.test(value)) {

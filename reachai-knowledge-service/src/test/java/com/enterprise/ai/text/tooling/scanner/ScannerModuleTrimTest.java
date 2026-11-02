@@ -10,11 +10,18 @@ class ScannerModuleTrimTest {
     @Test
     void scannerClassesNowLiveUnderAiSkillsService() {
         assertDoesNotThrow(() -> Class.forName("com.enterprise.ai.text.tooling.scanner.openapi.OpenApiToolManifestScanner"));
-        assertDoesNotThrow(() -> Class.forName("com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner"));
         assertThrows(ClassNotFoundException.class,
                 () -> Class.forName("com.enterprise.ai.skill.scanner.openapi.OpenApiToolManifestScanner"));
         assertThrows(ClassNotFoundException.class,
                 () -> Class.forName("com.enterprise.ai.skill.scanner.controller.ControllerAnnotationToolManifestScanner"));
+    }
+
+    @Test
+    void noLongerShipsSourceCodeScanner() {
+        assertThrows(ClassNotFoundException.class,
+                () -> Class.forName("com.enterprise.ai.text.tooling.scanner.controller.ControllerAnnotationToolManifestScanner"));
+        assertThrows(ClassNotFoundException.class,
+                () -> Class.forName("com.enterprise.ai.text.tooling.scanner.controller.ControllerHttpApiInventoryExtractor"));
     }
 
     @Test

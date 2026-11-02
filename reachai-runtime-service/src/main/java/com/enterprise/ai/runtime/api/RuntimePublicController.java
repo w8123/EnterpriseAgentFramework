@@ -6,6 +6,7 @@ import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.supervisor.RuntimeAgentExecutionService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsQueryService;
 import com.enterprise.ai.runtime.runops.RuntimeSessionRunStatsView;
+import com.enterprise.ai.runtime.runops.RuntimeEmbedUserUsageView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsReplayService;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsComparisonView;
 import com.enterprise.ai.runtime.runops.RuntimeRunOpsViews.RuntimeRunOpsDiagnosticsView;
@@ -192,6 +193,14 @@ public class RuntimePublicController {
             @RequestParam List<String> sessionIds,
             @RequestParam(defaultValue = "30") int days) {
         return ResponseEntity.ok(runOpsQueryService.sessionStats(sessionIds, days));
+    }
+
+    /** Control 的「AI 使用情况」读取；Nginx 只把 /api/ 转给 Control，这里不直接对外。 */
+    @GetMapping("/api/runops/usage/embed-users")
+    public ResponseEntity<List<RuntimeEmbedUserUsageView>> runOpsEmbedUserUsage(
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(defaultValue = "30") int days) {
+        return ResponseEntity.ok(runOpsQueryService.embedUserUsage(projectCode, days));
     }
 
     @GetMapping("/api/runops/diagnostics")

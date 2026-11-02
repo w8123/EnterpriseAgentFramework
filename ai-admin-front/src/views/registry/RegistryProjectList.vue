@@ -197,7 +197,7 @@
           </el-form>
         </el-tab-pane>
 
-        <el-tab-pane label="扫描接入" name="scan">
+        <el-tab-pane label="OpenAPI 导入" name="scan">
           <el-form label-position="top" :disabled="saving" class="project-access-form">
             <div class="app-overlay-form-grid">
               <el-form-item label="项目名称" required class="app-overlay-form-grid__full">
@@ -225,18 +225,20 @@
                   <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </LiquidGlassSelect>
               </el-form-item>
-              <el-form-item label="扫描路径" class="app-overlay-form-grid__full" :required="scanForm.projectKind !== 'REGISTERED'">
-                <el-input v-model="scanForm.scanPath" placeholder="服务器上的绝对路径" />
-                <div v-if="scanForm.projectKind === 'REGISTERED'" class="form-hint">SDK 接入项目可不配置扫描路径。</div>
-              </el-form-item>
-              <el-form-item label="扫描方式" class="app-overlay-form-grid__full" required>
-                <el-radio-group v-model="scanForm.scanType">
-                  <el-radio value="openapi">OpenAPI</el-radio>
-                  <el-radio value="controller">Controller</el-radio>
-                </el-radio-group>
-              </el-form-item>
-              <el-form-item v-if="scanForm.scanType === 'openapi'" label="规范文件" class="app-overlay-form-grid__full">
-                <el-input v-model="scanForm.specFile" placeholder="可选，相对 scanPath；留空自动发现" />
+              <el-form-item label="OpenAPI 文档" class="app-overlay-form-grid__full" :required="scanForm.projectKind !== 'REGISTERED'">
+                <div class="openapi-document-picker">
+                  <input
+                    ref="openapiFileInput"
+                    type="file"
+                    class="openapi-document-input"
+                    :accept="OPENAPI_DOCUMENT_ACCEPT"
+                    aria-label="选择 OpenAPI 文档"
+                    @change="handleOpenApiFileChange"
+                  />
+                  <LiquidGlassButton @click="openapiFileInput?.click()">选择文件</LiquidGlassButton>
+                  <span class="form-hint">{{ scanForm.specFile || '未选择，支持 .json / .yaml / .yml，最大 5MB' }}</span>
+                </div>
+                <div class="form-hint">Java / Spring 项目推荐改用 SDK 接入；没有 SDK 的系统上传 Swagger / OpenAPI 导出的文档即可。</div>
               </el-form-item>
             </div>
           </el-form>
@@ -331,6 +333,7 @@ import {
   formatProjectKindLabel,
   formatScanStatusLabel,
 } from '@/utils/projectLabels'
+import { OPENAPI_DOCUMENT_ACCEPT, readOpenApiDocumentFile } from '@/utils/openapiDocument'
 import { usePlatformCan } from '@/auth/usePlatformCan'
 import { PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
 const { can } = usePlatformCan()
@@ -535,9 +538,8 @@ function createEmptyScanForm(): ScanProjectUpsertRequest {
     visibility: 'PRIVATE',
     baseUrl: '',
     contextPath: '',
-    scanPath: '',
-    scanType: 'openapi',
     specFile: '',
+    specContent: '',
   }
 }
 
@@ -560,9 +562,8 @@ function applyScanForm(project: ScanProjectUpsertRequest) {
   scanForm.visibility = project.visibility || 'PRIVATE'
   scanForm.baseUrl = project.baseUrl
   scanForm.contextPath = project.contextPath || ''
-  scanForm.scanPath = project.scanPath || ''
-  scanForm.scanType = project.scanType || 'openapi'
   scanForm.specFile = project.specFile || ''
+  scanForm.specContent = project.specContent || ''
 }
 
 function buildProjectListQuery(): ScanProjectListQuery {
@@ -633,20 +634,37 @@ async function saveSdkProject() {
   }
 }
 
+const openapiFileInput = ref<HTMLInputElement | null>(null)
+
+async function handleOpenApiFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const document = await readOpenApiDocumentFile(file)
+    scanForm.specFile = document.specFile
+    scanForm.specContent = document.specContent
+  } catch (error) {
+    ElMessage.warning((error as Error).message)
+  }
+}
+
 async function saveScanProject() {
-  if (!scanForm.name.trim() || !scanForm.baseUrl.trim() || (scanForm.projectKind !== 'REGISTERED' && !scanForm.scanPath.trim())) {
-    ElMessage.warning('请填写项目名称、域名和扫描路径')
+  if (!scanForm.name.trim() || !scanForm.baseUrl.trim() || (scanForm.projectKind !== 'REGISTERED' && !scanForm.specContent)) {
+    ElMessage.warning('请填写项目名称、域名，并上传 OpenAPI 文档')
     return
   }
   saving.value = true
   try {
     const payload = {
       ...scanForm,
-      specFile: scanForm.scanType === 'openapi' ? scanForm.specFile || null : null,
+      specFile: scanForm.specContent ? scanForm.specFile || null : null,
+      specContent: scanForm.specContent || null,
       contextPath: scanForm.contextPath || '',
     }
     await createScanProject(payload)
-    ElMessage.success('扫描项目已创建')
+    ElMessage.success('OpenAPI 项目已创建')
     accessDialogVisible.value = false
     await loadProjects()
   } catch (error) {
@@ -741,6 +759,17 @@ function goDetail(project: ScanProject) {
 </script>
 
 <style scoped lang="scss">
+.openapi-document-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.openapi-document-input {
+  display: none;
+}
+
 .registry-project-page {
   min-width: 0;
   background: transparent;

@@ -193,7 +193,7 @@ class CapabilityChangePersistenceTest {
         tx = new TransactionTemplate(transactionManager);
         tx.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         var project = new ScanProjectEntity(); project.setName("订单系统"); project.setProjectCode("orders");
-        project.setBaseUrl("http://orders.local"); project.setScanPath("sdk:orders"); project.setScanType("auto"); projects.insert(project);
+        project.setBaseUrl("http://orders.local"); projects.insert(project);
     }
 
     @Test void officialSdkAdmissionAdoptsCandidateProseAndManualMembershipInsideItsOwnerTransaction() {
@@ -561,7 +561,7 @@ class CapabilityChangePersistenceTest {
         var project = projects.selectOne(null);
         var other = new ScanProjectEntity(); other.setName("其他系统"); other.setProjectCode("other");
         other.setBaseUrl("http://other.local");
-        other.setScanPath("sdk:other"); other.setScanType("auto"); projects.insert(other);
+        projects.insert(other);
         var old = java.time.LocalDateTime.now().minusHours(2);
         for (String status : List.of("OFFLINE", "STALE", "DISABLED", "ONLINE")) {
             jdbc.update("INSERT INTO capability_project_instance (project_id, project_code, instance_id, status, last_heartbeat_at) VALUES (?, ?, ?, ?, ?)",
@@ -666,7 +666,7 @@ class CapabilityChangePersistenceTest {
     @Test void sameSyncIdentityInDifferentProjectsHasIndependentLogsAndSnapshots() {
         sync("shared-id", read("/orders", null));
         var other = new ScanProjectEntity(); other.setName("另一个项目"); other.setProjectCode("other");
-        other.setBaseUrl("http://other.local"); other.setScanPath("sdk:other"); other.setScanType("auto");
+        other.setBaseUrl("http://other.local");
         projects.insert(other);
         var response = tx.execute(status -> registry.sync("other", request("shared-id", read("/other", null))));
         assertEquals("other", response.projectCode());

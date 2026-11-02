@@ -96,13 +96,29 @@ class InternalAgentStreamAuthMockMvcTest {
     }
 
     @Test
+    void rejectsSignedEmbedExecutionWithoutBusinessProject() throws Exception {
+        byte[] body = objectMapper.writeValueAsBytes(Map.of(
+                "body", Map.of("agentId", "demo", "message", "hi"),
+                "identity", Map.of("source", "EMBED_SESSION", "userId", "claims-user")));
+        Map<String, String> headers = sign("EMBED_SESSION", "claims-user",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        var request = post(PATH).contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM).content(body);
+        headers.forEach(request::header);
+        mockMvc.perform(request).andExpect(status().isUnauthorized());
+        verify(executionService, never()).execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     void signedInternalStreamDeliversTrustedIdentityToExecute() throws Exception {
         AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
         when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
             captured.set(inv.getArgument(4));
             return Map.of("success", true, "answer", "stream-ok", "sessionId", "s1");
         });
-        byte[] body = bodyBytes("EMBED_SESSION", "claims-user", "查订单");
+        byte[] body = objectMapper.writeValueAsBytes(Map.of(
+                "body", Map.of("agentId", "demo", "message", "查订单", "projectCode", "attacker"),
+                "identity", Map.of("source", "EMBED_SESSION", "userId", "claims-user", "projectCode", "orders")));
         Map<String, String> headers = sign("EMBED_SESSION", "claims-user",
                 System.currentTimeMillis(), UUID.randomUUID().toString(), body);
         MvcResult mvcResult = mockMvc.perform(post(PATH)
@@ -126,6 +142,7 @@ class InternalAgentStreamAuthMockMvcTest {
         assertNotNull(captured.get());
         assertTrue(captured.get().userTrusted());
         assertEquals("claims-user", captured.get().userId());
+        assertEquals("orders", captured.get().projectCode());
         assertEquals(WorkflowExecutionIdentity.Source.EMBED_SESSION, captured.get().source());
     }
 
@@ -252,7 +269,7 @@ class InternalAgentStreamAuthMockMvcTest {
         runtimeBody.put(RuntimeAgentExecutionService.DEBUG_CONFIG_VERSION_KEY, 12);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("body", runtimeBody);
-        payload.put("identity", Map.of("source", source, "userId", "u1"));
+        payload.put("identity", Map.of("source", source, "userId", "u1", "projectCode", "orders"));
         byte[] body = objectMapper.writeValueAsBytes(payload);
         Map<String, String> headers = sign(source, "u1", System.currentTimeMillis(), UUID.randomUUID().toString(), body);
         var builder = post(PATH).contentType(MediaType.APPLICATION_JSON).accept(MediaType.TEXT_EVENT_STREAM).content(body);
@@ -283,7 +300,7 @@ class InternalAgentStreamAuthMockMvcTest {
     private byte[] bodyBytes(String source, String userId, String message) throws Exception {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("body", Map.of("agentId", "demo", "message", message, "userId", "attacker"));
-        payload.put("identity", Map.of("source", source, "userId", userId));
+        payload.put("identity", Map.of("source", source, "userId", userId, "projectCode", "orders"));
         return objectMapper.writeValueAsBytes(payload);
     }
 
@@ -296,7 +313,7 @@ class InternalAgentStreamAuthMockMvcTest {
         body.put("controlTiming", controlTiming);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("body", body);
-        payload.put("identity", Map.of("source", source, "userId", userId));
+        payload.put("identity", Map.of("source", source, "userId", userId, "projectCode", "orders"));
         return objectMapper.writeValueAsBytes(payload);
     }
 }

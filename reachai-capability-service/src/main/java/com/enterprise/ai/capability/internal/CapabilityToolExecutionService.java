@@ -81,6 +81,7 @@ public class CapabilityToolExecutionService {
             url = appendQuery(url, input);
         }
         Map<String, Object> invocationMetadata = invocationMetadata(definition, tool, request);
+        validateDeclaredBusinessIdentity(tool, request, invocationMetadata);
         validateInvocationConstraints(request, invocationMetadata);
         CapabilityHttpToolInvocation invocation = new CapabilityHttpToolInvocation(
                 method,
@@ -101,6 +102,21 @@ public class CapabilityToolExecutionService {
             response.put("metadata", metadata);
         }
         return response;
+    }
+
+    private void validateDeclaredBusinessIdentity(ToolDefinitionEntity tool, Map<String, Object> request,
+                                                  Map<String, Object> metadata) {
+        if (!ConsoleBusinessMethodDeclaration.explicitlyRequiresBusinessIdentity(tool.getCapabilityMetadataJson(), METADATA_MAPPER)) return;
+        Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
+        String externalUserId = text(context == null ? null : context.get("externalUserId"));
+        String globalUserId = text(context == null ? null : context.get("globalUserId"));
+        Object headers = metadata.get("headers");
+        if ((!StringUtils.hasText(externalUserId) && !StringUtils.hasText(globalUserId))
+                || !(headers instanceof Map<?, ?> signed) || !signed.containsKey(ReachAiInvocationToken.HEADER_NAME)) {
+            throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
+                    com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
+                    "该业务方法要求经过验证的业务用户身份和签名调用");
+        }
     }
 
 
@@ -197,7 +213,7 @@ public class CapabilityToolExecutionService {
         }
         sourceContractGuard.validateConsoleAcceptedBusinessMethod(tool, constraints);
         if (Boolean.TRUE.equals(booleanValue(constraints.get("requireUserIdentity")))
-                || ConsoleBusinessMethodDeclaration.hasRequiredRoles(tool, METADATA_MAPPER)) {
+                || ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(tool, METADATA_MAPPER)) {
             throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
                     com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
                     "该业务方法要求业务用户身份，控制台试调用不会转发平台身份");
@@ -259,7 +275,7 @@ public class CapabilityToolExecutionService {
                     com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.POLICY_REJECTED,
                     "Studio 只读试运行只允许明确 READ_ONLY 的业务方法");
         }
-        if (ConsoleBusinessMethodDeclaration.hasRequiredRoles(tool, METADATA_MAPPER)) {
+        if (ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(tool, METADATA_MAPPER)) {
             throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
                     com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
                     "业务方法要求业务用户身份，项目测试身份不可调用");

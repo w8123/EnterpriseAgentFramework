@@ -84,7 +84,7 @@ class ControlWorkflowReadOnlyTrialControllerTest {
     }
 
     @Test void browserCannotSupplyTrustGraphPinsActorOrCredentials() {
-        for (String name : List.of("graphSpecJson", "projectId", "platformActorId", "allowedTargets", "credentialRef", "identity", "deadlineEpochMs")) {
+        for (String name : List.of("graphSpecJson", "projectId", "platformActorId", "allowedTargets", "credentialRef", "identity", "deadlineEpochMs", "platformTrialTraceId")) {
             var body = input(); body.put(name, "forged");
             assertEquals(HttpStatus.BAD_REQUEST, controller.run(body).getStatusCode());
         }

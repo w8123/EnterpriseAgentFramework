@@ -233,7 +233,7 @@ async function handleSave() {
   }
   saving.value = true
   try {
-    await updateChunk(editingId.value, {
+    await updateChunk(fileId, editingId.value, {
       title: editForm.title,
       content: editForm.content,
       enabled: editEnabled.value ? 1 : 0,
@@ -249,7 +249,7 @@ async function handleSave() {
 async function handleToggle(row: ChunkDetail, val: boolean) {
   togglingId.value = row.id
   try {
-    await toggleChunk(row.id, val ? 1 : 0)
+    await toggleChunk(fileId, row.id, val ? 1 : 0)
     row.enabled = val ? 1 : 0
   } finally {
     togglingId.value = null
@@ -259,7 +259,7 @@ async function handleToggle(row: ChunkDetail, val: boolean) {
 async function handleReembed(row: ChunkDetail) {
   reembeddingId.value = row.id
   try {
-    await reembedChunk(row.id)
+    await reembedChunk(fileId, row.id)
     ElMessage.success('向量已重建')
   } finally {
     reembeddingId.value = null

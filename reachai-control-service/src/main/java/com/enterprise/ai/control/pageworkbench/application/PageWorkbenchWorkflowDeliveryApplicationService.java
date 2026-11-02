@@ -29,6 +29,25 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
             String projectCode,
             String taskId,
             DeliveryCommand command) {
+        DeliveryPlan plan = plan(projectCode, taskId, command);
+        WorkflowDeliveryView delivered = runtimeClient
+                .deliverPageWorkbenchWorkflow(
+                        String.valueOf(plan.request().get("projectCode")),
+                        plan.workflowId(),
+                        plan.request())
+                .getBody();
+        if (delivered == null || !delivered.published()) {
+            throw new IllegalStateException(
+                    "Runtime did not confirm Workflow delivery");
+        }
+        return delivered;
+    }
+
+    /** What a delivery would send, without sending it; platform AI freezes this for owner review. */
+    public DeliveryPlan plan(
+            String projectCode,
+            String taskId,
+            DeliveryCommand command) {
         if (command == null) {
             throw new IllegalArgumentException(
                     "workflow delivery command is required");
@@ -57,7 +76,8 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
                     "delivery pageKey does not match the task PAGE target");
         }
 
-        JsonNode engineering = latestAppliedEngineeringResult(detail);
+        ArtifactView applied = latestAppliedEngineeringArtifact(detail);
+        JsonNode engineering = applied.applicationResult().path("workflowEngineering");
         String workflowId = engineering.path("workflow")
                 .path("id")
                 .asText(null);
@@ -89,20 +109,10 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
         request.put(
                 "replaceWorkflowId",
                 textOrNull(command.replaceWorkflowId()));
-        WorkflowDeliveryView delivered = runtimeClient
-                .deliverPageWorkbenchWorkflow(
-                        targetProjectCode,
-                        workflowId,
-                        request)
-                .getBody();
-        if (delivered == null || !delivered.published()) {
-            throw new IllegalStateException(
-                    "Runtime did not confirm Workflow delivery");
-        }
-        return delivered;
+        return new DeliveryPlan(workflowId, applied.artifactId(), request);
     }
 
-    private JsonNode latestAppliedEngineeringResult(TaskDetailView detail) {
+    private ArtifactView latestAppliedEngineeringArtifact(TaskDetailView detail) {
         return detail.artifacts().stream()
                 .filter(artifact -> "APPLIED".equals(
                         artifact.processingStatus()))
@@ -112,8 +122,6 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
                 .max(Comparator.comparing(
                         ArtifactView::artifactId,
                         Comparator.nullsFirst(Long::compareTo)))
-                .map(ArtifactView::applicationResult)
-                .map(result -> result.path("workflowEngineering"))
                 .orElseThrow(() -> new IllegalStateException(
                         "task does not contain an applied Workflow engineering result"));
     }
@@ -141,6 +149,9 @@ public class PageWorkbenchWorkflowDeliveryApplicationService {
 
     private static String textOrNull(String value) {
         return StringUtils.hasText(value) ? value.trim() : null;
+    }
+
+    public record DeliveryPlan(String workflowId, Long artifactId, Map<String, Object> request) {
     }
 
     public record DeliveryCommand(

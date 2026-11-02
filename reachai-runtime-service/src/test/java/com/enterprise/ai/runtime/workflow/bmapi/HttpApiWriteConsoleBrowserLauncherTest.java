@@ -30,7 +30,7 @@ class HttpApiWriteConsoleBrowserLauncherTest {
         try {
             fixture.startWriteFixture(); var surface = fixture.prepareWriteApiBrowserSurface();
             manifest.put("controlOrigin", surface.controlOrigin()); manifest.put("projectId", 41L); manifest.put("projectCode", "orders");
-            manifest.put("environment", "dev"); manifest.put("scanPath", surface.scanPath()); manifest.put("specFile", surface.specFile());
+            manifest.put("environment", "dev"); manifest.put("documentDirectory", surface.documentDirectory()); manifest.put("specFile", surface.specFile());
             manifest.put("upstreamOrigin", surface.upstreamOrigin()); manifest.put("credentialName", "Orders isolated API key");
             manifest.put("authStatePath", surface.authStatePath()); manifest.put("stages", stages);
             stages.put("initial", fixture.writeApiEvidence()); ready(manifestPath, json, manifest, "READY_FOR_BROWSER_DISCOVERY");

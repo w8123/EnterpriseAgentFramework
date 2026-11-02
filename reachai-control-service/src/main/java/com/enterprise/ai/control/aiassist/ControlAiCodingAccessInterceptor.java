@@ -36,7 +36,9 @@ public class ControlAiCodingAccessInterceptor implements HandlerInterceptor {
             String key = request.getHeader(ControlAiCodingAccessGuard.AI_CODING_HEADER);
             Long projectId = projectId(path);
             if (projectId != null) {
+                request.removeAttribute(VerifiedAiCodingProject.REQUEST_ATTRIBUTE);
                 guard.requireProjectAccess(projectId, key);
+                request.setAttribute(VerifiedAiCodingProject.REQUEST_ATTRIBUTE, VerifiedAiCodingProject.fromVerifiedKey(projectId, key));
                 return true;
             }
             String workflowId = workflowId(path);
@@ -49,6 +51,11 @@ public class ControlAiCodingAccessInterceptor implements HandlerInterceptor {
             writeError(response, ex);
             return false;
         }
+    }
+
+    @Override
+    public void afterCompletion(HttpServletRequest request, HttpServletResponse response, Object handler, Exception exception) {
+        request.removeAttribute(VerifiedAiCodingProject.REQUEST_ATTRIBUTE);
     }
 
     private static String requestPath(HttpServletRequest request) {
