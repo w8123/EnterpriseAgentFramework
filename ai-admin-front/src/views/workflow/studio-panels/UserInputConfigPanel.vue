@@ -30,7 +30,7 @@
         <el-input v-model="field.defaultValue" placeholder="默认值" />
         <el-button text type="danger" @click="removeInputField(index)">删除</el-button>
       </div>
-      <div v-if="!config.fields.length" class="panel-empty-row">还没有输入字段，发布前至少需要配置一个字段。</div>
+      <div v-if="!config.fields.length" class="panel-empty-row">当前没有输入字段；流程不需要参数时可以留空。</div>
     </ConfigSection>
   </div>
 </template>

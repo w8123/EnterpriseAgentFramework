@@ -590,6 +590,20 @@ function formatDateTime(value?: string) {
   min-height: 0;
 }
 
+/* Inline content sits on the workbench's existing glass surface. */
+.ai-task-detail-panel.is-inline .ai-task-summary > div,
+.ai-task-detail-panel.is-inline .ai-task-artifacts > article,
+.ai-task-detail-panel.is-inline .ai-readiness-grid > article,
+.ai-task-detail-panel.is-inline .ai-task-questions > article,
+.ai-task-detail-panel.is-inline .ai-task-recovery {
+  background: var(--surface-reading-header);
+}
+
+.ai-task-detail-panel.is-inline .ai-task-panel,
+.ai-task-detail-panel.is-inline .ai-task-empty {
+  background: transparent;
+}
+
 .ai-task-inline-actions {
   display: flex;
   align-items: center;

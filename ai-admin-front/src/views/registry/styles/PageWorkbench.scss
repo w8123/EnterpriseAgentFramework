@@ -6413,22 +6413,7 @@
 .implementation-task-workspace {
   min-height: 0;
   padding: 18px 20px 22px;
-  background:
-    radial-gradient(
-      760px 280px at 6% -10%,
-      rgb(var(--brand-primary-rgb) / 0.07),
-      transparent 68%
-    ),
-    radial-gradient(
-      520px 240px at 100% 8%,
-      color-mix(in srgb, var(--brand-hover) 8%, transparent),
-      transparent 70%
-    ),
-    color-mix(
-      in srgb,
-      var(--surface-solid-disabled) 16%,
-      var(--surface-fallback-panel)
-    );
+  background: transparent;
 }
 
 .page-detail-stage-card > .journey-stage-workspace.implementation-task-workspace {

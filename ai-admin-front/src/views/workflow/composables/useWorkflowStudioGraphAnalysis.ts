@@ -257,9 +257,6 @@ export function useWorkflowStudioGraphAnalysis(deps: UseWorkflowStudioGraphAnaly
           items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 引用了不存在的变量：${source}` })
         }
       }
-      if (node.data.kind === 'userInput' && !(node.data.userInputConfig?.fields || []).length) {
-        items.push({ level: 'error', nodeId: node.id, message: `${node.data.label || node.id} 没有输入字段` })
-      }
       if (node.data.kind === 'interaction') {
         const config = node.data.interactionConfig
         const interactionType = config?.interactionType || 'COLLECT_INPUT'

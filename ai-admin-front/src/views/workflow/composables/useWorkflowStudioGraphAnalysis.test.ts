@@ -30,6 +30,19 @@ function apiVariables(properties: Record<string, unknown>) {
 }
 
 describe('Workflow graph output candidate labels', () => {
+  it('allows an input node with no fields for parameterless business methods', () => {
+    const nodes = ref<CanvasNode[]>([{
+      id: 'input', type: 'userInput', position: { x: 0, y: 0 },
+      data: { label: '用户输入', kind: 'userInput', configVersion: 2,
+        userInputConfig: { outputAlias: 'params', fields: [] } },
+    }])
+    const analysis = useWorkflowStudioGraphAnalysis({
+      nodes, edges: ref<CanvasEdge[]>([]), decorateWorkflowNode: (node) => node,
+      markCanvasDirty: vi.fn(), syncJsonFromCanvas: vi.fn(),
+      waitForNodeMeasurements: vi.fn(async () => undefined), getNodeMeasurement: () => undefined,
+    })
+    expect(analysis.graphLintErrors.value.some((item) => item.message.includes('没有输入字段'))).toBe(false)
+  })
   it('keeps each declared API field and its alias/node category distinguishable', () => {
     const variables = apiVariables({ apiKey: { type: 'string' }, detailLevel: { type: 'string' },
       orderId: { type: 'string' }, state: { type: 'string' } })
