@@ -779,26 +779,6 @@ onBeforeUnmount(() => {
       </WorkbenchPanel>
     </div>
 
-    <details class="usage-definitions glass-surface-panel">
-      <summary>统计口径</summary>
-      <dl>
-        <div>
-          <dt>使用人数</dt>
-          <dd>按业务用户汇总，同一员工可使用多个 AI 工具。业务身份尚未关联时，按系统账号分别统计。</dd>
-        </div>
-        <div>
-          <dt>对话与调用</dt>
-          <dd>业务系统内对话按轮次统计，员工自己的 AI 工具按业务能力调用次数统计，两者分别展示。</dd>
-        </div>
-        <div>
-          <dt>审批与 Skill</dt>
-          <dd>
-            审批按提交记录统计，包含待审批、执行中与已结束的结果；Skill 按所选时间内从运行记录生成的数量统计。
-          </dd>
-        </div>
-      </dl>
-    </details>
-
     <AppDrawer
       v-model="drawerOpen"
       :title="selected ? `${selected.name}的使用详情` : '员工使用详情'"
@@ -1169,39 +1149,6 @@ onBeforeUnmount(() => {
 .skill-item > .el-tag {
   flex-shrink: 0;
 }
-.usage-definitions {
-  padding: 14px var(--layout-panel-padding);
-  border-radius: var(--radius-lg);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.usage-definitions summary {
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: 13px;
-}
-.usage-definitions summary:hover {
-  color: var(--brand-on-surface);
-}
-.usage-definitions summary:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 4px;
-}
-.usage-definitions dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
-  margin: 18px 0 4px;
-  line-height: 1.7;
-}
-.usage-definitions dt {
-  margin-bottom: 4px;
-  color: var(--text-primary);
-  font-weight: 600;
-}
-.usage-definitions dd {
-  margin: 0;
-}
 .person-detail {
   display: grid;
   gap: 24px;
@@ -1275,8 +1222,7 @@ onBeforeUnmount(() => {
   .channel-panel {
     display: none;
   }
-  .usage-entry-hints,
-  .usage-definitions dl {
+  .usage-entry-hints {
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }

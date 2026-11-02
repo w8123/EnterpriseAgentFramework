@@ -33,9 +33,28 @@ ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员�
 | 采购 | “帮我创建办公用品采购申请，提交前给我确认。” |
 | CRM | “根据本周客户动态生成跟进计划。” |
 
-<p align="center">
-  <img src="docs/images/readme-v2/26-erp-embedded-chat.png" alt="芋道 ERP 产品页面中的 ReachAI 助手查询示例" width="1200" />
-</p>
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/images/readme-v2/26-erp-embedded-chat.png"><img src="docs/images/readme-v2/26-erp-embedded-chat.png" alt="芋道 ERP 产品页面中的 ReachAI 助手查询示例" width="100%" /></a><br />
+      <strong>ERP · 产品信息查询</strong>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/images/readme-v2/32-oa-embedded-chat.png"><img src="docs/images/readme-v2/32-oa-embedded-chat.png" alt="OA 待办页面中的 ReachAI 助手" width="100%" /></a><br />
+      <strong>OA · 今日待办汇总</strong>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <a href="docs/images/readme-v2/33-ehr-embedded-chat.png"><img src="docs/images/readme-v2/33-ehr-embedded-chat.png" alt="eHR 异常考勤页面中的 ReachAI 助手" width="100%" /></a><br />
+      <strong>eHR · 异常考勤查询</strong>
+    </td>
+    <td width="50%" align="center">
+      <a href="docs/images/readme-v2/34-crm-embedded-chat.png"><img src="docs/images/readme-v2/34-crm-embedded-chat.png" alt="CRM 客户跟进页面中的 ReachAI 助手" width="100%" /></a><br />
+      <strong>CRM · 客户跟进总结</strong>
+    </td>
+  </tr>
+</table>
 
 ReachAI 会结合当前登录身份、页面状态与业务上下文理解需求，仅调用已授予当前用户的业务能力。页面筛选、跳转与表单操作由已注册的页面动作执行；真实数据查询与写入仍由后端 Capability 或业务 API 完成。涉及写入、提交和审批等关键操作时，必须经用户确认后执行。
 
@@ -294,7 +313,7 @@ ReachAI 不把“发布成功”当作结束。运营概览负责汇总价值和
   </tr>
   <tr>
     <td width="50%" align="center">
-      <a href="./docs/images/readme-v2/11-mcp-hub.png"><img src="./docs/images/readme-v2/11-mcp-hub.png" alt="ReachAI MCP 互联中心" width="100%" /></a><br />
+      <a href="./docs/images/readme-v2/11-mcp-hub.png"><img src="./docs/images/readme-v2/11-mcp-hub.png" alt="ReachAI MCP 开放服务列表" width="100%" /></a><br />
       <strong>MCP Hub</strong><br /><sub>将 Capability 或已发布 Workflow 安全发布为 MCP Tool</sub>
     </td>
     <td width="50%" align="center">
