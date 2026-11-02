@@ -87,6 +87,24 @@ class BusinessUserIdentityPersistenceTest {
         assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_binding WHERE external_user_id='42'", Integer.class));
     }
 
+    @Test void syncingRolesDoesNotDeleteCaseDistinctIdentitiesUnderCaseInsensitiveCollation() {
+        jdbc.execute("ALTER TABLE control_external_user_role_binding ALTER COLUMN app_id VARCHAR_IGNORECASE(96)");
+        jdbc.execute("ALTER TABLE control_external_user_role_binding ALTER COLUMN external_user_id VARCHAR_IGNORECASE(128)");
+        jdbc.execute("ALTER TABLE control_external_user_role_binding ALTER COLUMN source VARCHAR_IGNORECASE(32)");
+        jdbc.update("INSERT INTO control_external_user_role_binding(id,tenant_id,business_user_id,app_id,external_user_id,role_code,source,status) VALUES "
+                + "(100,'tenant-a',8,'old-app','old-user','OLD','BUSINESS_SYSTEM_SYNC','ACTIVE'),"
+                + "(101,'tenant-a',8,'old-app','OLD-USER','OTHER','BUSINESS_SYSTEM_SYNC','ACTIVE'),"
+                + "(102,'tenant-a',8,'OLD-APP','old-user','OTHER_APP','BUSINESS_SYSTEM_SYNC','ACTIVE'),"
+                + "(103,'tenant-a',8,'old-app','old-user','MANUAL','business_system_sync','ACTIVE')");
+        var sync = new BusinessUserSyncService(session.getMapper(BusinessUserMapper.class),
+                session.getMapper(ExternalUserBindingMapper.class), session.getMapper(ExternalUserRoleBindingMapper.class));
+        sync.sync(new BusinessUserSyncService.AttestedBusinessUser(
+                "tenant-a", "old-app", "old-user", null, "name", List.of("NEW")));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE id=100", Integer.class));
+        assertEquals(3, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE id IN (101,102,103)", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='NEW'", Integer.class));
+    }
+
     @Test void rejectsReparentingAndReplacesRolesWhenTheOwnerChangesItsOwnIdentityKey() {
         var request = mock(HttpServletRequest.class);
         var command = new BusinessUserDirectoryController.ExternalIdentityCommand(11L, "new-app", "new-user", "name", null, null, "ACTIVE", List.of("READER"));
@@ -98,5 +116,54 @@ class BusinessUserIdentityPersistenceTest {
         assertEquals("new-app", jdbc.queryForObject("SELECT app_id FROM control_external_user_binding WHERE id=11", String.class));
         assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='ADMIN'", Integer.class));
         assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE tenant_id='tenant-a' AND business_user_id=8 AND app_id='new-app' AND external_user_id='new-user' AND role_code='READER'", Integer.class));
+    }
+
+    @Test void creatingIdentityDoesNotOverwriteCaseDistinctExistingAccount() {
+        jdbc.execute("ALTER TABLE control_external_user_binding ALTER COLUMN app_id VARCHAR_IGNORECASE(96)");
+        jdbc.execute("ALTER TABLE control_external_user_binding ALTER COLUMN external_user_id VARCHAR_IGNORECASE(128)");
+        var command = new BusinessUserDirectoryController.ExternalIdentityCommand(
+                null, "old-app", "OLD-USER", "new name", null, null, "ACTIVE", List.of("READER"));
+        assertEquals(409, assertThrows(ResponseStatusException.class,
+                () -> controller.saveBusinessUserIdentity(mock(HttpServletRequest.class), 8L, command))
+                .getStatusCode().value());
+        assertEquals("old-user", jdbc.queryForObject(
+                "SELECT external_user_id FROM control_external_user_binding WHERE id=11", String.class));
+        assertEquals(1, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='ADMIN'", Integer.class));
+        assertEquals(0, jdbc.queryForObject(
+                "SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='READER'", Integer.class));
+    }
+
+    @Test void repeatedIdentitySyncKeepsUnchangedRoleAndAppliesLaterChanges() {
+        var sync = new BusinessUserSyncService(session.getMapper(BusinessUserMapper.class),
+                session.getMapper(ExternalUserBindingMapper.class), session.getMapper(ExternalUserRoleBindingMapper.class));
+        var first = new BusinessUserSyncService.AttestedBusinessUser(
+                "tenant-a", "old-app", "old-user", null, "Test", List.of("reader"));
+        sync.sync(first);
+        Long roleId = jdbc.queryForObject("SELECT id FROM control_external_user_role_binding WHERE role_code='reader'", Long.class);
+
+        sync.sync(first);
+        assertEquals(roleId, jdbc.queryForObject("SELECT id FROM control_external_user_role_binding WHERE role_code='reader'", Long.class));
+
+        sync.sync(new BusinessUserSyncService.AttestedBusinessUser(
+                "tenant-a", "old-app", "old-user", null, "Test", List.of("writer")));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='reader'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='writer' AND status='ACTIVE'", Integer.class));
+    }
+
+    @Test void editingIdentityDoesNotDeleteRolesOfCaseDistinctAccounts() {
+        jdbc.execute("ALTER TABLE control_external_user_role_binding ALTER COLUMN app_id VARCHAR_IGNORECASE(96)");
+        jdbc.execute("ALTER TABLE control_external_user_role_binding ALTER COLUMN external_user_id VARCHAR_IGNORECASE(128)");
+        jdbc.update("INSERT INTO control_external_user_role_binding(id,tenant_id,business_user_id,app_id,external_user_id,role_code,source,status) VALUES "
+                + "(101,'tenant-a',8,'old-app','OLD-USER','OTHER_OLD','MANUAL','ACTIVE'),"
+                + "(102,'tenant-a',8,'new-app','NEW-USER','OTHER_NEW','MANUAL','ACTIVE')");
+        var command = new BusinessUserDirectoryController.ExternalIdentityCommand(
+                11L, "new-app", "new-user", "name", null, null, "ACTIVE", List.of("READER"));
+        var saved = controller.saveBusinessUserIdentity(mock(HttpServletRequest.class), 8L, command);
+        assertEquals(2, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE id IN (101,102)", Integer.class));
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='ADMIN'", Integer.class));
+        assertEquals(1, jdbc.queryForObject("SELECT COUNT(*) FROM control_external_user_role_binding WHERE role_code='READER'", Integer.class));
+        assertEquals(List.of("READER"), saved.getBody().roles().stream()
+                .map(BusinessUserDirectoryController.ExternalRoleView::roleCode).toList());
     }
 }

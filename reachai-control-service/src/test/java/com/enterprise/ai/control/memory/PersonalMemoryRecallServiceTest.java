@@ -52,4 +52,18 @@ class PersonalMemoryRecallServiceTest {
         assertTrue(recall.recall("DEBUG", "default", "42", Map.of("message", "x")).isEmpty());
         assertTrue(recall.recall("AGENT", "default", "", Map.of("message", "x")).isEmpty());
     }
+
+    @Test
+    void sharedRecallFailureFallsBackToOnlyTheAuthenticatedOwnersMemory() {
+        var memoryService = mock(PersonalMemoryService.class);
+        var shared = mock(PersonalMemorySharedQueryService.class);
+        var owner = PersonalMemoryIdentityResolver.PersonalMemoryPrincipal.business("tenant", "42", "erp");
+        when(shared.query(any(), any())).thenThrow(new IllegalStateException("unavailable"));
+        when(memoryService.query(any(), any())).thenReturn(new PersonalMemoryService.QueryResult(
+                List.of(new PersonalMemoryService.QueryHit(1L, "NOTE", null, "本人记忆", 1, null, null)),
+                1, 4, 6000, false));
+        var recall = new PersonalMemoryRecallService(memoryService, shared, 8, 6000);
+        assertTrue(recall.recall(owner, Map.of("message", "记忆")).toString().contains("本人记忆"));
+        verify(memoryService).query(org.mockito.ArgumentMatchers.eq(owner), any());
+    }
 }

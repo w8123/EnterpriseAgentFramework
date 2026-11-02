@@ -152,8 +152,8 @@ class PlatformEmbedRevocationIntegrationTest {
         when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
                 .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
         var runtime = mock(RuntimeProxyClient.class);
-        when(runtime.listAgents(isNull(), anyString())).thenAnswer(invocation -> {
-            String project = invocation.getArgument(1);
+        when(runtime.listEmbedAgentIdentities(anyString(), eq("embed-identity"))).thenAnswer(invocation -> {
+            String project = invocation.getArgument(0);
             return ResponseEntity.ok((Object) java.util.List.of(Map.of(
                     "id", "agent", "keySlug", "bot", "projectCode", project, "enabled", true)));
         });

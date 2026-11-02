@@ -923,14 +923,13 @@
   filter: none !important;
 }
 
-/* AI Coding progress card stretches with the workbench so its bottom aligns
-   with the sidebar; the right panel stays content-sized. */
+/* Keep both AI Coding panels aligned with the bottom of the workbench. */
 .sdk-access-page .ai-coding-access-pane {
   align-items: stretch !important;
 }
 
 .sdk-access-page .ai-coding-main {
-  align-self: start;
+  align-self: stretch;
 }
 
 .sdk-access-page .ai-coding-side.access-progress--refined {

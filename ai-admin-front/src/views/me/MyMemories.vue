@@ -1,5 +1,5 @@
 <template>
-  <WorkbenchPage class="personal-memory-page">
+  <WorkbenchPage class="personal-memory-page" layout="list">
     <PageHeader
       variant="standard"
       presentation="plain"
@@ -9,7 +9,7 @@
       description="记下偏好与工作资料，让 AI 更懂你的习惯。"
     />
 
-    <MemoryWorkspace :api="myMemoryApi" source="wallpaper" />
+    <MemoryWorkspace class="workbench-list-surface" :api="myMemoryApi" source="wallpaper" />
   </WorkbenchPage>
 </template>
 

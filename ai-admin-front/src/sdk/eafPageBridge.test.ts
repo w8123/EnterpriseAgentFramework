@@ -19,6 +19,58 @@ function request(partial: Partial<PageActionRequest> = {}): PageActionRequest {
 }
 
 describe('createEafPageBridge pre-execution confirm', () => {
+  it('does not claim or run an action replaced while confirmation is open', async () => {
+    let decide!: (accepted: boolean) => void
+    const decision = new Promise<boolean>((resolve) => { decide = resolve })
+    const oldHandler = vi.fn()
+    const newHandler = vi.fn()
+    const beforeExecute = vi.fn(async () => true)
+    const bridge = createEafPageBridge({ confirmAction: () => decision })
+    bridge.registerAction('page.search.applyFilters', oldHandler)
+    const pending = bridge.handleEvent(request({ confirm: true }), { beforeExecute })
+    bridge.registerAction('page.search.applyFilters', newHandler)
+    decide(true)
+    await expect(pending).resolves.toMatchObject({ status: 'ACTION_NOT_FOUND' })
+    expect(beforeExecute).not.toHaveBeenCalled()
+    expect(oldHandler).not.toHaveBeenCalled()
+    expect(newHandler).not.toHaveBeenCalled()
+  })
+
+  it('does not run an unregistered action after its server claim completes', async () => {
+    let finishClaim!: (claimed: boolean) => void
+    let signalClaim!: () => void
+    const started = new Promise<void>((resolve) => { signalClaim = resolve })
+    const claim = new Promise<boolean>((resolve) => { finishClaim = resolve })
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    const unregister = bridge.registerAction('page.search.applyFilters', handler)
+    const pending = bridge.handleEvent(request(), { beforeExecute: () => { signalClaim(); return claim } })
+    await started
+    unregister()
+    finishClaim(true)
+    await expect(pending).resolves.toMatchObject({ status: 'ACTION_NOT_FOUND' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('does not run a retained old-page handler after the bound page changes', async () => {
+    let finishClaim!: (claimed: boolean) => void
+    let signalClaim!: () => void
+    let currentPage = true
+    const started = new Promise<void>((resolve) => { signalClaim = resolve })
+    const claim = new Promise<boolean>((resolve) => { finishClaim = resolve })
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const pending = bridge.handleEvent(request(), {
+      beforeExecute: () => { signalClaim(); return claim }, isCurrentPage: () => currentPage,
+    })
+    await started
+    currentPage = false
+    finishClaim(true)
+    await expect(pending).resolves.toMatchObject({ status: 'ACTION_NOT_FOUND' })
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it('keeps a replacement action when the earlier registration is disposed', async () => {
     const bridge = createEafPageBridge()
     const handler = vi.fn(async () => ({ ok: true }))

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class RuntimeAgentControllerTest {
 
@@ -75,6 +76,23 @@ class RuntimeAgentControllerTest {
         verify(service).findById("agent-1");
         verify(service).update("agent-1", request);
         verify(service).delete("agent-1");
+    }
+
+    @Test
+    void embedIdentityViewUsesTheSpecificRoute() throws Exception {
+        RuntimeAgentService service = mock(RuntimeAgentService.class);
+        when(service.listEmbedIdentities("orders")).thenReturn(List.of(
+                new RuntimeAgentService.EmbedIdentityView("agent-1", "orders", "orders-agent", true)));
+        var mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(
+                new RuntimeAgentController(service, mock(RuntimeAgentStatisticsService.class))).build();
+
+        mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/agents")
+                        .param("projectCode", "orders").param("view", "embed-identity")
+                        .accept(org.springframework.http.MediaType.APPLICATION_JSON))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$[0].id").value("agent-1"));
+        verify(service).listEmbedIdentities("orders");
+        verify(service, org.mockito.Mockito.never()).list(any(), any());
     }
 
     @Test

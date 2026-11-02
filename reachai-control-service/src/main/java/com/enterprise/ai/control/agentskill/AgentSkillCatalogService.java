@@ -206,8 +206,6 @@ public class AgentSkillCatalogService {
                         "Skill version already exists with different content: " + publisher + "/"
                                 + inspection.name() + "@" + version);
             }
-            skill.setDisplayName(firstText(trimToNull(input.displayName(), 128, "displayName"), skill.getDisplayName()));
-            skill.setDescription(inspection.description());
             skill.setVisibility(visibility);
             skill.setUpdatedBy(operator);
             skill.setUpdatedAt(now);
@@ -218,6 +216,7 @@ public class AgentSkillCatalogService {
         AgentSkillVersionEntity entity = new AgentSkillVersionEntity();
         entity.setSkillId(skill.getId());
         entity.setVersion(version);
+        entity.setDisplayNameSnapshot(firstText(trimToNull(input.displayName(), 128, "displayName"), skill.getDisplayName()));
         entity.setStatus(STATUS_REVIEW_PENDING);
         entity.setSourceType(sourceType);
         entity.setSourceRef(sourceRef);
@@ -321,6 +320,7 @@ public class AgentSkillCatalogService {
 
         AgentSkillEntity skill = requireSkill(skillId);
         skill.setLatestVersionId(versionId);
+        applyPublishedPresentation(skill, version);
         if (skill.getDefaultVersionId() == null) {
             skill.setDefaultVersionId(versionId);
         }
@@ -461,13 +461,28 @@ public class AgentSkillCatalogService {
         Long defaultId = currentDefault != null && STATUS_PUBLISHED.equals(currentDefault.getStatus())
                 ? currentDefault.getId()
                 : fallbackId;
+        if (fallback != null) {
+            applyPublishedPresentation(skill, fallback);
+        }
         // Wrapper SET is intentional: updateById ignores null fields and would leave stale pointers.
         skillMapper.update(null, Wrappers.<AgentSkillEntity>lambdaUpdate()
                 .eq(AgentSkillEntity::getId, skillId)
                 .set(AgentSkillEntity::getLatestVersionId, fallbackId)
                 .set(AgentSkillEntity::getDefaultVersionId, defaultId)
+                .set(AgentSkillEntity::getDisplayName, skill.getDisplayName())
+                .set(AgentSkillEntity::getDescription, skill.getDescription())
                 .set(AgentSkillEntity::getUpdatedBy, operator)
                 .set(AgentSkillEntity::getUpdatedAt, now));
+    }
+
+    private void applyPublishedPresentation(AgentSkillEntity skill, AgentSkillVersionEntity version) {
+        if (StringUtils.hasText(version.getDisplayNameSnapshot())) {
+            skill.setDisplayName(version.getDisplayNameSnapshot());
+        }
+        JsonNode frontmatter = jsonNode(version.getFrontmatterJson());
+        if (frontmatter != null && StringUtils.hasText(frontmatter.path("description").asText(null))) {
+            skill.setDescription(frontmatter.path("description").asText());
+        }
     }
 
     private void touchSkill(Long skillId, String operator, LocalDateTime now) {
@@ -617,7 +632,8 @@ public class AgentSkillCatalogService {
                 version.getPublishedBy(),
                 version.getPublishedAt(),
                 version.getCreatedAt(),
-                version.getUpdatedAt());
+                version.getUpdatedAt(),
+                version.getDisplayNameSnapshot());
     }
 
     private ReviewView reviewView(AgentSkillReviewEntity review) {

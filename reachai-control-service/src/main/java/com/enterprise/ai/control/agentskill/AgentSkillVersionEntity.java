@@ -15,6 +15,7 @@ public class AgentSkillVersionEntity {
     private Long id;
     private Long skillId;
     private String version;
+    private String displayNameSnapshot;
     private String status;
     private String sourceType;
     private String sourceRef;

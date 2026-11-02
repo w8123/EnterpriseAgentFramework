@@ -36,6 +36,8 @@ describe('EmployeePortal', () => {
     expect(window.location.hash).toBe('')
     expect(sessionStorage.getItem('reachai.employee-portal.token')).toBe('sess')
     expect(wrapper.text()).toContain('张三 · 芋道 ERP')
+    expect(wrapper.text()).toContain('读取、保存和删除你的个人记忆')
+    expect(wrapper.text()).toContain('记忆操作不经过业务写审批')
     expect(wrapper.findAll('[data-testid="call-record"]')).toHaveLength(1)
     const panelCall = fetchMock.mock.calls.find(([url]) => String(url).endsWith('/ai-tool-connections/options'))
     expect((panelCall?.[1]?.headers as Record<string, string>).Authorization).toBe('Bearer sess')

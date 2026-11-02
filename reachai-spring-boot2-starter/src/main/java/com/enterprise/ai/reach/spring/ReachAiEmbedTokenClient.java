@@ -67,6 +67,11 @@ public class ReachAiEmbedTokenClient {
                             + TOKEN_EXCHANGE_PATH,
                     signedHeaders(payload, TOKEN_EXCHANGE_PATH),
                     payload);
+        } catch (ReachAiRegistryHttpException ex) {
+            if (ex.getStatus() == 401 || ex.getStatus() == 403) {
+                throw new ReachAiEmbedAccessDeniedException();
+            }
+            throw new IllegalStateException("ReachAI Embed Token exchange request failed");
         } catch (IOException ex) {
             // Do not propagate a transport body: it may contain credentials or
             // a short-lived token supplied by a non-conforming upstream.

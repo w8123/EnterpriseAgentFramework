@@ -115,6 +115,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ApiResult<Void> handleException(Exception e) {
         log.error("系统异常", e);
-        return ApiResult.fail(500, "系统内部错误: " + e.getMessage());
+        return ApiResult.fail(500, "系统暂时不可用，请稍后联系管理员。");
     }
 }

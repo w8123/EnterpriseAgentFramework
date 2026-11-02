@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { MoreFilled, Plus, QuestionFilled, Search } from '@element-plus/icons-vue'
 import AppDialog from '@/components/common/AppDialog.vue'
-import McpListToolbar from './McpListToolbar.vue'
 import { LiquidGlassButton, LiquidGlassDropdown, LiquidGlassEmptyState, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable } from '@/components/common/liquid-glass'
 import {
   archiveMcpPublication,
@@ -177,15 +176,30 @@ function openDetail(row: McpPublication, connect = false) {
     : `/mcp-hub/publications/${row.id}`)
 }
 
-onMounted(reload)
+const canTeleportActions = ref(false)
+
+function checkTeleportTarget() {
+  canTeleportActions.value = typeof document !== 'undefined' && Boolean(document.getElementById('mcp-hub-actions'))
+}
+
+checkTeleportTarget()
+
+onMounted(() => {
+  if (!canTeleportActions.value) {
+    checkTeleportTarget()
+  }
+  reload()
+})
 </script>
 
 <template>
   <section class="publication-page mcp-list-page">
-    <McpListToolbar>
-      <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
-      <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
-    </McpListToolbar>
+    <Teleport to="#mcp-hub-actions" :disabled="!canTeleportActions">
+      <div class="publication-actions">
+        <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
+        <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
+      </div>
+    </Teleport>
 
     <LiquidGlassTable
       class="workbench-list-surface"
@@ -299,6 +313,12 @@ onMounted(reload)
   display: flex;
   flex-direction: column;
   gap: var(--layout-page-gap);
+}
+
+.publication-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--layout-control-gap);
 }
 
 .row-actions { display: flex; align-items: center; gap: 10px; }

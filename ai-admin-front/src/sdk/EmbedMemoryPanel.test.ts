@@ -30,6 +30,7 @@ describe('EmbedMemoryPanel', () => {
 
     expect(wrapper.text()).toContain('默认用中文回答')
     expect(wrapper.text()).toContain('个人记忆 · 偏好')
+    expect(wrapper.text()).toContain('当前对话仍可能保留已发送的内容')
     expect(wrapper.text()).not.toContain('待确认')
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/candidates'))).toBe(false)
     const [firstUrl, firstInit] = fetchMock.mock.calls[0]
@@ -53,5 +54,15 @@ describe('EmbedMemoryPanel', () => {
     await flushPromises()
 
     expect(wrapper.find('[role="alert"]').text()).toBe('embed token expired')
+  })
+
+  it('explains in English that the current conversation can retain sent messages', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => ok({ items: [], total: 0 })))
+    const wrapper = mount(EmbedMemoryPanel, {
+      props: { apiBase: '/api/embed', getToken: () => Promise.resolve('tok'), locale: 'en-US' },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('messages already sent may remain in the current conversation')
   })
 })

@@ -69,12 +69,13 @@ public class ReachAiEmbedTokenEndpoint {
             return ResponseEntity.ok(response);
         } catch (IllegalArgumentException ex) {
             return error(HttpStatus.BAD_REQUEST, ex.getMessage());
+        } catch (ReachAiEmbedAccessDeniedException ex) {
+            return error(HttpStatus.FORBIDDEN, "This page cannot access the assistant; ask an administrator to check access and embed settings.");
         } catch (IllegalStateException ex) {
             log.warn("[ReachAI Embed] token exchange failed agentId={} origin={} error={}",
                     request.getAgentId(), origin, ex.getMessage());
             return error(HttpStatus.BAD_GATEWAY,
-                    "ReachAI refused or failed to issue an Embed Token; check the Agent embed settings "
-                            + "(allowed origins and agents) in ReachAI");
+                    "ReachAI is temporarily unavailable; retry later or ask an administrator to check the service.");
         }
     }
 

@@ -105,6 +105,33 @@ describe('whole-draft read-only trial run', () => {
     scope.stop()
   })
 
+  it('accepts object and array inputs and sends their parsed JSON values', async () => {
+    const draft = graph()
+    draft.inputSchema = { type: 'object', properties: { pageReqVO: { type: 'object' }, ids: { type: 'array' } }, required: ['pageReqVO'] } as any
+    const { state, scope } = trial(JSON.stringify(draft))
+    state.inputParams.pageReqVO = '{"pageNo": 1, "pageSize": 10}'
+    state.inputParams.ids = '[1, 2]'
+    await state.run()
+    expect(api.run).toHaveBeenCalledExactlyOnceWith({ workflowId: 'wf-1', expectedRevision: 'saved-r1',
+      inputParams: { pageReqVO: { pageNo: 1, pageSize: 10 }, ids: [1, 2] } })
+    scope.stop()
+  })
+
+  it('explains invalid JSON and wrong structured types without dispatch', async () => {
+    const draft = graph()
+    draft.inputSchema = { type: 'object', properties: { pageReqVO: { type: 'object' } }, required: ['pageReqVO'] } as any
+    const { state, scope } = trial(JSON.stringify(draft))
+    state.inputParams.pageReqVO = '[1]'
+    await state.run()
+    expect(state.error.value).toContain('JSON 对象')
+    expect(api.run).not.toHaveBeenCalled()
+    state.inputParams.pageReqVO = '{broken'
+    await state.run()
+    expect(state.error.value).toContain('JSON 对象')
+    expect(api.run).not.toHaveBeenCalled()
+    scope.stop()
+  })
+
   it('requires a saved, clean and authorized draft', async () => {
     const { state, dirty, authorized, studio, scope } = trial()
     dirty.value = true; await nextTick()
@@ -157,6 +184,7 @@ describe('whole-draft read-only trial run', () => {
     expect(trialFailureHint('WORKFLOW_TRIAL_GRAPH_UNSUPPORTED')).toContain('不能只读试运行')
     expect(trialFailureHint('HTTP_API_TRIAL_READ_ONLY_REQUIRED')).toContain('只读')
     expect(trialFailureHint('BUSINESS_METHOD_TRIAL_DISPATCH_LIMIT_EXCEEDED')).toContain('上限')
+    expect(trialFailureHint('BUSINESS_METHOD_TRIAL_BUSINESS_IDENTITY_REQUIRED')).toContain('嵌入对话')
     expect(trialFailureHint('WORKFLOW_TRIAL_FACTS_STALE_AFTER_DISPATCH')).toContain('勿直接重试')
   })
 })

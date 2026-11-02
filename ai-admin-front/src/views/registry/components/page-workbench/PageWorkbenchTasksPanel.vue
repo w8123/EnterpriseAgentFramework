@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { LiquidGlassNotice } from '@/components/common/liquid-glass'
+import { LiquidGlassButton, LiquidGlassInput, LiquidGlassNotice, LiquidGlassSelect } from '@/components/common/liquid-glass'
 import { computed, ref } from 'vue'
 import { Refresh, Search } from '@element-plus/icons-vue'
 import claudeCodeIcon from '@/assets/ai-coding-providers/claude-code.svg'
@@ -154,7 +154,7 @@ function formatDateTime(value?: string) {
         </p>
       </div>
       <div class="section-header-actions">
-        <el-button :icon="Refresh" :loading="loading" @click="emit('refresh')">刷新</el-button>
+        <LiquidGlassButton source="backdrop" :icon="Refresh" :loading="loading" @click="emit('refresh')">刷新</LiquidGlassButton>
       </div>
     </div>
 
@@ -168,25 +168,25 @@ function formatDateTime(value?: string) {
     </LiquidGlassNotice>
 
     <div v-if="!unavailable && tasks.length" class="task-toolbar">
-      <el-select v-model="typeFilter">
+      <LiquidGlassSelect v-model="typeFilter" source="backdrop" aria-label="活动类型" dropdown-title="活动类型">
         <el-option
           v-for="option in typeOptions"
           :key="option.value"
           :label="option.label"
           :value="option.value"
         />
-      </el-select>
-      <el-select v-model="statusFilter">
+      </LiquidGlassSelect>
+      <LiquidGlassSelect v-model="statusFilter" source="backdrop" aria-label="活动状态" dropdown-title="活动状态">
         <el-option
           v-for="option in statusOptions"
           :key="option.value"
           :label="option.label"
           :value="option.value"
         />
-      </el-select>
-      <el-input v-model="keyword" clearable placeholder="搜索任务">
+      </LiquidGlassSelect>
+      <LiquidGlassInput v-model="keyword" source="backdrop" clearable placeholder="搜索任务" aria-label="搜索任务">
         <template #prefix><el-icon><Search /></el-icon></template>
-      </el-input>
+      </LiquidGlassInput>
     </div>
 
     <div

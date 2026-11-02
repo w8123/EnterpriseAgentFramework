@@ -41,6 +41,49 @@ function delayedWaitingTransport(): ConversationTransport {
 }
 
 describe('createConversationController interaction cancel', () => {
+  it('prevents re-submitting a confirmation whose result is unconfirmed', async () => {
+    const transport = delayedWaitingTransport()
+    let submits = 0
+    transport.resumeInteraction = async function* () {
+      submits += 1
+      yield createEvent('turn.failed', { code: 'EMBED_OUTCOME_UNCONFIRMED', message: '先核对记录' })
+    }
+    const controller = createConversationController({ transport })
+    await controller.send('hi')
+    await controller.submitInteraction('ix-1', 'confirm', {})
+    const card = controller.getState().messages.flatMap((m) => m.blocks)
+      .find((block) => block.type === 'interaction' && block.request.interactionId === 'ix-1')
+    expect(card && card.type === 'interaction' && card.retryable).toBe(false)
+    await controller.submitInteraction('ix-1', 'confirm', {})
+    expect(submits).toBe(1)
+    controller.dispose()
+  })
+
+  it('locks an in-flight confirmation when the user stops waiting', async () => {
+    const transport = delayedWaitingTransport()
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let submits = 0
+    transport.resumeInteraction = async function* () {
+      submits += 1
+      yield createEvent('turn.started', {})
+      await gate
+      yield createEvent('turn.completed', { answer: 'late' })
+    }
+    const controller = createConversationController({ transport })
+    await controller.send('hi')
+    const pending = controller.submitInteraction('ix-1', 'confirm', {})
+    await Promise.resolve()
+    await controller.cancel()
+    release()
+    await pending
+    const card = controller.getState().messages.flatMap((m) => m.blocks)
+      .find((block) => block.type === 'interaction' && block.request.interactionId === 'ix-1')
+    expect(card && card.type === 'interaction' && card.retryable).toBe(false)
+    await controller.submitInteraction('ix-1', 'confirm', {})
+    expect(submits).toBe(1)
+    controller.dispose()
+  })
   it('marks card cancelled after action=cancel succeeds without aborting', async () => {
     const publicEvents: string[] = []
     const controller = createConversationController({
@@ -434,7 +477,7 @@ describe('createConversationController assistant placeholder lifecycle', () => {
     controller.dispose()
   })
 
-  it('G: cancel turns active placeholder cancelled without extra cards', async () => {
+  it('G: stopping an embed turn warns that the operation may still be running', async () => {
     let release!: () => void
     const gate = new Promise<void>((resolve) => {
       release = resolve
@@ -465,8 +508,10 @@ describe('createConversationController assistant placeholder lifecycle', () => {
 
     const assistants = controller.getState().messages.filter((m) => m.role === 'assistant')
     expect(assistants).toHaveLength(1)
-    expect(assistants[0].status).toBe('cancelled')
-    expect(controller.getState().turnStatus).toBe('cancelled')
+    expect(assistants[0].status).toBe('failed')
+    expect(controller.getState().turnStatus).toBe('failed')
+    expect(controller.getState().error).toContain('操作可能仍在执行')
+    expect(controller.getState().errorRetryable).toBe(false)
     controller.dispose()
   })
 

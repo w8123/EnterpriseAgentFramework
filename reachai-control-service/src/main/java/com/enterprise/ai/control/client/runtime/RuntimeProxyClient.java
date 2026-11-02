@@ -376,6 +376,10 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> listAgents(@RequestParam(value = "projectId", required = false) Long projectId,
                                       @RequestParam(value = "projectCode", required = false) String projectCode);
 
+    @RequestMapping(method = RequestMethod.GET, path = "/api/agents")
+    ResponseEntity<Object> listEmbedAgentIdentities(@RequestParam("projectCode") String projectCode,
+                                                    @RequestParam("view") String view);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/agents/statistics")
     ResponseEntity<Object> getAgentStatistics(
             @RequestParam(value = "projectId", required = false) Long projectId,

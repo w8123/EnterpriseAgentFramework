@@ -6,7 +6,7 @@
       <dl class="trial-scope">
         <div><dt>所属项目</dt><dd>{{ studio?.projectCode || '未绑定' }}</dd></div>
         <div><dt>已保存修订</dt><dd>{{ studio?.revision || '未保存' }}</dd></div>
-        <div><dt>执行身份</dt><dd>项目测试身份 STUDIO_PROJECT_TEST；不携带业务用户或角色</dd></div>
+        <div><dt>执行身份</dt><dd>项目测试身份，不携带业务用户或角色。要求员工身份的方法请在业务系统的嵌入对话中验证。</dd></div>
         <div>
           <dt>将真实调用</dt>
           <dd>
@@ -33,9 +33,13 @@
           :error="invalidField === field.name ? error : ''">
           <el-input :id="`trial-input-${field.name}`" v-model="inputParams[field.name]"
             :disabled="running || field.type === 'unsupported'" :aria-invalid="invalidField === field.name"
+            :type="field.type === 'object' || field.type === 'array' ? 'textarea' : 'text'" :rows="3"
             :aria-describedby="invalidField === field.name ? 'trial-error' : 'trial-input-help'"
-            :placeholder="field.type === 'unsupported' ? '非标量输入，试运行中不可填写'
+            :placeholder="field.type === 'unsupported' ? '此类型暂不支持填写'
+              : field.type === 'object' ? '请输入 JSON 对象，例如 { &quot;pageNo&quot;: 1, &quot;pageSize&quot;: 10 }'
+              : field.type === 'array' ? '请输入 JSON 数组，例如 [1, 2]'
               : field.type === 'boolean' ? 'true 或 false' : field.description || `测试 ${field.label}`" clearable />
+          <p v-if="field.description" class="trial-field-help">{{ field.description }}</p>
         </el-form-item>
         <el-form-item label="用户消息" for="trial-input-message">
           <el-input id="trial-input-message" v-model="message" type="textarea" :rows="2" :maxlength="4000"
@@ -152,6 +156,7 @@ function formatOutput(output: unknown) {
 .trial-notice { margin: 0; padding: 12px; border-radius: var(--radius-sm); background: var(--status-info-soft); color: var(--text-primary); overflow-wrap: anywhere; }
 .trial-error { margin: 4px 0 0; color: var(--status-danger); overflow-wrap: anywhere; }
 .trial-help, .trial-trace-id { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.trial-field-help { width: 100%; margin: 4px 0 0; color: var(--text-secondary); font-size: 12px; line-height: 1.5; }
 .trial-node-link { padding: 0; border: 0; background: none; color: var(--text-primary); font: inherit; font-weight: 600; cursor: pointer; }
 .trial-node-link:hover:not(:disabled), .trial-node-link:focus-visible { text-decoration: underline; }
 .trial-node-link:disabled { cursor: default; }

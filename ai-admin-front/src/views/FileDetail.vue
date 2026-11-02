@@ -6,10 +6,10 @@
       action-presentation="inline"
       domain="knowledge"
       :title="fileInfo?.fileName || '文档段落运营'"
-      show-back
-      back-label="返回知识库详情"
-      @back="router.push(`/knowledge/${kbCode}`)"
     >
+      <template #leading>
+        <LiquidGlassButton source="wallpaper" circle :icon="ArrowLeft" aria-label="返回知识库详情" title="返回知识库详情" @click="router.push(`/knowledge/${kbCode}`)" />
+      </template>
       <template #tags>
         <el-tag effect="plain" size="small">{{ fileId }}</el-tag>
         <el-tag v-if="fileInfo" effect="plain" size="small">
@@ -119,7 +119,7 @@ import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { ArrowLeft, Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'

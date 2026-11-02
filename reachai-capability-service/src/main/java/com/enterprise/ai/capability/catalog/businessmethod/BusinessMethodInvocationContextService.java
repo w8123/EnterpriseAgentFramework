@@ -68,7 +68,7 @@ public class BusinessMethodInvocationContextService {
             message = "项目签名凭证不可用";
         } else if (businessIdentityRequired) {
             code = "CAPABILITY_BUSINESS_IDENTITY_REQUIRED";
-            message = "该业务方法要求业务用户身份，控制台试调用不会转发平台身份";
+            message = "该业务方法要求真实业务用户身份。请发布并绑定助手，再从业务系统以员工身份打开嵌入对话进行验证";
         }
 
         return new ConsoleCapabilityInvocationContracts.InvocationContext(

@@ -25,7 +25,7 @@ export interface ReadOnlyTrialInputField {
   name: string
   label: string
   required: boolean
-  type: 'string' | 'number' | 'integer' | 'boolean' | 'unsupported'
+  type: 'string' | 'number' | 'integer' | 'boolean' | 'object' | 'array' | 'unsupported'
   description?: string
 }
 
@@ -110,7 +110,7 @@ function trialInputFields(graph: any, nodes: any[]): ReadOnlyTrialInputField[] {
 function scalarType(raw: unknown): ReadOnlyTrialInputField['type'] {
   const type = String(raw || 'string').toLowerCase()
   if (type === 'string' || type === 'file') return 'string'
-  if (type === 'number' || type === 'integer' || type === 'boolean') return type
+  if (type === 'number' || type === 'integer' || type === 'boolean' || type === 'object' || type === 'array') return type
   return 'unsupported'
 }
 
@@ -120,7 +120,7 @@ export function trialFailureHint(code: string): string {
   if (/READ_ONLY_REQUIRED/.test(code)) return '草稿包含会写入业务数据的业务方法或 API；整稿试运行只允许只读节点，请通过正式发布后的入口运行。'
   if (/DISPATCH_LIMIT/.test(code)) return '试运行调用次数超出上限，请检查循环或重复调用。'
   if (/DRAFT|REVISION|TARGET/.test(code)) return '草稿或节点已变化，请保存或重新加载后检查。'
-  if (/BUSINESS_METHOD.*BUSINESS_IDENTITY/.test(code)) return '此方法要求业务用户身份，项目测试身份不可调用；请联系方法接入开发者核对。'
+  if (/BUSINESS_METHOD.*BUSINESS_IDENTITY/.test(code)) return '此方法要求真实业务用户身份。请发布并绑定助手，再从业务系统以员工身份打开嵌入对话进行验证。'
   if (/BUSINESS_METHOD.*CREDENTIAL/.test(code)) return '项目签名凭据不可用，请到业务方法所属项目检查接入状态。'
   if (/BUSINESS_METHOD.*(SOURCE|OWNER|FACTS|DISABLED|UNAVAILABLE)/.test(code)) return '业务方法来源或已接纳契约已变化，请到方法详情核对。'
   if (/ACL|PERMISSION|IDENTITY|PROJECT|AUTH_REQUIRED/.test(code)) return '项目或业务方法/API 调用授权不足，请检查当前账号权限。'
@@ -164,7 +164,7 @@ export function useWorkflowStudioReadOnlyTrial(deps: {
       return `以下节点不能只读试运行：${preview.value.blocked.map((node) => `「${node.nodeName}」（${nodeTypeLabel(node.nodeType)}）${node.reason}`).join('；')}`
     }
     const unsupported = fields.value.find((field) => field.required && field.type === 'unsupported')
-    if (unsupported) return `必填输入 ${unsupported.label} 不是标量类型，暂不支持在试运行中填写。`
+    if (unsupported) return `必填输入 ${unsupported.label} 的类型暂不支持在试运行中填写。`
     return ''
   })
 
@@ -177,14 +177,24 @@ export function useWorkflowStudioReadOnlyTrial(deps: {
     if (running.value) return
     error.value = ''; invalidField.value = ''
     if (reason.value) { error.value = reason.value; return }
-    const body: Record<string, string | number | boolean> = {}
+    const body: Record<string, unknown> = {}
     for (const field of fields.value) {
       const value = (inputParams[field.name] || '').trim()
       if (!value && field.required) {
         invalidField.value = field.name; error.value = `请填写 ${field.label}。`; return
       }
       if (!value || field.type === 'unsupported') continue
-      if (field.type === 'number' || field.type === 'integer') {
+      if (field.type === 'object' || field.type === 'array') {
+        try {
+          const parsed: unknown = JSON.parse(value)
+          if (field.type === 'array' ? !Array.isArray(parsed) : !parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('type mismatch')
+          }
+          body[field.name] = parsed
+        } catch {
+          invalidField.value = field.name; error.value = `${field.label} 需要有效的 JSON ${field.type === 'object' ? '对象' : '数组'}。`; return
+        }
+      } else if (field.type === 'number' || field.type === 'integer') {
         const number = Number(value)
         if (!Number.isFinite(number) || (field.type === 'integer' && !Number.isInteger(number))) {
           invalidField.value = field.name; error.value = `${field.label} 需要${field.type === 'integer' ? '整数' : '数值'}。`; return

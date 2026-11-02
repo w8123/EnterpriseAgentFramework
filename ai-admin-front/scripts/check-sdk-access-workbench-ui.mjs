@@ -184,9 +184,9 @@ assert.match(
   'AI Coding pane should grow with the workbench so the progress card can reach the sidebar bottom',
 )
 assert.match(
-  wizardStyle,
-  /\.ai-coding-main[\s\S]*?align-self:\s*start/,
-  'AI Coding main panel should not stretch taller than its content',
+  aiCodingFigmaStyle,
+  /\.sdk-access-page \.ai-coding-main\s*\{\s*align-self:\s*stretch/,
+  'AI Coding main panel should align with the bottom of the progress card',
 )
 assert.doesNotMatch(
   aiCodingFigmaStyle,

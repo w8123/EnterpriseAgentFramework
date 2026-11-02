@@ -40,7 +40,7 @@
 
     <div v-if="snapshot.error" class="reachai-conversation__error" role="alert">
       <span>{{ snapshot.error }}</span>
-      <button type="button" @click="$emit('retry')">重试</button>
+      <button v-if="snapshot.errorRetryable !== false" type="button" @click="$emit('retry')">重试</button>
     </div>
 
     <slot name="composer">

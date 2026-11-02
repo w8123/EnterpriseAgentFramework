@@ -86,3 +86,23 @@ export function listBusinessUserIdentities(id: number) {
 export function saveBusinessUserIdentity(id: number, body: ExternalIdentityCommand) {
   return controlRequest.post<ExternalIdentityView>(`/api/platform/business-users/${id}/identities`, body)
 }
+
+export interface PersonalMemoryAdminLink {
+  id: number
+  peerBindingId: number
+  peerAppId: string
+  peerExternalUserId: string
+  verificationMethod: string
+  createdAt: string
+}
+
+const memoryIdentityLinks = '/api/platform/personal-memory-identity-links'
+export function listPersonalMemoryIdentityLinks(bindingId: number, offset = 0) {
+  return controlRequest.get<{ items: PersonalMemoryAdminLink[]; hasMore: boolean }>(memoryIdentityLinks, { params: { bindingId, offset } })
+}
+export function createPersonalMemoryIdentityLink(firstBindingId: number, secondBindingId: number, evidence: string) {
+  return controlRequest.post<{ id: number }>(memoryIdentityLinks, { firstBindingId, secondBindingId, evidence })
+}
+export function revokePersonalMemoryIdentityLink(id: number, evidence: string) {
+  return controlRequest.post<void>(`${memoryIdentityLinks}/${id}/revoke`, { evidence })
+}

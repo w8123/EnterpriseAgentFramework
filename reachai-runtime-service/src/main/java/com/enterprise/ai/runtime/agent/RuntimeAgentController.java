@@ -26,6 +26,12 @@ public class RuntimeAgentController {
         return ResponseEntity.ok(agentService.list(projectId, projectCode));
     }
 
+    @GetMapping(value = "/api/agents", params = "view=embed-identity", produces = "application/json")
+    public ResponseEntity<List<RuntimeAgentService.EmbedIdentityView>> listEmbedIdentities(
+            @RequestParam String projectCode) {
+        return ResponseEntity.ok(agentService.listEmbedIdentities(projectCode));
+    }
+
     @GetMapping("/api/agents/statistics")
     public ResponseEntity<RuntimeAgentStatisticsView> statistics(
             @RequestParam(required = false) Long projectId,

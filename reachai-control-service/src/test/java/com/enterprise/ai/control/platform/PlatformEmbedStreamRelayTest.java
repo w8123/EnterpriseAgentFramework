@@ -24,6 +24,30 @@ import static org.mockito.Mockito.verify;
 class PlatformEmbedStreamRelayTest {
 
     @Test
+    void knownIncompleteAndUnknownWriteErrorsDoNotEncourageBlindRetry() throws Exception {
+        var proxy = mock(RuntimeAgentStreamProxy.class);
+        var relay = new PlatformEmbedStreamRelay(proxy, mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1");
+        var body = Map.<String, Object>of("agentId", "bot");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
+            ByteArrayOutputStream downstream = invocation.getArgument(1);
+            handler.handle("execution.error", "{\"code\":\"SUPERVISOR_PLAN_INCOMPLETE\",\"message\":\"private\"}", downstream);
+            handler.handle("execution.error", "{\"code\":\"HTTP_API_WORKFLOW_RESULT_UNCONFIRMED\",\"message\":\"secret\"}", downstream);
+            return null;
+        }).when(proxy).streamAgentExecute(eq(body), any(), any());
+        var output = new ByteArrayOutputStream();
+        relay.streamMessage(session, body, output);
+        String streamed = output.toString(StandardCharsets.UTF_8);
+        assertTrue(streamed.contains("请先核对已执行的操作"));
+        assertTrue(streamed.contains("请先核对业务记录，避免重复提交"));
+        assertFalse(streamed.contains("private"));
+        assertFalse(streamed.contains("secret"));
+    }
+
+    @Test
     void mapsRuntimeCompletionToEmbedMessageCompletedAndRecordsAssistantAudit() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedChatEventService chatEventService = mock(PlatformEmbedChatEventService.class);
@@ -100,7 +124,7 @@ class PlatformEmbedStreamRelayTest {
 
         String streamed = output.toString(StandardCharsets.UTF_8);
         assertTrue(streamed.contains("event: error"));
-        assertTrue(streamed.contains("助手暂时无法完成请求"));
+        assertTrue(streamed.contains("助手未能完成请求，请先核对业务记录"));
         assertTrue(streamed.contains("FAILED"));
         assertFalse(streamed.contains("internal detail"));
     }

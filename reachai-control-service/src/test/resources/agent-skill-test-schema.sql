@@ -22,6 +22,7 @@ CREATE TABLE control_agent_skill_version (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     skill_id BIGINT NOT NULL,
     version VARCHAR(64) NOT NULL,
+    display_name_snapshot VARCHAR(128),
     status VARCHAR(32) NOT NULL,
     source_type VARCHAR(24) NOT NULL,
     source_ref VARCHAR(512),

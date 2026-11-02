@@ -19,6 +19,17 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ReachAiEmbedTokenClientTest {
 
     @Test
+    void distinguishesUpstreamDenialFromServiceFailureWithoutExposingDetails() {
+        ReachAiRegistryTransport denied = (method, url, headers, body) -> { throw new ReachAiRegistryHttpException(403); };
+        ReachAiRegistryTransport unavailable = (method, url, headers, body) -> { throw new ReachAiRegistryHttpException(503); };
+        assertThrows(ReachAiEmbedAccessDeniedException.class,
+                () -> new ReachAiEmbedTokenClient(properties(), denied).exchange(request()));
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ReachAiEmbedTokenClient(properties(), unavailable).exchange(request()));
+        assertEquals("ReachAI Embed Token exchange request failed", failure.getMessage());
+    }
+
+    @Test
     void forwardsBusinessSessionResolvedByTheHostInTheSignedBody() {
         String session = "abcdefghijklmnopqrstuvwxyz0123456789ABCDE";
         RecordingTransport transport = new RecordingTransport("{\"code\":200,\"data\":{\"token\":\"t\",\"expiresIn\":60,"

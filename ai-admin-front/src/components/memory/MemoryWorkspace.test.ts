@@ -26,9 +26,9 @@ function memoryApi() {
 }
 
 let wrapper: ReturnType<typeof mount> | undefined
-function render(api: PersonalMemoryApi) {
+function render(api: PersonalMemoryApi, systemScoped = false) {
   wrapper = mount(MemoryWorkspace, {
-    props: { api }, attachTo: document.body, global: {
+    props: { api, systemScoped }, attachTo: document.body, global: {
       plugins: [ElementPlus],
       stubs: { AppDialog: {
         props: ['modelValue', 'title'],
@@ -40,6 +40,18 @@ function render(api: PersonalMemoryApi) {
 }
 
 afterEach(() => { wrapper?.unmount(); document.body.innerHTML = ''; vi.restoreAllMocks() })
+
+it('makes the current system erase scope explicit in the employee portal', async () => {
+  const api = memoryApi()
+  api.tree.mockResolvedValueOnce({ ...structuredClone(tree), total: 1 })
+  const prompt = vi.spyOn(ElMessageBox, 'prompt').mockRejectedValueOnce('cancel')
+  const view = render(api, true)
+  await flushPromises()
+  expect(view.text()).toContain('本系统记忆')
+  await view.findAll('button').find(button => button.text() === '清空本系统记忆')!.trigger('click')
+  expect(prompt.mock.calls[0][0]).toContain('不会删除其他关联系统的记忆')
+  expect(api.eraseAll).not.toHaveBeenCalled()
+})
 
 describe('MemoryWorkspace', () => {
   it('creates from the empty state in the selected project group', async () => {

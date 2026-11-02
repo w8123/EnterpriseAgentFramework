@@ -95,11 +95,22 @@ public class BusinessUserSyncService {
 
     /** Business systems (app ids) where this user has an active account binding. */
     public Set<String> activeAppIds(String tenantId, Long businessUserId) {
+        if (businessUserId == null) return Set.of();
+        String tenant = tenant(tenantId);
+        BusinessUserEntity user = businessUserMapper.selectById(businessUserId);
+        if (user == null || !StringUtils.hasText(user.getTenantId())
+                || !tenant.equals(tenant(user.getTenantId())) || !STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) {
+            return Set.of();
+        }
         Set<String> appIds = new LinkedHashSet<>();
         externalUserBindingMapper.selectList(new LambdaQueryWrapper<ExternalUserBindingEntity>()
-                        .eq(ExternalUserBindingEntity::getTenantId, tenant(tenantId))
+                        .eq(ExternalUserBindingEntity::getTenantId, tenant)
                         .eq(ExternalUserBindingEntity::getBusinessUserId, businessUserId)
                         .eq(ExternalUserBindingEntity::getStatus, STATUS_ACTIVE))
+                .stream().filter(binding -> tenant.equals(binding.getTenantId())
+                        && businessUserId.equals(binding.getBusinessUserId())
+                        && STATUS_ACTIVE.equalsIgnoreCase(binding.getStatus())
+                        && StringUtils.hasText(binding.getAppId()) && StringUtils.hasText(binding.getExternalUserId()))
                 .forEach(binding -> appIds.add(binding.getAppId()));
         return appIds;
     }
@@ -128,8 +139,10 @@ public class BusinessUserSyncService {
      * granted there. Empty when the employee or that account is no longer active.
      */
     public Optional<BusinessSystemAccount> activeAccount(String tenantId, Long businessUserId, String appId) {
+        if (!StringUtils.hasText(appId)) return Optional.empty();
         BusinessUserEntity user = businessUserId == null ? null : businessUserMapper.selectById(businessUserId);
         String tenant = tenant(tenantId);
+        String system = appId.trim();
         if (user == null || !StringUtils.hasText(user.getTenantId())
                 || !tenant.equals(tenant(user.getTenantId()))
                 || !STATUS_ACTIVE.equalsIgnoreCase(user.getStatus())) {
@@ -139,21 +152,28 @@ public class BusinessUserSyncService {
                 new LambdaQueryWrapper<ExternalUserBindingEntity>()
                         .eq(ExternalUserBindingEntity::getTenantId, tenant)
                         .eq(ExternalUserBindingEntity::getBusinessUserId, businessUserId)
-                        .eq(ExternalUserBindingEntity::getAppId, appId)
+                        .eq(ExternalUserBindingEntity::getAppId, system)
                         .eq(ExternalUserBindingEntity::getStatus, STATUS_ACTIVE)
                         .orderByDesc(ExternalUserBindingEntity::getLastSeenAt)
                         .last("limit 1"));
-        if (binding == null) {
+        if (binding == null || !tenant.equals(binding.getTenantId())
+                || !businessUserId.equals(binding.getBusinessUserId()) || !system.equals(binding.getAppId())
+                || !StringUtils.hasText(binding.getExternalUserId())
+                || !STATUS_ACTIVE.equalsIgnoreCase(binding.getStatus())) {
             return Optional.empty();
         }
         Set<String> roles = new LinkedHashSet<>();
         externalUserRoleBindingMapper.selectList(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
                         .eq(ExternalUserRoleBindingEntity::getTenantId, tenant)
-                        .eq(ExternalUserRoleBindingEntity::getAppId, appId)
+                        .eq(ExternalUserRoleBindingEntity::getAppId, system)
                         .eq(ExternalUserRoleBindingEntity::getExternalUserId, binding.getExternalUserId())
                         .eq(ExternalUserRoleBindingEntity::getStatus, STATUS_ACTIVE))
+                .stream().filter(role -> tenant.equals(role.getTenantId())
+                        && businessUserId.equals(role.getBusinessUserId()) && system.equals(role.getAppId())
+                        && binding.getExternalUserId().equals(role.getExternalUserId())
+                        && STATUS_ACTIVE.equalsIgnoreCase(role.getStatus()) && StringUtils.hasText(role.getRoleCode()))
                 .forEach(role -> roles.add(role.getRoleCode()));
-        return Optional.of(new BusinessSystemAccount(appId, binding.getExternalUserId(),
+        return Optional.of(new BusinessSystemAccount(system, binding.getExternalUserId(),
                 binding.getExternalUserName(), List.copyOf(roles)));
     }
 
@@ -174,23 +194,34 @@ public class BusinessUserSyncService {
     /** Synced roles mirror the business system; manually granted roles are left alone. */
     private List<String> replaceSyncedRoles(Long businessUserId, ExternalUserBindingEntity binding,
                                             List<String> roleCodes, LocalDateTime now) {
-        externalUserRoleBindingMapper.delete(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
-                .eq(ExternalUserRoleBindingEntity::getTenantId, binding.getTenantId())
-                .eq(ExternalUserRoleBindingEntity::getAppId, binding.getAppId())
-                .eq(ExternalUserRoleBindingEntity::getExternalUserId, binding.getExternalUserId())
-                .eq(ExternalUserRoleBindingEntity::getSource, SOURCE));
         Set<String> normalized = new LinkedHashSet<>();
         for (String roleCode : roleCodes == null ? List.<String>of() : roleCodes) {
             if (StringUtils.hasText(roleCode)) {
                 normalized.add(roleCode.trim());
             }
         }
+        // Read once and retain unchanged roles. Recreating every synced role on each token
+        // exchange adds database round trips even when the business identity is unchanged.
         Set<String> existing = new LinkedHashSet<>();
         externalUserRoleBindingMapper.selectList(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
                         .eq(ExternalUserRoleBindingEntity::getTenantId, binding.getTenantId())
+                        .eq(ExternalUserRoleBindingEntity::getBusinessUserId, businessUserId)
                         .eq(ExternalUserRoleBindingEntity::getAppId, binding.getAppId())
-                        .eq(ExternalUserRoleBindingEntity::getExternalUserId, binding.getExternalUserId()))
-                .forEach(role -> existing.add(role.getRoleCode()));
+                        .eq(ExternalUserRoleBindingEntity::getExternalUserId, binding.getExternalUserId())
+                        .last("FOR UPDATE"))
+                .stream().filter(role -> binding.getTenantId().equals(role.getTenantId())
+                        && businessUserId.equals(role.getBusinessUserId())
+                        && binding.getAppId().equals(role.getAppId())
+                        && binding.getExternalUserId().equals(role.getExternalUserId()))
+                .forEach(role -> {
+                    if (SOURCE.equals(role.getSource()) && (!normalized.contains(role.getRoleCode())
+                            || !STATUS_ACTIVE.equalsIgnoreCase(role.getStatus())
+                            || !role.getRoleCode().equals(role.getRoleName()))) {
+                        externalUserRoleBindingMapper.deleteById(role.getId());
+                    } else {
+                        existing.add(role.getRoleCode());
+                    }
+                });
         for (String roleCode : normalized) {
             if (existing.contains(roleCode)) {
                 continue;

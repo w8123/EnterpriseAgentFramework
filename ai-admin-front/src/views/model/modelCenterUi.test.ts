@@ -6,7 +6,6 @@ import {
   buildCreateRequest,
   buildDraftTestRequest,
   buildProviderGroups,
-  computeModelCenterMetrics,
   draftFromTemplate,
   draftRuntimeFingerprint,
   extractBaseUrlAuthority,
@@ -125,19 +124,6 @@ describe('modelCenterUi V2 contract helpers', () => {
     expect(archived.map((item) => item.id)).toEqual(['c'])
   })
 
-  it('computes metrics without counting archived', () => {
-    const metrics = computeModelCenterMetrics([
-      sampleInstance({ status: 'ACTIVE', lastTestStatus: 'SUCCESS' }),
-      sampleInstance({ id: '2', status: 'DISABLED', lastTestStatus: 'FAILED' }),
-      sampleInstance({ id: '3', status: 'ARCHIVED', lastTestStatus: 'FAILED' }),
-    ])
-    expect(metrics).toEqual({
-      connected: 2,
-      active: 1,
-      disabled: 1,
-      testFailed: 1,
-    })
-  })
 
   it('extracts baseUrl authority/hostname', () => {
     expect(extractBaseUrlAuthority('https://api.openai.com/v1/chat')).toBe('api.openai.com')

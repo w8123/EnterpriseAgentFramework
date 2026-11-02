@@ -160,7 +160,7 @@ spring.servlet.multipart:
 
 logging:
   level:
-    com.enterprise.ai: DEBUG
+    com.enterprise.ai: INFO
     io.milvus: INFO
 
 management:

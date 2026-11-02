@@ -10,10 +10,13 @@ import org.springframework.validation.BeanPropertyBindingResult;
 import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
@@ -144,13 +147,31 @@ class GlobalExceptionHandlerTest {
     }
 
     @Test
-    void mapsGenericExceptionTo500WithPrefixedMessage() {
+    void mapsGenericExceptionTo500WithoutLeakingDatabaseDetails() {
         ApiResult<Void> result = new GlobalExceptionHandler()
-                .handleException(new Exception("boom"));
+                .handleException(new Exception("SQL: SELECT private_value FROM internal_table; secret=example"));
 
         assertEquals(500, result.getCode());
-        assertEquals("系统内部错误: boom", result.getMessage());
+        assertEquals("系统暂时不可用，请稍后联系管理员。", result.getMessage());
         assertNull(result.getData());
+    }
+
+    @Test
+    void webResponseDoesNotExposeUnexpectedExceptionDetails() throws Exception {
+        var mvc = MockMvcBuilders.standaloneSetup(new FailureController())
+                .setControllerAdvice(new GlobalExceptionHandler()).build();
+        var response = mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/failure"))
+                .andReturn().getResponse();
+        var body = new com.fasterxml.jackson.databind.ObjectMapper().readTree(response.getContentAsByteArray());
+        assertEquals(500, body.path("code").asInt());
+        assertEquals("系统暂时不可用，请稍后联系管理员。", body.path("message").asText());
+        org.junit.jupiter.api.Assertions.assertFalse(body.toString().contains("SELECT"));
+    }
+
+    @RestController
+    static class FailureController {
+        @GetMapping("/failure")
+        void failure() { throw new IllegalStateException("SQL: SELECT sensitive FROM private_table"); }
     }
 
     @Test

@@ -8,7 +8,7 @@
       domain="governance"
       title="运行中心"
     >
-      <template #actions>
+      <template #meta>
         <RunCenterNav />
       </template>
     </PageHeader>
@@ -116,31 +116,31 @@
                       {{ turnState(turn, detail.runsAvailable).label }}
                     </el-tag>
                     <span v-if="turn.run?.latencyMs != null" class="turn__latency">{{ formatLatency(turn.run.latencyMs) }}</span>
-                    <LiquidGlassButton
-                      v-if="canEvaluate && turn.run?.traceId && detail.conversation.agentId"
-                      link
-                      class="turn__open"
-                      @click="openAddToEval(turn.run.traceId, turn.question)"
-                    >
-                      加入评测集
-                    </LiquidGlassButton>
-                    <LiquidGlassButton
-                      v-if="turn.run?.traceId"
-                      link
-                      type="primary"
-                      :class="{ turn__open: !canEvaluate || !detail.conversation.agentId }"
-                      @click="openRun(turn.run.traceId)"
-                    >
-                      查看运行 →
-                    </LiquidGlassButton>
+                    <div class="turn__actions">
+                      <LiquidGlassButton
+                        v-if="canEvaluate && turn.run?.traceId && detail.conversation.agentId"
+                        link
+                        @click="openAddToEval(turn.run.traceId, turn.question)"
+                      >
+                        加入评测集
+                      </LiquidGlassButton>
+                      <LiquidGlassButton
+                        v-if="turn.run?.traceId"
+                        link
+                        type="primary"
+                        @click="openRun(turn.run.traceId)"
+                      >
+                        查看运行 →
+                      </LiquidGlassButton>
+                    </div>
                   </div>
                   <div v-if="turn.question" class="bubble bubble--user">
-                    <small>{{ formatTime(turn.askedAt) }}</small>
-                    <p>{{ turn.question }}</p>
+                    <div class="bubble__meta"><strong>用户</strong><time>{{ formatTime(turn.askedAt) }}</time></div>
+                    <div class="bubble__content"><p>{{ turn.question }}</p></div>
                   </div>
                   <div v-if="turn.answer" class="bubble bubble--assistant">
-                    <small>{{ formatTime(turn.answeredAt) }}</small>
-                    <p>{{ turn.answer }}</p>
+                    <div class="bubble__meta"><strong>Agent</strong><time>{{ formatTime(turn.answeredAt) }}</time></div>
+                    <div class="bubble__content"><p>{{ turn.answer }}</p></div>
                   </div>
                   <p v-if="runErrorText(turn.run)" class="turn__error">{{ runErrorText(turn.run) }}</p>
                 </li>
@@ -383,10 +383,6 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   margin-inline: auto;
 }
 
-.run-conversations-page :deep(.run-center-nav) {
-  margin-top: 0;
-}
-
 .run-conversations-page > .conversation-workspace {
   display: flex;
   flex: 1 1 auto;
@@ -534,7 +530,7 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
 .conversation-detail {
   display: flex;
   flex-direction: column;
-  padding: var(--layout-panel-padding);
+  padding: 0;
   overflow: hidden;
 }
 
@@ -545,7 +541,8 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 10px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .detail-head > div {
@@ -556,7 +553,8 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
 
 .detail-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 17px;
+  line-height: 1.4;
 }
 
 .detail-head p {
@@ -571,31 +569,33 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  padding: 20px 24px 32px;
 }
 
 .turn-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 12px 0 0;
+  gap: 20px;
+  width: min(100%, 920px);
+  margin: 0 auto;
   padding: 0;
   list-style: none;
 }
 
 .turn {
-  padding: 10px 12px;
+  padding: 16px 18px 20px;
   border: 1px solid var(--border-subtle);
-  border-left-width: 3px;
   border-radius: var(--radius-sm);
+  background: var(--surface-glass-inset);
 }
 
 .turn.is-failed {
-  border-left-color: var(--el-color-danger);
+  border-left: 3px solid var(--el-color-danger);
 }
 
 .turn.is-waiting,
 .turn.is-running {
-  border-left-color: var(--el-color-warning);
+  border-left: 3px solid var(--el-color-warning);
 }
 
 .turn__head {
@@ -603,7 +603,8 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .turn__no {
@@ -616,32 +617,61 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   font-size: 12px;
 }
 
-.turn__open {
+.turn__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-left: auto;
 }
 
 .bubble {
-  max-width: 85%;
-  margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: var(--radius-sm);
-  background: var(--surface-glass-control);
+  width: fit-content;
+  max-width: min(85%, 720px);
+  margin-top: 18px;
 }
 
 .bubble--user {
   margin-left: auto;
-  background: var(--surface-glass-selected);
 }
 
-.bubble small {
+.bubble__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 6px;
   color: var(--text-secondary);
   font-size: 11px;
 }
 
+.bubble--user .bubble__meta {
+  justify-content: flex-end;
+}
+
+.bubble__meta strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.bubble__meta time {
+  font-variant-numeric: tabular-nums;
+}
+
+.bubble__content {
+  padding: 12px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-glass-control);
+}
+
+.bubble--user .bubble__content {
+  background: var(--surface-glass-selected);
+}
+
 .bubble p {
-  margin: 2px 0 0;
+  margin: 0;
+  line-height: 1.7;
   white-space: pre-wrap;
-  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 
 .turn__error {
@@ -681,6 +711,16 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
 }
 
 @media (max-width: 720px) {
+  .detail-head { padding: 16px; }
+
+  .conversation-turns { padding: 16px; }
+
+  .turn { padding: 14px; }
+
+  .bubble { max-width: 100%; }
+
+  .turn__actions { width: 100%; margin-left: 0; }
+
   .conversation-filters :deep(.filter-bar__fields > .keyword-filter) {
     flex-basis: 100%;
   }

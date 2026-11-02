@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import feign.FeignException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.CacheControl;
@@ -22,6 +23,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.util.StringUtils;
+import org.springframework.util.StopWatch;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.time.LocalDateTime;
@@ -46,7 +49,7 @@ import java.util.Objects;
 @RequiredArgsConstructor
 public class PlatformEmbedPublicController {
 
-    static final String RUNTIME_FAILURE_MESSAGE = "助手暂时无法完成请求，请稍后重试或联系管理员";
+    static final String RUNTIME_FAILURE_MESSAGE = "助手未能完成请求，请先核对业务记录，再决定是否重试。";
 
     private final PlatformEmbedTokenService tokenService;
     private final PlatformEmbedSessionService sessionService;
@@ -90,6 +93,8 @@ public class PlatformEmbedPublicController {
             @RequestHeader(value = "X-ReachAI-Body-SHA256", required = false) String bodySha256,
             @RequestHeader(value = "X-ReachAI-Body-Signature", required = false) String bodySignature,
             @RequestBody byte[] body) {
+        StopWatch timing = new StopWatch();
+        timing.start("validate");
         try {
             String digest = InternalServiceHmac.bodySha256Hex(body);
             if (!InternalServiceHmac.digestEqualsConstantTime(digest, bodySha256)) {
@@ -107,17 +112,25 @@ public class PlatformEmbedPublicController {
             if (projectRequestVerifier == null) {
                 throw new PlatformEmbedTokenException("project request verification is unavailable");
             }
+            timing.stop();
+            timing.start("signature");
             projectRequestVerifier.verify(new CapabilityProjectRequestVerificationGateway.ProjectRequest(
                     request.projectCode(), firstText(reachAiAppKey, eafAppKey), "POST",
                     "/api/embed/token/exchange", firstText(reachAiTimestamp, eafTimestamp),
                     firstText(reachAiNonce, eafNonce), digest, bodySignature));
+            timing.stop();
+            timing.start("policy");
             Map<String, Object> verified = verifyWithCapability(
                     firstText(reachAiAppKey, eafAppKey),
                     firstText(reachAiTimestamp, eafTimestamp),
                     firstText(reachAiNonce, eafNonce),
                     firstText(reachAiSignature, eafSignature),
                     request);
+            timing.stop();
+            timing.start("agent");
             ensureRuntimeAgentAvailable(request.projectCode(), request.agentId());
+            timing.stop();
+            timing.start("issue");
             String tenantId = attestedTenantId(principal);
             PlatformEmbedTokenIssueResult token = tokenService.issue(PlatformEmbedTokenIssueCommand.builder()
                     .tenantId(tenantId)
@@ -138,6 +151,8 @@ public class PlatformEmbedPublicController {
                             principal.roles() == null ? List.of() : principal.roles(),
                             principal.attributes() == null ? Map.of() : principal.attributes()))
                     .build());
+            timing.stop();
+            timing.start("identity_sync");
             syncBusinessUser(tenantId, request.projectCode(), principal);
             Map<String, String> sessionHint = new LinkedHashMap<>();
             sessionHint.put("appId", request.projectCode());
@@ -150,9 +165,27 @@ public class PlatformEmbedPublicController {
                     sessionHint,
                     request.businessSessionId() != null,
                     request.businessSessionExpiresAt() != null)));
+        } catch (ResponseStatusException ex) {
+            if (ex.getStatusCode().value() == 401 || ex.getStatusCode().value() == 403) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResult.fail(403, "embed access denied"));
+            }
+            if (ex.getStatusCode().is5xxServerError()) {
+                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                        .body(ApiResult.fail(503, "embed token service is temporarily unavailable"));
+            }
+            throw ex;
         } catch (PlatformEmbedTokenException | IllegalArgumentException | java.io.IOException ex) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiResult.fail(403, ex.getMessage()));
+        } finally {
+            if (timing.isRunning()) timing.stop();
+            if (timing.getTotalTimeMillis() >= 5_000) {
+                var stages = new java.util.StringJoiner(",");
+                for (StopWatch.TaskInfo stage : timing.getTaskInfo()) {
+                    stages.add(stage.getTaskName() + "=" + stage.getTimeMillis());
+                }
+                log.warn("Embed token exchange slow: totalMs={} stagesMs={}", timing.getTotalTimeMillis(), stages);
+            }
         }
     }
 
@@ -253,7 +286,7 @@ public class PlatformEmbedPublicController {
                     .body(ApiResult.fail(401, ex.getMessage()));
         } catch (EmbedRuntimeFailure ex) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(ApiResult.fail(503, RUNTIME_FAILURE_MESSAGE));
+                    .body(ApiResult.fail(503, safeRuntimeFailureMessage(ex.code)));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
         } catch (IllegalStateException ex) {
@@ -382,7 +415,7 @@ public class PlatformEmbedPublicController {
                     .body(ApiResult.fail(409, "确认请求无效或已结束，请刷新对话查看结果"));
         } catch (EmbedRuntimeFailure ex) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
-                    .body(ApiResult.fail(503, RUNTIME_FAILURE_MESSAGE));
+                    .body(ApiResult.fail(503, safeRuntimeFailureMessage(ex.code)));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
         } catch (IllegalStateException ex) {
@@ -727,7 +760,7 @@ public class PlatformEmbedPublicController {
                     && "SUPERVISOR_APPROVAL_INVALID".equals(text(mapValue(body.get("metadata")).get("code")))) {
                 throw new EmbedInteractionConflict();
             }
-            throw new EmbedRuntimeFailure();
+            throw new EmbedRuntimeFailure(text(mapValue(body.get("metadata")).get("code")));
         }
         Map<String, Object> metadata = mapValue(body.get("metadata"));
         String answer = text(body.get("answer"));
@@ -741,7 +774,22 @@ public class PlatformEmbedPublicController {
                 body.get("uiRequest"));
     }
 
+    static String safeRuntimeFailureMessage(String code) {
+        if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(code) || "PAGE_BRIDGE_RESULT_UNCONFIRMED".equals(code)) {
+            return "操作结果尚未确认，请先核对业务记录，避免重复提交。";
+        }
+        if ("SUPERVISOR_PLAN_INCOMPLETE".equals(code)) {
+            return "请求未能全部完成，请先核对已执行的操作，再调整条件重试。";
+        }
+        if ("SUPERVISOR_PLAN_REQUIRED".equals(code)) {
+            return "未能完成请求规划，请检查输入条件后重试。";
+        }
+        return RUNTIME_FAILURE_MESSAGE;
+    }
+
     private static final class EmbedRuntimeFailure extends RuntimeException {
+        private final String code;
+        private EmbedRuntimeFailure(String code) { this.code = code; }
     }
 
     private static final class EmbedInteractionConflict extends RuntimeException {
@@ -805,19 +853,36 @@ public class PlatformEmbedPublicController {
                             "projectCode", request.projectCode(),
                             "agentId", request.agentId(),
                             "origin", request.origin()));
+        } catch (FeignException ex) {
+            if (ex.status() == 403) {
+                throw new PlatformEmbedTokenException("embed token exchange is not allowed");
+            }
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "embed policy service is unavailable");
         } catch (RuntimeException ex) {
-            throw new PlatformEmbedTokenException("embed token exchange is not allowed", ex);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "embed policy service is unavailable");
         }
-        if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+        if (response != null && response.getStatusCode().value() == 403) {
             throw new PlatformEmbedTokenException("embed token exchange is not allowed");
+        }
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "embed policy service is unavailable");
         }
         return response.getBody();
     }
 
     private void ensureRuntimeAgentAvailable(String projectCode, String agentId) {
-        ResponseEntity<Object> response = runtimeProxyClient.listAgents(null, projectCode);
-        if (!response.getStatusCode().is2xxSuccessful()
-                || PlatformEmbedAgentLookup.find(response.getBody(), projectCode, agentId).isEmpty()) {
+        // Older Runtime versions ignore the view parameter and return the full list, which
+        // remains compatible with the same project and enabled checks below.
+        ResponseEntity<Object> response;
+        try {
+            response = runtimeProxyClient.listEmbedAgentIdentities(projectCode, "embed-identity");
+        } catch (RuntimeException ex) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "agent service is unavailable");
+        }
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "agent service is unavailable");
+        }
+        if (PlatformEmbedAgentLookup.find(response.getBody(), projectCode, agentId).isEmpty()) {
             throw new PlatformEmbedTokenException("agent not found: " + agentId);
         }
     }

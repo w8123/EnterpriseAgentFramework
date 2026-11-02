@@ -93,9 +93,12 @@
         @open="scheduleMenuSync"
         @close="scheduleMenuSync"
       >
-        <template v-for="(entry, i) in visibleSidebarMenu" :key="entry.kind === 'item' ? entry.index : `group-${i}`">
-          <li v-if="entry.kind === 'group'" class="menu-group" :class="{ 'is-first': i === 0 }" role="presentation">
-            <span class="menu-group-label">{{ entry.label }}</span>
+        <template v-for="(entry, i) in displayedSidebarMenu" :key="entry.kind === 'item' ? entry.index : `group-${entry.label}`">
+          <li v-if="entry.kind === 'group'" class="menu-group" :class="{ 'is-first': i === 0, 'is-closed': isGroupClosed(entry.label) }" role="presentation">
+            <button class="menu-group-label" type="button" :aria-expanded="!isGroupClosed(entry.label)" @click="toggleGroup(entry.label)">
+              <span>{{ entry.label }}</span>
+              <el-icon v-if="isGroupClosed(entry.label)" class="menu-group-arrow" aria-hidden="true"><ArrowRight /></el-icon>
+            </button>
           </li>
 
           <el-menu-item
@@ -222,14 +225,6 @@
               >
                 <el-icon><Monitor /></el-icon>
                 <span>AI 工具接入</span>
-              </button>
-              <button
-                class="profile-link"
-                type="button"
-                @click="openMyMemories"
-              >
-                <el-icon><Memo /></el-icon>
-                <span>我的记忆</span>
               </button>
               <button
                 class="profile-link"
@@ -430,7 +425,6 @@ import {
   ArrowUp,
   Check,
   Close,
-  Memo,
   Monitor,
   Moon,
   Setting,
@@ -506,13 +500,34 @@ const {
 } = useSidebarWorkspace()
 // 从链接进入其他工作台的页面时，侧栏跟着切过去。
 watch(activeMenu, followActiveMenu, { immediate: true })
+const closedGroups = ref<Set<string>>(new Set())
+const groupKey = (label: string) => `${currentWorkspace.value.key}:${label}`
+const isGroupClosed = (label: string) => closedGroups.value.has(groupKey(label))
+function toggleGroup(label: string) {
+  const next = new Set(closedGroups.value)
+  const key = groupKey(label)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  closedGroups.value = next
+}
+const displayedSidebarMenu = computed(() => {
+  if (collapsed.value) return visibleSidebarMenu.value
+  let groupClosed = false
+  return visibleSidebarMenu.value.filter(entry => {
+    if (entry.kind === 'group') {
+      groupClosed = isGroupClosed(entry.label)
+      return true
+    }
+    return !groupClosed
+  })
+})
 const profileName = computed(() => (
   platformSessionUser.value?.displayName?.trim() || platformSessionUser.value?.username || '个人'
 ))
 const roleSwitchOpen = ref(false)
 const sidebarMenuRef = ref<MenuInstance>()
 const { setMenuNode, tabindex, isMenuOpen, onMenuFocus, onMenuKeydown, scheduleMenuSync } = useSidebarKeyboardNavigation(
-  sidebarMenuRef, visibleSidebarMenu, collapsed, activeMenu,
+  sidebarMenuRef, displayedSidebarMenu, collapsed, activeMenu,
 )
 const activeFooterPanel = ref<'profile' | 'settings' | null>(null)
 const loggingOut = ref(false)
@@ -746,11 +761,6 @@ watch(activeFooterPanel, (panel) => {
 watch(collapsed, () => { activeFooterPanel.value = null })
 onBeforeUnmount(unbindFooterPanelDismiss)
 
-async function openMyMemories() {
-  activeFooterPanel.value = null
-  await router.push('/me/memories')
-}
-
 async function openMyAiConnections() {
   activeFooterPanel.value = null
   await router.push('/me/ai-connections')
@@ -912,10 +922,10 @@ async function handleLogout() {
   height: 24px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border-glass-edge);
+  border: 1px solid transparent;
   border-radius: 999px;
-  background: var(--surface-solid-control);
-  box-shadow: var(--inner-highlight), 0 1px 2px rgb(15 23 42 / 0.08);
+  background: transparent;
+  box-shadow: none;
   color: var(--sb-icon);
   cursor: pointer;
   transition: color 0.16s ease, border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
@@ -927,8 +937,13 @@ async function handleLogout() {
   &:hover {
     color: var(--sb-parent-active-text);
     border-color: rgb(var(--brand-primary-rgb) / 0.24);
-    background: var(--surface-solid-opaque);
+    background: var(--sb-hover-bg);
     transform: translateX(-1px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--border-focus);
+    outline-offset: 2px;
   }
 
   &.is-collapsed-control {
@@ -1178,7 +1193,7 @@ async function handleLogout() {
 .menu-group {
   list-style: none;
   margin: 16px 0 6px;
-  padding: 0 12px;
+  padding: 0;
 }
 
 .menu-group.is-first {
@@ -1186,13 +1201,37 @@ async function handleLogout() {
 }
 
 .menu-group-label {
-  display: block;
-  padding-left: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 10px 0 2px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
   font-size: 12px;
   font-weight: 500;
   line-height: 16px;
   letter-spacing: 0.04em;
   color: var(--sb-caption);
+  text-align: left;
+  cursor: pointer;
+
+  &:hover { background: var(--sb-hover-bg); }
+  &:focus-visible { outline: 2px solid var(--border-focus); outline-offset: -2px; }
+}
+
+.menu-group.is-closed .menu-group-label {
+  min-height: 40px;
+  font-size: 14px;
+  line-height: 40px;
+  letter-spacing: normal;
+  color: var(--sb-text);
+}
+
+.menu-group-arrow {
+  font-size: 14px;
 }
 
 .sidebar-menu {

@@ -36,6 +36,18 @@ import static org.mockito.Mockito.verify;
 class WorkflowTraceSanitizerPersistenceTest {
 
     @Test
+    void planSummaryUsesStructuredToolNamesWithoutPersistingPlanText() {
+        String privateText = "private customer details and arguments";
+        var plan = Map.<String, Object>of("summary", privateText,
+                "steps", List.of(privateText),
+                "workflowToolNames", List.of("yudao_product_filter", "bad name with private details"));
+        var summary = WorkflowTraceSanitizer.sanitizePlanSummary(1, plan);
+        assertEquals(1, summary.get("stepCount"));
+        assertEquals(List.of("yudao_product_filter"), summary.get("toolNames"));
+        assertFalse(summary.toString().contains(privateText));
+    }
+
+    @Test
     void preservesSafeInteractionVariantWithoutPersistingCardData() {
         String businessValue = uuid();
 
@@ -143,7 +155,7 @@ class WorkflowTraceSanitizerPersistenceTest {
         SupervisorExecutionTraceService.TraceHandle handle = service.begin(agent, config, List.of(), input);
         service.plan(handle, agent, config, input, 1, Map.of(
                 "reason", planReason,
-                "steps", List.of(Map.of("toolName", "wf_tool", "reason", planReason))));
+                "steps", List.of(planReason), "workflowToolNames", List.of("wf_tool")));
         com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot deniedTool = com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot.builder()
                 .toolName("wf_tool")
                 .enabled(false)
@@ -216,6 +228,7 @@ class WorkflowTraceSanitizerPersistenceTest {
         assertFalse(planSpan.getInputSummary().contains(message));
         assertTrue(planSpan.getInputSummary().contains("\"inputType\":\"message\""));
         assertTrue(planSpan.getInputSummary().contains("\"messageLength\":" + message.length()));
+        assertTrue(planSpan.getOutputSummary().contains("\"toolNames\":[\"wf_tool\"]"));
 
         String persisted = Stream.of(
                         stringFields(spans.getAllValues()),

@@ -44,6 +44,20 @@ public class RuntimeAgentService {
                 .toList();
     }
 
+    /** The embed gate only needs identities; avoid loading each Agent's configuration and tools. */
+    public List<EmbedIdentityView> listEmbedIdentities(String projectCode) {
+        if (!StringUtils.hasText(projectCode)) return List.of();
+        return mapper.selectList(Wrappers.<RuntimeAgentEntity>lambdaQuery()
+                        .select(RuntimeAgentEntity::getId, RuntimeAgentEntity::getProjectCode,
+                                RuntimeAgentEntity::getKeySlug, RuntimeAgentEntity::getEnabled)
+                        .eq(RuntimeAgentEntity::getProjectCode, projectCode.trim()))
+                .stream().map(agent -> new EmbedIdentityView(agent.getId(), agent.getProjectCode(),
+                        agent.getKeySlug(), agent.getEnabled()))
+                .toList();
+    }
+
+    public record EmbedIdentityView(String id, String projectCode, String keySlug, Boolean enabled) { }
+
     public Optional<RuntimeAgentView> findById(String id) {
         if (!StringUtils.hasText(id)) {
             return Optional.empty();

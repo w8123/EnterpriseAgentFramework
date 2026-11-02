@@ -6,7 +6,7 @@
       height-preset="compact"
       presentation="plain"
       action-presentation="inline"
-      eyebrow="运行诊断"
+      eyebrow="运行详情"
       :title="detailTitle"
       show-back
       @back="router.push('/runops')"
@@ -1194,7 +1194,7 @@ onMounted(loadDetail)
 /* RunOps investigation workbench V2 */
 .runops-detail {
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .runops-detail :deep(.app-page-header),
@@ -1230,11 +1230,11 @@ onMounted(loadDetail)
 .run-conclusion-row {
   display: grid;
   min-width: 0;
-  min-height: 54px;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  min-height: 68px;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: center;
   gap: 9px;
-  padding: 6px 12px;
+  padding: 10px 16px;
   background: color-mix(in srgb, var(--run-tone) 3%, transparent);
 }
 
@@ -1327,10 +1327,10 @@ onMounted(loadDetail)
 .run-context-strip {
   display: flex;
   min-width: 0;
-  min-height: 29px;
+  min-height: 38px;
   align-items: center;
-  gap: 12px;
-  padding: 3px 10px;
+  gap: 16px;
+  padding: 6px 16px;
   border-top: 1px solid var(--border-divider);
   color: var(--text-muted);
   font-size: 10px;

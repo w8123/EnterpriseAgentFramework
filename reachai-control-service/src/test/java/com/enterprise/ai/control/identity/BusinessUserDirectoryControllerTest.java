@@ -141,7 +141,7 @@ class BusinessUserDirectoryControllerTest {
                 BusinessUserDirectoryController.ExternalRoleView::roleCode).toList());
         verify(userMapper).updateById(any());
         verify(bindingMapper).updateById(any());
-        verify(roleBindingMapper).delete(any());
+        verify(roleBindingMapper).deleteById(21L);
         verify(roleBindingMapper).insert(any());
         verify(requestAuthorization).requireGlobalPermission(
                 request, PlatformPermissions.BUSINESS_USER_READ);
@@ -184,7 +184,6 @@ class BusinessUserDirectoryControllerTest {
     }
 
     @Test
-    @SuppressWarnings("unchecked")
     void editingIdentityKeyRemovesOldRolesAndUsesTenantScopedNewRoles() {
         var users = mock(BusinessUserMapper.class);
         var bindings = mock(ExternalUserBindingMapper.class);
@@ -196,14 +195,17 @@ class BusinessUserDirectoryControllerTest {
         when(users.selectById(7L)).thenReturn(businessUser(7L, "g", "name"));
         var existing = binding(11L, 7L, "old-app", "old-user");
         when(bindings.selectByIdForUpdate(11L)).thenReturn(existing);
-        when(roles.selectList(any())).thenReturn(List.of());
+        var oldRole = new ExternalUserRoleBindingEntity();
+        oldRole.setId(31L); oldRole.setTenantId("default"); oldRole.setBusinessUserId(7L);
+        oldRole.setAppId("old-app"); oldRole.setExternalUserId("old-user");
+        var otherRole = new ExternalUserRoleBindingEntity();
+        otherRole.setId(32L); otherRole.setTenantId("default"); otherRole.setBusinessUserId(7L);
+        otherRole.setAppId("old-app"); otherRole.setExternalUserId("OLD-USER");
+        when(roles.selectList(any())).thenReturn(List.of(oldRole, otherRole), List.of(), List.of());
         controller.saveBusinessUserIdentity(request, 7L, new BusinessUserDirectoryController.ExternalIdentityCommand(
                 11L, "new-app", "new-user", null, null, null, "ACTIVE", List.of("reader")));
-        var captured = org.mockito.ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.Wrapper.class);
-        verify(roles, org.mockito.Mockito.times(2)).delete(captured.capture());
-        var oldDelete = (com.baomidou.mybatisplus.core.conditions.AbstractWrapper<?, ?, ?>) captured.getAllValues().get(0);
-        oldDelete.getSqlSegment();
-        assertTrue(oldDelete.getParamNameValuePairs().values().containsAll(List.of("default", 7L, "old-app", "old-user")));
+        verify(roles).deleteById(31L);
+        verify(roles, org.mockito.Mockito.never()).deleteById(32L);
     }
 
     private BusinessUserEntity businessUser(Long id, String globalUserId, String displayName) {

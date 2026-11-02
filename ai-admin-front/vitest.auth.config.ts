@@ -31,6 +31,7 @@ export default defineConfig({
       'src/composables/liquidGlass.test.ts',
       'src/views/agent/AgentList.test.ts',
       'src/views/settings/ToolAclList.test.ts',
+      'src/views/settings/MemoryIdentityAdmin.test.ts',
       'src/views/settings/platform-identity/RolePermissionPanel.test.ts',
       'src/views/registry/RegistryProjectList.test.ts',
       'src/utils/platformAuth.test.ts',

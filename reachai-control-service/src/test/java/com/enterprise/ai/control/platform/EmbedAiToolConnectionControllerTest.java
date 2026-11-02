@@ -149,6 +149,7 @@ class EmbedAiToolConnectionControllerTest {
         claims.setExternalUserId("1");
         claims.setUserName("张三");
         claims.setRoles(List.of("erp_user"));
+        claims.setExpiresAt(java.time.Instant.now().plusSeconds(600).getEpochSecond());
         return claims;
     }
 

@@ -151,10 +151,52 @@ index 1cb4635..7d9dcd4 100644
      )
    }
 diff --git a/src/views/erp/product/product/index.vue b/src/views/erp/product/product/index.vue
-index 4eeba1e..e11f166 100644
+index 4eeba1e..3576f12 100644
 --- a/src/views/erp/product/product/index.vue
 +++ b/src/views/erp/product/product/index.vue
-@@ -136,6 +136,7 @@ import ProductForm from './ProductForm.vue'
+@@ -57,31 +57,34 @@
+ 
+   <!-- 列表 -->
+   <ContentWrap>
+-    <el-table v-loading="loading" :data="list" :stripe="true" :show-overflow-tooltip="true">
+-      <el-table-column label="条码" align="center" prop="barCode" />
+-      <el-table-column label="名称" align="center" prop="name" />
+-      <el-table-column label="规格" align="center" prop="standard" />
+-      <el-table-column label="分类" align="center" prop="categoryName" />
+-      <el-table-column label="单位" align="center" prop="unitName" />
++    <el-table v-loading="loading" :data="list" :stripe="true" :show-overflow-tooltip="true" scrollbar-always-on>
++      <el-table-column label="条码" align="center" prop="barCode" min-width="140" />
++      <el-table-column label="名称" align="left" prop="name" min-width="200" />
++      <el-table-column label="规格" align="left" prop="standard" min-width="150" />
++      <el-table-column label="分类" align="center" prop="categoryName" min-width="105" />
++      <el-table-column label="单位" align="center" prop="unitName" width="70" />
+       <el-table-column
+         label="采购价格"
+         align="center"
+         prop="purchasePrice"
++        min-width="100"
+         :formatter="erpPriceTableColumnFormatter"
+       />
+       <el-table-column
+         label="销售价格"
+         align="center"
+         prop="salePrice"
++        min-width="100"
+         :formatter="erpPriceTableColumnFormatter"
+       />
+       <el-table-column
+         label="最低价格"
+         align="center"
+         prop="minPrice"
++        min-width="100"
+         :formatter="erpPriceTableColumnFormatter"
+       />
+-      <el-table-column label="状态" align="center" prop="status">
++      <el-table-column label="状态" align="center" prop="status" width="80">
+         <template #default="scope">
+           <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status" />
+         </template>
+@@ -136,6 +139,7 @@ import ProductForm from './ProductForm.vue'
  import { DICT_TYPE } from '@/utils/dict'
  import { defaultProps, handleTree } from '@/utils/tree'
  import { erpPriceTableColumnFormatter } from '@/utils'
@@ -162,7 +204,7 @@ index 4eeba1e..e11f166 100644
  
  /** ERP 产品列表 */
  defineOptions({ name: 'ErpProduct' })
-@@ -149,22 +150,74 @@ const total = ref(0) // 列表的总页数
+@@ -149,22 +153,74 @@ const total = ref(0) // 列表的总页数
  const queryParams = reactive({
    pageNo: 1,
    pageSize: 10,
@@ -402,10 +444,10 @@ index 0000000..865caa0
 +main().catch(error => { console.error(error); process.exitCode = 1 })
 diff --git a/src/layout/components/ReachAiChat/index.vue b/src/layout/components/ReachAiChat/index.vue
 new file mode 100644
-index 0000000..edb9e82
+index 0000000..ea7a766
 --- /dev/null
 +++ b/src/layout/components/ReachAiChat/index.vue
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,190 @@
 +<script lang="ts" setup>
 +/**
 + * ReachAI 嵌入式对话：登录后在右下角挂一个对话入口。
@@ -413,7 +455,7 @@ index 0000000..edb9e82
 + * 令牌由芋道后端 POST /reachai/embed/token 用当前登录用户换取，浏览器不接触项目密钥。
 + * 未配置 VITE_REACHAI_BASE_URL / VITE_REACHAI_AGENT_ID 时不加载。
 + */
-+import { onBeforeUnmount, onMounted, watch } from 'vue'
++import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 +import { getAccessToken } from '@/utils/auth'
 +import { service } from '@/config/axios/service'
 +import { activeReachAiPage, type ReachAiPageBridge } from './pageBinding'
@@ -430,6 +472,7 @@ index 0000000..edb9e82
 +
 +const reachAiBase = (import.meta.env.VITE_REACHAI_BASE_URL || '').replace(/\/+$/, '')
 +const agentId = import.meta.env.VITE_REACHAI_AGENT_ID || ''
++const memoriesEnabled = import.meta.env.VITE_REACHAI_MEMORIES === 'true'
 +// 默认使用业务后端；独立本地测试后端可显式指定其令牌端点。
 +const tokenUrl =
 +  import.meta.env.VITE_REACHAI_TOKEN_URL ||
@@ -441,6 +484,8 @@ index 0000000..edb9e82
 +let disposed = false
 +let generation = 0
 +let sdkPromise: Promise<ReachAiGlobal> | undefined
++const initError = ref(false)
++const initializing = ref(false)
 +const route = useRoute()
 +
 +const loadSdk = (): Promise<ReachAiGlobal> => {
@@ -453,6 +498,7 @@ index 0000000..edb9e82
 +      link.id = `${SCRIPT_ID}-css`
 +      link.rel = 'stylesheet'
 +      link.href = `${reachAiBase}/sdk/embed-chat/style.css`
++      link.onerror = () => link.remove()
 +      document.head.appendChild(link)
 +    }
 +    const script = document.createElement('script')
@@ -460,7 +506,11 @@ index 0000000..edb9e82
 +    script.src = `${reachAiBase}/sdk/embed-chat/reachai-chat-embed.umd.js`
 +    script.onload = () => {
 +      const loaded = (window as unknown as { ReachAI?: ReachAiGlobal }).ReachAI
-+      loaded ? resolve(loaded) : reject(new Error('ReachAI SDK 未加载'))
++      if (loaded) resolve(loaded)
++      else {
++        script.remove()
++        reject(new Error('ReachAI SDK 未加载'))
++      }
 +    }
 +    script.onerror = () => {
 +      script.remove()
@@ -496,7 +546,12 @@ index 0000000..edb9e82
 +  client = null
 +  mountEl?.remove()
 +  mountEl = null
-+  if (!reachAiBase || !agentId || !getAccessToken()) return
++  if (!reachAiBase || !agentId || !getAccessToken()) {
++    initError.value = false
++    initializing.value = false
++    return
++  }
++  initializing.value = true
 +  const binding = activeReachAiPage.value?.route === route.path ? activeReachAiPage.value : null
 +  let localMount: HTMLElement | null = null
 +  try {
@@ -513,8 +568,10 @@ index 0000000..edb9e82
 +      apiBase: reachAiBase,
 +      position: 'bottom-right',
 +      locale: 'zh-CN',
-+      // 目标环境完成业务系统隔离升级与验收前，先隐藏个人记忆入口。
-+      memories: false,
++      // 与芋道业务请求的 30 秒超时一致，避免令牌请求仍在进行时助手提前报错。
++      tokenTimeoutMs: 30_000,
++      // 完成个人记忆隔离升级与验收后，由接入方显式启用。
++      memories: memoriesEnabled,
 +      bridge,
 +      ...(binding ? {
 +        page: { pageKey: binding.pageKey, name: binding.name, routePattern: binding.route },
@@ -528,10 +585,16 @@ index 0000000..edb9e82
 +      return
 +    }
 +    client = created
++    initError.value = false
 +  } catch (error) {
 +    localMount?.remove()
 +    if (mountEl === localMount) mountEl = null
-+    if (!disposed && currentGeneration === generation) console.warn('[ReachAI] 嵌入式对话初始化失败', error)
++    if (!disposed && currentGeneration === generation) {
++      initError.value = true
++      console.warn('[ReachAI] 嵌入式对话初始化失败', error)
++    }
++  } finally {
++    if (!disposed && currentGeneration === generation) initializing.value = false
 +  }
 +}
 +
@@ -550,8 +613,31 @@ index 0000000..edb9e82
 +</script>
 +
 +<template>
-+  <span hidden aria-hidden="true"></span>
++  <div v-if="initError" class="reachai-unavailable" role="status">
++    <span>智能助手暂时不可用，请检查网络或联系管理员。</span>
++    <el-button size="small" :loading="initializing" @click="mountChat">重试</el-button>
++  </div>
 +</template>
++
++<style scoped>
++.reachai-unavailable {
++  position: fixed;
++  right: 24px;
++  bottom: 24px;
++  z-index: 2000;
++  display: flex;
++  align-items: center;
++  gap: 12px;
++  max-width: min(420px, calc(100vw - 32px));
++  padding: 12px 14px;
++  border: 1px solid var(--el-border-color);
++  border-radius: 10px;
++  background: var(--el-bg-color-overlay);
++  box-shadow: var(--el-box-shadow-light);
++  color: var(--el-text-color-primary);
++  font-size: 13px;
++}
++</style>
 diff --git a/src/layout/components/ReachAiChat/pageBinding.ts b/src/layout/components/ReachAiChat/pageBinding.ts
 new file mode 100644
 index 0000000..2131444
@@ -669,3 +755,51 @@ index 0000000..e87381b
 +  console.log('ReachAI product query concurrency passed')
 +}
 +main().catch((error) => { console.error(error); process.exitCode = 1 })
+diff --git a/scripts/test-reachai-chat-retry.cjs b/scripts/test-reachai-chat-retry.cjs
+new file mode 100644
+index 0000000..477ab86
+--- /dev/null
++++ b/scripts/test-reachai-chat-retry.cjs
+@@ -0,0 +1,42 @@
++const assert = require('node:assert/strict')
++const fs = require('node:fs')
++const vm = require('node:vm')
++const ts = require('typescript')
++const { parse } = require('vue/compiler-sfc')
++
++async function main() {
++  const component = parse(fs.readFileSync('src/layout/components/ReachAiChat/index.vue', 'utf8')).descriptor
++  const setup = component.scriptSetup.content
++  const source = setup.slice(setup.indexOf('const loadSdk ='), setup.indexOf('onMounted(() =>'))
++  const code = ts.transpileModule(source + '\nexports.mountChat = mountChat', {
++    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
++  }).outputText
++  const nodes = new Map()
++  const document = {
++    getElementById: id => nodes.get(id),
++    createElement: tag => ({ tag, remove() { nodes.delete(this.id) } }),
++    head: { appendChild(node) { nodes.set(node.id, node); if (node.tag === 'script') queueMicrotask(() => node.onerror()) } },
++    body: { appendChild() {} }
++  }
++  const initError = { value: false }
++  const initializing = { value: false }
++  const context = {
++    exports: {}, document, window: {}, console: { warn() {} }, queueMicrotask,
++    reachAiBase: 'http://reachai.local', agentId: 'agent', tokenUrl: '/token', memoriesEnabled: true, SCRIPT_ID: 'reachai-chat-embed-sdk',
++    initError, initializing, client: null, mountEl: null, disposed: false, generation: 0, sdkPromise: undefined,
++    route: { path: '/erp/product' }, activeReachAiPage: { value: null }, getAccessToken: () => 'session'
++  }
++  vm.runInNewContext(code, context)
++  await context.exports.mountChat()
++  assert.equal(initError.value, true, 'SDK 加载失败后应显示重试提示')
++  assert.equal(initializing.value, false)
++  assert.equal(nodes.has('reachai-chat-embed-sdk'), false, '失败的脚本应移除')
++  let started = 0
++  context.window.ReachAI = { createEafPageBridge: () => ({}), createEafChat: async (options) => { assert.equal(options.tokenTimeoutMs, 30000); assert.equal(options.memories, true); started++; return { destroy() {} } } }
++  await context.exports.mountChat()
++  assert.equal(started, 1, '恢复后重试应启动助手')
++  assert.equal(initError.value, false, '重试成功后应清除提示')
++  assert.match(component.template.content, /@click="mountChat"/)
++  console.log('ReachAI 对话入口：加载失败提示与重试恢复通过')
++}
++main().catch(error => { console.error(error); process.exitCode = 1 })

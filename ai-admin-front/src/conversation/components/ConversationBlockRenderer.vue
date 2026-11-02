@@ -18,6 +18,7 @@
       :request="block.request"
       :state="block.state"
       :error-message="block.errorMessage"
+      :retryable="block.retryable"
       @submit="(action, values) => onInteractionSubmit(block, action, values)"
       @cancel="onInteractionCancel(block)"
     />

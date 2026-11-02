@@ -45,7 +45,7 @@ const chat = await createEafChat({
         origin: context?.origin,
       }),
     })
-    if (!response.ok) throw new Error('获取对话令牌失败')
+    if (!response.ok) throw Object.assign(new Error('获取对话令牌失败'), { status: response.status })
     // Starter 返回 { token, expiresIn, sessionHint }；有业务包装时需解包。
     return response.json()
   },
@@ -56,6 +56,8 @@ function disposeChat() {
   chat.destroy()
 }
 ```
+
+保留 broker 的 HTTP 状态，SDK 才能区分登录失效、页面或助手未获授权和服务暂不可用。Starter 对未登录返回 401，对接入拒绝返回 403，对上游故障返回 502；出现 403 时应检查账号权限、允许来源和 Agent 配置。
 
 原样转发 SDK 提供的页面身份，不自己生成备用 `pageInstanceId`。宿主后端要求的 CSRF 或其他认证头也应按原业务系统加入请求。`tokenProvider` 的实际返回类型见 [eafChat.ts](../../ai-admin-front/src/sdk/eafChat.ts)。
 

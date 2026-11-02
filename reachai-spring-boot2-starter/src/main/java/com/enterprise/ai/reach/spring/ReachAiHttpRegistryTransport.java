@@ -56,7 +56,7 @@ public class ReachAiHttpRegistryTransport implements ReachAiRegistryTransport {
         }
         if (status >= 400) {
             connection.disconnect();
-            throw new IOException("ReachAI registry request failed: status=" + status);
+            throw new ReachAiRegistryHttpException(status);
         }
         return read(connection.getInputStream());
     }

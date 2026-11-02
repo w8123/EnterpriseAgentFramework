@@ -11,6 +11,8 @@ import com.enterprise.ai.control.memory.PersonalMemoryGroupService.TreeView;
 import com.enterprise.ai.control.memory.PersonalMemoryGroupService.UpdateGroupCommand;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
 import com.enterprise.ai.control.memory.PersonalMemoryService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedManagementService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedMutationService;
 import com.enterprise.ai.control.memory.PersonalMemoryService.EraseAllCommand;
 import com.enterprise.ai.control.memory.PersonalMemoryService.EraseAllView;
 import com.enterprise.ai.control.memory.PersonalMemoryService.ForgetView;
@@ -37,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.function.Function;
+import java.util.List;
 
 /**
  * 员工个人页 · 我的记忆：新增、编辑、删除记忆，按「个人记忆 / 项目记忆」分层分组管理。
@@ -53,6 +56,8 @@ public class EmployeePortalMemoryController {
     private final EmployeePortalSessionService sessions;
     private final PersonalMemoryService memoryService;
     private final PersonalMemoryGroupService groupService;
+    private final PersonalMemorySharedManagementService sharedManagement;
+    private final PersonalMemorySharedMutationService sharedMutation;
 
     @GetMapping("/tree")
     public ResponseEntity<ApiResult<TreeView>> tree(
@@ -70,6 +75,34 @@ public class EmployeePortalMemoryController {
             @RequestParam(defaultValue = "50") Integer limit,
             @RequestParam(defaultValue = "0") Integer offset) {
         return handle(authorization, owner -> memoryService.list(owner, scope, groupId, agentId, keyword, limit, offset));
+    }
+
+    @GetMapping("/shared-links")
+    public ResponseEntity<ApiResult<List<PersonalMemorySharedManagementService.SharedSystem>>> sharedSystems(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization) {
+        return handle(authorization, sharedManagement::systems);
+    }
+
+    @GetMapping("/shared-links/{linkId}")
+    public ResponseEntity<ApiResult<MemoryPage>> sharedList(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @PathVariable long linkId, @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "50") Integer limit, @RequestParam(defaultValue = "0") Integer offset) {
+        return handle(authorization, owner -> sharedManagement.list(owner, linkId, keyword, limit, offset));
+    }
+
+    @PutMapping("/shared-links/{linkId}/{id}")
+    public ResponseEntity<ApiResult<MemoryView>> updateShared(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @PathVariable long linkId, @PathVariable long id, @RequestBody UpdateCommand command) {
+        return handle(authorization, owner -> sharedMutation.updateLinked(owner, linkId, id, command));
+    }
+
+    @DeleteMapping("/shared-links/{linkId}/{id}")
+    public ResponseEntity<ApiResult<ForgetView>> forgetShared(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorization,
+            @PathVariable long linkId, @PathVariable long id) {
+        return handle(authorization, owner -> sharedMutation.forgetLinked(owner, linkId, id));
     }
 
     @PostMapping

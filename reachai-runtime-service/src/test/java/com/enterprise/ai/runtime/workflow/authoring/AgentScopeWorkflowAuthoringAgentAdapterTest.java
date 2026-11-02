@@ -198,7 +198,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
     }
 
     @Test
-    void failsWhenFinalizeNeverCalledEvenIfMutationLooksValid() throws Exception {
+    void completesAValidatedCandidateWhenModelOmitsFinalize() throws Exception {
         RuntimeWorkflowProposalValidationService validationService = validationService(true);
         AtomicInteger index = new AtomicInteger();
         List<ModelChatData> responses = List.of(
@@ -215,9 +215,10 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
 
         WorkflowAuthoringResult result = adapter.author(request(emptyGraph(), "加一个回答节点"));
 
-        assertEquals(WorkflowAuthoringResult.Status.FAILED, result.status());
-        assertEquals("FINALIZE_NOT_CALLED", result.failureCode());
-        assertFalse(result.validationErrors().isEmpty());
+        assertEquals(WorkflowAuthoringResult.Status.SUCCEEDED, result.status());
+        assertTrue(result.summary().contains("请检查"));
+        assertTrue(result.toolCallSummaries().stream().anyMatch(item ->
+                WorkflowAuthoringToolkit.FINALIZE.equals(item.get("tool")) && Boolean.TRUE.equals(item.get("success"))));
     }
 
     @Test
@@ -232,7 +233,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
                             "node", Map.of("id", "n" + i, "type", "ANSWER", "name", "n" + i)))))));
             responses.add(calls(call("v" + i, WorkflowAuthoringToolkit.VALIDATE, Map.of())));
         }
-        responses.add(text("still invalid"));
+        responses.add(text("校验通过，已经完成"));
         AgentScopeWorkflowAuthoringAgentAdapter adapter = adapter(request -> {
             int i = index.getAndIncrement();
             return new ModelChatResult(200, "success", responses.get(Math.min(i, responses.size() - 1)));
@@ -241,6 +242,7 @@ class AgentScopeWorkflowAuthoringAgentAdapterTest {
         WorkflowAuthoringResult result = adapter.author(request(emptyGraph(), "反复修补"));
 
         assertEquals(WorkflowAuthoringResult.Status.FAILED, result.status());
+        assertFalse(result.summary().contains("校验通过"));
         assertTrue(result.attempts() <= WorkflowAuthoringSession.MAX_MUTATION_ROUNDS);
         assertTrue(result.toolCallSummaries().stream().anyMatch(item ->
                 WorkflowAuthoringToolkit.APPLY.equals(item.get("tool"))

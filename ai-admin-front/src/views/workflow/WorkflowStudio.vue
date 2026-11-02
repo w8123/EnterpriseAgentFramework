@@ -566,6 +566,7 @@ import {
   type GraphLintItem,
 } from '@/views/workflow/composables/useWorkflowStudioGraphAnalysis'
 import { formatJson, normalizeJson } from '@/views/workflow/composables/workflowStudioJson'
+import { captureInstructionForEmptyDraft } from '@/views/workflow/composables/workflowCaptureInstruction'
 
 const route = useRoute()
 const router = useRouter()
@@ -1682,11 +1683,12 @@ onMounted(async () => {
   window.addEventListener('keydown', handleStudioShortcut)
 })
 
-/** 「沉淀成 Skill」里的「生成 Workflow 草稿」把运行步骤写成需求，带到 AI 编辑栏里由用户确认生成。 */
+/** 「沉淀成 Skill」创建空白 Workflow 后，把运行步骤带到 AI 编辑栏供用户确认。 */
 function prefillAiInstructionFromRoute() {
-  const instruction = typeof route.query.aiInstruction === 'string' ? route.query.aiInstruction.trim() : ''
-  if (!instruction || !canWriteWorkflow.value || nodes.value.length) return
-  aiEditInstruction.value = instruction.slice(0, 2000)
+  const instruction = captureInstructionForEmptyDraft(route.query.aiInstruction, canWriteWorkflow.value,
+    studio.value?.graphSpecJson, nodes.value.map((node) => node.data.kind))
+  if (!instruction) return
+  aiEditInstruction.value = instruction
   aiEditMinimized.value = false
 }
 

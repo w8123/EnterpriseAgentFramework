@@ -11,9 +11,15 @@ import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.List;
 import java.util.Map;
+import java.time.Clock;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.ArgumentMatchers.anyString;
 
 class EmployeePortalAssistantControllerTest {
 
@@ -70,6 +76,29 @@ class EmployeePortalAssistantControllerTest {
                 new AssistantTokenRequest("bad id with spaces"), new MockHttpServletRequest()).getStatusCode());
         assertEquals(HttpStatus.BAD_REQUEST, controller.token("Bearer " + portal, null,
                 new MockHttpServletRequest()).getStatusCode());
+    }
+
+    @Test
+    void assistantTokenRetainsSourceBusinessSessionAndExpiresWithIt() {
+        var revocations = mock(PlatformEmbedBusinessSessionRevocation.class);
+        var boundSessions = new EmployeePortalSessionService(Clock.systemUTC(), revocations);
+        var boundTokenService = new PlatformEmbedTokenService(new ObjectMapper(), tokenProperties, Clock.systemUTC(), revocations);
+        var boundController = new EmployeePortalAssistantController(boundSessions, boundTokenService, tokenProperties, hubProperties);
+        Instant expires = Instant.now().plusSeconds(120);
+        var grant = new ChatGrant("default", "yudao-erp", "yudao-erp", "agent-erp", "1", null,
+                null, List.of(), Map.of(), "a".repeat(32), expires);
+        var owner = new EmployeeOwner("default", 7L, "yudao-erp", "yudao-erp", "1", "name", List.of());
+        String portal = boundSessions.redeem(boundSessions.issueTicket(owner, grant).value()).orElseThrow().value();
+        var response = boundController.token("Bearer " + portal, new AssistantTokenRequest("page-abc"),
+                new MockHttpServletRequest());
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        String token = response.getBody().getData().token();
+        var claims = boundTokenService.verify(token);
+        assertEquals(grant.businessSessionId(), claims.getBusinessSessionId());
+        assertTrue(claims.getExpiresAt() <= expires.getEpochSecond());
+        doThrow(new PlatformEmbedTokenException("revoked")).when(revocations).requireActive(anyString(), anyString());
+        assertThrows(PlatformEmbedTokenException.class, () -> boundTokenService.verify(token));
+        assertTrue(boundSessions.resolve(portal).isEmpty());
     }
 
     private String openPortal(ChatGrant chat) {

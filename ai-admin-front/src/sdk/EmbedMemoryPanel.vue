@@ -84,7 +84,7 @@ const emit = defineEmits<{ (event: 'close'): void }>()
 const zh = {
   title: '我的记忆',
   close: '关闭',
-  hint: '助手会参考这些信息来回答你，只有你自己能看到。删除后立即不再使用。',
+  hint: '助手会参考这些信息来回答你，只有你自己能看到。删除后不再作为长期记忆使用；当前对话仍可能保留已发送的内容。',
   all: '全部',
   personal: '个人记忆',
   emptyMemories: '还没有记住任何信息。对助手说“请记住……”即可添加。',
@@ -98,7 +98,7 @@ const zh = {
 const en: typeof zh = {
   title: 'My memories',
   close: 'Close',
-  hint: 'The assistant uses these to answer you. Only you can see them. Deleted items stop being used at once.',
+  hint: 'The assistant uses these to answer you. Only you can see them. Deleted items are no longer used as long-term memory; messages already sent may remain in the current conversation.',
   all: 'All',
   personal: 'Personal',
   emptyMemories: 'Nothing remembered yet. Say "remember ..." to add something.',

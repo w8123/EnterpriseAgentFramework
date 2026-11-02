@@ -6,9 +6,10 @@
       action-presentation="inline"
       domain="knowledge"
       :title="kbInfo?.name || '知识库详情'"
-      show-back
-      @back="router.push('/knowledge')"
     >
+      <template #leading>
+        <LiquidGlassButton source="wallpaper" circle :icon="ArrowLeft" aria-label="返回知识库列表" title="返回知识库列表" @click="router.push('/knowledge')" />
+      </template>
       <template #tags>
         <el-tag effect="plain" size="small">{{ kbCode }}</el-tag>
         <StatusTag :label="accessModeLabel(kbInfo?.accessMode)" :tone="kbInfo?.accessMode === 'FILE_GRANTS' ? 'warning' : 'success'" />
@@ -80,7 +81,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection } from '@element-plus/icons-vue'
+import { ArrowLeft, Connection } from '@element-plus/icons-vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import StatusTag from '@/components/common/StatusTag.vue'

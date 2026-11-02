@@ -174,6 +174,8 @@
           </el-table-column>
         </el-table>
 
+        <MemoryIdentityAdmin v-if="canManageBusinessUsers && identityDrawerOpen" :key="selectedUser.id" :user="selectedUser" :identities="identities" />
+
         <div v-if="canManageBusinessUsers" class="identity-form">
           <h3>{{ identityForm.id ? '编辑映射' : '新增映射' }}</h3>
           <el-form :model="identityForm" label-width="100px">
@@ -216,6 +218,7 @@
 <script setup lang="ts">
 import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
+import MemoryIdentityAdmin from './MemoryIdentityAdmin.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Refresh, Search } from '@element-plus/icons-vue'
@@ -256,6 +259,7 @@ const selectedUser = ref<BusinessUserView | null>(null)
 const editingUser = ref<(BusinessUserView & { email?: string; mobile?: string }) | null>(null)
 const userDialogOpen = ref(false)
 const identityDrawerOpen = ref(false)
+let identityRequest = 0
 const canManageBusinessUsers = computed(() => hasPlatformPermission(
   platformSessionUser.value?.permissions,
   PLATFORM_PERMISSION_BUSINESS_USER_MANAGE,
@@ -333,6 +337,7 @@ async function saveUser() {
 }
 
 async function openIdentityDrawer(row: BusinessUserView) {
+  identities.value = []
   selectedUser.value = row
   identityDrawerOpen.value = true
   resetIdentityForm()
@@ -341,12 +346,14 @@ async function openIdentityDrawer(row: BusinessUserView) {
 
 async function reloadIdentities() {
   if (!selectedUser.value) return
+  const userId = selectedUser.value.id
+  const request = ++identityRequest
   identityLoading.value = true
   try {
-    const { data } = await listBusinessUserIdentities(selectedUser.value.id)
-    identities.value = data ?? []
+    const { data } = await listBusinessUserIdentities(userId)
+    if (request === identityRequest && selectedUser.value?.id === userId) identities.value = data ?? []
   } finally {
-    identityLoading.value = false
+    if (request === identityRequest) identityLoading.value = false
   }
 }
 

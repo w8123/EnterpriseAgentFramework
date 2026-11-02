@@ -65,6 +65,26 @@ public final class WorkflowReadOnlyTrialPolicy {
 
     private WorkflowReadOnlyTrialPolicy() { }
 
+    /** JSON input values for a trial, including structured business-method parameters. */
+    public static boolean validInputParams(Object raw) {
+        if (!(raw instanceof Map<?, ?> values) || values.size() > MAX_INPUT_FIELDS) return false;
+        for (var entry : values.entrySet()) {
+            if (!(entry.getKey() instanceof String key) || !key.matches("[A-Za-z][A-Za-z0-9_.-]{0,127}")
+                    || !jsonValue(entry.getValue(), 0)) return false;
+        }
+        return true;
+    }
+
+    private static boolean jsonValue(Object value, int depth) {
+        if (depth > 16) return false;
+        if (value == null || value instanceof Boolean || value instanceof Number) return true;
+        if (value instanceof String text) return text.length() <= 2048;
+        if (value instanceof List<?> list) return list.stream().allMatch(item -> jsonValue(item, depth + 1));
+        if (value instanceof Map<?, ?> map) return map.entrySet().stream().allMatch(entry ->
+                entry.getKey() instanceof String && jsonValue(entry.getValue(), depth + 1));
+        return false;
+    }
+
     /** One external node of the saved draft that the trial will really call. */
     public record Target(String nodeId, String nodeName, long apiId, String qualifiedName, String assetType) {
         public Target {
@@ -307,7 +327,7 @@ public final class WorkflowReadOnlyTrialPolicy {
             case "BUSINESS_METHOD_TRIAL_SOURCE_CHANGED" -> node + "的业务方法来源不可用或已接纳契约不是最新";
             case "BUSINESS_METHOD_TRIAL_READ_ONLY_REQUIRED" -> node + "的业务方法未声明为只读（READ_ONLY），试运行会真实写入，已拒绝";
             case "BUSINESS_METHOD_TRIAL_CREDENTIAL_REQUIRED" -> node + "所属项目的签名凭据不可用";
-            case "BUSINESS_METHOD_TRIAL_BUSINESS_IDENTITY_REQUIRED" -> node + "的业务方法要求业务用户身份，项目测试身份不可调用";
+            case "BUSINESS_METHOD_TRIAL_BUSINESS_IDENTITY_REQUIRED" -> node + "的业务方法要求真实业务用户身份。请发布并绑定助手，再从业务系统以员工身份打开嵌入对话进行验证";
             case "BUSINESS_METHOD_TRIAL_UNAVAILABLE" -> node + "的业务方法当前不可执行，请到方法详情核对";
             case "HTTP_API_TRIAL_READ_ONLY_REQUIRED" -> node + "的 API 未声明为只读 GET 操作，试运行会真实写入，已拒绝";
             case "HTTP_API_TRIAL_SOURCE_CHANGED" -> node + "的 API 来源或已接纳契约已变化";

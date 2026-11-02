@@ -32,6 +32,19 @@ export interface PersonalMemoryPage {
   offset: number
 }
 
+export interface SharedMemorySystem {
+  linkId: number
+  projectCode: string
+  accountHint: string
+}
+
+export interface SharedPersonalMemoryApi {
+  systems(): Promise<SharedMemorySystem[]>
+  list(linkId: number, params: { keyword?: string; limit: number; offset: number }): Promise<PersonalMemoryPage>
+  update(linkId: number, id: number, data: Pick<PersonalMemoryUpdateRequest, 'title' | 'content'>): Promise<PersonalMemory>
+  forget(linkId: number, id: number): Promise<unknown>
+}
+
 export interface PersonalMemoryListParams {
   scope?: string
   groupId?: number

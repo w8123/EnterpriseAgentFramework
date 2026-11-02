@@ -266,25 +266,34 @@ public final class WorkflowTraceSanitizer {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("planNo", planNo);
         Object rawSteps = plan == null ? null : plan.get("steps");
+        List<String> toolNames = new ArrayList<>();
+        Object rawToolNames = plan == null ? null : plan.get("workflowToolNames");
+        if (rawToolNames instanceof List<?> names) {
+            for (Object rawName : names) {
+                if (rawName instanceof String name && name.matches("[A-Za-z][A-Za-z0-9_]{0,127}")) {
+                    toolNames.add(name);
+                }
+            }
+        }
         if (rawSteps instanceof List<?> steps) {
             out.put("stepCount", steps.size());
-            List<String> toolNames = new ArrayList<>();
-            for (Object rawStep : steps) {
-                if (rawStep instanceof Map<?, ?> step) {
-                    String toolName = text(step.get("toolName"));
-                    if (!StringUtils.hasText(toolName)) {
-                        toolName = text(step.get("tool"));
-                    }
-                    if (StringUtils.hasText(toolName)) {
-                        toolNames.add(limit(toolName, 200));
+            if (!(rawToolNames instanceof List<?>)) {
+                for (Object rawStep : steps) {
+                    if (rawStep instanceof Map<?, ?> step) {
+                        String toolName = text(step.get("toolName"));
+                        if (!StringUtils.hasText(toolName)) {
+                            toolName = text(step.get("tool"));
+                        }
+                        if (StringUtils.hasText(toolName)) {
+                            toolNames.add(limit(toolName, 200));
+                        }
                     }
                 }
             }
-            out.put("toolNames", toolNames);
         } else {
             out.put("stepCount", 0);
-            out.put("toolNames", List.of());
         }
+        out.put("toolNames", toolNames);
         out.put("status", "RECORDED");
         return out;
     }

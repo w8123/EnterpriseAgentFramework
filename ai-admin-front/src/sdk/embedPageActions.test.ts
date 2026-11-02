@@ -8,6 +8,60 @@ import {
 describe('dispatchPageActionExactlyOnce', () => {
   afterEach(() => { delete (window as any).__REACHAI_PAGE_BRIDGE__ })
 
+  it('reports a removed action without claiming or running the old handler', async () => {
+    let finish!: (accepted: boolean) => void
+    const decision = new Promise<boolean>((resolve) => { finish = resolve })
+    const handler = vi.fn()
+    const bridge = createEafPageBridge({ confirmAction: () => decision })
+    const unregister = bridge.registerAction('change', handler)
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ code: 200, data: {} }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    }))
+    const pending = dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'stale-action', actionKey: 'change', confirm: true },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl,
+    })
+    unregister()
+    finish(true)
+    await pending
+    expect(handler).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/result')
+    expect(JSON.parse(String(fetchImpl.mock.calls[0][1]?.body))).toMatchObject({ status: 'ACTION_NOT_FOUND' })
+  })
+
+  it('reports a stale page after claim without invoking its retained handler', async () => {
+    let finishClaim!: (response: Response) => void
+    let notifyClaim!: () => void
+    let currentPage = true
+    const claimStarted = new Promise<void>((resolve) => { notifyClaim = resolve })
+    const claimResponse = new Promise<Response>((resolve) => { finishClaim = resolve })
+    const ok = (data: unknown) => new Response(JSON.stringify({ code: 200, data }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    })
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(url).endsWith('/claim')) { notifyClaim(); return claimResponse }
+      return ok({})
+    })
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('change', handler)
+    const pending = dispatchPageActionExactlyOnce({
+      request: { type: 'page.action.requested', requestId: 'old-page', actionKey: 'change' },
+      bridge, sessionId: 'session-1', apiBase: '/api/embed', token: 'token',
+      handledPageActions: new Set(), inFlightPageActions: new Map(), fetchImpl,
+      isCurrentPage: () => currentPage,
+    })
+    await claimStarted
+    currentPage = false
+    finishClaim(ok({ claimed: true }))
+    await pending
+    expect(handler).not.toHaveBeenCalled()
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+    expect(JSON.parse(String(fetchImpl.mock.calls[1][1]?.body))).toMatchObject({ status: 'ACTION_NOT_FOUND' })
+  })
+
   it.each([false, true])('requires confirmation before the global fallback (accepted: %s)', async (accepted) => {
     const execute = vi.fn(async () => ({ status: 'SUCCESS', data: { changed: true } }))
     ;(window as any).__REACHAI_PAGE_BRIDGE__ = { execute }

@@ -189,6 +189,10 @@ public class BusinessUserDirectoryController {
                 .eq(ExternalUserBindingEntity::getAppId, appId)
                 .eq(ExternalUserBindingEntity::getExternalUserId, externalUserId)
                 .last("limit 1 for update"));
+        if (existing != null && (!businessUserId.equals(existing.getBusinessUserId())
+                || !appId.equals(existing.getAppId()) || !externalUserId.equals(existing.getExternalUserId()))) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "identity does not match an existing account exactly");
+        }
         return existing == null ? new ExternalUserBindingEntity() : existing;
     }
 
@@ -214,11 +218,18 @@ public class BusinessUserDirectoryController {
     }
 
     private void deleteRoleBindings(String tenantId, Long businessUserId, String appId, String externalUserId) {
-        externalUserRoleBindingMapper.delete(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
+        // Do not let a case-insensitive collation expand this deletion to another identity.
+        externalUserRoleBindingMapper.selectList(new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
                 .eq(ExternalUserRoleBindingEntity::getTenantId, tenantId)
                 .eq(ExternalUserRoleBindingEntity::getBusinessUserId, businessUserId)
                 .eq(ExternalUserRoleBindingEntity::getAppId, appId)
-                .eq(ExternalUserRoleBindingEntity::getExternalUserId, externalUserId));
+                .eq(ExternalUserRoleBindingEntity::getExternalUserId, externalUserId)
+                .last("FOR UPDATE")).stream()
+                .filter(role -> tenantId.equals(role.getTenantId())
+                        && businessUserId.equals(role.getBusinessUserId())
+                        && appId.equals(role.getAppId())
+                        && externalUserId.equals(role.getExternalUserId()))
+                .forEach(role -> externalUserRoleBindingMapper.deleteById(role.getId()));
     }
 
     private BusinessUserView toBusinessUserView(BusinessUserEntity entity) {
@@ -255,10 +266,15 @@ public class BusinessUserDirectoryController {
     private ExternalIdentityView toExternalIdentityView(ExternalUserBindingEntity entity) {
         List<ExternalRoleView> roles = externalUserRoleBindingMapper.selectList(
                         new LambdaQueryWrapper<ExternalUserRoleBindingEntity>()
+                                .eq(ExternalUserRoleBindingEntity::getTenantId, entity.getTenantId())
                                 .eq(ExternalUserRoleBindingEntity::getBusinessUserId, entity.getBusinessUserId())
                                 .eq(ExternalUserRoleBindingEntity::getAppId, entity.getAppId())
                                 .eq(ExternalUserRoleBindingEntity::getExternalUserId, entity.getExternalUserId()))
                 .stream()
+                .filter(role -> java.util.Objects.equals(entity.getTenantId(), role.getTenantId())
+                        && java.util.Objects.equals(entity.getBusinessUserId(), role.getBusinessUserId())
+                        && java.util.Objects.equals(entity.getAppId(), role.getAppId())
+                        && java.util.Objects.equals(entity.getExternalUserId(), role.getExternalUserId()))
                 .map(role -> new ExternalRoleView(
                         role.getId(),
                         role.getRoleCode(),

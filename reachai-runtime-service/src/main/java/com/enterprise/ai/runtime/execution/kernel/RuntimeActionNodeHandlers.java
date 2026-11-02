@@ -287,6 +287,10 @@ final class RuntimeActionNodeHandlers {
             Map<String, Object> metadata = nodeMetadata(node, "PAGE_ACTION");
             metadata.put("pageKey", targetPageKey);
             metadata.put("actionKey", actionKey);
+            if (response == null || "PAGE_BRIDGE_RESULT_UNCONFIRMED".equals(response.code())) {
+                metadata.put("outcomeClass", "UNKNOWN");
+                metadata.put("businessOutcome", "UNCONFIRMED");
+            }
             if (response != null) {
                 putIfPresent(metadata, "pageBridgeCode", response.code());
                 putIfPresent(metadata, "pageBridgeStatus", response.status());
@@ -307,8 +311,8 @@ final class RuntimeActionNodeHandlers {
             if (response == null || !response.success()) {
                 return new RuntimeGraphSpecExecutionResult(
                         false,
-                        response == null ? "RUNTIME_PAGE_ACTION_EMPTY" : response.code(),
-                        response == null ? "Page Bridge returned no response" : response.status(),
+                        response == null ? "PAGE_BRIDGE_RESULT_UNCONFIRMED" : response.code(),
+                        response == null ? "页面操作结果未确认，请核对业务记录。" : response.status(),
                         node.getId(), "PAGE_ACTION",
                         List.of(step("execute-page-action", node.getId())), metadata);
             }
@@ -327,8 +331,11 @@ final class RuntimeActionNodeHandlers {
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), "PAGE_ACTION");
             }
-            return failure("RUNTIME_PAGE_ACTION_FAILED", "PAGE_ACTION failed: " + ex.getMessage(),
-                    node.getId(), "PAGE_ACTION");
+            Map<String, Object> metadata = nodeMetadata(node, "PAGE_ACTION");
+            metadata.put("outcomeClass", "UNKNOWN");
+            metadata.put("businessOutcome", "UNCONFIRMED");
+            return new RuntimeGraphSpecExecutionResult(false, "PAGE_BRIDGE_RESULT_UNCONFIRMED",
+                    "页面操作结果未确认，请核对业务记录。", node.getId(), "PAGE_ACTION", List.of(), metadata);
         }
     }
 

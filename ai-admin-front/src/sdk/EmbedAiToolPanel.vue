@@ -156,7 +156,7 @@ const emit = defineEmits<{ (event: 'close'): void }>()
 const zh = {
   title: '在我的 AI 工具中使用',
   close: '关闭',
-  hint: '勾选要接入的系统，复制一行到你自己的 Claude Code、Codex 等 AI 工具，就能让它以你的身份查询和办理业务。权限和你在系统里一样。',
+  hint: '选择业务系统后，AI 工具以你的身份使用已开放的能力，业务写操作按管理员设置审批。连接还允许 AI 工具读取、保存和删除你的个人记忆；连接时会发送你的相关偏好，记忆操作不经过业务写审批。',
   systems: '要接入的系统',
   noSystems: '暂时没有可以接入的系统，请联系管理员开通。',
   toolCount: (count: number) => `${count} 项能力`,
@@ -194,7 +194,7 @@ const zh = {
 const en: typeof zh = {
   title: 'Use in my AI tool',
   close: 'Close',
-  hint: 'Tick the systems to connect and paste one line into your own Claude Code, Codex or other AI tool. It then works as you, with the same permissions you have in the system.',
+  hint: 'Choose business systems for your AI tool to access as you. Business writes follow the administrator’s approval settings. The connection can also read, save and delete your personal memories; relevant preferences are sent when it connects, and memory changes do not use business write approval.',
   systems: 'Systems to connect',
   noSystems: 'No system is available yet. Ask your administrator to enable it.',
   toolCount: (count: number) => `${count} capabilities`,

@@ -19,6 +19,7 @@ Control 是浏览器、业务系统和开放协议的公共边界。浏览器不
 | 知识与模型 | 受保护 `/ai/**`、`/model/**`，`/api/knowledge/**` | Knowledge / Model | Control 平台会话或受签名内部调用 |
 | 业务索引写入 | `/api/knowledge-ingress/**` | Knowledge | 项目精确 body 签名 |
 | 嵌入对话与页面 | `/api/embed/**`、`/embed/**` | Control，执行经 Runtime | 项目换令牌；业务接口使用 Embed 身份 |
+| 员工个人页 | `/api/employee-portal/**` | Control | 由已验证业务身份换取的短期员工会话；共享记忆按当前有效关联校验 |
 | 个人记忆与合规 | `/api/me/memories/**`、`/api/compliance/**`、`/api/runtime-user-mappings/**` | Control | 当前所有者或明确平台权限 |
 | 平台用户 AI 连接 | `/api/me/ai-connections/**`、`/api/me/ai-approvals/**`、`/api/me/ai-access/**`、`/mcp/platform` | Control，资源查询经 owner 服务 | 管理端会话管理连接并审核本人请求；独立平台用户 AI 密钥调用 MCP |
 | 项目 AI Coding | `/api/ai-coding/projects/**` | Control，委托 owning service | `X-ReachAI-AiCoding-Key` |
@@ -29,5 +30,7 @@ Control 是浏览器、业务系统和开放协议的公共边界。浏览器不
 | 内部接口 | `/internal/control/**`、`/internal/runtime/**`、`/internal/capability/**` | 各服务 | 服务间签名与可信执行信封，浏览器禁用 |
 
 `POST /api/embed/chat/sessions/{sessionId}/context/clear` 使用当前 Embed Token 清除已验证会话的 Runtime 上下文；它保留 Embed 会话及审计记录，并透传 Runtime 的冲突等失败状态。
+
+员工个人记忆关联由 `/api/employee-portal/memory-identities` 下的一次性码签发、确认及解除接口处理；确认需要两个独立的有效员工会话。管理员可通过 `/api/platform/personal-memory-identity-links` 代办关联或解除，须拥有全局业务用户管理权限并记录核验依据。关联只共享个人层记忆。
 
 精确路径、方法、代理与授权由 `check-physical-service-route-contracts.mjs`、`check-frontend-public-api-routes.mjs`、`check-internal-api-contracts.mjs` 以及 Control 路由策略验证。详细服务间清单见[内部 API](internal-apis.md)，凭证语义见[安全](../security.md)。

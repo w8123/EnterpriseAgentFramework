@@ -92,10 +92,13 @@ export function adaptEmbedEvent(
     }
     case 'error':
     case 'execution.error': {
-      const message = record?.message != null
+      const rawMessage = record?.message != null
         ? String(record.message)
         : (typeof data === 'string' ? data : 'Embed 对话失败')
-      return createEvent('turn.failed', { message, error: message }, { sessionId })
+      const message = rawMessage === '助手暂时无法完成请求，请稍后重试或联系管理员'
+        ? '助手未能完成请求，请先核对业务记录，再决定是否重试。'
+        : rawMessage
+      return createEvent('turn.failed', { message, error: message, code: record?.code, retryable: false }, { sessionId })
     }
     case 'execution.started':
       return createEvent('turn.started', record || {}, { sessionId })

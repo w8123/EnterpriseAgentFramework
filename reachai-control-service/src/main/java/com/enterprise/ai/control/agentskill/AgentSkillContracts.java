@@ -135,7 +135,19 @@ public final class AgentSkillContracts {
             String publishedBy,
             LocalDateTime publishedAt,
             LocalDateTime createdAt,
-            LocalDateTime updatedAt) {
+            LocalDateTime updatedAt,
+            String displayNameSnapshot) {
+        public VersionView(Long id, Long skillId, String version, String status, String sourceType, String sourceRef,
+                           String sourceSha256, String contentTreeSha256, Long artifactSize, String declaredLicense,
+                           String declaredCompatibility, boolean hasScripts, JsonNode frontmatter, JsonNode packageManifest,
+                           JsonNode validationReport, JsonNode riskReport, JsonNode compatibilityReport, String reviewedBy,
+                           LocalDateTime reviewedAt, String publishedBy, LocalDateTime publishedAt,
+                           LocalDateTime createdAt, LocalDateTime updatedAt) {
+            this(id, skillId, version, status, sourceType, sourceRef, sourceSha256, contentTreeSha256, artifactSize,
+                    declaredLicense, declaredCompatibility, hasScripts, frontmatter, packageManifest, validationReport,
+                    riskReport, compatibilityReport, reviewedBy, reviewedAt, publishedBy, publishedAt, createdAt,
+                    updatedAt, null);
+        }
     }
 
     public record ReviewView(

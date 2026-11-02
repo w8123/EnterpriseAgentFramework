@@ -5,6 +5,7 @@ import com.enterprise.ai.control.memory.PersonalMemoryService.QueryCommand;
 import com.enterprise.ai.control.memory.PersonalMemoryService.QueryHit;
 import com.enterprise.ai.control.memory.PersonalMemoryService.QueryResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -21,6 +22,7 @@ public class PersonalMemoryRecallService {
 
     private static final String SCHEMA = "reachai-personal-memory-context-v1";
     private final PersonalMemoryService memoryService;
+    private final PersonalMemorySharedQueryService sharedQuery;
     private final int topK;
     private final int maxChars;
 
@@ -28,7 +30,16 @@ public class PersonalMemoryRecallService {
             PersonalMemoryService memoryService,
             @Value("${reachai.context.personal-memory.recall-top-k:8}") int topK,
             @Value("${reachai.context.personal-memory.recall-max-chars:6000}") int maxChars) {
+        this(memoryService, null, topK, maxChars);
+    }
+
+    @Autowired
+    public PersonalMemoryRecallService(PersonalMemoryService memoryService,
+            PersonalMemorySharedQueryService sharedQuery,
+            @Value("${reachai.context.personal-memory.recall-top-k:8}") int topK,
+            @Value("${reachai.context.personal-memory.recall-max-chars:6000}") int maxChars) {
         this.memoryService = memoryService;
+        this.sharedQuery = sharedQuery;
         this.topK = Math.max(1, Math.min(topK, 20));
         this.maxChars = Math.max(256, Math.min(maxChars, 32_000));
     }
@@ -49,20 +60,42 @@ public class PersonalMemoryRecallService {
         String query = firstText(stringValue(body, "message"), stringValue(body, "userInput"),
                 stringValue(body, "input"), "");
         try {
-            QueryResult result = memoryService.query(
-                    owner,
-                    new QueryCommand(query, null, topK, maxChars,
-                            stringValue(body, "sessionId"), stringValue(body, "traceId"),
-                            stringValue(body, "agentId"), stringValue(body, "projectCode")));
-            if (result.hits().isEmpty()) {
+            QueryCommand command = new QueryCommand(query, null, topK, maxChars,
+                    stringValue(body, "sessionId"), stringValue(body, "traceId"),
+                    stringValue(body, "agentId"), stringValue(body, "projectCode"));
+            List<QueryHit> hits;
+            int usedChars;
+            boolean truncated;
+            if (sharedQuery != null && !PersonalMemoryPrincipal.LEGACY_DOMAIN.equals(owner.ownerDomain())) {
+                try {
+                    var result = sharedQuery.query(owner, command);
+                    if (result.sharingUnavailable()) log.warn("Linked personal memory recall unavailable; using verified results only");
+                    hits = result.hits().stream().map(PersonalMemorySharedQueryService.SharedHit::hit).toList();
+                    usedChars = result.usedChars();
+                    truncated = result.truncated();
+                } catch (RuntimeException failure) {
+                    log.warn("Linked personal memory recall failed; falling back to the original owner, failureType={}",
+                            failure.getClass().getSimpleName());
+                    QueryResult own = memoryService.query(owner, command);
+                    hits = own.hits();
+                    usedChars = own.usedChars();
+                    truncated = own.truncated();
+                }
+            } else {
+                QueryResult result = memoryService.query(owner, command);
+                hits = result.hits();
+                usedChars = result.usedChars();
+                truncated = result.truncated();
+            }
+            if (hits.isEmpty()) {
                 return Map.of();
             }
-            List<Map<String, Object>> memories = result.hits().stream().map(this::snippet).toList();
+            List<Map<String, Object>> memories = hits.stream().map(this::snippet).toList();
             Map<String, Object> payload = new LinkedHashMap<>();
             payload.put("schema", SCHEMA);
             payload.put("memories", memories);
-            payload.put("usedChars", result.usedChars());
-            payload.put("truncated", result.truncated());
+            payload.put("usedChars", usedChars);
+            payload.put("truncated", truncated);
             return Map.copyOf(payload);
         } catch (RuntimeException failure) {
             log.warn("Personal memory recall degraded: source={}, tenant={}, failureType={}",

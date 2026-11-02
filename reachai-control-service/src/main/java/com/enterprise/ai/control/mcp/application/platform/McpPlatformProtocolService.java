@@ -1,5 +1,7 @@
 package com.enterprise.ai.control.mcp.application.platform;
 
+import com.enterprise.ai.common.capability.WorkflowReadOnlyTrialPolicy;
+
 import com.enterprise.ai.common.capability.ConsoleCapabilityInvocationContracts;
 import com.enterprise.ai.common.capability.HttpApiConsoleContracts;
 import com.enterprise.ai.control.identity.PlatformAiConnectionService;
@@ -906,7 +908,7 @@ public class McpPlatformProtocolService {
             new Tool("reachai_workflow_trial_read_only", "真实试运行已保存的 Workflow 草稿，只允许服务端确认的只读节点。先读取工作副本并使用其 revision；同一连接的 trialId 最多派发一次，结果未知时查询试运行状态。使用项目测试身份，不冒充业务用户。",
                     PlatformPermissions.WORKFLOW_DEBUG, Map.of("workflowId", text("Workflow 标识"),
                     "trialId", text("本次试运行的唯一小写 UUID"), "expectedRevision", text("已保存工作副本的 revision"),
-                    "inputParams", Map.of("type", "object", "description", "按 Workflow 输入契约提供至多 32 个标量值"),
+                    "inputParams", Map.of("type", "object", "description", "按 Workflow 输入契约提供参数，支持对象和数组"),
                     "message", Map.of("type", "string", "maxLength", 4000, "description", "可选的用户输入")),
                     List.of("workflowId", "trialId", "expectedRevision", "inputParams"), false),
             new Tool("reachai_workflow_trial_status", "按原 trialId 查询本连接试运行的状态；未查到记录不证明原请求不会继续派发。",
@@ -2841,17 +2843,12 @@ public class McpPlatformProtocolService {
     private static Map<String, Object> workflowTrialBody(Map<String, Object> args) {
         String workflowId = requiredText(args, "workflowId");
         String revision = requiredText(args, "expectedRevision");
-        if (!workflowId.matches("[A-Za-z0-9_-]{1,32}") || !(args.get("inputParams") instanceof Map<?, ?> values)
-                || values.size() > 32) throw new McpDomainException("MCP_PARAMS_INVALID", "invalid Workflow trial input");
+        if (!workflowId.matches("[A-Za-z0-9_-]{1,32}") || !WorkflowReadOnlyTrialPolicy.validInputParams(args.get("inputParams")))
+            throw new McpDomainException("MCP_PARAMS_INVALID", "invalid Workflow trial input");
+        Map<?, ?> values = (Map<?, ?>) args.get("inputParams");
         Map<String, Object> input = new LinkedHashMap<>();
         for (var entry : values.entrySet()) {
-            if (!(entry.getKey() instanceof String key) || !key.matches("[A-Za-z][A-Za-z0-9_.-]{0,127}")
-                    || entry.getValue() != null && !(entry.getValue() instanceof String || entry.getValue() instanceof Number
-                    || entry.getValue() instanceof Boolean)
-                    || entry.getValue() instanceof String text && text.length() > 2048) {
-                throw new McpDomainException("MCP_PARAMS_INVALID", "invalid Workflow trial input field");
-            }
-            input.put(key, entry.getValue());
+            input.put((String) entry.getKey(), entry.getValue());
         }
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("workflowId", workflowId); body.put("expectedRevision", revision); body.put("inputParams", input);

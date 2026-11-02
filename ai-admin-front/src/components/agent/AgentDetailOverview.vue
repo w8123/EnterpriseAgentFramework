@@ -604,7 +604,8 @@ function riskClass(value?: string) {
   padding: 13px 14px;
   border: 1px solid var(--border-divider);
   border-radius: var(--radius-lg);
-  background: var(--surface-solid-control);
+  background: var(--surface-glass-panel);
+  box-shadow: var(--inner-highlight);
 }
 
 .collaboration-copy {

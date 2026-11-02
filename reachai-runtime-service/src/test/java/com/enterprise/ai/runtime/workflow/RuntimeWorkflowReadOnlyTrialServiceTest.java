@@ -88,6 +88,18 @@ class RuntimeWorkflowReadOnlyTrialServiceTest {
 
     private WorkflowReadOnlyTrialPolicy.TrialCommand command() { return command(41L, revision(), HASH, allowed()); }
 
+    @Test void structuredInputReachesTheActualDebugExecution() {
+        var current = command();
+        var params = Map.<String, Object>of("pageReqVO", Map.of("pageNo", 1, "pageSize", 10, "ids", List.of(1, 2)));
+        var request = new WorkflowReadOnlyTrialPolicy.TrialCommand(current.contractVersion(), current.workflowId(),
+                current.expectedRevision(), current.graphSha256(), current.projectId(), current.projectCode(),
+                current.platformActorId(), current.allowedTargets(), current.message(), params, current.deadlineEpochMs());
+        executeScopes(new RuntimeWorkflowDebugService.DebugRunResult("run-1", "trace-1", null, "WORKFLOW", true, "COMPLETED",
+                "ok", "answer", List.of(), null, List.of(), Map.of(), null, null));
+        assertTrue(service.run(request).success());
+        verify(debug).runReadOnlyTrial(any(), any(), eq(params), any(), any());
+    }
+
     @Test void platformTrialIdentityCannotContainAnArbitraryTrace() {
         var current = command();
         rejects(new WorkflowReadOnlyTrialPolicy.TrialCommand(WorkflowReadOnlyTrialPolicy.PLATFORM_AI_VERSION, current.workflowId(), current.expectedRevision(),

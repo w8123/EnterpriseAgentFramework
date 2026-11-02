@@ -20,8 +20,26 @@
     },
     {
       "category": "violation",
+      "file": "src/components/memory/MemoryIdentityBinding.vue",
+      "line": 13,
+      "message": "Application-owned form does not declare its validation owner.",
+      "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
+      "ruleId": "form.novalidate-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
       "file": "src/components/memory/MemoryWorkspace.vue",
       "line": 89,
+      "message": "Application-owned form does not declare its validation owner.",
+      "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
+      "ruleId": "form.novalidate-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/components/memory/SharedMemoryPanel.vue",
+      "line": 21,
       "message": "Application-owned form does not declare its validation owner.",
       "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
       "ruleId": "form.novalidate-missing",
@@ -35,16 +53,43 @@
       "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
       "ruleId": "form.novalidate-missing",
       "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/settings/MemoryIdentityAdmin.vue",
+      "line": 27,
+      "message": "Application-owned form does not declare its validation owner.",
+      "remediation": "Add noValidate/novalidate and implement the canonical validation contract.",
+      "ruleId": "form.novalidate-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/components/memory/MemoryIdentityBinding.vue",
+      "line": 11,
+      "message": "Literal product textarea does not show evidence of the canonical resize-none rule.",
+      "remediation": "Use the shared Textarea owner or apply resize-none/resize: none with adequate height or auto-grow behavior.",
+      "ruleId": "form.textarea-resize-missing",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/settings/MemoryIdentityAdmin.vue",
+      "line": 50,
+      "message": "Literal product textarea does not show evidence of the canonical resize-none rule.",
+      "remediation": "Use the shared Textarea owner or apply resize-none/resize: none with adequate height or auto-grow behavior.",
+      "ruleId": "form.textarea-resize-missing",
+      "severity": "error"
     }
   ],
   "mode": "strict",
   "projectRoot": "D:\\work\\EnterpriseAgentFramework-dev\\ai-admin-front",
   "schemaVersion": 1,
   "summary": {
-    "errors": 4,
-    "total": 4,
+    "errors": 9,
+    "total": 9,
     "unresolved": 1,
-    "violations": 3,
+    "violations": 8,
     "warnings": 0
   }
 }

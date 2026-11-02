@@ -507,11 +507,10 @@ function validate(sources, { validateAssets = true } = {}) {
   for (const fragment of [
     '<CollapsibleHeaderRegion :collapsed="isModelHeaderCollapsed">',
     ':collapsed="isModelHeaderCollapsed"',
-    '<MetricStrip class="model-metric-strip"',
     "rootSelector: '.model-center'",
   ]) {
     if (!sources.modelInstances.includes(fragment)) {
-      failures.push(`ModelInstances collapsible metric header is missing ${fragment}`)
+      failures.push(`ModelInstances collapsible header is missing ${fragment}`)
     }
   }
 

@@ -378,6 +378,9 @@
 
     <AppDialog v-model="reviewVisible" :title="reviewDecision === 'APPROVE' ? '评审通过' : '驳回版本'" width="480px">
       <el-form label-position="top">
+        <el-form-item label="本版本展示名称">
+          <span>{{ reviewTarget?.displayNameSnapshot || '历史版本未记录' }}</span>
+        </el-form-item>
         <el-form-item label="评审说明">
           <el-input v-model="reviewComment" type="textarea" :rows="4" maxlength="2000" show-word-limit placeholder="记录风险判断、兼容性结论或驳回原因" />
         </el-form-item>

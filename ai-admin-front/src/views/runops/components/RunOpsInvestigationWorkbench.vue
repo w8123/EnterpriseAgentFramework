@@ -70,6 +70,7 @@
                 { selected: selectedExecutionKey === row.key },
               ]"
               :style="{ '--execution-depth': String(Math.min(row.item.depth || 0, 4)) }"
+              :aria-pressed="selectedExecutionKey === row.key"
               @click="selectExecutionRow(row.key)"
             >
               <span class="execution-rail" aria-hidden="true"><i /></span>
@@ -972,8 +973,8 @@ function guardDigest(guard?: RunGuardDecision) {
 .investigation-workbench {
   display: flex;
   min-width: 0;
-  height: clamp(490px, calc(100vh - 330px), 610px);
-  height: clamp(490px, calc(100dvh - 330px), 610px);
+  height: max(560px, calc(100vh - 300px));
+  height: max(560px, calc(100dvh - 300px));
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--border-glass-edge);
@@ -995,7 +996,7 @@ function guardDigest(guard?: RunGuardDecision) {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 6px 12px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--border-subtle);
   background: transparent;
 }
@@ -1097,7 +1098,7 @@ function guardDigest(guard?: RunGuardDecision) {
   min-width: 0;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr) clamp(420px, 42%, 660px);
+  grid-template-columns: minmax(0, 1fr) clamp(380px, 38%, 570px);
 }
 
 .workbench-main,
@@ -1128,8 +1129,8 @@ function guardDigest(guard?: RunGuardDecision) {
 }
 
 .view-toolbar {
-  min-height: 40px;
-  padding: 5px 12px;
+  min-height: 56px;
+  padding: 10px 18px;
   border-bottom: 1px solid var(--border-divider);
   background: transparent;
 }
@@ -1162,7 +1163,7 @@ function guardDigest(guard?: RunGuardDecision) {
   color: var(--brand-primary);
 }
 
-.execution-list { padding: 7px 9px 12px; }
+.execution-list { padding: 10px 14px 18px; }
 
 .execution-row {
   --row-tone: var(--status-success);
@@ -1172,7 +1173,8 @@ function guardDigest(guard?: RunGuardDecision) {
   grid-template-columns: 24px minmax(0, 1fr) 82px 82px;
   align-items: center;
   gap: 8px;
-  padding: 7px 9px 7px calc(9px + var(--execution-depth) * 13px);
+  min-height: 56px;
+  padding: 9px 12px 9px calc(12px + var(--execution-depth) * 16px);
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
@@ -1180,6 +1182,11 @@ function guardDigest(guard?: RunGuardDecision) {
   text-align: left;
   cursor: pointer;
 }
+
+.execution-row:focus-visible,
+.workbench-groups button:focus-visible,
+.filter-pills button:focus-visible,
+.inspector-tabs button:focus-visible { outline: 2px solid var(--brand-primary); outline-offset: -2px; }
 
 .execution-row:hover { background: color-mix(in srgb, var(--brand-primary) 5%, transparent); }
 .execution-row.selected {
@@ -1281,20 +1288,20 @@ function guardDigest(guard?: RunGuardDecision) {
   flex-direction: column;
   overflow: hidden;
   border-left: 1px solid var(--border-subtle);
-  background: transparent;
+  background: var(--surface-glass-inset);
 }
-.node-inspector__header { padding: 12px 14px 9px; border-bottom: 1px solid var(--border-divider); }
+.node-inspector__header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border-divider); }
 .node-inspector__header > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: var(--text-muted); font-size: 11px; }
 .node-inspector__header h2 { margin: 6px 0 2px; color: var(--text-primary); font-size: 17px; line-height: 1.3; overflow-wrap: anywhere; }
 .node-inspector__header > code { color: var(--text-muted); font-size: 10px; overflow-wrap: anywhere; }
 
 .node-metrics {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin: 0;
   border-bottom: 1px solid var(--border-divider);
 }
-.node-metrics div { min-width: 0; padding: 8px 9px; border-right: 1px solid var(--border-divider); }
+.node-metrics div { min-width: 0; padding: 12px 10px; border-right: 1px solid var(--border-divider); }
 .node-metrics div:last-child { border-right: 0; }
 .node-metrics dt,
 .node-metrics dd { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1316,7 +1323,7 @@ function guardDigest(guard?: RunGuardDecision) {
 .inspector-tabs button.active { color: var(--brand-primary); font-weight: 700; }
 .inspector-tabs button.active::after { background: var(--brand-primary); }
 
-.node-inspector__content { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 13px 14px; }
+.node-inspector__content { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 18px 20px; }
 .node-diagnostic { --diagnostic-tone: var(--status-success); padding: 10px 11px; border: 0; border-left: 3px solid var(--diagnostic-tone); border-radius: 0 7px 7px 0; background: color-mix(in srgb, var(--diagnostic-tone) 8%, var(--surface-glass-inset)); }
 .node-diagnostic.is-danger { --diagnostic-tone: var(--status-danger); }
 .node-diagnostic.is-warning { --diagnostic-tone: var(--status-warning); }

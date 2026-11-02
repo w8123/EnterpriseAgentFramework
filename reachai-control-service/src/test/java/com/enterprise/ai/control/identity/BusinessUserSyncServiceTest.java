@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -43,6 +44,115 @@ class BusinessUserSyncServiceTest {
         assertEquals(false, service.hasActiveOrigin("default", 7L, "erp", "Alice"));
         binding.setStatus("ACTIVE"); user.setStatus("DISABLED");
         assertEquals(false, service.hasActiveOrigin("default", 7L, "erp", "Alice"));
+    }
+
+    @Test
+    void crossSystemAccountAndRolesRequireExactActiveOwnerEvenWithCaseInsensitiveDatabaseMatches() {
+        var user = new BusinessUserEntity();
+        user.setId(7L); user.setTenantId("default"); user.setStatus("ACTIVE");
+        when(users.selectById(7L)).thenReturn(user);
+        var binding = new ExternalUserBindingEntity();
+        binding.setTenantId("default"); binding.setBusinessUserId(7L); binding.setAppId("ERP");
+        binding.setExternalUserId("Alice"); binding.setStatus("ACTIVE");
+        when(bindings.selectOne(any())).thenReturn(binding);
+        assertTrue(service.activeAccount("default", 7L, "erp").isEmpty());
+        verify(roles, never()).selectList(any());
+
+        binding.setAppId("erp");
+        var own = role("default", 7L, "erp", "Alice", "reader", "ACTIVE");
+        var otherCase = role("default", 7L, "erp", "alice", "admin", "ACTIVE");
+        var otherOwner = role("default", 8L, "erp", "Alice", "manager", "ACTIVE");
+        var disabled = role("default", 7L, "erp", "Alice", "disabled", "DISABLED");
+        when(roles.selectList(any())).thenReturn(List.of(own, otherCase, otherOwner, disabled));
+        assertEquals(List.of("reader"), service.activeAccount("default", 7L, "erp").orElseThrow().roles());
+        binding.setBusinessUserId(8L);
+        assertTrue(service.activeAccount("default", 7L, "erp").isEmpty());
+    }
+
+    @Test
+    void linkedSystemsExcludeRowsOutsideTheExactActiveOwner() {
+        var user = new BusinessUserEntity();
+        user.setId(7L); user.setTenantId("default"); user.setStatus("ACTIVE");
+        when(users.selectById(7L)).thenReturn(user);
+        var valid = new ExternalUserBindingEntity();
+        valid.setTenantId("default"); valid.setBusinessUserId(7L); valid.setAppId("erp");
+        valid.setExternalUserId("Alice"); valid.setStatus("ACTIVE");
+        var other = new ExternalUserBindingEntity();
+        other.setTenantId("default"); other.setBusinessUserId(8L); other.setAppId("crm");
+        other.setExternalUserId("Alice"); other.setStatus("ACTIVE");
+        when(bindings.selectList(any())).thenReturn(List.of(valid, other));
+        assertEquals(java.util.Set.of("erp"), service.activeAppIds("default", 7L));
+        user.setStatus("DISABLED");
+        assertTrue(service.activeAppIds("default", 7L).isEmpty());
+    }
+
+    private static ExternalUserRoleBindingEntity role(String tenant, long owner, String app, String external,
+                                                       String code, String status) {
+        var role = new ExternalUserRoleBindingEntity();
+        role.setTenantId(tenant); role.setBusinessUserId(owner); role.setAppId(app);
+        role.setExternalUserId(external); role.setRoleCode(code); role.setStatus(status);
+        return role;
+    }
+
+    @Test
+    void unchangedSyncedRoleIsKeptWithoutDeleteAndReinsert() {
+        var user = new BusinessUserEntity();
+        user.setId(7L); user.setTenantId("default"); user.setStatus("ACTIVE");
+        var binding = new ExternalUserBindingEntity();
+        binding.setId(9L); binding.setTenantId("default"); binding.setBusinessUserId(7L);
+        binding.setAppId("erp"); binding.setExternalUserId("Alice"); binding.setStatus("ACTIVE");
+        when(users.selectById(7L)).thenReturn(user);
+        when(bindings.selectOne(any())).thenReturn(binding);
+        var existing = role("default", 7L, "erp", "Alice", "reader", "ACTIVE");
+        existing.setId(12L); existing.setSource("BUSINESS_SYSTEM_SYNC"); existing.setRoleName("reader");
+        when(roles.selectList(any())).thenReturn(List.of(existing));
+
+        assertEquals(List.of("reader"), service.sync(
+                new AttestedBusinessUser("default", "erp", "Alice", null, "Alice", List.of("reader"))).roles());
+
+        verify(roles, times(1)).selectList(any());
+        verify(roles, never()).deleteById(any(Long.class));
+        verify(roles, never()).insert(any(ExternalUserRoleBindingEntity.class));
+    }
+
+    @Test
+    void roleChangesReplaceOnlyTheObsoleteSyncedRoleAndKeepManualRoles() {
+        var user = new BusinessUserEntity();
+        user.setId(7L); user.setTenantId("default"); user.setStatus("ACTIVE");
+        var binding = new ExternalUserBindingEntity();
+        binding.setId(9L); binding.setTenantId("default"); binding.setBusinessUserId(7L);
+        binding.setAppId("erp"); binding.setExternalUserId("Alice"); binding.setStatus("ACTIVE");
+        when(users.selectById(7L)).thenReturn(user);
+        when(bindings.selectOne(any())).thenReturn(binding);
+        var obsolete = role("default", 7L, "erp", "Alice", "old", "ACTIVE");
+        obsolete.setId(12L); obsolete.setSource("BUSINESS_SYSTEM_SYNC"); obsolete.setRoleName("old");
+        var manual = role("default", 7L, "erp", "Alice", "manual", "ACTIVE");
+        manual.setId(13L); manual.setSource("MANUAL");
+        when(roles.selectList(any())).thenReturn(List.of(obsolete, manual));
+
+        service.sync(new AttestedBusinessUser("default", "erp", "Alice", null, "Alice", List.of("manual", "new")));
+
+        verify(roles).deleteById(12L);
+        verify(roles, never()).deleteById(13L);
+        ArgumentCaptor<ExternalUserRoleBindingEntity> inserted = ArgumentCaptor.forClass(ExternalUserRoleBindingEntity.class);
+        verify(roles).insert(inserted.capture());
+        assertEquals("new", inserted.getValue().getRoleCode());
+    }
+
+    @Test
+    void anotherOwnersConflictingRoleFailsClosedInsteadOfBeingAcceptedAsThisUsersRole() {
+        doAnswer(invocation -> { invocation.<BusinessUserEntity>getArgument(0).setId(7L); return 1; })
+                .when(users).insert(any(BusinessUserEntity.class));
+        var unrelated = role("default", 8L, "erp", "Alice", "reader", "ACTIVE");
+        when(roles.selectList(any())).thenReturn(List.of(unrelated));
+        doThrow(new org.springframework.dao.DuplicateKeyException("conflicting role"))
+                .when(roles).insert(any(ExternalUserRoleBindingEntity.class));
+        assertThrows(org.springframework.dao.DuplicateKeyException.class, () ->
+                service.sync(new AttestedBusinessUser("default", "erp", "Alice", null, "Alice", List.of("reader"))));
+        ArgumentCaptor<ExternalUserRoleBindingEntity> inserted = ArgumentCaptor.forClass(ExternalUserRoleBindingEntity.class);
+        verify(roles).insert(inserted.capture());
+        assertEquals(7L, inserted.getValue().getBusinessUserId());
+        assertEquals("reader", inserted.getValue().getRoleCode());
     }
 
     @Test

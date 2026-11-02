@@ -365,6 +365,9 @@ describe('createEafChat facade', () => {
     ['broker 401', () => Promise.reject(Object.assign(new Error('broker unauthorized'), { status: 401 })), 'TOKEN_PROVIDER_UNAUTHORIZED'],
     ['broker 502', () => Promise.reject(Object.assign(new Error('bad gateway'), { status: 502 })), 'TOKEN_PROVIDER_UNAVAILABLE'],
     ['network failure', () => Promise.reject(new TypeError('Failed to fetch')), 'TOKEN_PROVIDER_NETWORK_ERROR'],
+    ['Axios 503', () => Promise.reject(Object.assign(new Error('Request failed with status code 503'), { code: 'ERR_BAD_RESPONSE', response: { status: 503 } })), 'TOKEN_PROVIDER_UNAVAILABLE'],
+    ['Axios network error', () => Promise.reject(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' })), 'TOKEN_PROVIDER_NETWORK_ERROR'],
+    ['Axios 403', () => Promise.reject(Object.assign(new Error('Request failed with status code 403'), { code: 'ERR_BAD_REQUEST', response: { status: 403 } })), 'TOKEN_PROVIDER_FORBIDDEN'],
   ])('keeps the launcher visible and recovers after %s', async (_label, firstResult, expectedCode) => {
     const errors: string[] = []
     const provider = vi.fn()
@@ -385,6 +388,9 @@ describe('createEafChat facade', () => {
     expect(root).toBeTruthy()
     expect(root.dataset.authState).toBe('error')
     expect(errors).toContain(expectedCode)
+    if (_label === 'Axios 403') expect(root.textContent).toContain('当前页面无法访问该助手')
+    if (_label === 'Axios network error') expect(root.textContent).toContain('网络连接失败')
+    if (_label === 'Axios 503') expect(root.textContent).toContain('ReachAI 暂时不可用')
     const retry = root.querySelector<HTMLButtonElement>('.eaf-chat-auth button')!
     expect(retry).toBeTruthy()
     retry.click()
@@ -636,6 +642,81 @@ describe('createEafChat facade', () => {
     expect(mountEl.textContent).toContain('Recovered')
     chat.destroy()
   })
+
+  it('invalidates in-flight source-page actions as soon as rebinding begins', async () => {
+    let releaseClaim!: (value: Response) => void
+    let releaseRebind!: (value: Response) => void
+    const claim = new Promise<Response>((resolve) => { releaseClaim = resolve })
+    const rebind = new Promise<Response>((resolve) => { releaseRebind = resolve })
+    const ok = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200 })
+    const oldHandler = vi.fn()
+    const oldBridge = createEafPageBridge({ route: '/source', pageInstanceId: 'source-instance', onNavigate: () => {} })
+    const newBridge = createEafPageBridge({ route: '/target', pageInstanceId: 'target-instance' })
+    oldBridge.registerAction('change', oldHandler)
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.includes('/old-action/claim')) return claim
+      if (path.endsWith('/page-bridge/rebind-v2')) return rebind
+      if (path.endsWith('/chat/sessions')) return sessionResponse('sess-page-race')
+      if (path.endsWith('/messages/stream')) return sse([
+        'event: message.completed\ndata: {"sessionId":"sess-page-race","answer":"ok"}\n\n',
+      ])
+      if (path.endsWith('/claim')) return pageActionClaimResponse()
+      return ok({})
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed', bridge: oldBridge,
+      page: { pageKey: 'source', routePattern: '/source' },
+    })
+    await chat.send('hello')
+    const emit = (chat as unknown as { __emitPublicEventForTests: (event: unknown) => void }).__emitPublicEventForTests
+    emit({ type: 'page.action.requested', sessionId: 'sess-page-race', data: {
+      type: 'page.action.requested', requestId: 'old-action', actionKey: 'change',
+      target: { pageInstanceId: 'source-instance' },
+    } })
+    await flushMicrotasks(30)
+    emit({ type: 'page.action.requested', sessionId: 'sess-page-race', data: {
+      type: 'page.action.requested', requestId: 'nav-race', actionKey: '__reachai.navigate',
+      target: { pageInstanceId: 'source-instance' }, metadata: { pageKey: 'target', route: '/target' },
+    } })
+    await flushMicrotasks(40)
+    const binding = chat.rebindPage({ bridge: newBridge, page: { pageKey: 'target', routePattern: '/target' } })
+    await flushMicrotasks(30)
+    releaseClaim(pageActionClaimResponse())
+    await flushMicrotasks(40)
+    expect(oldHandler).not.toHaveBeenCalled()
+    const resultCall = (globalThis.fetch as any).mock.calls.find((args: unknown[]) => String(args[0]).includes('/old-action/result'))
+    expect(JSON.parse(String(resultCall?.[1]?.body))).toMatchObject({ status: 'ACTION_NOT_FOUND' })
+    releaseRebind(ok({ sessionId: 'sess-page-race', pageKey: 'target', pageInstanceId: 'target-instance', route: '/target' }))
+    await binding
+    chat.destroy()
+  })
+
+  it.each(['HTTP_API_WORKFLOW_RESULT_UNCONFIRMED', 'SUPERVISOR_PLAN_INCOMPLETE', 'UNRECOGNIZED_RUNTIME_ERROR'])(
+    'does not offer retry for potentially executed operations: %s', async (code) => {
+      ;(globalThis.fetch as any)
+        .mockResolvedValueOnce(sessionResponse('sess-uncertain'))
+        .mockResolvedValueOnce(sse([
+          `event: error\ndata: ${JSON.stringify({ code, message: '请先核对业务记录' })}\n\n`,
+        ]))
+      const chat = await createEafChat({
+        agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+        apiBase: 'http://localhost/embed', bridge: createEafPageBridge({ route: '/' }),
+      })
+      await flushMicrotasks()
+      const textarea = mountEl.querySelector('textarea') as HTMLTextAreaElement
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, 'test')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      mountEl.querySelector<HTMLFormElement>('form.reachai-composer')!
+        .dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+      await flushMicrotasks(40)
+      expect(mountEl.textContent).toContain('请先核对业务记录')
+      expect(mountEl.querySelector('.reachai-conversation__error button')).toBeNull()
+      expect(mountEl.querySelector('.reachai-block__error button')).toBeNull()
+      chat.destroy()
+    },
+  )
 
   it('completion and pending poll share requestId exactly-once semantics', async () => {
     const events: string[] = []
@@ -1375,8 +1456,10 @@ describe('createEafChat facade', () => {
     })
     await chat.send('need confirm')
 
+    let submitRequests = 0
     fetchMock.mockImplementation(async (url: string) => {
       if (String(url).includes('/interactions/') && String(url).includes('/submit')) {
+        submitRequests += 1
         return new Response(JSON.stringify({ message: 'reject cancel' }), { status: 500 })
       }
       return new Response(JSON.stringify({ data: {} }), { status: 200 })
@@ -1389,7 +1472,12 @@ describe('createEafChat facade', () => {
     await vi.advanceTimersByTimeAsync(80)
     for (let i = 0; i < 15; i += 1) await Promise.resolve()
 
-    expect(mountEl.querySelector('.reachai-interaction--failed')).toBeTruthy()
+    const failedCard = mountEl.querySelector('.reachai-interaction--failed')!
+    expect(failedCard).toBeTruthy()
+    expect(failedCard.textContent).toContain('请先核对业务记录')
+    expect(Array.from(failedCard.querySelectorAll('button')).every((button) => button.disabled)).toBe(true)
+    expect(Array.from(failedCard.querySelectorAll('button')).some((button) => button.textContent?.includes('重试'))).toBe(false)
+    expect(submitRequests).toBe(1)
     chat.destroy()
   })
 

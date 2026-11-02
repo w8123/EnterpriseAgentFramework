@@ -28,13 +28,13 @@ export type ConversationAction =
   | { type: 'start_assistant_message'; id?: string; metadata?: Record<string, unknown> }
   | { type: 'append_text_delta'; text: string; messageId?: string }
   | { type: 'add_interaction'; request: UiRequestV1 | unknown; messageId?: string; state?: InteractionRenderState }
-  | { type: 'update_interaction_state'; interactionId: string; state: InteractionRenderState; result?: { action: string; values?: Record<string, unknown> }; errorMessage?: string }
+  | { type: 'update_interaction_state'; interactionId: string; state: InteractionRenderState; result?: { action: string; values?: Record<string, unknown> }; errorMessage?: string; retryable?: boolean }
   | { type: 'add_notice'; text: string; level?: 'info' | 'warning' | 'success'; messageId?: string }
   | { type: 'add_error_block'; text: string; retryable?: boolean; messageId?: string }
   | { type: 'add_page_action'; requestId: string; actionKey: string; title?: string; args?: Record<string, unknown>; messageId?: string }
   | { type: 'set_turn_status'; status: ConversationTurnStatus }
   | { type: 'complete_turn'; answer?: string; uiRequest?: unknown; sessionId?: string; metadata?: Record<string, unknown>; completion?: { intentType?: unknown; toolCalls?: unknown; result?: unknown } }
-  | { type: 'fail_turn'; message: string; metadata?: Record<string, unknown> }
+  | { type: 'fail_turn'; message: string; metadata?: Record<string, unknown>; retryable?: boolean }
   | { type: 'cancel_turn' }
   | { type: 'apply_event'; event: ConversationEventEnvelope }
 
@@ -225,6 +225,7 @@ export function conversationReducer(
     case 'set_error': {
       const next = cloneSnapshot(state)
       next.error = action.error
+      next.errorRetryable = undefined
       return next
     }
 
@@ -308,6 +309,7 @@ export function conversationReducer(
           block.state = action.state
           if (action.result) block.result = action.result
           if (action.errorMessage !== undefined) block.errorMessage = action.errorMessage
+          if (action.retryable !== undefined) block.retryable = action.retryable
           message.updatedAt = nowIso()
           break
         }
@@ -406,13 +408,15 @@ export function conversationReducer(
     case 'fail_turn': {
       const next = cloneSnapshot(state)
       const message = findMessage(next) || ensureAssistantMessage(next)
+      const retryable = action.retryable !== false && !['HTTP_API_WORKFLOW_RESULT_UNCONFIRMED', 'SUPERVISOR_PLAN_INCOMPLETE', 'EMBED_OUTCOME_UNCONFIRMED']
+        .includes(String(action.metadata?.code || ''))
       finalizeTextBlocks(message)
       message.status = 'failed'
       message.blocks.push({
         id: createId('blk'),
         type: 'error',
         text: action.message,
-        retryable: true,
+        retryable,
       } satisfies ConversationBlock)
       if (action.metadata) {
         message.metadata = { ...(message.metadata || {}), ...action.metadata }
@@ -421,6 +425,7 @@ export function conversationReducer(
       message.updatedAt = nowIso()
       next.turnStatus = 'failed'
       next.error = action.message
+      next.errorRetryable = retryable
       return next
     }
 
@@ -553,6 +558,7 @@ function applyEvent(state: ConversationSnapshot, event: ConversationEventEnvelop
       return conversationReducer(withTurn, {
         type: 'fail_turn',
         message: asString(data.message) || asString(data.error) || '对话失败',
+        retryable: data.retryable !== false,
         metadata: {
           ...failedMeta,
           success: false,

@@ -20,6 +20,8 @@ import com.enterprise.ai.control.mcp.domain.publication.McpPublicationStatus;
 import com.enterprise.ai.control.mcp.domain.publication.McpToolProjection;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
 import com.enterprise.ai.control.memory.PersonalMemoryService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedQueryService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedMutationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -219,11 +221,57 @@ class McpEmployeeProtocolServiceTest {
                 Map.of("content", "x", "projectCode", "crm"));
         assertEquals("MCP_MEMORY_PROJECT", foreign.result().errorCode());
 
-        when(memories.forget(eq(owner), eq(99L))).thenThrow(
+        when(memories.forgetInProjects(eq(owner), eq(99L), eq(java.util.Set.of("yudao-erp")))).thenThrow(
                 new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.NOT_FOUND));
         var missing = withMemory.callTool(session, EmployeeMemoryTools.FORGET, Map.of("memoryId", 99));
         assertEquals("MCP_MEMORY_REJECTED", missing.result().errorCode());
         assertEquals("没有找到这条记忆", missing.result().output().get("message"));
+    }
+
+    @Test
+    void removedSystemIsExcludedFromMemoryOperationsOnNextAuthentication() {
+        PersonalMemoryService memories = mock(PersonalMemoryService.class);
+        McpEmployeeProtocolService withMemory = new McpEmployeeProtocolService(connections, access, publications,
+                sync, acl, gateway, audit, new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper(),
+                new EmployeeMemoryTools(memories));
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp", "crm");
+        assertEquals(2, withMemory.authenticate(KEY).systems().size());
+
+        when(sync.activeAccount(eq("default"), eq(7L), eq("crm"))).thenReturn(Optional.empty());
+        var afterRevocation = withMemory.authenticate(KEY);
+        assertEquals(1, afterRevocation.systems().size());
+        var rejected = withMemory.callTool(afterRevocation, EmployeeMemoryTools.SEARCH,
+                Map.of("projectCode", "crm"));
+        assertEquals("MCP_MEMORY_PROJECT", rejected.result().errorCode());
+        verify(memories, never()).query(any(), any());
+        withMemory.callTool(afterRevocation, EmployeeMemoryTools.FORGET, Map.of("memoryId", 99));
+        verify(memories).forgetInProjects(eq(PersonalMemoryPrincipal.business("default", "1", "yudao-erp")),
+                eq(99L), eq(java.util.Set.of("yudao-erp")));
+    }
+
+    @Test
+    void employeeMemoryToolsUseVerifiedSharedQueryAndGuardedDeletion() {
+        var memories = mock(PersonalMemoryService.class);
+        var shared = mock(PersonalMemorySharedQueryService.class);
+        var mutation = mock(PersonalMemorySharedMutationService.class);
+        var peer = PersonalMemoryPrincipal.business("default", "bob", "crm");
+        var hit = new PersonalMemoryService.QueryHit(55L, "PREFERENCE", null, "共享偏好", 2, null, null);
+        when(shared.query(any(), any())).thenReturn(new PersonalMemorySharedQueryService.SharedResult(
+                List.of(new PersonalMemorySharedQueryService.SharedHit(peer, 9L, hit)), 4, false, false));
+        var protocol = new McpEmployeeProtocolService(connections, access, publications, sync, acl, gateway, audit,
+                new McpWriteApprovalServiceTest.FakeApprovals(), new ObjectMapper(),
+                new EmployeeMemoryTools(memories, shared, mutation));
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp");
+        var session = protocol.authenticate(KEY);
+        var found = protocol.callTool(session, EmployeeMemoryTools.SEARCH, Map.of("query", "偏好"));
+        assertTrue(found.result().success());
+        var rows = (List<?>) found.result().output().get("memories");
+        assertEquals("共享个人记忆", ((Map<?, ?>) rows.get(0)).get("where"));
+        assertTrue(protocol.instructions(session).contains("共享偏好"));
+        assertTrue(protocol.callTool(session, EmployeeMemoryTools.FORGET, Map.of("memoryId", 55)).result().success());
+        verify(mutation).forget(eq(PersonalMemoryPrincipal.business("default", "1", "yudao-erp")),
+                eq(55L), eq(java.util.Set.of("yudao-erp")));
+        verify(memories, never()).forgetInProjects(any(), any(), any());
     }
 
     @Test

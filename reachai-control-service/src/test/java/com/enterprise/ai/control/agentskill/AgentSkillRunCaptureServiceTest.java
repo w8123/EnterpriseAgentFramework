@@ -124,7 +124,7 @@ class AgentSkillRunCaptureServiceTest {
     @Test
     void runOpsTraceMapsCapabilityRefsToEmployeeToolsAndWarnsOnUnknownTools() {
         when(runtimeClient.runOpsDetail("t-1")).thenReturn(ResponseEntity.ok(Map.of(
-                "summary", Map.of("traceId", "t-1", "projectCode", "yudao-erp", "inputSummary", "帮我查一下客户"),
+                "summary", Map.of("traceId", "t-1", "projectCode", "yudao-erp", "inputSummary", "敏感客户名称和会话编号"),
                 "toolCalls", List.of(
                         Map.of("toolName", "getCustomerPage", "success", true,
                                 "argsJson", "{\"pageReqVO\":{\"name\":\"x\"}}"),
@@ -139,7 +139,10 @@ class AgentSkillRunCaptureServiceTest {
         assertEquals("yudao_erp_getCustomerPage", draft.steps().get(0).toolName());
         assertFalse(draft.steps().get(1).available());
         assertTrue(draft.warnings().stream().anyMatch(w -> w.contains("erp_secret_tool")));
-        assertTrue(draft.skillMd().contains("用户当时的说法：帮我查一下客户"));
+        assertFalse(draft.skillMd().contains("敏感客户名称和会话编号"));
+        assertFalse(draft.workflowInstruction().contains("敏感客户名称和会话编号"));
+        assertFalse(draft.skillMd().contains("用户当时的说法："));
+        assertFalse(draft.workflowInstruction().contains("示例输入："));
         assertEquals("trace:t-1", draft.sourceRef());
     }
 

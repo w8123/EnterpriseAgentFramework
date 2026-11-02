@@ -884,8 +884,10 @@ class McpPlatformProtocolServiceTest {
         assertThrows(McpDomainException.class, () -> fixture.service.callTool(actor, "reachai_workflow_trial_read_only", forged));
         var invalid = new java.util.LinkedHashMap<>(args); invalid.put("trialId", "not-a-uuid");
         assertThrows(McpDomainException.class, () -> fixture.service.callTool(actor, "reachai_workflow_trial_read_only", invalid));
-        invalid.put("trialId", id); invalid.put("inputParams", Map.of("identity", Map.of("userId", "1")));
-        assertThrows(McpDomainException.class, () -> fixture.service.callTool(actor, "reachai_workflow_trial_read_only", invalid));
+        invalid.put("trialId", id); invalid.put("inputParams", Map.of("pageReqVO", Map.of("pageNo", 1, "pageSize", 10)));
+        assertTrue(fixture.service.callTool(actor, "reachai_workflow_trial_read_only", invalid).success());
+        verify(fixture.workflowTrials).run(actor, id, Map.of("workflowId", "wf-1", "expectedRevision", "saved-r1",
+                "inputParams", Map.of("pageReqVO", Map.of("pageNo", 1, "pageSize", 10)), "message", "查询订单"));
         assertTrue(fixture.service.recordWriteIntent(actor, "reachai_workflow_trial_read_only") != null);
         var tool = fixture.service.visibleTools(actor).stream().filter(item -> "reachai_workflow_trial_read_only".equals(item.get("name"))).findFirst().orElseThrow();
         assertEquals(true, ((Map<?, ?>) tool.get("annotations")).get("openWorldHint"));

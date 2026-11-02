@@ -94,6 +94,11 @@ function Port-Open([int]$Port) {
     } catch { return $false } finally { $client.Dispose() }
 }
 
+function Port-OwnedBy([int]$Port, [int]$ProcessId) {
+    return [bool](Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+        Where-Object { $_.OwningProcess -eq $ProcessId } | Select-Object -First 1)
+}
+
 function Compose {
     & docker compose --env-file $Config -f (Join-Path $Root 'deploy/docker-compose.infra.yml') @args
 }
@@ -174,7 +179,12 @@ function Wait-Healthy([string]$Service) {
 function Start-Front {
     if ($NoFront) { return }
     if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Say '没有找到 Node.js，跳过管理端。安装 Node.js 20+ 后重新运行即可'; return }
-    if (Running 'front') { Say '  管理端已在运行'; return }
+    if (Running 'front') {
+        $recordedPid = [int](Get-Content (Pid-File 'front'))
+        if (Port-OwnedBy $Ports['front'] $recordedPid) { Say '  管理端已在运行'; return }
+        Fail "记录的管理端进程 $recordedPid 未监听端口 $($Ports['front'])；请核对现有进程后重试"
+    }
+    if (Port-Open $Ports['front']) { Fail "端口 $($Ports['front']) 已被占用，管理端无法启动。请先核对占用进程" }
     $front = Join-Path $Root 'ai-admin-front'
     if (-not (Test-Path (Join-Path $front 'node_modules'))) {
         Say '安装管理端依赖（第一次需要一两分钟）...'
@@ -183,11 +193,11 @@ function Start-Front {
         if ($LASTEXITCODE -ne 0) { Fail 'npm ci 失败，请查看 .reachai\logs\front-install.log' }
     }
     # 直接运行 vite，记下的就是它自己的进程号，down 时能停干净。
-    $process = Start-Process node -ArgumentList @('node_modules/vite/bin/vite.js', '--host', '127.0.0.1') -WorkingDirectory $front `
+    $process = Start-Process node -ArgumentList @('node_modules/vite/bin/vite.js', '--host', '127.0.0.1', '--port', "$($Ports['front'])", '--strictPort') -WorkingDirectory $front `
         -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $Logs 'front.log') -RedirectStandardError (Join-Path $Logs 'front.err.log')
     Set-Content (Pid-File 'front') $process.Id
     $waited = 0
-    while (-not (Port-Open $Ports['front'])) {
+    while (-not (Port-OwnedBy $Ports['front'] $process.Id)) {
         if (-not (Running 'front')) { Say '管理端启动失败，日志最后几行：'; Get-Content (Join-Path $Logs 'front.err.log') -Tail 30; exit 1 }
         $waited += 1
         if ($waited -gt 60) { Fail '管理端一分钟内没有就绪，请查看 .reachai\logs\front.log' }
@@ -227,8 +237,12 @@ function Status {
         $state = '未运行'
         if (Running $service) {
             $state = '启动中或异常'
-            if ($service -eq 'front') { $state = '运行中' }
-            else { try { Invoke-WebRequest (Health-Url $service) -UseBasicParsing -TimeoutSec 2 | Out-Null; $state = '运行中' } catch { } }
+            if ($service -eq 'front') {
+                if (Port-OwnedBy $Ports['front'] ([int](Get-Content (Pid-File 'front')))) { $state = '运行中' }
+                elseif (Port-Open $Ports['front']) { $state = '进程与端口不一致' }
+            } else { try { Invoke-WebRequest (Health-Url $service) -UseBasicParsing -TimeoutSec 2 | Out-Null; $state = '运行中' } catch { } }
+        } elseif ($service -eq 'front' -and (Port-Open $Ports['front'])) {
+            $state = '端口有服务（非脚本进程）'
         }
         Say ('  {0,-11} {1,-6} {2}' -f $service, $Ports[$service], $state)
     }

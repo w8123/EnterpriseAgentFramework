@@ -4,11 +4,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -182,6 +184,38 @@ class PlatformPageBridgeCommandServiceTest {
         assertEquals(3, result.phases().size());
         assertEquals("team-page-1", session.getPageInstanceId());
         assertTrue(elapsedMs < 1_000, "target rebinding should be observed without a timeout wait");
+    }
+
+    @Test
+    void distinguishesUnconfirmedPageActionFromAnUnavailableAction() {
+        for (String status : List.of("TIMEOUT", "FAILED", "ACTION_NOT_FOUND", "TIMEOUT_BEFORE_CLAIM")) {
+            PlatformEmbedSessionMapper sessions = mock(PlatformEmbedSessionMapper.class);
+            PlatformPageActionEventMapper events = mock(PlatformPageActionEventMapper.class);
+            PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+            session.setSessionId("embed-1"); session.setTenantId("default"); session.setExternalUserId("user-1");
+            session.setProjectCode("qmssmp"); session.setAgentId("team-agent");
+            session.setPageKey("teamArchive.list"); session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+            when(sessions.selectOne(any())).thenReturn(session);
+            when(events.insert(any())).thenAnswer(invocation -> {
+                PlatformPageActionEventEntity event = invocation.getArgument(0);
+                event.setId(1L);
+                return 1;
+            });
+            PlatformPageActionEventEntity completed = new PlatformPageActionEventEntity();
+            completed.setId(1L); completed.setStatus("TIMEOUT_BEFORE_CLAIM".equals(status) ? "TIMEOUT" : status);
+            if ("TIMEOUT_BEFORE_CLAIM".equals(status)) {
+                completed.setErrorMessage("Page Bridge command was not claimed before its wait timeout");
+            }
+            when(events.selectById(1L)).thenReturn(completed);
+            var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper()).execute(
+                    new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                            "embed-1", "qmssmp", "team-agent", "teamArchive.list", "teamArchive.list",
+                            null, "setEnabled", Map.of(), false, 2_000, 2_000,
+                            "EMBED_SESSION", "default", "user-1"));
+            assertFalse(result.success());
+            assertEquals(("ACTION_NOT_FOUND".equals(status) || "TIMEOUT_BEFORE_CLAIM".equals(status)) ? "PAGE_BRIDGE_ACTION_FAILED"
+                    : "PAGE_BRIDGE_RESULT_UNCONFIRMED", result.code());
+        }
     }
 
     @Test

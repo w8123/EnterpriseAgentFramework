@@ -8,6 +8,7 @@ import type {
   PersonalMemoryPage,
   PersonalMemoryRememberResult,
   PersonalMemoryTree,
+  SharedPersonalMemoryApi,
 } from '@/types/memory'
 
 const ROOT = '/api/me/memories'
@@ -32,10 +33,10 @@ export const myMemoryApi: PersonalMemoryApi = {
  * The same calls for the employee personal page, which signs requests with its portal token and
  * receives `{ code, message, data }` envelopes.
  */
-export function portalMemoryApi(getToken: () => Promise<string> | string, apiBase = '/api/employee-portal'): PersonalMemoryApi {
+function portalMemoryTransport(getToken: () => Promise<string> | string, apiBase: string, resource = '/memories') {
   async function call<T>(path: string, init: RequestInit = {}): Promise<T> {
     const token = await getToken()
-    const response = await fetch(`${apiBase}/memories${path}`, {
+    const response = await fetch(`${apiBase}${resource}${path}`, {
       ...init,
       headers: {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
@@ -48,7 +49,22 @@ export function portalMemoryApi(getToken: () => Promise<string> | string, apiBas
     }
     return payload.data as T
   }
-  const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) })
+  return call
+}
+
+export function portalMemoryIdentityApi(getToken: () => Promise<string> | string, apiBase = '/api/employee-portal') {
+  const call = portalMemoryTransport(getToken, apiBase, '/memory-identities')
+  return {
+    issue: () => call<{ code: string; expiresAt: string }>('/challenges', { method: 'POST', cache: 'no-store' }),
+    confirm: (code: string) => call<number>('/confirm', json('POST', { code })),
+    revoke: (linkId: number) => call<boolean>(`/${linkId}`, { method: 'DELETE' }),
+  }
+}
+
+const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) })
+
+export function portalMemoryApi(getToken: () => Promise<string> | string, apiBase = '/api/employee-portal'): PersonalMemoryApi {
+  const call = portalMemoryTransport(getToken, apiBase)
   return {
     tree: () => call('/tree'),
     list: (params) => {
@@ -66,5 +82,21 @@ export function portalMemoryApi(getToken: () => Promise<string> | string, apiBas
     updateGroup: (id, data) => call(`/groups/${id}`, json('PUT', data)),
     deleteGroup: id => call(`/groups/${id}`, { method: 'DELETE' }),
     addProject: projectCode => call('/projects', json('POST', { projectCode })),
+  }
+}
+
+export function portalSharedMemoryApi(getToken: () => Promise<string> | string, apiBase = '/api/employee-portal'): SharedPersonalMemoryApi {
+  const call = portalMemoryTransport(getToken, apiBase)
+  return {
+    systems: () => call('/shared-links'),
+    list: (linkId, params) => {
+      const query = new URLSearchParams()
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value))
+      })
+      return call(`/shared-links/${linkId}?${query}`)
+    },
+    update: (linkId, id, data) => call(`/shared-links/${linkId}/${id}`, json('PUT', data)),
+    forget: (linkId, id) => call(`/shared-links/${linkId}/${id}`, { method: 'DELETE' }),
   }
 }

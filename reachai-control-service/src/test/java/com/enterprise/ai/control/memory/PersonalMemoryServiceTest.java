@@ -214,6 +214,19 @@ class PersonalMemoryServiceTest {
     }
 
     @Test
+    void queryFindsChineseNoteInNaturalSentenceWithoutRecallingUnrelatedNote() {
+        Fixture fixture = fixture();
+        PersonalMemoryEntity relevant = memory(1L, "user-1", "NOTE", "我的秘密代号是蓝色星球");
+        PersonalMemoryEntity unrelated = memory(2L, "user-1", "NOTE", "我的纪念日是六月一日");
+        when(fixture.memoryMapper.selectList(any(Wrapper.class))).thenReturn(List.of(relevant, unrelated));
+
+        PersonalMemoryService.QueryResult result = fixture.service.query(principal("user-1"),
+                new QueryCommand("我保存的秘密代号是什么？请直接回答。", null, 5, 512, null, null, null, null));
+
+        assertEquals(List.of(1L), result.hits().stream().map(PersonalMemoryService.QueryHit::id).toList());
+    }
+
+    @Test
     void queryKeepsPreferencesAndAnswersProfileIntentWithoutLexicalOverlap() {
         Fixture fixture = fixture();
         PersonalMemoryEntity language = memory(1L, "user-1", "PREFERENCE", "请默认使用中文回答");

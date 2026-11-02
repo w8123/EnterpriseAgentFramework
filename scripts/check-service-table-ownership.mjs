@@ -90,7 +90,8 @@ function extractTableName(match) {
 }
 
 function extractTablesFromSql(sql) {
-  const clean = stripSqlComments(sql)
+  // MySQL upsert UPDATE introduces column assignments, not another table reference.
+  const clean = stripSqlComments(sql).replace(/\bon\s+duplicate\s+key\s+update\b/gi, 'ON DUPLICATE KEY SET')
   const tableRef = '`?([A-Za-z_][A-Za-z0-9_]*)`?(?:\\s*\\.\\s*`?([A-Za-z_][A-Za-z0-9_]*)`?)?'
   const patterns = [
     new RegExp(`\\b(?:from|join|update)\\s+${tableRef}`, 'gi'),

@@ -76,7 +76,7 @@ public class PlatformEmbedStreamRelay {
             }
             SseStreamRelay.writeFrame(downstream, "error", toJson(Map.of(
                     "code", code,
-                    "message", PlatformEmbedPublicController.RUNTIME_FAILURE_MESSAGE)));
+                    "message", PlatformEmbedPublicController.safeRuntimeFailureMessage(code))));
             return;
         }
         // Embed 公共协议允许的实时事件（不含 supervisor / reasoning / debug）

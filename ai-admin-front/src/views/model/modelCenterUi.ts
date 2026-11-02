@@ -87,12 +87,6 @@ export const PROVIDER_ICON_KEYS = [
 export type RuntimeStatusFilter = 'current' | 'ACTIVE' | 'DISABLED' | 'ARCHIVED'
 export type TestStatusFilter = '' | ModelTestStatus
 
-export interface ModelCenterMetrics {
-  connected: number
-  active: number
-  disabled: number
-  testFailed: number
-}
 
 export interface ModelInstanceDraft {
   name: string
@@ -260,20 +254,6 @@ export function normalizeListPayload<T>(payload: unknown): T[] {
   return []
 }
 
-export function computeModelCenterMetrics(instances: ModelInstance[]): ModelCenterMetrics {
-  let connected = 0
-  let active = 0
-  let disabled = 0
-  let testFailed = 0
-  for (const item of instances) {
-    if (item.status === 'ARCHIVED') continue
-    connected += 1
-    if (item.status === 'ACTIVE') active += 1
-    if (item.status === 'DISABLED') disabled += 1
-    if (item.lastTestStatus === 'FAILED') testFailed += 1
-  }
-  return { connected, active, disabled, testFailed }
-}
 
 export function filterModelInstances(
   instances: ModelInstance[],

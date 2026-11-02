@@ -25,6 +25,8 @@ export default defineConfig({
   server: {
     // 常见排除段：如 2931–3030、5100–5199（本机 netsh 可见），落在段内会 EACCES
     port: 5200,
+    // SDK 构建会替换此目录；开发服务器只读取产物，不应监视构建中的临时文件。
+    watch: { ignored: ['**/dist-sdk/**'] },
     proxy: {
       '^/mcp(/.*)?$': {
         target: process.env.VITE_CONTROL_API_TARGET || 'http://localhost:18603',

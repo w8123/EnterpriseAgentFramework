@@ -83,6 +83,16 @@ describe('AppSidebar account actions', () => {
     })
   })
 
+  it('shows AI 工具接入 and 外观设置 in personal panel without 我的记忆', async () => {
+    const wrapper = mountSidebar()
+
+    await wrapper.findAll('.footer-entry')[0].trigger('click')
+    const links = wrapper.findAll('.profile-link').map(item => item.text())
+
+    expect(links).toEqual(['AI 工具接入', '外观设置'])
+    expect(links).not.toContain('我的记忆')
+  })
+
   it('shows 退出账号 in the personal panel and returns to login after logout', async () => {
     mocks.logoutPlatform.mockResolvedValue(undefined)
     const wrapper = mountSidebar()

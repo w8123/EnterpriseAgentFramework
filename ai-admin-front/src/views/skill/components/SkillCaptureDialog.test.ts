@@ -76,11 +76,13 @@ describe('SkillCaptureDialog', () => {
     await flushPromises()
 
     expect(previewAgentSkillCapture).toHaveBeenCalledWith({ source: 'RUN', callLogIds: undefined, traceId: 't-1' })
-    const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent?.includes('生成 Workflow 草稿'))
+    expect(document.body.textContent).toContain('创建 Workflow 会打开空白草稿，并将步骤带入 AI 编辑栏；当前 Skill 不会保存。')
+    const button = [...document.body.querySelectorAll('button')].find((item) => item.textContent?.includes('创建空白 Workflow'))
     button?.click()
     await flushPromises()
 
     expect(createWorkflow).toHaveBeenCalledWith(expect.objectContaining({ projectId: 1, projectCode: 'yudao-erp', status: 'DRAFT' }))
+    expect(createAgentSkillCapture).not.toHaveBeenCalled()
     expect(push).toHaveBeenCalledWith({ path: '/workflows/wf-1/studio', query: { aiInstruction: draft.workflowInstruction } })
   })
 })

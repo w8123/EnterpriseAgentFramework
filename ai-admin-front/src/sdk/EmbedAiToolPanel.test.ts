@@ -42,6 +42,8 @@ describe('EmbedAiToolPanel', () => {
     expect((firstInit?.headers as Record<string, string>).Authorization).toBe('Bearer tok')
     const boxes = wrapper.findAll<HTMLInputElement>('input[type="checkbox"]')
     expect(boxes.map((box) => box.element.checked)).toEqual([true, false])
+    expect(wrapper.text()).toContain('读取、保存和删除你的个人记忆')
+    expect(wrapper.text()).toContain('记忆操作不经过业务写审批')
 
     await wrapper.find('.eaf-aitool__primary').trigger('click')
     await flushPromises()

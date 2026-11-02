@@ -511,6 +511,23 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void reportsUnconfirmedPageActionWhenControlConnectionBreaks() {
+        RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
+        RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
+                new ObjectMapper(), modelClient, capabilityClient, controlClient);
+        when(controlClient.executePageBridge(any())).thenThrow(new IllegalStateException("private upstream details"));
+        RuntimeGraphSpecExecutionResult result = pageExecutor.execute("""
+                {"entryNodeId":"team","exitNodeIds":["team"],"nodes":[{"id":"team","type":"PAGE_ACTION","config":{
+                  "projectCode":"qmssmp","pageKey":"teamArchive.list","actionKey":"setEnabled","inputMapping":{}
+                }}]}
+                """, Map.of("sessionId", "s1", "agentId", "agent-1", "projectCode", "qmssmp", "pageKey", "teamArchive.list"));
+        assertEquals("PAGE_BRIDGE_RESULT_UNCONFIRMED", result.code());
+        assertEquals("UNKNOWN", result.metadata().get("outcomeClass"));
+        assertEquals("UNCONFIRMED", result.metadata().get("businessOutcome"));
+        assertFalse(result.answer().contains("private upstream details"));
+    }
+
+    @Test
     void preservesPageBridgeFailureWhenOptionalResponseFieldsAreNull() {
         RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
         RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(

@@ -71,6 +71,20 @@ describe('whole-draft read-only trial drawer', () => {
     expect(document.activeElement?.id).toBe('trial-input-orderNo')
   })
 
+  it('lets the user enter a page request as JSON and shows its description', async () => {
+    const structured = JSON.parse(graph)
+    structured.inputSchema = { type: 'object', properties: { pageReqVO: { type: 'object', description: '商品分页条件' } }, required: ['pageReqVO'] }
+    const view = await drawer({ studio: { workflowId: 'wf-method', projectId: 41, projectCode: 'orders',
+      status: 'DRAFT', revision: 'saved-r1', graphSpecJson: JSON.stringify(structured) } })
+    expect(view.text()).toContain('商品分页条件')
+    const input = view.get('#trial-input-pageReqVO')
+    expect(input.element.tagName).toBe('TEXTAREA')
+    await input.setValue('{"pageNo":1,"pageSize":10}')
+    view.get('form').element.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await flushPromises()
+    expect(api.run).toHaveBeenCalledExactlyOnceWith({ workflowId: 'wf-method', expectedRevision: 'saved-r1',
+      inputParams: { pageReqVO: { pageNo: 1, pageSize: 10 } } })
+  })
+
   it('offers save when the draft has unsaved edits', async () => {
     const view = await drawer({ dirty: true })
     expect(view.text()).toContain('有未保存编辑')

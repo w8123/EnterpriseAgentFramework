@@ -186,6 +186,8 @@ public class EmbedAiToolConnectionController {
         }
         try {
             return ResponseEntity.ok(ApiResult.ok(action.apply(owner)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResult.fail(401, ex.getMessage()));
         } catch (McpDomainException ex) {
             HttpStatus status = ex.code().endsWith("_NOT_FOUND") ? HttpStatus.NOT_FOUND : HttpStatus.BAD_REQUEST;
             return ResponseEntity.status(status).body(ApiResult.fail(status.value(), ex.getMessage()));

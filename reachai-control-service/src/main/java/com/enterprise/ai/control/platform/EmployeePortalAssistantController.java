@@ -73,6 +73,8 @@ public class EmployeePortalAssistantController {
                 .pageInstanceId(pageInstanceId)
                 .route(PORTAL_ROUTE)
                 .origin(PlatformPublicOrigin.resolve(hubProperties, httpRequest))
+                .businessSessionId(chat.businessSessionId())
+                .businessSessionExpiresAt(chat.sourceExpiresAt() == null ? null : chat.sourceExpiresAt().getEpochSecond())
                 .ttlSeconds(ttl)
                 .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal(
                         chat.externalUserId(),

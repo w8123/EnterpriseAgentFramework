@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -76,7 +77,7 @@ class PlatformEmbedPublicControllerTest {
         controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
         when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
                 .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
-        when(runtime.listAgents(null, "erp")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+        when(runtime.listEmbedAgentIdentities("erp", "embed-identity")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
                 "id", "agent", "keySlug", "bot", "projectCode", "erp", "enabled", true))));
         var request = new PlatformEmbedPublicController.EmbedTokenExchangeRequest("erp", "bot", "page",
                 "page-1", "/", "http://localhost", new PlatformEmbedPublicController.BusinessPrincipal(
@@ -85,6 +86,44 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(30, response.getBody().getData().expiresIn());
         assertEquals(1030, tokens.verify(response.getBody().getData().token()).getExpiresAt());
+    }
+
+    @Test
+    void exchangeDistinguishesPolicyDenialFromUnavailableDependencies() {
+        var capability = mock(CapabilityProxyClient.class);
+        var runtime = mock(RuntimeProxyClient.class);
+        var controller = new PlatformEmbedPublicController(mock(PlatformEmbedTokenService.class),
+                mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class), capability, runtime,
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
+        controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
+        var request = new PlatformEmbedPublicController.EmbedTokenExchangeRequest("erp", "bot", "page",
+                "page-1", "/", "http://localhost", new PlatformEmbedPublicController.BusinessPrincipal(
+                "user", "user", "User", List.of(), Map.of()));
+        var feignDenial = mock(feign.FeignException.class);
+        when(feignDenial.status()).thenReturn(403);
+        when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
+                .thenReturn(ResponseEntity.status(HttpStatus.FORBIDDEN).build())
+                .thenThrow(feignDenial)
+                .thenReturn(ResponseEntity.status(HttpStatus.UNAUTHORIZED).build())
+                .thenThrow(new IllegalStateException("sensitive upstream details"))
+                .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
+        when(runtime.listEmbedAgentIdentities("erp", "embed-identity"))
+                .thenThrow(new IllegalStateException("sensitive runtime details"));
+
+        var denied = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+        var feignDenied = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+        var serviceAuthUnavailable = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+        var policyUnavailable = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+        var runtimeUnavailable = exchange(controller, "key", null, "1", null, "nonce", null, "signature", null, request);
+
+        assertEquals(HttpStatus.FORBIDDEN, denied.getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, feignDenied.getStatusCode());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, serviceAuthUnavailable.getStatusCode());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, policyUnavailable.getStatusCode());
+        assertEquals(HttpStatus.SERVICE_UNAVAILABLE, runtimeUnavailable.getStatusCode());
+        assertFalse(policyUnavailable.getBody().getMessage().contains("sensitive"));
+        assertFalse(runtimeUnavailable.getBody().getMessage().contains("sensitive"));
     }
 
     @Test
@@ -101,7 +140,7 @@ class PlatformEmbedPublicControllerTest {
         controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
         when(capability.verifyEmbedTokenExchange(any(), any(), any(), any(), any()))
                 .thenReturn(ResponseEntity.ok(Map.of("tokenTtlSeconds", 600)));
-        when(runtime.listAgents(null, "erp")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+        when(runtime.listEmbedAgentIdentities("erp", "embed-identity")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
                 "id", "agent", "keySlug", "bot", "enabled", true))));
         var request = new PlatformEmbedPublicController.EmbedTokenExchangeRequest("erp", "bot", "page",
                 "page-1", "/", "http://localhost", new PlatformEmbedPublicController.BusinessPrincipal(
@@ -176,11 +215,25 @@ class PlatformEmbedPublicControllerTest {
 
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, result.getStatusCode());
         assertEquals(503, result.getBody().getCode());
-        assertEquals("助手暂时无法完成请求，请稍后重试或联系管理员", result.getBody().getMessage());
+        assertEquals("助手未能完成请求，请先核对业务记录，再决定是否重试。", result.getBody().getMessage());
         var interaction = controller.submitInteraction("session-1", "interaction-1", "Bearer " + token,
                 new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, interaction.getStatusCode());
         assertEquals(503, interaction.getBody().getCode());
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false,
+                        "answer", "internal detail", "metadata", Map.of("code", "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED"))));
+        var unconfirmed = controller.sendMessage("session-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedChatMessageRequest("再次查询"));
+        assertEquals("操作结果尚未确认，请先核对业务记录，避免重复提交。", unconfirmed.getBody().getMessage());
+        assertEquals("操作结果尚未确认，请先核对业务记录，避免重复提交。",
+                PlatformEmbedPublicController.safeRuntimeFailureMessage("PAGE_BRIDGE_RESULT_UNCONFIRMED"));
+        when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
+                .thenReturn(ResponseEntity.ok(Map.of("success", false,
+                        "answer", "internal detail", "metadata", Map.of("code", "SUPERVISOR_PLAN_INCOMPLETE"))));
+        var incomplete = controller.submitInteraction("session-1", "interaction-1", "Bearer " + token,
+                new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
+        assertEquals("请求未能全部完成，请先核对已执行的操作，再调整条件重试。", incomplete.getBody().getMessage());
         verify(events).recordUserMessage(session, "你好");
         verify(events, never()).recordAssistantMessage(any(), any(), any(), any());
     }
@@ -361,7 +414,7 @@ class PlatformEmbedPublicControllerTest {
                 "projectCode", "bzjs12",
                 "appKey", "app-bzjs12",
                 "tokenTtlSeconds", 900)));
-        when(runtimeProxyClient.listAgents(null, "bzjs12")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
+        when(runtimeProxyClient.listEmbedAgentIdentities("bzjs12", "embed-identity")).thenReturn(ResponseEntity.ok((Object) List.of(Map.of(
                 "id", "agent-1",
                 "keySlug", "orders-bot",
                 "projectCode", "bzjs12",
@@ -438,12 +491,14 @@ class PlatformEmbedPublicControllerTest {
                 mock(PlatformEmbedStreamRelay.class),
                 mock(PlatformPageActionEventMapper.class));
         controller.setProjectRequestVerifier(mock(CapabilityProjectRequestVerificationGateway.class));
+        var deniedByCapability = mock(feign.FeignException.class);
+        when(deniedByCapability.status()).thenReturn(403);
         when(capabilityProxyClient.verifyEmbedTokenExchange(
                 eq("app-bzjs12"),
                 eq("1700000000000"),
                 eq("nonce-1"),
                 eq("bad-signature"),
-                any())).thenThrow(new RuntimeException("forbidden"));
+                any())).thenThrow(deniedByCapability);
 
         ResponseEntity<ApiResult<PlatformEmbedPublicController.EmbedTokenExchangeResponse>> response =
                 exchange(controller,

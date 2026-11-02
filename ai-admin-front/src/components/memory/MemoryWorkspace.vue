@@ -16,7 +16,7 @@
         @click="select(null, null)"
       >
         <el-icon aria-hidden="true"><Collection /></el-icon>
-        <span class="memory-tree__label">全部记忆</span><small>{{ tree.total }}</small>
+        <span class="memory-tree__label">{{ props.systemScoped ? '本系统记忆' : '全部记忆' }}</span><small>{{ tree.total }}</small>
       </button>
 
       <section v-for="layer in tree.layers" :key="layer.scope" class="memory-tree__layer">
@@ -147,10 +147,10 @@
       </div>
 
       <footer class="memory-main__foot">
-        <span class="memory-main__privacy"><el-icon aria-hidden="true"><Lock /></el-icon><span>仅自己可见，不会授予 AI 任何权限。请勿存入密码或密钥。</span></span>
+        <span class="memory-main__privacy"><el-icon aria-hidden="true"><Lock /></el-icon><span>记忆用于个性化 AI 回答，请勿存入密码或密钥。</span></span>
         <span class="memory-main__foot-actions">
           <LiquidGlassButton v-if="api.exportJson" source="backdrop" link :icon="Download" @click="downloadExport">导出</LiquidGlassButton>
-          <LiquidGlassButton v-if="tree.total" source="backdrop" link type="danger" :loading="erasing" @click="eraseAll">清空全部</LiquidGlassButton>
+          <LiquidGlassButton v-if="tree.total" source="backdrop" link type="danger" :loading="erasing" @click="eraseAll">{{ props.systemScoped ? '清空本系统记忆' : '清空全部' }}</LiquidGlassButton>
         </span>
       </footer>
     </section>
@@ -217,7 +217,7 @@ import type {
   PersonalMemoryTree,
 } from '@/types/memory'
 
-const props = defineProps<{ api: PersonalMemoryApi; source?: LiquidGlassSource }>()
+const props = defineProps<{ api: PersonalMemoryApi; source?: LiquidGlassSource; systemScoped?: boolean }>()
 const emit = defineEmits<{ (event: 'changed', total: number): void }>()
 const api = props.api
 const navigationId = useId()
@@ -246,7 +246,7 @@ const groupForm = reactive<{ id: number | null; projectCode: string | null; laye
 
 const selectedLayer = computed(() => tree.layers.find(layer => layer.scope === selection.scope) || null)
 const selectedGroup = computed(() => selectedLayer.value?.groups.find(group => group.id === selection.groupId) || null)
-const selectionTitle = computed(() => selectedGroup.value?.name || selectedLayer.value?.name || '全部记忆')
+const selectionTitle = computed(() => selectedGroup.value?.name || selectedLayer.value?.name || (props.systemScoped ? '本系统记忆' : '全部记忆'))
 const selectionHint = computed(() => {
   if (selectedGroup.value) {
     return selectedGroup.value.kind === 'PREFERENCE'
@@ -255,10 +255,12 @@ const selectionHint = computed(() => {
   }
   if (selectedLayer.value) {
     return selectedLayer.value.layer === 'PERSONAL'
-      ? '个人记忆跟着你走，在所有项目里都会用到。'
+      ? (props.systemScoped ? '本系统的个人记忆在可信绑定后可与关联账号共享。' : '个人记忆跟着你走，在所有项目里都会用到。')
       : `只有 AI 在操作「${selectedLayer.value.name}」时才会用到这里的记忆。`
   }
-  return '个人记忆在所有地方都会用到；项目记忆只在 AI 操作对应项目时才用到。'
+  return props.systemScoped
+    ? '本系统的个人记忆可在可信绑定后共享；项目记忆只在 AI 操作对应项目时使用。'
+    : '个人记忆在所有地方都会用到；项目记忆只在 AI 操作对应项目时才用到。'
 })
 
 async function guarded<T>(action: () => Promise<T>): Promise<T | undefined> {
@@ -452,7 +454,9 @@ async function addProject(projectCode: string) {
 
 async function eraseAll() {
   try {
-    await ElMessageBox.prompt('这会永久删除你的全部记忆和分组。请输入“全部删除”继续。', '清空全部记忆', {
+    await ElMessageBox.prompt(props.systemScoped
+      ? '这会永久删除本系统的记忆和分组，不会删除其他关联系统的记忆。请输入“全部删除”继续。'
+      : '这会永久删除你的全部记忆和分组。请输入“全部删除”继续。', props.systemScoped ? '清空本系统记忆' : '清空全部记忆', {
       confirmButtonText: '永久清空',
       cancelButtonText: '取消',
       type: 'warning',
@@ -521,7 +525,7 @@ defineExpose({ reload })
   padding: 20px 12px;
   border-right: 1px solid var(--border-divider);
   border-radius: var(--radius-xl) 0 0 var(--radius-xl);
-  background: var(--surface-reading-header);
+  background: transparent;
 }
 .memory-tree__heading {
   padding: 0 10px 10px;
@@ -627,7 +631,7 @@ defineExpose({ reload })
 .memory-tree__project { padding-top: 12px; }
 .memory-tree__project > * { width: 100%; }
 
-.memory-main { display: flex; min-width: 0; flex-direction: column; gap: 20px; padding: 24px; border-radius: 0 var(--radius-xl) var(--radius-xl) 0; background: var(--surface-glass-reading); }
+.memory-main { display: flex; min-width: 0; flex-direction: column; gap: 20px; padding: 24px; border-radius: 0 var(--radius-xl) var(--radius-xl) 0; background: transparent; }
 .memory-main__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .memory-main__heading { min-width: 0; }
 .memory-main__title { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }

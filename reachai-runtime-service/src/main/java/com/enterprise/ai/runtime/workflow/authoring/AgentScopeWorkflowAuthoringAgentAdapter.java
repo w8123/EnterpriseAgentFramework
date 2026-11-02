@@ -119,6 +119,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                     session.setSummary(response.getTextContent().trim());
                 }
             }
+            completeValidatedPreview(session, request);
             WorkflowAuthoringResult result = toResult(session, authoringId);
             long elapsedMs = System.currentTimeMillis() - startedAt;
             if (result.succeeded()) {
@@ -186,6 +187,18 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
         }
     }
 
+    /** A model may stop after editing instead of calling the final tools. Validation remains authoritative. */
+    private void completeValidatedPreview(WorkflowAuthoringSession session, WorkflowAuthoringRequest request) {
+        if (session.finalized() || session.mutationRounds() <= 0 || !session.originalUnmodified()) return;
+        RuntimeWorkflowReleaseValidationResult validation = validationService.validate(
+                request.workflowId(), request.projectCode(), request.workflowKind(), request.modelInstanceId(),
+                session.candidateGraphSpec());
+        session.recordValidation(validation);
+        if (validation != null && validation.valid()) {
+            session.finalizePreview("已生成通过校验的 Workflow 候选方案，请检查后决定是否应用。");
+        }
+    }
+
     static RuntimeContext buildRuntimeContext(WorkflowAuthoringSession session, WorkflowAuthoringRequest request) {
         RuntimeContext.Builder builder = RuntimeContext.builder()
                 .sessionId(session.sessionId())
@@ -219,9 +232,7 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                     authoringId);
         }
         String failureCode = resolveFailureCode(session, validationErrors);
-        String summary = firstText(
-                session.summary(),
-                "AI 编排生成失败，Agent 已尝试自动修正，但仍未生成合法 Workflow。");
+        String summary = "AI 编排未生成可应用的方案，请查看校验结果后重试。";
         return new WorkflowAuthoringResult(
                 WorkflowAuthoringResult.Status.FAILED,
                 WorkflowAuthoringResult.PROVIDER,
@@ -329,7 +340,10 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 - TOOL puts qualifiedName in the top-level node.ref object, for example
                   ref={"qualifiedName":"project:capability"}. Never put ref inside node.config.
                   TOOL config.inputMapping maps target argument names to runtime expressions such as
-                  "params.teamName" or "nodeOutput.extract_query.teamName". Keep errorPolicy at the top-level node field.
+                  "params.teamName" or "nodeOutput.extract_query.teamName". Omit errorPolicy for the default;
+                  if specified, keep it at the top level and use {"strategy":"TERMINATE"} or
+                  {"strategy":"CONTINUE"}. FALLBACK also requires fallbackNodeId of an existing different node.
+                  Never use STOP, FAIL, RETRY, or ABORT as errorPolicy.strategy.
                 - When a detail Tool requires an opaque id but the user supplies a business name, build an explicit
                   chain: list/query TOOL -> PARAMETER_EXTRACT -> detail TOOL. Feed the query Tool's structured output
                   through inputExpression="nodeOutput.<queryNodeId>". Leave userPrompt empty to consume that input,

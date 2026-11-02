@@ -27,6 +27,20 @@ class RuntimeAgentServiceTest {
     }
 
     @Test
+    void embedIdentityListDoesNotLoadConfigurationsOrTools() {
+        RuntimeAgentMapper mapper = mock(RuntimeAgentMapper.class);
+        RuntimeAgentConfigService configs = mock(RuntimeAgentConfigService.class);
+        when(mapper.selectList(any())).thenReturn(List.of(entity("agent-1")));
+        RuntimeAgentService service = new RuntimeAgentService(mapper, configs);
+
+        assertEquals(List.of(new RuntimeAgentService.EmbedIdentityView("agent-1", "orders", "orders-agent", true)),
+                service.listEmbedIdentities("orders"));
+        org.mockito.Mockito.verifyNoInteractions(configs);
+        assertTrue(service.listEmbedIdentities(" ").isEmpty());
+        verify(mapper).selectList(any());
+    }
+
+    @Test
     void createNormalizesDefaultsAndWritesRuntimeAgentTable() {
         RuntimeAgentMapper mapper = mock(RuntimeAgentMapper.class);
         RuntimeAgentConfigService configService = mock(RuntimeAgentConfigService.class);

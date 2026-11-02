@@ -49,6 +49,28 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     vi.restoreAllMocks()
   })
 
+  it('toggles a navigation section and keeps its entries available in the collapsed sidebar', async () => {
+    const { wrapper } = await setup()
+    const button = wrapper.findAll<HTMLButtonElement>('.menu-group-label').find(item => item.text() === '智能化改造')!
+    expect(button.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
+    await button.trigger('click')
+    await settle()
+    expect(button.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(false)
+    expect(button.find('.menu-group-arrow').exists()).toBe(true)
+    await wrapper.setProps({ collapsed: true })
+    await settle()
+    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
+    await wrapper.setProps({ collapsed: false })
+    const restoredButton = wrapper.findAll<HTMLButtonElement>('.menu-group-label').find(item => item.text() === '智能化改造')!
+    await restoredButton.trigger('click')
+    await settle()
+    expect(restoredButton.attributes('aria-expanded')).toBe('true')
+    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
+    expect(restoredButton.find('.menu-group-arrow').exists()).toBe(false)
+  })
+
   it('has one normal Tab entry, skips presentation groups, and moves without navigation', async () => {
     const { wrapper, leaf, entry, push } = await setup()
     expect(entry()).toBe(leaf('/dashboard'))

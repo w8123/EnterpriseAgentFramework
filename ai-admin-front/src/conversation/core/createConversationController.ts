@@ -240,6 +240,9 @@ export function createConversationController(options: ConversationControllerOpti
     async submitInteraction(interactionId, action, values = {}) {
       if (!interactionId) return
       if (submittingInteractions.has(interactionId)) return
+      if (state.messages.some((message) => message.blocks.some((block) =>
+        block.type === 'interaction' && block.request.interactionId === interactionId && block.retryable === false,
+      ))) return
       submittingInteractions.add(interactionId)
       const isCancelAction = action === 'cancel'
       dispatch({
@@ -277,6 +280,7 @@ export function createConversationController(options: ConversationControllerOpti
             interactionId,
             state: 'failed',
             errorMessage: state.error || '提交失败',
+            retryable: state.errorRetryable,
           })
         } else if (isCancelAction) {
           // 服务端以非 failed 终态确认取消（例如 completed+空 answer 的兼容路径）
@@ -333,6 +337,8 @@ export function createConversationController(options: ConversationControllerOpti
     },
 
     async cancel() {
+      const embedInFlight = transport.kind === 'embed'
+        && (state.turnStatus === 'sending' || state.turnStatus === 'streaming')
       turnGeneration += 1
       currentTurnId = createId('turn')
       activeAbort?.abort()
@@ -341,6 +347,17 @@ export function createConversationController(options: ConversationControllerOpti
         await transport.cancelTurn?.()
       } catch {
         // ignore cancel transport errors
+      }
+      if (embedInFlight) {
+        const message = '已停止等待，操作可能仍在执行。请先核对业务记录，避免重复提交。'
+        dispatch({ type: 'fail_turn', message, retryable: false, metadata: { code: 'EMBED_OUTCOME_UNCONFIRMED' } })
+        for (const interactionId of submittingInteractions) {
+          dispatch({ type: 'update_interaction_state', interactionId, state: 'failed', errorMessage: message, retryable: false })
+        }
+        emitPublic(createEvent('turn.failed', { message, code: 'EMBED_OUTCOME_UNCONFIRMED', retryable: false }, {
+          sessionId: state.sessionId, turnId: currentTurnId,
+        }))
+        return
       }
       dispatch({ type: 'cancel_turn' })
       emitPublic(createEvent('turn.cancelled', {}, { sessionId: state.sessionId, turnId: currentTurnId }))

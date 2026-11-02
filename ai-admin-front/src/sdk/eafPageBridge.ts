@@ -74,6 +74,8 @@ export interface PageActionExecutionOptions {
   beforeExecute?: PageActionBeforeExecute
   /** Rechecked synchronously just before calling a host handler. */
   isActive?: () => boolean
+  /** Whether this bridge still belongs to the currently bound page. */
+  isCurrentPage?: () => boolean
   /** Cancels pending confirmation when the embedding client is destroyed. */
   signal?: AbortSignal
   /** Optional host fallback, subject to the same target, confirmation and claim checks. */
@@ -228,6 +230,7 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         return result
       }
       const handler = handlers.get(event.actionKey) || executionOptions?.fallbackHandler
+      const registration = registrations.get(event.actionKey)
       if (!handler) {
         const result = resultOf(
           event,
@@ -236,6 +239,11 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
           undefined,
           `Action is not registered: ${event.actionKey}`,
         )
+        emit(result)
+        return result
+      }
+      if (executionOptions?.isCurrentPage?.() === false) {
+        const result = resultOf(event, 'ACTION_NOT_FOUND', undefined, undefined, 'Page action no longer belongs to the active page')
         emit(result)
         return result
       }
@@ -251,10 +259,22 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         emit(result)
         return result
       }
+      const registrationChanged = () => executionOptions?.isCurrentPage?.() === false
+        || registrations.get(event.actionKey) !== registration
+      if (registrationChanged()) {
+        const result = resultOf(event, 'ACTION_NOT_FOUND', undefined, undefined, 'Page action registration changed before execution')
+        emit(result)
+        return result
+      }
       const allowed = await executionAllowed(event, executionOptions)
       if (executionOptions?.isActive?.() === false) return null
       if (!allowed) {
         const result = expiredBeforeExecution(event)
+        emit(result)
+        return result
+      }
+      if (registrationChanged()) {
+        const result = resultOf(event, 'ACTION_NOT_FOUND', undefined, undefined, 'Page action registration changed before execution')
         emit(result)
         return result
       }

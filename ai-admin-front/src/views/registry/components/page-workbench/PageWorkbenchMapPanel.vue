@@ -152,7 +152,7 @@ function actionMetaLabel(page: ProjectPage) {
 
 <template>
   <section
-    :class="['page-access-pages page-workbench-section', { 'is-empty': !pages.length }]"
+    :class="['page-access-pages page-workbench-section glass-surface-frost glass-workspace-adaptive', { 'is-empty': !pages.length }]"
     v-loading="loading"
   >
     <div v-if="pages.length" class="page-access-layout">

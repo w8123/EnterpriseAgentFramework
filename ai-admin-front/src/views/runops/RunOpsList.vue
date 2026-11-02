@@ -121,18 +121,18 @@
       </div>
     </LiquidGlassCard>
 
-      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false" aria-label="运行诊断">
+      <LiquidGlassTable class="diagnostics-card" :loading="diagnosticsLoading" :show-pagination="false" aria-label="运行概况">
         <template #toolbar>
           <div class="card-header diagnostics-header">
             <div class="diagnostics-heading">
-              <h2>运行诊断</h2>
-              <LiquidGlassNav source="backdrop" class="diagnostics-nav" aria-label="诊断视图">
+              <h2>运行概况</h2>
+              <LiquidGlassNav source="backdrop" class="diagnostics-nav" aria-label="运行概况视图">
                 <button type="button" :aria-pressed="diagnosticView === 'failures'" aria-controls="runops-diagnostics-content" @click="openDiagnostics('failures')">
-                  失败聚类
+                  失败原因
                   <span :class="{ 'diagnostic-count--danger': diagnostics.failureClusters.length > 0 }">{{ diagnostics.failureClusters.length }}</span>
                 </button>
                 <button type="button" :aria-pressed="diagnosticView === 'versions'" aria-controls="runops-diagnostics-content" @click="openDiagnostics('versions')">
-                  发布版本表现 <span>{{ diagnostics.versionComparisons.length }}</span>
+                  版本运行情况 <span>{{ diagnostics.versionComparisons.length }}</span>
                 </button>
               </LiquidGlassNav>
             </div>
@@ -144,7 +144,7 @@
               aria-controls="runops-diagnostics-content"
               @click="showDiagnostics = !showDiagnostics"
             >
-              {{ showDiagnostics ? '收起诊断' : '展开诊断' }}
+              {{ showDiagnostics ? '收起概况' : '展开概况' }}
             </LiquidGlassButton>
           </div>
         </template>
@@ -194,7 +194,7 @@
                   size="small"
                   @click="router.push(`/runops/${row.sampleTraceId}`)"
                 >
-                  查看样例
+                  查看记录
                 </LiquidGlassButton>
                 <span v-else class="muted">-</span>
               </template>
@@ -203,7 +203,7 @@
           <el-empty
             v-else-if="diagnosticView === 'failures' && !diagnosticsLoading"
             :image-size="48"
-            description="当前筛选下暂无失败聚类"
+            description="当前筛选下暂无失败原因"
           />
           <el-table
             v-if="diagnosticView === 'versions' && diagnostics.versionComparisons.length"
@@ -256,7 +256,7 @@
           <el-empty
             v-else-if="diagnosticView === 'versions' && !diagnosticsLoading"
             :image-size="48"
-            description="当前筛选下暂无版本表现数据"
+            description="当前筛选下暂无版本运行数据"
           />
         </div>
       </LiquidGlassTable>
@@ -268,11 +268,11 @@
       :loading="loading"
       :total="filteredRuns.length"
       :page-sizes="[10, 20, 50]"
-      pagination-label="根运行分页"
+      pagination-label="运行记录分页"
     >
       <template #toolbar>
         <div class="card-header">
-          <h2>根运行记录</h2>
+          <h2>运行记录</h2>
           <span class="card-header__meta">当前匹配 {{ filteredRuns.length }} 条</span>
         </div>
       </template>
@@ -408,7 +408,7 @@
         <el-empty
           v-else-if="!loading"
           :image-size="56"
-          description="当前筛选下暂无根运行记录"
+          description="当前筛选下暂无运行记录"
         />
 
       </div>
@@ -559,9 +559,9 @@ const kpis = computed<MetricStripItem[]>(() => {
     : 0
   return [
     { key: 'runs', label: '运行数', value: String(total), hint: `最近 ${appliedFilters.days} 天` },
-    { key: 'failed', label: '失败数', value: String(failed), hint: '失败与超时的根运行', tone: failed > 0 ? 'danger' : 'neutral' },
+    { key: 'failed', label: '失败数', value: String(failed), hint: '失败与超时的运行', tone: failed > 0 ? 'danger' : 'neutral' },
     { key: 'waiting', label: '等待审批', value: String(waiting), hint: '当前阻塞于人工审批', tone: waiting > 0 ? 'warning' : 'neutral' },
-    { key: 'latency', label: '平均耗时', value: formatLatencyMs(avgLatency), hint: '按根运行聚合' },
+    { key: 'latency', label: '平均耗时', value: formatLatencyMs(avgLatency), hint: '按每次发起的运行统计' },
   ]
 })
 
@@ -575,7 +575,7 @@ async function loadRuns() {
     const { data } = await getRecentRunOps(requestParams.value)
     runs.value = data ?? []
   } catch {
-    ElMessage.error('加载根运行列表失败')
+    ElMessage.error('加载运行记录失败')
   } finally {
     loading.value = false
   }
@@ -591,7 +591,7 @@ async function loadDiagnostics() {
     const { data } = await getRunOpsDiagnostics(requestParams.value)
     diagnostics.value = data ?? { failureClusters: [], versionComparisons: [] }
   } catch {
-    ElMessage.error('加载运行诊断数据失败')
+    ElMessage.error('加载运行概况数据失败')
   } finally {
     diagnosticsLoading.value = false
   }

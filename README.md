@@ -17,8 +17,8 @@
 <p align="center">
   <strong>ReachAI 学习交流群</strong><br />
   扫码加入，交流接入、使用与实践经验<br />
-  <a href="docs/系统截图/ReachAI学习交流群.png">
-    <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="240" />
+  <a href="docs/系统截图/ReachAI学习交流群.jpg">
+    <img src="docs/系统截图/ReachAI学习交流群.jpg" alt="ReachAI 学习交流群二维码" width="240" />
   </a>
 </p>
 
@@ -34,7 +34,7 @@ ReachAI 将 AI 助手嵌入 OA、eHR、采购、CRM 等现有业务页面。员�
 | CRM | “根据本周客户动态生成跟进计划。” |
 
 <p align="center">
-  <img src="docs/系统截图/使用ReachAI改造后的业务系统-四场景.png" alt="使用 ReachAI 改造后的 OA、eHR、采购和 CRM 系统" width="1200" />
+  <img src="docs/images/readme-v2/26-erp-embedded-chat.png" alt="芋道 ERP 产品页面中的 ReachAI 助手查询示例" width="1200" />
 </p>
 
 ReachAI 会结合当前登录身份、页面状态与业务上下文理解需求，仅调用已授予当前用户的业务能力。页面筛选、跳转与表单操作由已注册的页面动作执行；真实数据查询与写入仍由后端 Capability 或业务 API 完成。涉及写入、提交和审批等关键操作时，必须经用户确认后执行。
@@ -200,8 +200,8 @@ Agent → 已发布配置版本 → AgentScope Supervisor
 <table>
   <tr>
     <td width="50%" align="center">
-      <a href="./docs/images/readme-v2/07-agent-overview.png"><img src="./docs/images/readme-v2/07-agent-overview.png" alt="ReachAI Agent 配置与可调用 Workflow" width="100%" /></a><br />
-      <strong>Agent 配置</strong><br /><sub>固定配置版本、使用范围和可调用 Workflow</sub>
+      <a href="./docs/images/readme-v2/07-agent-overview.png"><img src="./docs/images/readme-v2/07-agent-overview.png" alt="ReachAI Agent 配置概览" width="100%" /></a><br />
+      <strong>Agent 配置</strong><br /><sub>查看模型、使用范围与 Workflow 配置；截图中尚未配置模型与 Workflow</sub>
     </td>
     <td width="50%" align="center">
       <a href="./docs/images/readme-v2/08-workflow-studio.png"><img src="./docs/images/readme-v2/08-workflow-studio.png" alt="ReachAI Workflow Studio 与 GraphSpec 编排" width="100%" /></a><br />
@@ -309,7 +309,7 @@ ReachAI 不把“发布成功”当作结束。运营概览负责汇总价值和
 <table>
   <tr>
     <td width="50%" align="center">
-      <a href="./docs/images/readme-v2/13-knowledge-base.png"><img src="./docs/images/readme-v2/13-knowledge-base.png" alt="ReachAI 知识库管理" width="100%" /></a><br />
+      <a href="./docs/images/readme-v2/13-knowledge-base.png"><img src="./docs/images/readme-v2/13-knowledge-base.png" alt="ReachAI 知识库文件与入库状态" width="100%" /></a><br />
       <strong>知识库</strong><br /><sub>统一管理知识源、文件、向量模型和检索状态</sub>
     </td>
     <td width="50%" align="center">

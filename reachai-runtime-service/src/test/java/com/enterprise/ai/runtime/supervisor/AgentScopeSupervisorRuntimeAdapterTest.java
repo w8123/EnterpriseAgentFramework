@@ -1531,15 +1531,17 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     @Test
-    void neverRetriesTheSameSideEffectWorkflowAfterAnAmbiguousFailure() throws Exception {
+    void doesNotInvokeAnotherWorkflowAfterAnUnconfirmedPageAction() throws Exception {
         RuntimeAgentWorkflowToolSnapshot tool = pageActionTool("wf-team-toggle", "toggle_team_on_page");
+        RuntimeAgentWorkflowToolSnapshot alternative = pageActionTool("wf-team-toggle-alternate", "toggle_team_alternate");
         stubWorkflow(tool);
+        stubWorkflow(alternative);
         AtomicInteger execution = new AtomicInteger();
         when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
             execution.incrementAndGet();
             return new RuntimeGraphSpecExecutionResult(
                     false,
-                    "PAGE_BRIDGE_ACTION_FAILED",
+                    "PAGE_BRIDGE_RESULT_UNCONFIRMED",
                     "Page Bridge action execution timed out after it was claimed",
                     null,
                     "PAGE_ACTION",
@@ -1555,28 +1557,23 @@ class AgentScopeSupervisorRuntimeAdapterTest {
                 calls(call("retry-plan", "record_supervisor_plan", Map.of(
                         "summary", "Retry the timed out page action",
                         "steps", List.of("Retry the page action"),
-                        "workflowToolNames", List.of("toggle_team_on_page"),
+                        "workflowToolNames", List.of("toggle_team_alternate"),
                         "reason", "timeout"))),
-                calls(call("abandon-plan", "record_supervisor_plan", Map.of(
-                        "summary", "Stop because the write outcome is ambiguous",
-                        "steps", List.of("Explain that the action was not retried"),
-                        "workflowToolNames", List.of(),
-                        "reason", "side-effect Workflow is non-retryable"))),
-                calls(call("final-after-write-failure", "begin_final_answer", Map.of())),
+                calls(call("alternative-write", "toggle_team_alternate", Map.of("enabled", false))),
                 text("The page action timed out and was not retried automatically."),
                 text("The page action timed out and was not retried automatically."))));
 
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
-                        agent(), config(false), List.of(tool), Map.of(
+                        agent(), config(false), List.of(tool, alternative), Map.of(
                         "message", "请在当前页面停用班组",
                         "sessionId", "s-side-effect-timeout",
                         "projectCode", "qmssmp")));
 
-        assertTrue(result.success(), String.valueOf(result.metadata()));
+        assertFalse(result.success(), String.valueOf(result.metadata()));
+        assertEquals("PAGE_BRIDGE_RESULT_UNCONFIRMED", result.code());
         assertEquals(1, execution.get());
         assertEquals(1, result.metadata().get("workflowCallCount"));
-        assertEquals(1, result.metadata().get("replanCount"));
     }
 
     @Test

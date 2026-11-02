@@ -13,7 +13,7 @@ const props = defineProps<{
   source: AgentSkillCaptureSource
   callLogIds?: number[]
   traceId?: string
-  /** 能否顺带生成 Workflow 草稿（需要该系统的 workflow:write）。 */
+  /** 能否创建空白 Workflow 并带入步骤（需要该系统的 workflow:write）。 */
   canCreateWorkflow?: boolean
 }>()
 
@@ -140,6 +140,12 @@ async function createWorkflowDraft() {
           :title="warning"
           source="backdrop"
         />
+        <LiquidGlassNotice
+          v-if="canCreateWorkflow && draft.projectId"
+          type="info"
+          title="创建 Workflow 会打开空白草稿，并将步骤带入 AI 编辑栏；当前 Skill 不会保存。"
+          source="backdrop"
+        />
         <dl class="skill-capture__facts">
           <div><dt>业务系统</dt><dd>{{ draft.systemName }}</dd></div>
           <div><dt>Skill 名称</dt><dd><code>{{ draft.name }}</code> · 版本 {{ draft.version }}</dd></div>
@@ -167,7 +173,7 @@ async function createWorkflowDraft() {
         :disabled="loading"
         @click="createWorkflowDraft"
       >
-        生成 Workflow 草稿
+        创建空白 Workflow
       </LiquidGlassButton>
       <LiquidGlassButton type="primary" :loading="saving" :disabled="!draft || loading" @click="save">
         保存并提交审核

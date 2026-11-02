@@ -276,7 +276,7 @@
     >
       {{ validationError || errorMessage }}
     </p>
-    <div v-if="state === 'failed'" class="reachai-interaction__actions">
+    <div v-if="state === 'failed' && retryable !== false" class="reachai-interaction__actions">
       <button type="button" class="is-primary" @click="retryLast">重试</button>
     </div>
   </div>
@@ -295,6 +295,7 @@ const props = defineProps<{
   request: UiRequestV1
   state?: InteractionRenderState
   errorMessage?: string
+  retryable?: boolean
   disabled?: boolean
 }>()
 
@@ -311,7 +312,8 @@ const isDisabled = computed(() =>
   || state.value === 'submitting'
   || state.value === 'resolved'
   || state.value === 'expired'
-  || state.value === 'cancelled',
+  || state.value === 'cancelled'
+  || (state.value === 'failed' && props.retryable === false),
 )
 const choiceRadioName = computed(() => `reachai-choice-${props.request.interactionId || 'default'}`)
 const validationErrorId = computed(() => `reachai-interaction-error-${props.request.interactionId || 'default'}`)
@@ -572,7 +574,7 @@ function actionButtonPrimary(action: UiActionPayload): boolean {
 }
 
 function submit(action: string, values: Record<string, unknown>) {
-  if (isDisabled.value && state.value !== 'failed') return
+  if (isDisabled.value) return
   lastSubmit.value = { action, values }
   emit('submit', action, values)
   emit('action', action, values)
@@ -623,6 +625,7 @@ function emitCancel() {
 }
 
 function retryLast() {
+  if (isDisabled.value) return
   if (lastSubmit.value) {
     emit('submit', lastSubmit.value.action, lastSubmit.value.values)
     emit('action', lastSubmit.value.action, lastSubmit.value.values)

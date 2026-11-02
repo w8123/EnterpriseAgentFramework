@@ -88,8 +88,6 @@ class ControlWorkflowReadOnlyTrialControllerTest {
             var body = input(); body.put(name, "forged");
             assertEquals(HttpStatus.BAD_REQUEST, controller.run(body).getStatusCode());
         }
-        var nested = input(); nested.put("inputParams", Map.of("id", Map.of("secret", "forged")));
-        assertEquals(HttpStatus.BAD_REQUEST, controller.run(nested).getStatusCode());
         var objectMessage = input(); objectMessage.put("message", Map.of("text", "forged"));
         assertEquals(HttpStatus.BAD_REQUEST, controller.run(objectMessage).getStatusCode());
         verifyNoInteractions(runtime, owner, acl, gateway);
@@ -143,6 +141,16 @@ class ControlWorkflowReadOnlyTrialControllerTest {
         assertEquals(WorkflowReadOnlyTrialPolicy.VERSION, command.contractVersion());
         assertNull(command.message());
         assertTrue(command.deadlineEpochMs() <= System.currentTimeMillis() + WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS);
+    }
+
+    @Test void forwardsStructuredBusinessInputsWithoutFlattening() {
+        var body = input();
+        var page = Map.of("pageNo", 1, "pageSize", 10, "filters", List.of("螺丝", "螺母"));
+        body.put("inputParams", Map.of("pageReqVO", page));
+        assertEquals(HttpStatus.OK, controller.run(body).getStatusCode());
+        var captor = ArgumentCaptor.forClass(WorkflowReadOnlyTrialPolicy.TrialCommand.class);
+        verify(gateway).run(captor.capture());
+        assertEquals(Map.of("pageReqVO", page), captor.getValue().inputParams());
     }
 
     private static final String MULTI_STEP = """

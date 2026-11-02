@@ -240,6 +240,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
 
   let activeBridge = options.bridge || createEafPageBridge({ route: location.pathname })
   let activePage = options.page
+  let pageBindingEpoch = 0
+  let pageRebinding = false
   const apiBase = resolveEafChatEmbedApiRoot(options.apiBase, options.embedPathPrefix)
   const locale = options.locale || 'zh-CN'
   let token = ''
@@ -316,9 +318,11 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       reportError(new Error('Page action requires an active embed session; no sessionId available'))
       return
     }
+    const pageBridge = activeBridge
+    const pageEpoch = pageBindingEpoch
     void dispatchPageActionExactlyOnce({
       request,
-      bridge: activeBridge,
+      bridge: pageBridge,
       sessionId,
       apiBase,
       token,
@@ -327,6 +331,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       pendingPageActionResults,
       responseMetadata,
       isActive: () => !destroyed,
+      isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (req) => publishPageActionRequested(req, { sessionId }),
       onError: reportError,
@@ -401,9 +406,11 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       }
       return
     }
+    const pageBridge = activeBridge
+    const pageEpoch = pageBindingEpoch
     await processMessagePageActionQueue({
       response,
-      bridge: activeBridge,
+      bridge: pageBridge,
       sessionId,
       apiBase,
       token,
@@ -411,6 +418,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       inFlightPageActions,
       pendingPageActionResults,
       isActive: () => !destroyed,
+      isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (request) => publishPageActionRequested(request, { sessionId }),
       onError: reportError,
@@ -430,17 +438,20 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     if (destroyed) return
     const existingSessionId = hostInstance?.getExistingSessionId()
     if (!existingSessionId) return
+    const pageBridge = activeBridge
+    const pageEpoch = pageBindingEpoch
     await pollPendingPageActions({
       apiBase,
       token,
       sessionId: existingSessionId,
-      bridge: activeBridge,
+      bridge: pageBridge,
       handledPageActions,
       pendingPageActions,
       inFlightPageActions,
       pendingPageActionResults,
       context,
       isActive: () => !destroyed,
+      isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
       onEvent: (event) => {
@@ -660,17 +671,24 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       if (navigation.targetPageKey && navigation.targetPageKey !== binding.page.pageKey) {
         throw new Error(`Target page does not match pending navigation: ${navigation.targetPageKey}`)
       }
+      if (pageRebinding) throw new Error('Page navigation is already in progress')
       const previousActionCount = registeredActionCount
-      await hostInstance.rebindPage(binding.bridge, binding.page, navigation.requestId)
-      if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
-      activeBridge = binding.bridge
-      activePage = binding.page
-      registeredActionCount = pollableActionCount(activeBridge)
-      subscribeToActiveBridge()
-      pendingNavigation = null
-      pendingPollScheduler.notifyActionsChanged(previousActionCount, registeredActionCount)
-      schedulePageCatalogRegistration(0)
-      pendingPollScheduler.notifyActivity()
+      pageBindingEpoch += 1
+      pageRebinding = true
+      try {
+        await hostInstance.rebindPage(binding.bridge, binding.page, navigation.requestId)
+        if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
+        activeBridge = binding.bridge
+        activePage = binding.page
+        registeredActionCount = pollableActionCount(activeBridge)
+        subscribeToActiveBridge()
+        pendingNavigation = null
+        pendingPollScheduler.notifyActionsChanged(previousActionCount, registeredActionCount)
+        schedulePageCatalogRegistration(0)
+        pendingPollScheduler.notifyActivity()
+      } finally {
+        pageRebinding = false
+      }
     },
     registerPageCatalog,
     setContext(nextContext: Record<string, unknown>) {

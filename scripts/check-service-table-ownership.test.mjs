@@ -318,3 +318,17 @@ const jdbcSqlCrossServiceResult = spawnSync(process.execPath, [scriptPath], {
 assert.notStrictEqual(jdbcSqlCrossServiceResult.status, 0, jdbcSqlCrossServiceResult.stderr || jdbcSqlCrossServiceResult.stdout)
 assert.match(jdbcSqlCrossServiceResult.stderr, /undocumented non-owner table access/)
 assert.match(jdbcSqlCrossServiceResult.stderr, /reachai-control-service -> runtime_jdbc_owned/)
+
+const upsertRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'reachai-table-owner-upsert-'))
+writeEntity(upsertRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'NonceEntity', 'control_nonce')
+writeJdbcTemplateDao(upsertRoot, 'reachai-control-service', 'com.enterprise.ai.control', 'NonceDao',
+  'INSERT INTO control_nonce (jti) VALUES (?) ON DUPLICATE KEY UPDATE jti = VALUES(jti)')
+write(upsertRoot, 'docs/contracts/tables.md', `
+# Service Table Ownership
+
+| Table | Owner service | Additional direct access | Notes |
+| --- | --- | --- | --- |
+| \`control_nonce\` | \`reachai-control-service\` | - | Control table |
+`)
+const upsertResult = spawnSync(process.execPath, [scriptPath], { cwd: upsertRoot, encoding: 'utf8' })
+assert.strictEqual(upsertResult.status, 0, upsertResult.stderr || upsertResult.stdout)

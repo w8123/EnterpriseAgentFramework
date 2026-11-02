@@ -59,6 +59,21 @@ class ReachAiEmbedTokenEndpointTest {
         assertEquals(HttpStatus.BAD_GATEWAY, response.getStatusCode());
     }
 
+    @Test
+    void upstreamDenialBecomesForbidden() {
+        ReachAiEmbedTokenClient denied = new ReachAiEmbedTokenClient(new ReachAiRegistryProperties(),
+                (method, url, headers, body) -> "{}") {
+            @Override public ReachAiEmbedTokenResult exchange(ReachAiEmbedTokenRequest request) {
+                throw new ReachAiEmbedAccessDeniedException();
+            }
+        };
+        ResponseEntity<Map<String, Object>> response = new ReachAiEmbedTokenEndpoint(agentId -> user(), denied)
+                .token("https://erp.example.com", request(null));
+        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
+        assertEquals("This page cannot access the assistant; ask an administrator to check access and embed settings.",
+                response.getBody().get("message"));
+    }
+
     private static ReachAiEmbedTokenEndpoint.TokenRequest request(String origin) {
         ReachAiEmbedTokenEndpoint.TokenRequest request = new ReachAiEmbedTokenEndpoint.TokenRequest();
         request.setAgentId("erp-assistant");

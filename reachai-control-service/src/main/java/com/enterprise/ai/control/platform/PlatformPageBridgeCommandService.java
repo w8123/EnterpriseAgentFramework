@@ -25,6 +25,9 @@ public class PlatformPageBridgeCommandService {
     public static final String NAVIGATE_ACTION = "__reachai.navigate";
     private static final String PAGE_BRIDGE_BUSINESS_TERMINAL =
             "PAGE_BRIDGE_BUSINESS_TERMINAL";
+    private static final String CONFIRMATION_TIMEOUT_BEFORE_EXECUTION =
+            "Page action confirmation timed out before execution; no business action was started";
+    private static final String TIMEOUT_BEFORE_CLAIM = "Page Bridge command was not claimed before its wait timeout";
 
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformPageActionEventMapper eventMapper;
@@ -150,6 +153,11 @@ public class PlatformPageBridgeCommandService {
                         resultData(completedAction),
                         List.copyOf(phases));
             }
+            if (("TIMEOUT".equals(completedAction.getStatus()) && !timedOutBeforeClaim(completedAction))
+                    || "FAILED".equals(completedAction.getStatus())) {
+                return failure("PAGE_BRIDGE_RESULT_UNCONFIRMED",
+                        "页面操作结果未确认，请核对业务记录后再决定是否重试。", phases);
+            }
             return failure("PAGE_BRIDGE_ACTION_FAILED", resultMessage(completedAction), phases);
         }
         return new PageBridgeExecutionResponse(true, "PAGE_BRIDGE_COMPLETED", "SUCCESS",
@@ -250,12 +258,18 @@ public class PlatformPageBridgeCommandService {
 
     private String timeoutMessage(PlatformPageActionEventEntity event, String expectedStatus) {
         if ("REQUESTED".equals(expectedStatus) && Boolean.TRUE.equals(event.getConfirmRequired())) {
-            return "Page action confirmation timed out before execution; no business action was started";
+            return CONFIRMATION_TIMEOUT_BEFORE_EXECUTION;
         }
         if ("REQUESTED".equals(expectedStatus)) {
-            return "Page Bridge command was not claimed before its wait timeout";
+            return TIMEOUT_BEFORE_CLAIM;
         }
         return "Page Bridge action execution timed out after it was claimed";
+    }
+
+    private boolean timedOutBeforeClaim(PlatformPageActionEventEntity event) {
+        if (StringUtils.hasText(event.getResultJson())) return false;
+        String message = event.getErrorMessage();
+        return CONFIRMATION_TIMEOUT_BEFORE_EXECUTION.equals(message) || TIMEOUT_BEFORE_CLAIM.equals(message);
     }
 
     private long normalizedTimeout(int timeoutMs) {

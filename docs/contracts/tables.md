@@ -116,6 +116,9 @@
 | `knowledge_chunk` | `reachai-knowledge-service` | - | Knowledge knowledge_chunk storage |
 | `control_personal_memory` | `reachai-control-service` | - | Canonical personal long-term memory owned by (tenant, runtime user), layered as personal or per-project and grouped; shared across Agents and AI tools; physical delete |
 | `control_personal_memory_group` | `reachai-control-service` | - | Owner-defined personal memory groups under the personal layer or a project layer |
+| `control_personal_memory_identity_link` | `reachai-control-service` | - | Explicit cross-system memory identity relation and immutable account snapshots |
+| `control_personal_memory_identity_link_event` | `reachai-control-service` | - | Cross-system memory identity relation verification and revocation events |
+| `control_personal_memory_identity_challenge` | `reachai-control-service` | - | Short-lived one-time self-service identity confirmation hashes |
 | `control_personal_memory_outbox` | `reachai-control-service` | - | Transactional personal-memory projection outbox; Control canonical write boundary |
 | `control_memory_erasure_request` | `reachai-control-service` | - | Durable cross-domain Agent-memory erasure request, lease, retry, and aggregate completion state |
 | `control_memory_erasure_domain` | `reachai-control-service` | - | Per-domain automated/manual erasure evidence without object identifiers or content |

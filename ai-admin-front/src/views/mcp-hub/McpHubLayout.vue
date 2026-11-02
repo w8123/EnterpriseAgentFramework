@@ -62,6 +62,7 @@ watch(() => route.path, async (path, _previous, onCleanup) => {
           <span v-if="item.path === '/mcp-hub/write-approvals' && pendingCount" class="pending-count" :aria-label="`${pendingCount} 项待审批`">{{ pendingCount }}</span>
         </router-link>
       </LiquidGlassNav>
+      <div id="mcp-hub-actions" class="hub-actions" />
     </div>
 
     <router-view @pending-count="pendingCount = $event" @help="helpOpen = true" />
@@ -109,8 +110,20 @@ watch(() => route.path, async (path, _previous, onCleanup) => {
   }
 }
 
-.hub-navigation { display: flex; flex-wrap: wrap; align-items: center; gap: var(--layout-control-gap); }
+.hub-navigation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--layout-control-gap);
+}
 .hub-nav { margin-top: 0; }
+.hub-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--layout-control-gap);
+  margin-inline-start: auto;
+}
 .pending-count { color: var(--status-warning); font-size: 12px; font-weight: 700; }
 .hub-help { color: var(--text-secondary); line-height: 1.75; }
 .hub-help h3 { margin: 16px 0 4px; color: var(--text-primary); font-size: 14px; }

@@ -306,14 +306,7 @@ public class RuntimeWorkflowReadOnlyTrialService {
     }
 
     private static boolean validInput(Map<String, Object> params) {
-        if (params == null || params.size() > WorkflowReadOnlyTrialPolicy.MAX_INPUT_FIELDS) return false;
-        for (var entry : params.entrySet()) {
-            if (entry.getKey() == null || !entry.getKey().matches("[A-Za-z][A-Za-z0-9_.-]{0,127}")) return false;
-            Object value = entry.getValue();
-            if (value != null && !(value instanceof String || value instanceof Number || value instanceof Boolean)) return false;
-            if (value instanceof String text && text.length() > 2048) return false;
-        }
-        return true;
+        return WorkflowReadOnlyTrialPolicy.validInputParams(params);
     }
 
     private static String revision(LocalDateTime updatedAt) { return updatedAt == null ? null : updatedAt.toString(); }

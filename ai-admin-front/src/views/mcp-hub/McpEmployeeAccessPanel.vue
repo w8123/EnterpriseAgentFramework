@@ -22,7 +22,10 @@ const projects = ref<Array<{ id: number; code: string; name: string }>>([])
 const form = reactive({ enabled: false, projectCode: '', displayName: '', writeApprovalRequired: true })
 
 function extractErrorMessage(error: unknown): string {
-  const anyError = error as { response?: { data?: { message?: string; detail?: string } }; message?: string }
+  const anyError = error as { response?: { data?: { code?: string; message?: string; detail?: string } }; message?: string }
+  if (anyError?.response?.data?.code === 'MCP_EMPLOYEE_ACCESS_CONFLICT') {
+    return '该业务系统已关联其他 MCP 服务，关闭员工使用不会解除关联。请在原服务中调整能力并重新发布。'
+  }
   return anyError?.response?.data?.message
     || anyError?.response?.data?.detail
     || anyError?.message
@@ -128,7 +131,7 @@ onMounted(() => {
         >
           <el-option v-for="project in projects" :key="project.code" :label="`${project.name}（${project.code}）`" :value="project.code" />
         </el-select>
-        <small class="field-hint">每个业务系统可开通一个 MCP 服务，使用员工在该系统的身份。</small>
+        <small class="field-hint">每个业务系统关联一个 MCP 服务。关闭员工使用不会解除关联；需要调整能力时，请在原服务中修改并重新发布。</small>
       </el-form-item>
       <el-form-item label="员工看到的名称">
         <el-input v-model="form.displayName" maxlength="64" placeholder="例如 芋道 ERP" />

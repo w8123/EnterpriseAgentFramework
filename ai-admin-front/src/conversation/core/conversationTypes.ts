@@ -103,6 +103,7 @@ export interface ConversationInteractionBlock {
     values?: Record<string, unknown>
   }
   errorMessage?: string
+  retryable?: boolean
 }
 
 export interface ConversationPageActionBlock {
@@ -195,6 +196,7 @@ export interface ConversationSnapshot {
   turnStatus: ConversationTurnStatus
   messages: ConversationMessage[]
   error?: string | null
+  errorRetryable?: boolean
   metadata?: Record<string, unknown>
 }
 

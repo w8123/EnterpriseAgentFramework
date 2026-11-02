@@ -62,6 +62,29 @@ class AgentSkillCatalogServiceTest {
     @Autowired
     private AgentSkillCatalogService catalogService;
 
+    @Test
+    void employeePresentationFollowsPublishedVersionInsteadOfPendingImport() throws IOException {
+        var first = catalogService.importPackage(skillZip("version-presentation", "Original description.", "1.0.0"),
+                new ImportCommand("presentation-test", "1.0.0", "原名称", "PROJECT", "UPLOAD", "one.zip", "operator", 7L, "yudao"));
+        Long skillId = first.skill().id();
+        catalogService.review(skillId, first.version().id(), new ReviewCommand("APPROVE", null, null, "reviewer"));
+        catalogService.publish(skillId, first.version().id(), "operator");
+
+        var second = catalogService.importPackage(skillZip("version-presentation", "Updated description.", "1.0.1"),
+                new ImportCommand("presentation-test", "1.0.1", "新名称", "PROJECT", "UPLOAD", "two.zip", "operator", 7L, "yudao"));
+        assertEquals(skillId, second.skill().id());
+        assertEquals("新名称", second.version().displayNameSnapshot());
+        assertEquals("原名称", catalogService.detail(skillId).skill().displayName());
+        assertEquals("Original description.", catalogService.detail(skillId).skill().description());
+        catalogService.review(skillId, second.version().id(), new ReviewCommand("APPROVE", null, null, "reviewer"));
+        catalogService.publish(skillId, second.version().id(), "operator");
+        assertEquals("新名称", catalogService.detail(skillId).skill().displayName());
+        assertEquals("Updated description.", catalogService.detail(skillId).skill().description());
+        catalogService.revoke(skillId, second.version().id(), "operator");
+        assertEquals("原名称", catalogService.detail(skillId).skill().displayName());
+        assertEquals("Original description.", catalogService.detail(skillId).skill().description());
+    }
+
     @Autowired
     private com.enterprise.ai.control.mcp.application.port.McpPlatformSkillCatalogPort aiCatalog;
 

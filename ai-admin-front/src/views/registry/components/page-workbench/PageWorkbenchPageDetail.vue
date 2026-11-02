@@ -637,7 +637,7 @@ function openDiagnostics() {
 
 <template>
   <section class="page-access-detail-shell">
-    <header class="page-detail-workbench-header">
+    <header class="page-detail-workbench-header glass-surface-frost glass-workspace-adaptive">
       <button
         type="button"
         class="page-detail-back"
@@ -719,7 +719,7 @@ function openDiagnostics() {
       </div>
     </header>
 
-    <section v-if="journey" class="page-detail-stage-card">
+    <section v-if="journey" class="page-detail-stage-card glass-surface-frost glass-workspace-adaptive">
       <nav
         class="page-detail-capability-summary"
         aria-label="页面接入流程"

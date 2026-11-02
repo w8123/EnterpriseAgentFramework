@@ -25,7 +25,7 @@
 
       <template v-else>
         <p class="employee-portal__intro">
-          把 Claude Code、Codex 等 AI 工具接进来，让它以你的身份查询和办理业务。它只能做你在业务系统里本来就有权限做的事，写操作要先经过审批。
+          把 Claude Code、Codex 等 AI 工具接进来，让它以你的身份使用已开放的业务能力；业务写操作按管理员设置审批。连接还允许 AI 工具读取、保存和删除你的个人记忆；连接时会发送你的相关偏好，记忆操作不经过业务写审批。
         </p>
 
         <AiAccessStatusBar :items="statusItems" />
@@ -135,7 +135,9 @@
         </LiquidGlassCard>
 
         <LiquidGlassCard v-if="tab === 'memories'" class="employee-portal__card" data-testid="portal-memories">
-          <MemoryWorkspace :api="memoryApi" />
+          <MemoryWorkspace :api="memoryApi" system-scoped />
+          <MemoryIdentityBinding :api="memoryIdentityApi" @linked="sharedMemoryPanel?.loadSystems()" />
+          <SharedMemoryPanel ref="sharedMemoryPanel" :api="sharedMemoryApi" :identity-api="memoryIdentityApi" />
         </LiquidGlassCard>
       </template>
     </div>
@@ -146,7 +148,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassEmptyState } from '@/components/common/liquid-glass'
 import MemoryWorkspace from '@/components/memory/MemoryWorkspace.vue'
-import { portalMemoryApi } from '@/api/memory'
+import SharedMemoryPanel from '@/components/memory/SharedMemoryPanel.vue'
+import MemoryIdentityBinding from '@/components/memory/MemoryIdentityBinding.vue'
+import { portalMemoryApi, portalSharedMemoryApi, portalMemoryIdentityApi } from '@/api/memory'
 import EmployeeAssistant from './portal/EmployeeAssistant.vue'
 import AiAccessStatusBar from '@/components/ai-access/AiAccessStatusBar.vue'
 import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
@@ -349,6 +353,9 @@ function getToken() {
 }
 
 const memoryApi = portalMemoryApi(getToken, API)
+const sharedMemoryApi = portalSharedMemoryApi(getToken, API)
+const memoryIdentityApi = portalMemoryIdentityApi(getToken, API)
+const sharedMemoryPanel = ref<InstanceType<typeof SharedMemoryPanel> | null>(null)
 
 function signedOut(reason = '') {
   token = ''

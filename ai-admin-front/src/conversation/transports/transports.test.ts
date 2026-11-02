@@ -110,6 +110,59 @@ describe('createAgentDebugTransport', () => {
 describe('createEmbedTransport', () => {
   const originalFetch = globalThis.fetch
 
+  it.each(['network', 'http', 'eof', 'broken'])('reports an unconfirmed outcome without resending after %s', async (mode) => {
+    const encoder = new TextEncoder()
+    const fetchImpl = vi.fn(async () => {
+      if (mode === 'network') throw new TypeError('network failed')
+      if (mode === 'http') return new Response(null, { status: 503 })
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('event: message.delta\ndata: {"text":"partial"}\n\n'))
+          if (mode === 'broken') controller.error(new TypeError('connection lost'))
+          else controller.close()
+        },
+      })
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    const transport = createEmbedTransport({
+      apiBase: 'http://localhost/embed', tokenProvider: () => 'tok',
+      getSessionId: () => 'existing', setSessionId: () => {}, fetchImpl,
+    })
+    const events = []
+    for await (const event of transport.startTurn({ message: 'write' })) events.push(event)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(events[events.length - 1]?.type).toBe('turn.failed')
+    expect(events[events.length - 1]?.data).toMatchObject({ code: 'EMBED_OUTCOME_UNCONFIRMED' })
+    transport.dispose()
+  })
+
+  it('reports an unconfirmed outcome for a failed JSON interaction submission', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 503 }))
+    const transport = createEmbedTransport({
+      apiBase: 'http://localhost/embed', tokenProvider: () => 'tok', preferStream: false,
+      getSessionId: () => 'existing', setSessionId: () => {}, fetchImpl,
+    })
+    const events = []
+    for await (const event of transport.resumeInteraction!('ix', 'confirm', {})) events.push(event)
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(events[events.length - 1]?.data).toMatchObject({ code: 'EMBED_OUTCOME_UNCONFIRMED' })
+    transport.dispose()
+  })
+
+  it('does not treat malformed JSON from an execution as a successful answer', async () => {
+    const fetchImpl = vi.fn(async () => new Response('{broken', { status: 200 }))
+    const transport = createEmbedTransport({
+      apiBase: 'http://localhost/embed', tokenProvider: () => 'tok', preferStream: false,
+      getSessionId: () => 'existing', setSessionId: () => {}, fetchImpl,
+    })
+    const events = []
+    for await (const event of transport.startTurn({ message: 'write' })) events.push(event)
+    expect(events[events.length - 1]?.type).toBe('turn.failed')
+    expect(events[events.length - 1]?.data).toMatchObject({ code: 'EMBED_OUTCOME_UNCONFIRMED' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    transport.dispose()
+  })
+
   beforeEach(() => {
     globalThis.fetch = vi.fn()
     vi.useFakeTimers()

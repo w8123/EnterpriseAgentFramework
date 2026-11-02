@@ -221,6 +221,7 @@ function tokenHttpStatus(error: unknown): number | undefined {
   if (!error || typeof error !== 'object') return undefined
   const value = (error as { httpStatus?: unknown; status?: unknown }).httpStatus
     ?? (error as { status?: unknown }).status
+    ?? (error as { response?: { status?: unknown } }).response?.status
   const status = Number(value)
   return Number.isFinite(status) && status > 0 ? status : undefined
 }
@@ -242,7 +243,7 @@ function tokenError(
 }
 
 function normalizeTokenError(error: unknown): Error & EafChatError {
-  if (error && typeof error === 'object' && (error as EafChatError).code) {
+  if (error && typeof error === 'object' && (error as EafChatError).code && (error as EafChatError).phase === 'token') {
     return error as Error & EafChatError
   }
   const status = tokenHttpStatus(error)
@@ -252,6 +253,16 @@ function normalizeTokenError(error: unknown): Error & EafChatError {
       props.locale === 'en-US'
         ? 'Authentication expired. Sign in again and retry.'
         : '身份认证已失效，请重新登录后重试',
+      error,
+      status,
+    )
+  }
+  if (status === 403) {
+    return tokenError(
+      'TOKEN_PROVIDER_FORBIDDEN',
+      props.locale === 'en-US'
+        ? 'This page cannot access the assistant. Ask your administrator to check access and embed settings.'
+        : '当前页面无法访问该助手，请联系管理员检查权限与接入设置',
       error,
       status,
     )
@@ -266,7 +277,7 @@ function normalizeTokenError(error: unknown): Error & EafChatError {
       status,
     )
   }
-  if (error instanceof TypeError) {
+  if (error instanceof TypeError || (error && typeof error === 'object' && (error as { code?: string }).code === 'ERR_NETWORK')) {
     return tokenError(
       'TOKEN_PROVIDER_NETWORK_ERROR',
       props.locale === 'en-US'
@@ -275,6 +286,10 @@ function normalizeTokenError(error: unknown): Error & EafChatError {
       error,
       status,
     )
+  }
+  const code = error && typeof error === 'object' ? (error as { code?: unknown }).code : undefined
+  if (typeof code === 'string' && !code.startsWith('ERR_') && code !== 'ECONNABORTED') {
+    return error as Error & EafChatError
   }
   return tokenError(
     'TOKEN_PROVIDER_FAILED',

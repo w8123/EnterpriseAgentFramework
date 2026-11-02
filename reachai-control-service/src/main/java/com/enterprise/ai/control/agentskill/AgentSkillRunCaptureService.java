@@ -212,7 +212,7 @@ public class AgentSkillRunCaptureService {
             warnings.add("已跳过 " + skipped + " 条失败的调用。");
         }
         String ref = "mcp-calls:" + String.join(",", distinct.stream().map(String::valueOf).toList());
-        return new Collected(projects.iterator().next(), projectId, calls, warnings, trim(ref, 512), null);
+        return new Collected(projects.iterator().next(), projectId, calls, warnings, trim(ref, 512));
     }
 
     private Collected collectRun(String traceId) {
@@ -248,7 +248,7 @@ public class AgentSkillRunCaptureService {
         if (skipped > 0) {
             warnings.add("已跳过 " + skipped + " 条失败的调用。");
         }
-        return new Collected(projectCode.trim(), longValue(summary.get("projectId")), calls, warnings, "trace:" + id, trim(text(summary.get("inputSummary")), 200));
+        return new Collected(projectCode.trim(), longValue(summary.get("projectId")), calls, warnings, "trace:" + id);
     }
 
     // ---- building the draft -----------------------------------------------------------------
@@ -374,9 +374,6 @@ public class AgentSkillRunCaptureService {
                 .append("# ").append(displayName).append("\n\n")
                 .append("这份做法整理自员工在").append(systemName).append("的真实操作记录（")
                 .append(LocalDate.now()).append("，由 ReachAI 生成）。\n\n");
-        if (collected.exampleRequest() != null) {
-            md.append("用户当时的说法：").append(collected.exampleRequest()).append("\n\n");
-        }
         md.append("## 使用前提\n\n")
                 .append("- 已在").append(systemName).append("的「在我的 AI 工具中使用」里生成连接，并把它加到了当前 AI 工具。\n")
                 .append("- 所有调用都以员工本人的身份执行，权限和员工在系统里一样；没有权限时如实告诉用户。\n\n")
@@ -427,9 +424,6 @@ public class AgentSkillRunCaptureService {
             text.append("；");
         }
         text.append("参数从用户输入里取，最后把结果整理成一句话回复用户。");
-        if (collected.exampleRequest() != null) {
-            text.append("示例输入：").append(collected.exampleRequest());
-        }
         return text.toString();
     }
 
@@ -594,7 +588,7 @@ public class AgentSkillRunCaptureService {
     }
 
     record Collected(String projectCode, Long projectId, List<RecordedCall> calls, List<String> warnings,
-                     String sourceRef, String exampleRequest) {
+                     String sourceRef) {
     }
 
     public record PreviewRequest(String source, List<Long> callLogIds, String traceId, String goal) {

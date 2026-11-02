@@ -224,15 +224,11 @@ public class ControlWorkflowReadOnlyTrialController {
     }
 
     private static Map<String, Object> inputParams(Object raw) {
-        if (!(raw instanceof Map<?, ?> values) || values.size() > WorkflowReadOnlyTrialPolicy.MAX_INPUT_FIELDS) return null;
+        if (!WorkflowReadOnlyTrialPolicy.validInputParams(raw)) return null;
+        Map<?, ?> values = (Map<?, ?>) raw;
         Map<String, Object> safe = new LinkedHashMap<>();
         for (var entry : values.entrySet()) {
-            if (!(entry.getKey() instanceof String name)
-                    || !name.matches("[A-Za-z][A-Za-z0-9_.-]{0,127}")) return null;
-            Object value = entry.getValue();
-            if (value != null && !(value instanceof String || value instanceof Number || value instanceof Boolean)) return null;
-            if (value instanceof String text && text.length() > 2048) return null;
-            safe.put(name, value);
+            safe.put((String) entry.getKey(), entry.getValue());
         }
         return safe;
     }

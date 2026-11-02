@@ -31,6 +31,7 @@ export interface AgentSkillVersion {
   id: number
   skillId: number
   version: string
+  displayNameSnapshot?: string | null
   status: AgentSkillVersionStatus
   sourceType: 'UPLOAD' | 'GIT' | 'MARKET' | 'BUILTIN' | 'RUN_CAPTURE' | string
   sourceRef?: string | null

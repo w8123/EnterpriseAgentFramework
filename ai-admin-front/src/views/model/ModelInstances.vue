@@ -13,7 +13,6 @@ import {
   Setting,
 } from '@element-plus/icons-vue'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
-import MetricStrip from '@/components/common/MetricStrip.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import {
   LiquidGlassButton,
@@ -25,7 +24,6 @@ import {
   LiquidGlassSelect,
   LiquidGlassTable,
 } from '@/components/common/liquid-glass'
-import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import {
   getModelInstances,
   testModelInstance,
@@ -39,7 +37,6 @@ import ModelCatalogSettingsDialog from './components/ModelCatalogSettingsDialog.
 import ModelOnboardingDialog from './components/ModelOnboardingDialog.vue'
 import {
   buildStatusUpdateRequest,
-  computeModelCenterMetrics,
   filterModelInstances,
   modelTestFailureHint,
   normalizeListPayload,
@@ -86,14 +83,6 @@ const {
   rootSelector: '.model-center',
 })
 
-const metrics = computed(() => computeModelCenterMetrics(instances.value))
-
-const metricItems = computed<MetricStripItem[]>(() => [
-  { key: 'connected', label: '已接入', value: metrics.value.connected, tone: 'brand' },
-  { key: 'active', label: '启用中', value: metrics.value.active, tone: 'success' },
-  { key: 'disabled', label: '已停用', value: metrics.value.disabled, tone: 'warning' },
-  { key: 'failed', label: '测试异常', value: metrics.value.testFailed, tone: 'danger' },
-])
 
 const providerOptions = computed(() => uniqueProviders(instances.value))
 
@@ -126,8 +115,12 @@ const filteredInstances = computed(() =>
   }),
 )
 
+const hasConnectedInstances = computed(() =>
+  instances.value.some((item) => item.status !== 'ARCHIVED'),
+)
+
 const showEmptySystem = computed(
-  () => !loading.value && metrics.value.connected === 0 && filters.runtimeStatus === 'current',
+  () => !loading.value && !hasConnectedInstances.value && filters.runtimeStatus === 'current',
 )
 const showEmptyFilter = computed(
   () => !loading.value && !showEmptySystem.value && filteredInstances.value.length === 0,
@@ -261,9 +254,6 @@ onMounted(loadInstances)
         description="接入和验证模型，配置对话、向量检索与重排服务。"
         :collapsed="isModelHeaderCollapsed"
       >
-        <template #meta>
-          <MetricStrip class="model-metric-strip" presentation="inline" source="wallpaper" :items="metricItems" aria-label="模型中心运营指标" />
-        </template>
         <template #actions>
           <LiquidGlassButton source="wallpaper" :icon="Refresh" :loading="loading" @click="loadInstances">刷新</LiquidGlassButton>
           <LiquidGlassButton v-if="canManageModels" source="wallpaper" :icon="Setting" @click="catalogSettingsVisible = true">目录设置</LiquidGlassButton>

@@ -216,7 +216,7 @@ public class CapabilityToolExecutionService {
                 || ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(tool, METADATA_MAPPER)) {
             throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
                     com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
-                    "该业务方法要求业务用户身份，控制台试调用不会转发平台身份");
+                    "该业务方法要求真实业务用户身份。请发布并绑定助手，再从业务系统以员工身份打开嵌入对话进行验证");
         }
         Map<String, Object> context = mapValue(request == null ? null : request.get("context"));
         if (context != null && !context.isEmpty()) {
@@ -278,7 +278,7 @@ public class CapabilityToolExecutionService {
         if (ConsoleBusinessMethodDeclaration.requiresBusinessIdentity(tool, METADATA_MAPPER)) {
             throw new CapabilityInvocationPolicyException("CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
                     com.enterprise.ai.common.capability.CapabilityInvocationFailureCategory.IDENTITY_REQUIRED,
-                    "业务方法要求业务用户身份，项目测试身份不可调用");
+                    "业务方法要求真实业务用户身份。请发布并绑定助手，再从业务系统以员工身份打开嵌入对话进行验证");
         }
         if (registrySecurityService == null || registrySecurityService.findPrimaryActiveCredential(tool.getProjectCode())
                 .filter(credential -> StringUtils.hasText(credential.getAppKey()) && StringUtils.hasText(credential.getAppSecret())).isEmpty()) {

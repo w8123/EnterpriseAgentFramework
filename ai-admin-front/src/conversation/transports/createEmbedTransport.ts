@@ -67,6 +67,31 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     return error
   }
 
+  function unconfirmed(sessionId: string): ConversationEventEnvelope {
+    const message = '操作结果尚未确认，请先核对业务记录，避免重复提交。'
+    return createEvent('turn.failed', { code: 'EMBED_OUTCOME_UNCONFIRMED', message }, { sessionId })
+  }
+
+  async function executionFetch(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response | null> {
+    try {
+      return await authorizedFetch(url, init, signal)
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) throw error
+      return null
+    }
+  }
+
+  async function executionPayload(response: Response): Promise<Record<string, unknown> | null> {
+    const payload: unknown = await response.json().catch(() => null)
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+    const envelope = payload as Record<string, unknown>
+    if (typeof envelope.code === 'number' && envelope.code !== 200) return null
+    const data = 'data' in envelope ? envelope.data : envelope
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null
+    const result = data as Record<string, unknown>
+    return 'answer' in result || 'uiRequest' in result ? result : null
+  }
+
   /**
    * 会话唯一所有者入口：并发调用共享同一个 create Promise。
    */
@@ -111,12 +136,21 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     signal?: AbortSignal,
   ): AsyncIterable<ConversationEventEnvelope> {
     if (!response.body) throw new Error('Embed stream has no body')
-    for await (const frame of parseSseStream(response.body, { signal })) {
-      const adapted = adaptEmbedEvent(frame.event, frame.data, { sessionId })
-      for (const event of expandEmbedAdapted(adapted)) {
-        yield event
+    let terminal = false
+    try {
+      for await (const frame of parseSseStream(response.body, { signal })) {
+        const adapted = adaptEmbedEvent(frame.event, frame.data, { sessionId })
+        for (const event of expandEmbedAdapted(adapted)) {
+          if (['turn.completed', 'turn.waiting', 'turn.failed', 'turn.cancelled'].includes(event.type)) terminal = true
+          yield event
+        }
       }
+    } catch (error) {
+      if (isAbortError(error) || signal?.aborted) throw error
+      if (!terminal) yield unconfirmed(sessionId)
+      return
     }
+    if (!terminal) yield unconfirmed(sessionId)
   }
 
   function* eventsFromJsonPayload(
@@ -161,7 +195,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
   ): AsyncIterable<ConversationEventEnvelope> {
     const path = options.messagesJsonPath?.(sessionId)
       || `/chat/sessions/${encodeURIComponent(sessionId)}/messages`
-    const response = await authorizedFetch(resolveUrl(path), {
+    const response = await executionFetch(resolveUrl(path), {
       method: 'POST',
       body: JSON.stringify({
         message: input.message,
@@ -170,16 +204,18 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         uiSubmit: input.uiSubmit,
       }),
     }, signal)
+    if (!response) { yield unconfirmed(sessionId); return }
     if (response.status === 401 && allowSessionRecovery) {
       const nextSessionId = await recreateSession(signal)
       yield* startTurnJson(nextSessionId, input, signal, false)
       return
     }
     if (!response.ok) {
+      if (response.status >= 500) { yield unconfirmed(sessionId); return }
       throw httpError('Embed message failed', response.status)
     }
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>
-    const data = (payload.data && typeof payload.data === 'object' ? payload.data : payload) as Record<string, unknown>
+    const data = await executionPayload(response)
+    if (!data) { yield unconfirmed(sessionId); return }
     yield* eventsFromJsonPayload(data, sessionId)
   }
 
@@ -191,7 +227,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
   ): AsyncIterable<ConversationEventEnvelope> {
     const path = options.messagesPath?.(sessionId)
       || `/chat/sessions/${encodeURIComponent(sessionId)}/messages/stream`
-    const response = await authorizedFetch(resolveUrl(path), {
+    const response = await executionFetch(resolveUrl(path), {
       method: 'POST',
       headers: { Accept: 'text/event-stream' },
       body: JSON.stringify({
@@ -201,6 +237,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         uiSubmit: input.uiSubmit,
       }),
     }, signal)
+    if (!response) { yield unconfirmed(sessionId); return }
 
     if (response.status === 401 && allowSessionRecovery) {
       const nextSessionId = await recreateSession(signal)
@@ -218,6 +255,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         yield* startTurnJson(sessionId, input, signal, allowSessionRecovery)
         return
       }
+      if (response.status >= 500 || response.ok) { yield unconfirmed(sessionId); return }
       throw httpError('Embed stream failed', response.status)
     }
 
@@ -266,7 +304,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
   ): AsyncIterable<ConversationEventEnvelope> {
     const jsonPath = options.interactionSubmitPath?.(sessionId, interactionId)
       || `/chat/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/submit`
-    const response = await authorizedFetch(resolveUrl(jsonPath), {
+    const response = await executionFetch(resolveUrl(jsonPath), {
       method: 'POST',
       body: JSON.stringify({
         action,
@@ -276,12 +314,15 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
       }),
     }, signal)
 
+    if (!response) { yield unconfirmed(sessionId); return }
+
     if (!response.ok) {
+      if (response.status >= 500) { yield unconfirmed(sessionId); return }
       throw httpError('Embed interaction submit failed', response.status)
     }
 
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>
-    const data = (payload.data && typeof payload.data === 'object' ? payload.data : payload) as Record<string, unknown>
+    const data = await executionPayload(response)
+    if (!data) { yield unconfirmed(sessionId); return }
     yield* eventsFromJsonPayload(data, sessionId)
   }
 
@@ -308,7 +349,7 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
 
     let eventsConsumed = false
     try {
-      const response = await authorizedFetch(resolveUrl(streamPath), {
+      const response = await executionFetch(resolveUrl(streamPath), {
         method: 'POST',
         headers: { Accept: 'text/event-stream' },
         body: JSON.stringify({
@@ -318,6 +359,8 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
           context: options.getContext?.(),
         }),
       }, signal)
+
+      if (!response) { yield unconfirmed(sessionId); return }
 
       const contentType = response.headers.get('content-type') || ''
       if (response.ok && response.body && contentType.includes('text/event-stream')) {
@@ -335,6 +378,8 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
         yield* resumeInteractionJson(sessionId, interactionId, action, values, idempotencyKey, signal)
         return
       }
+
+      if (response.status >= 500 || response.ok) { yield unconfirmed(sessionId); return }
 
       throw httpError('Embed interaction stream failed', response.status)
     } catch (error) {

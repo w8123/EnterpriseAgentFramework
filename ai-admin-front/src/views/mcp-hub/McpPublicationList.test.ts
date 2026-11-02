@@ -107,4 +107,28 @@ describe('MCP 服务创建与配置', () => {
     expect(wrapper.text()).toContain('管理员发布的服务会显示在这里')
     expect(wrapper.findAll('button').some(button => button.text() === '新建 MCP 服务')).toBe(false)
   })
+
+  it('当存在 #mcp-hub-actions 时传送至 Tab 栏右侧，新建与说明可正常交互', async () => {
+    const host = document.createElement('div')
+    host.id = 'mcp-hub-actions'
+    document.body.appendChild(host)
+    try {
+      const wrapper = mountList()
+      await flushPromises()
+      expect(host.textContent).toContain('新建 MCP 服务')
+
+      const buttons = host.querySelectorAll('button')
+      // 帮助按钮
+      buttons[0]?.click()
+      await flushPromises()
+      expect(wrapper.emitted('help')).toBeTruthy()
+
+      // 新建按钮
+      buttons[1]?.click()
+      await flushPromises()
+      expect(wrapper.find('.dialog').exists()).toBe(true)
+    } finally {
+      host.remove()
+    }
+  })
 })

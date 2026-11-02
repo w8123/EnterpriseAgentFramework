@@ -178,7 +178,7 @@ export function debugWorkflowRun(data: WorkflowDebugRunRequest) {
 export function runWorkflowReadOnlyTrial(data: {
   workflowId: string
   expectedRevision: string
-  inputParams: Record<string, string | number | boolean>
+  inputParams: Record<string, unknown>
   message?: string
 }) {
   // 整稿试运行服务端上限 120s（WorkflowReadOnlyTrialPolicy.MAX_DURATION_MS），客户端多留 10s 余量。

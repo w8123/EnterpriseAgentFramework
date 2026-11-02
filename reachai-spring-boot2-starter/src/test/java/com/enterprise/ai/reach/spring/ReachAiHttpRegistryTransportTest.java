@@ -21,6 +21,27 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ReachAiHttpRegistryTransportTest {
 
     @Test
+    void retainsDenialStatusWithoutReadingTheResponseBody() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/denied", exchange -> {
+            byte[] body = "private upstream details".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(403, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            ReachAiRegistryHttpException failure = assertThrows(ReachAiRegistryHttpException.class,
+                    () -> new ReachAiHttpRegistryTransport().exchange("GET",
+                            "http://127.0.0.1:" + server.getAddress().getPort() + "/denied", Collections.emptyMap(), null));
+            assertEquals(403, failure.getStatus());
+            assertFalse(failure.getMessage().contains("private"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void doesNotExposeErrorResponseBodies() throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/error", exchange -> {

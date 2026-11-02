@@ -1203,14 +1203,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             code = PLAN_INCOMPLETE_CODE;
             answer = PLAN_INCOMPLETE_MESSAGE;
         }
-        if (state.unconfirmedHttpApiWrite) {
+        if (state.unconfirmedOutcomeCode != null) {
             success = false;
-            code = "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED";
+            code = state.unconfirmedOutcomeCode;
             answer = "写入结果未确认，请核对业务记录；本次运行不会自动重发。";
         }
         Map<String, Object> metadata = new LinkedHashMap<>();
         metadata.put("runtimeType", "AGENTSCOPE");
-        if (state.unconfirmedHttpApiWrite) {
+        if (state.unconfirmedOutcomeCode != null) {
             metadata.put("outcomeClass", "UNKNOWN");
             metadata.put("businessOutcome", "UNCONFIRMED");
         }
@@ -1406,7 +1406,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile String knowledgeNoEvidenceCandidate;
         private volatile String knowledgeUnavailableCandidate;
         private volatile String deterministicKnowledgeAnswer;
-        private volatile boolean unconfirmedHttpApiWrite;
+        private volatile String unconfirmedOutcomeCode;
         private String approvalResultHint;
         private boolean approvalConsumed;
         /** DIRECT | PLANNED | WORKFLOW — 不得把 implicit audit 算作主动规划。 */
@@ -1641,7 +1641,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     ? "An execution tool was requested before a plan was recorded"
                     : executionPlan.finalAnswerBlockReason();
         }
-        private String reservePlannedWorkflow(String toolName) { return executionPlan.reserve(toolName); }
+        private String reservePlannedWorkflow(String toolName) {
+            if (unconfirmedOutcomeCode != null) return "An operation outcome is unconfirmed; do not execute more tools in this run";
+            return executionPlan.reserve(toolName);
+        }
+        private ToolResultBlock unconfirmedOutcomeError() {
+            return ToolResultBlock.error("An operation outcome is unconfirmed; do not execute more tools in this run");
+        }
         private void releasePlannedWorkflow(String toolName) { executionPlan.release(toolName); }
         private void completePlannedWorkflow(String toolName) { executionPlan.complete(toolName); }
 
@@ -1690,6 +1696,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private Mono<ToolResultBlock> executeManagedExecutor(
                 String toolName,
                 Map<String, Object> args) {
+            if (unconfirmedOutcomeCode != null) return Mono.just(unconfirmedOutcomeError());
             if (confirmationPending()) {
                 return Mono.just(ToolResultBlock.error(
                         "An execution tool is waiting for user confirmation; do not call another tool"));
@@ -1743,6 +1750,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 int callNo,
                 String toolName,
                 Map<String, Object> args) {
+            if (unconfirmedOutcomeCode != null) return unconfirmedOutcomeError();
             long started = System.nanoTime();
             String stepId = "managed-executor-" + callNo;
             String title = ManagedExecutorAgentDelegationService.START_TOOL.equals(toolName)
@@ -1817,6 +1825,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private Mono<ToolResultBlock> executeRemoteAgent(
                 RemoteAgentBinding binding,
                 Map<String, Object> args) {
+            if (unconfirmedOutcomeCode != null) return Mono.just(unconfirmedOutcomeError());
             if (confirmationPending()) {
                 return Mono.just(ToolResultBlock.error(
                         "An execution tool is waiting for user confirmation; do not call another tool"));
@@ -1898,6 +1907,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 int callNo,
                 RemoteAgentBinding binding,
                 Map<String, Object> args) {
+            if (unconfirmedOutcomeCode != null) return unconfirmedOutcomeError();
             String toolName = binding.getToolName();
             long started = System.nanoTime();
             String stepId = "a2a-" + callNo;
@@ -2002,6 +2012,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private Mono<ToolResultBlock> executeWorkflow(RuntimeAgentWorkflowToolSnapshot tool,
                                                       RuntimeResolvedWorkflowTarget target,
                                                       Map<String, Object> args) {
+            if (unconfirmedOutcomeCode != null) return Mono.just(unconfirmedOutcomeError());
             if (confirmationPending()) {
                 return Mono.just(ToolResultBlock.error(
                         "A Workflow tool is waiting for user confirmation; do not call another tool"));
@@ -2113,6 +2124,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                             RuntimeResolvedWorkflowTarget target,
                                             Map<String, Object> args,
                                             SupervisorWorkflowExecutionScope scope) {
+            if (unconfirmedOutcomeCode != null) return unconfirmedOutcomeError();
             RuntimeGraphSpecExecutionCancellation workflowCancel = scope.cancellation();
             activeWorkflowCancellations.add(workflowCancel);
             try {
@@ -2183,7 +2195,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         workflowCancel,
                         identity,
                         request.evalContext());
-                if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(result.code())) unconfirmedHttpApiWrite = true;
+                if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(result.code())
+                        || "PAGE_BRIDGE_RESULT_UNCONFIRMED".equals(result.code())) {
+                    unconfirmedOutcomeCode = result.code();
+                }
                 scope.throwIfCancelled();
                 if ("RUNTIME_GRAPH_CANCELLED".equals(result.code()) || workflowCancel.isCancelled()) {
                     phases.emit(workflowStepId, "workflow", "cancelled", "workflow_runtime",

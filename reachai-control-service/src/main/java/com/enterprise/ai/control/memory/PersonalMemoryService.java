@@ -101,12 +101,24 @@ public class PersonalMemoryService {
     @Transactional(readOnly = true)
     public MemoryPage list(PersonalMemoryPrincipal principal, String scope, Long groupId, String agentId,
                            String keyword, Integer limit, Integer offset) {
+        return listScoped(principal, scope, groupId, agentId, keyword, limit, offset, false);
+    }
+
+    /** A shared view excludes any row whose project metadata contradicts the personal layer. */
+    @Transactional(readOnly = true)
+    public MemoryPage listPersonalForSharing(PersonalMemoryPrincipal principal, String keyword, Integer limit, Integer offset) {
+        return listScoped(principal, PersonalMemoryScope.PERSONAL_KEY, null, null, keyword, limit, offset, true);
+    }
+
+    private MemoryPage listScoped(PersonalMemoryPrincipal principal, String scope, Long groupId, String agentId,
+                                  String keyword, Integer limit, Integer offset, boolean strictPersonal) {
         int boundedLimit = Math.max(1, Math.min(limit == null ? 50 : limit, 200));
         int boundedOffset = Math.max(0, offset == null ? 0 : offset);
         PersonalMemoryScope layer = PersonalMemoryScope.parseFilter(scope);
         String word = trim(keyword);
         var query = owned(principal)
                 .eq(layer != null, PersonalMemoryEntity::getScopeKey, layer == null ? null : layer.key())
+                .isNull(strictPersonal, PersonalMemoryEntity::getProjectCode)
                 .eq(groupId != null, PersonalMemoryEntity::getGroupId, groupId)
                 .eq(StringUtils.hasText(agentId), PersonalMemoryEntity::getSourceAgentId, trim(agentId))
                 .and(word != null, q -> q.like(PersonalMemoryEntity::getTitle, word)
@@ -222,6 +234,13 @@ public class PersonalMemoryService {
         return view(requireOwned(principal, id, false));
     }
 
+    /** Internal ownership probe for choosing a deletion path; never grants access on its own. */
+    @Transactional(readOnly = true)
+    public boolean isOwnedBy(PersonalMemoryPrincipal principal, Long id) {
+        PersonalMemoryEntity memory = id == null ? null : memoryMapper.selectById(id);
+        return memory != null && owns(memory, principal);
+    }
+
     /** Edits a memory; a new {@code groupId} moves it, possibly into another layer. */
     @Transactional
     public MemoryView update(PersonalMemoryPrincipal principal, Long id, UpdateCommand command) {
@@ -229,6 +248,21 @@ public class PersonalMemoryService {
             throw badRequest("personal memory update is required");
         }
         PersonalMemoryEntity memory = requireOwned(principal, id, true);
+        return updateLocked(principal, memory, command);
+    }
+
+    /** Update a linked owner's personal-layer item without allowing a move between groups. */
+    @Transactional
+    public MemoryView updatePersonalOnly(PersonalMemoryPrincipal principal, Long id, UpdateCommand command) {
+        if (command == null || command.groupId() != null) throw badRequest("shared memory cannot be moved to another group");
+        PersonalMemoryEntity memory = requireOwned(principal, id, true);
+        if (StringUtils.hasText(memory.getProjectCode()) || !PersonalMemoryScope.PERSONAL_KEY.equals(memory.getScopeKey())) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "personal memory not found");
+        }
+        return updateLocked(principal, memory, command);
+    }
+
+    private MemoryView updateLocked(PersonalMemoryPrincipal principal, PersonalMemoryEntity memory, UpdateCommand command) {
         if (command.type() != null) memory.setMemoryType(validatedType(command.type()));
         if (command.groupId() != null && !command.groupId().equals(memory.getGroupId())) {
             PersonalMemoryGroupEntity group = groupService.target(principal, PersonalMemoryScope.PERSONAL,
@@ -255,6 +289,23 @@ public class PersonalMemoryService {
     @Transactional
     public ForgetView forget(PersonalMemoryPrincipal principal, Long id) {
         PersonalMemoryEntity memory = requireOwned(principal, id, true);
+        LocalDateTime now = LocalDateTime.now();
+        delete(principal, memory, null);
+        return new ForgetView(id, now);
+    }
+
+    /** Delete through a scoped connection; inspect the current layer while holding the row lock. */
+    @Transactional
+    public ForgetView forgetInProjects(PersonalMemoryPrincipal principal, Long id, Set<String> allowedProjects) {
+        PersonalMemoryEntity memory = requireOwned(principal, id, true);
+        boolean personal = !StringUtils.hasText(memory.getProjectCode())
+                && PersonalMemoryScope.PERSONAL_KEY.equals(memory.getScopeKey());
+        boolean allowedProject = StringUtils.hasText(memory.getProjectCode())
+                && ("project:" + memory.getProjectCode()).equals(memory.getScopeKey())
+                && allowedProjects != null && allowedProjects.contains(memory.getProjectCode());
+        if (!personal && !allowedProject) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "personal memory not found");
+        }
         LocalDateTime now = LocalDateTime.now();
         delete(principal, memory, null);
         return new ForgetView(id, now);
@@ -628,7 +679,22 @@ public class PersonalMemoryService {
             if (title.contains(token)) score += 1.5;
             if (content.contains(token)) score += 1;
         }
+        // Chinese questions normally have no spaces between words. A short shared phrase
+        // lets a note match a natural sentence without treating every shared character as relevant.
+        if (hasSharedChinesePhrase(normalizedQuery, title, content)) score += 1;
         return score;
+    }
+
+    private static boolean hasSharedChinesePhrase(String query, String title, String content) {
+        int[] characters = query.codePoints().toArray();
+        for (int i = 0; i + 2 < characters.length; i++) {
+            if (Character.UnicodeScript.of(characters[i]) != Character.UnicodeScript.HAN
+                    || Character.UnicodeScript.of(characters[i + 1]) != Character.UnicodeScript.HAN
+                    || Character.UnicodeScript.of(characters[i + 2]) != Character.UnicodeScript.HAN) continue;
+            String phrase = new String(characters, i, 3);
+            if (title.contains(phrase) || content.contains(phrase)) return true;
+        }
+        return false;
     }
 
     private static double profileIntentScore(String semanticKey, String query) {

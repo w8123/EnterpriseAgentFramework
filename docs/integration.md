@@ -63,6 +63,8 @@ Registry 心跳、下线和同步回调按项目签名；来源可发现不代�
 
 Embed Token、会话、项目、用户与 Origin 必须一致。Starter 的令牌交换以项目凭据签名完整请求正文并防重放；Control、Capability 和 Starter 需要一起升级，旧版仅签名项目标识的令牌交换请求会被拒绝。业务身份中的 `attributes.tenantId` 由业务后端从已验证登录态提供，未提供时使用 `default`；浏览器请求体不能指定可信身份。页面注册使用 Embed Token。跨页面动作遵循 `NAVIGATE → TARGET_READY → PAGE_ACTION`，只在目标页面就绪后执行；动作要求确认时，跳转和目标动作分别需要用户确认，取消或超时不会继续执行后续阶段。
 
+页面动作认领后的超时、执行异常或服务间连接中断可能发生在业务操作已开始之后。此时返回 `PAGE_BRIDGE_RESULT_UNCONFIRMED`，助手应先提示用户核对业务记录；本次运行不再发起新的执行工具调用，已经并发开始的调用仍需核对。认领前由 Control 确认的超时仍表示业务动作未开始。
+
 Starter 的平台注册地址应直接指向目标服务，不能依靠 HTTP 重定向；带项目签名的请求遇到重定向时会失败，避免将请求凭据发送到其他地址。Starter 接收的单次响应上限为 8 MiB；HTTP 错误只保留状态码，不记录上游错误正文。
 
 SDK 对话主题隔离于宿主页面。参数与导出类型以 [eafChat.ts](../ai-admin-front/src/sdk/eafChat.ts)、[eafPageBridge.ts](../ai-admin-front/src/sdk/eafPageBridge.ts)及生成的类型声明为准。

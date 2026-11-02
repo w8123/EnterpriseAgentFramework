@@ -7,11 +7,14 @@ import com.enterprise.ai.control.mcp.domain.employee.AiToolKind;
 import com.enterprise.ai.control.mcp.application.protocol.McpProtocolApplicationService.McpToolCallResult;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
 import com.enterprise.ai.control.memory.PersonalMemoryService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedQueryService;
+import com.enterprise.ai.control.memory.PersonalMemorySharedMutationService;
 import com.enterprise.ai.control.memory.PersonalMemoryService.QueryCommand;
 import com.enterprise.ai.control.memory.PersonalMemoryService.QueryHit;
 import com.enterprise.ai.control.memory.PersonalMemoryService.RememberCommand;
 import com.enterprise.ai.control.memory.PersonalMemoryService.RememberResult;
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -38,9 +41,19 @@ public class EmployeeMemoryTools {
     private static final int INSTRUCTION_MAX_CHARS = 1_500;
 
     private final PersonalMemoryService memoryService;
+    private final PersonalMemorySharedQueryService sharedQuery;
+    private final PersonalMemorySharedMutationService sharedMutation;
 
     public EmployeeMemoryTools(PersonalMemoryService memoryService) {
+        this(memoryService, null, null);
+    }
+
+    @Autowired
+    public EmployeeMemoryTools(PersonalMemoryService memoryService, PersonalMemorySharedQueryService sharedQuery,
+                               PersonalMemorySharedMutationService sharedMutation) {
         this.memoryService = memoryService;
+        this.sharedQuery = sharedQuery;
+        this.sharedMutation = sharedMutation;
     }
 
     public static boolean handles(String toolName) {
@@ -86,6 +99,8 @@ public class EmployeeMemoryTools {
             if (reason.contains("credentials and secrets")) reason = "记忆里不能保存密码、Token 或密钥";
             if (rejected.getStatusCode().value() == 404) reason = "没有找到这条记忆";
             return refusal("MCP_MEMORY_REJECTED", reason);
+        } catch (org.springframework.dao.DataAccessException unavailable) {
+            return refusal("MCP_MEMORY_UNAVAILABLE", "记忆服务暂时不可用，请稍后重试");
         }
     }
 
@@ -101,8 +116,9 @@ public class EmployeeMemoryTools {
         scopes.add(null);
         session.systems().forEach(system -> scopes.add(system.access().projectCode()));
         for (String projectCode : scopes) {
-            for (QueryHit hit : memoryService.query(owner, new QueryCommand("", List.of("PREFERENCE", "RULE"),
+            for (var result : query(owner, new QueryCommand("", List.of("PREFERENCE", "RULE"),
                     10, INSTRUCTION_MAX_CHARS, null, null, null, projectCode)).hits()) {
+                QueryHit hit = result.hit();
                 if (projectCode != null && hit.projectCode() == null) continue;
                 String line = "- " + (hit.projectCode() == null ? "" : "【" + label(session, hit.projectCode()) + "】")
                         + hit.content();
@@ -127,19 +143,24 @@ public class EmployeeMemoryTools {
         if (projectCode == null && StringUtils.hasText(text(args.get("projectCode")))) {
             return refusal("MCP_MEMORY_PROJECT", "这个连接没有接入项目 " + text(args.get("projectCode")));
         }
-        List<Map<String, Object>> memories = memoryService.query(owner(session.connection()),
-                        new QueryCommand(firstText(text(args.get("query")), ""), null, 20, 8_000,
-                                null, null, null, projectCode))
-                .hits().stream().map(hit -> {
+        var result = query(owner(session.connection()), new QueryCommand(firstText(text(args.get("query")), ""),
+                null, 20, 8_000, null, null, null, projectCode));
+        List<Map<String, Object>> memories = result.hits().stream().map(shared -> {
+                    QueryHit hit = shared.hit();
                     Map<String, Object> view = new LinkedHashMap<>();
                     view.put("memoryId", hit.id());
-                    view.put("where", hit.projectCode() == null ? "个人记忆" : label(session, hit.projectCode()));
+                    view.put("where", shared.linkId() != null ? "共享个人记忆"
+                            : hit.projectCode() == null ? "个人记忆" : label(session, hit.projectCode()));
                     view.put("kind", "PREFERENCE".equals(hit.type()) || "RULE".equals(hit.type()) ? "PREFERENCE" : "NOTE");
                     if (StringUtils.hasText(hit.title())) view.put("title", hit.title());
                     view.put("content", hit.content());
                     return view;
                 }).toList();
-        return new McpToolCallResult(true, Map.of("memories", memories), null, null, null);
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("memories", memories);
+        if (result.sharingUnavailable()) output.put("notice", "部分共享记忆暂时不可用");
+        if (result.truncated()) output.put("truncated", true);
+        return new McpToolCallResult(true, output, null, null, null);
     }
 
     private McpToolCallResult save(EmployeeSession session, Map<String, Object> args) {
@@ -174,13 +195,24 @@ public class EmployeeMemoryTools {
         } catch (NumberFormatException invalid) {
             return refusal("MCP_MEMORY_ID", "memoryId 应为记忆编号（数字）");
         }
-        memoryService.forget(owner(session.connection()), id);
+        Set<String> projects = session.systems().stream().map(system -> system.access().projectCode())
+                .filter(StringUtils::hasText).collect(java.util.stream.Collectors.toUnmodifiableSet());
+        if (sharedMutation == null) memoryService.forgetInProjects(owner(session.connection()), id, projects);
+        else sharedMutation.forget(owner(session.connection()), id, projects);
         return new McpToolCallResult(true, Map.of("memoryId", id, "message", "已删除"), null, null, null);
     }
 
     /** Same owner as embedded chat and the employee page: the employee's tenant and external user. */
     static PersonalMemoryPrincipal owner(AiToolConnection connection) {
         return PersonalMemoryPrincipal.business(connection.tenantId(), connection.externalUserId(), connection.appId());
+    }
+
+    private PersonalMemorySharedQueryService.SharedResult query(PersonalMemoryPrincipal owner, QueryCommand command) {
+        if (sharedQuery != null) return sharedQuery.query(owner, command);
+        var result = memoryService.query(owner, command);
+        return new PersonalMemorySharedQueryService.SharedResult(result.hits().stream()
+                .map(hit -> new PersonalMemorySharedQueryService.SharedHit(owner, null, hit)).toList(),
+                result.usedChars(), result.truncated(), false);
     }
 
     private static String connectedProject(EmployeeSession session, String requested) {

@@ -85,6 +85,7 @@ export async function dispatchPageActionExactlyOnce(options: {
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
   isActive?: () => boolean
+  isCurrentPage?: () => boolean
   signal?: AbortSignal
 }): Promise<void> {
   if (options.isActive?.() === false) return
@@ -133,6 +134,7 @@ export async function dispatchPageActionExactlyOnce(options: {
         new Set(), // 已认领，内部不再二次 gated
         beforeExecute,
         options.isActive,
+        options.isCurrentPage,
         options.signal,
       )
       if (options.isActive?.() === false) return
@@ -256,13 +258,14 @@ async function runPageActionBridge(
   handledPageActions: Set<string>,
   beforeExecute?: PageActionBeforeExecute,
   isActive?: () => boolean,
+  isCurrentPage?: () => boolean,
   signal?: AbortSignal,
 ): Promise<PageActionResult | null> {
   const globalBridge = typeof window !== 'undefined'
     ? (window as Window & { __REACHAI_PAGE_BRIDGE__?: ReachAiWindowPageBridge }).__REACHAI_PAGE_BRIDGE__
     : undefined
   const result = await bridge.handleEvent(normalized, {
-    beforeExecute, isActive, signal,
+    beforeExecute, isActive, isCurrentPage, signal,
     fallbackHandler: typeof globalBridge?.execute === 'function'
       ? async () => executeWindowPageBridgeAction(normalized, responseMetadata, globalBridge)
       : undefined,
@@ -288,6 +291,7 @@ export async function processMessagePageActionQueue(options: {
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
   isActive?: () => boolean
+  isCurrentPage?: () => boolean
   signal?: AbortSignal
 }): Promise<void> {
   const queue = pageActionQueueFromResponse(options.response)
@@ -307,6 +311,7 @@ export async function processMessagePageActionQueue(options: {
       refreshToken: options.refreshToken,
       fetchImpl: options.fetchImpl,
       isActive: options.isActive,
+      isCurrentPage: options.isCurrentPage,
       signal: options.signal,
     })
   }
@@ -457,6 +462,7 @@ export async function pollPendingPageActions(options: {
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
   isActive?: () => boolean
+  isCurrentPage?: () => boolean
   signal?: AbortSignal
 }) {
   if (options.isActive?.() === false) return
@@ -498,6 +504,7 @@ export async function pollPendingPageActions(options: {
       refreshToken,
       fetchImpl,
       isActive: options.isActive,
+      isCurrentPage: options.isCurrentPage,
       signal: options.signal,
     })
   }
@@ -525,6 +532,7 @@ export async function pollPendingPageActions(options: {
       refreshToken,
       fetchImpl,
       isActive: options.isActive,
+      isCurrentPage: options.isCurrentPage,
       signal: options.signal,
     })
   }
