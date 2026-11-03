@@ -1,6 +1,7 @@
-package com.enterprise.ai.control.identity;
+package com.enterprise.ai.control.platform;
 
-import com.enterprise.ai.control.memory.PersonalMemoryIdentityLinkService;
+import com.enterprise.ai.control.identity.PlatformPermissions;
+import com.enterprise.ai.control.identity.PlatformRequestAuthorization;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;

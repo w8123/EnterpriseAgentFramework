@@ -396,12 +396,17 @@ export const UNOPENED = {
   'POST /api/runtime/debug-sessions': ['human-only', '交互式调试会话由人在 Studio 里驱动；AI 用只读试运行'],
   'POST /api/runtime/debug-sessions/{}/submit': ['human-only', '交互式调试会话由人在 Studio 里驱动'],
   'POST /api/workflows/studio/debug-node': ['human-only', '单节点调试会真实调用节点；AI 用只读试运行'],
+  'GET /api/platform/personal-memory-identity-links': ['not-yet', '记忆身份关联列表读取尚未开放'],
+  'POST /api/platform/personal-memory-identity-links': HUMAN_DECISION,
+  'POST /api/platform/personal-memory-identity-links/{}/revoke': HUMAN_DECISION,
   'POST /model/chat': ['human-only', '模型对话试玩；AI 工具本身就是模型，连通性测试已开放'],
   'POST /model/chat/stream/events': ['human-only', '模型对话试玩的流式版本'],
+  'POST /model/instances/{}/connection-models': ['not-yet', '复用已保存连接新建模型尚未接入模型实例审核'],
+  'POST /model/instances/{}/test-connection-model': ['not-yet', '用已保存连接试测其他模型尚未开放；实例测试已开放'],
   'POST /model/instances/from-template/{}': ['not-yet', '从模板创建模型实例尚未接入模型实例审核'],
   'PUT /api/ai-coding-console/projects/{}/credential-policy': ['human-only', '决定编码智能体能用哪些凭据，由人设置'],
   'PUT /api/platform/business-users/{}': ['not-yet', '业务用户资料修改尚未开放；身份绑定已开放'],
-  'UNKNOWN {}/memories{} [unresolved]': ['covered-elsewhere', '本人记忆接口，AI 用 reachai_my_memory_* 工具'],
+  'UNKNOWN {}{}{} [unresolved]': ['covered-elsewhere', '员工门户的本人记忆接口（资源路径可配置），AI 用 reachai_my_memory_* 工具'],
 }
 
 // Browser storage reviewed file by file. Only shared business state would need a server copy the AI can reach;

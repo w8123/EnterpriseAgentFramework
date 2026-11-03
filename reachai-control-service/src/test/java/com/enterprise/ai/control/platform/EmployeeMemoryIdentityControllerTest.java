@@ -1,8 +1,8 @@
 package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.EmployeeOwner;
-import com.enterprise.ai.control.memory.PersonalMemoryIdentityChallengeService;
-import com.enterprise.ai.control.memory.PersonalMemoryIdentityLinkService;
+import com.enterprise.ai.control.platform.PersonalMemoryIdentityChallengeService;
+import com.enterprise.ai.control.platform.PersonalMemoryIdentityLinkService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 

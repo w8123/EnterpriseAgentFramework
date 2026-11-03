@@ -1065,7 +1065,8 @@ report('migrated Runtime route must not use legacy bridge', migratedMethodIssues
 
 if (failures > 0) {
   console.error(`\nphysical service route contract check failed: ${failures} issue(s)`)
-  process.exit(1)
+  // exitCode (not process.exit) lets piped stderr flush; otherwise long reports arrive truncated.
+  process.exitCode = 1
+} else {
+  console.log('physical service route contract check passed')
 }
-
-console.log('physical service route contract check passed')

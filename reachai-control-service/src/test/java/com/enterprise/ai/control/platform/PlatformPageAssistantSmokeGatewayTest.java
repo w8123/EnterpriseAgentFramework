@@ -1,9 +1,8 @@
-package com.enterprise.ai.control.runtime;
+package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.control.internalauth.InternalServiceAuthSigner;
-import com.enterprise.ai.control.platform.*;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -18,16 +17,16 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.*;
 
-class ControlPageAssistantSmokeGatewayTest {
+class PlatformPageAssistantSmokeGatewayTest {
     @Test void signsOnlyVerifiedPageIdentityAndNeverForwardsItsBearerToken() throws Exception {
         String secret = "test-internal-service-secret";
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var observed = new AtomicReference<String>();
-        server.createContext(ControlPageAssistantSmokeGateway.PATH, exchange -> {
+        server.createContext(PlatformPageAssistantSmokeGateway.PATH, exchange -> {
             byte[] body = exchange.getRequestBody().readAllBytes();
             var headers = exchange.getRequestHeaders();
             String digest = InternalServiceHmac.bodySha256Hex(body);
-            String canonical = InternalServiceHmac.canonical("POST", ControlPageAssistantSmokeGateway.PATH,
+            String canonical = InternalServiceHmac.canonical("POST", PlatformPageAssistantSmokeGateway.PATH,
                     headers.getFirst(InternalServiceAuthHeaders.CALLER), headers.getFirst(InternalServiceAuthHeaders.IDENTITY_SOURCE),
                     headers.getFirst(InternalServiceAuthHeaders.IDENTITY_TENANT_ID), headers.getFirst(InternalServiceAuthHeaders.IDENTITY_USER_ID),
                     headers.getFirst(InternalServiceAuthHeaders.TIMESTAMP), headers.getFirst(InternalServiceAuthHeaders.NONCE), digest);
@@ -53,7 +52,7 @@ class ControlPageAssistantSmokeGatewayTest {
             session.setOrigin("http://localhost");
             session.setPageInstanceId("page-1"); session.setStatus("ACTIVE"); session.setExpiresAt(LocalDateTime.now().plusMinutes(5));
             when(mapper.selectOne(any())).thenReturn(session);
-            var gateway = new ControlPageAssistantSmokeGateway(tokens, new PlatformEmbedSessionService(mapper, new ObjectMapper()),
+            var gateway = new PlatformPageAssistantSmokeGateway(tokens, new PlatformEmbedSessionService(mapper, new ObjectMapper()),
                     new InternalServiceAuthSigner(secret), new ObjectMapper(), "http://127.0.0.1:" + server.getAddress().getPort());
             var body = Map.<String, Object>of("message", "test", "runtimeContext", Map.of("embedSessionId", "embed-1"));
             assertEquals(200, gateway.execute("wf-1", "erp", token, body).getStatusCode().value());

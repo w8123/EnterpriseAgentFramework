@@ -237,5 +237,6 @@ class ControlRuntimeAgentCookieAuthenticationTest {
         @Bean RuntimeTrustedRunOpsReplayGateway runOpsReplays() { return mock(RuntimeTrustedRunOpsReplayGateway.class); }
         @Bean RuntimeAgentDraftGateway agentDrafts() { return mock(RuntimeAgentDraftGateway.class); }
         @Bean RuntimePageAssistantAttachmentGateway pageAssistantAttachments() { return mock(RuntimePageAssistantAttachmentGateway.class); }
+        @Bean ControlPageAssistantSmokeGateway pageAssistantSmoke() { return mock(ControlPageAssistantSmokeGateway.class); }
     }
 }

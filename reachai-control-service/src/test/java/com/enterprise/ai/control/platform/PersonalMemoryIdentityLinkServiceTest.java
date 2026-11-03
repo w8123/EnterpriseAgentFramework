@@ -1,9 +1,10 @@
-package com.enterprise.ai.control.memory;
+package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.identity.PlatformPrincipal;
+import com.enterprise.ai.control.memory.PersonalMemoryIdentityLinkLookup;
 import com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal;
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService.EmployeeOwner;
 import com.enterprise.ai.control.platform.EmployeePortalSessionService;
@@ -23,7 +24,7 @@ import org.springframework.http.MediaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.enterprise.ai.common.exception.GlobalExceptionHandler;
 import com.enterprise.ai.control.platform.EmployeeMemoryIdentityController;
-import com.enterprise.ai.control.identity.PersonalMemoryIdentityAdminController;
+import com.enterprise.ai.control.platform.PersonalMemoryIdentityAdminController;
 import com.enterprise.ai.control.identity.PlatformRequestAuthorization;
 
 import java.util.List;

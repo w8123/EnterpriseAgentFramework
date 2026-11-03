@@ -1,4 +1,4 @@
-package com.enterprise.ai.control.memory;
+package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.mcp.application.employee.AiToolConnectionService;
 import com.enterprise.ai.control.platform.EmployeePortalSessionService;

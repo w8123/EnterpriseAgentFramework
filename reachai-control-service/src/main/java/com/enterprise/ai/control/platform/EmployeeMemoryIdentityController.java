@@ -1,8 +1,8 @@
 package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.common.dto.ApiResult;
-import com.enterprise.ai.control.memory.PersonalMemoryIdentityChallengeService;
-import com.enterprise.ai.control.memory.PersonalMemoryIdentityLinkService;
+import com.enterprise.ai.control.platform.PersonalMemoryIdentityChallengeService;
+import com.enterprise.ai.control.platform.PersonalMemoryIdentityLinkService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
