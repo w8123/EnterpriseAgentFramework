@@ -351,6 +351,8 @@ public class ModelInstanceService {
         ModelProviderAccountEntity account = StringUtils.hasText(entity.getProviderAccountId())
                 ? accountMapper.selectById(entity.getProviderAccountId())
                 : null;
+        Map<String, Object> connection = account == null ? readConnection(entity)
+                : ConnectionConfigSupport.overlayAccount(readConnection(entity), readAccountConnection(account));
         return ModelInstanceResponse.builder()
                 .id(entity.getId())
                 .name(entity.getName())
@@ -361,9 +363,8 @@ public class ModelInstanceService {
                 .projectCode(entity.getProjectCode())
                 .providerAccountId(entity.getProviderAccountId())
                 .providerAccountName(account == null ? null : account.getName())
-                .connection(ConnectionConfigSupport.mask(account == null
-                        ? readConnection(entity)
-                        : ConnectionConfigSupport.overlayAccount(readConnection(entity), readAccountConnection(account))))
+                .connection(ConnectionConfigSupport.publicConnection(connection))
+                .apiKeyConfigured(ConnectionConfigSupport.hasApiKey(connection))
                 .defaultOptions(readMap(entity.getDefaultOptionsJson()))
                 .paramsSchema(readObject(entity.getParamsSchemaJson()))
                 .status(entity.getStatus())

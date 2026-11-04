@@ -17,8 +17,8 @@
 <p align="center">
   <strong>ReachAI 学习交流群</strong><br />
   扫码加入，交流接入、使用与实践经验<br />
-  <a href="docs/系统截图/ReachAI学习交流群.png">
-    <img src="docs/系统截图/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="240" />
+  <a href="docs/images/readme-v2/ReachAI学习交流群.png">
+    <img src="docs/images/readme-v2/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="240" />
   </a>
 </p>
 

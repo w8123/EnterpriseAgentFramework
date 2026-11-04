@@ -1,6 +1,7 @@
 package com.enterprise.ai.model.runtime;
 
 import com.enterprise.ai.common.exception.BizException;
+import com.enterprise.ai.model.instance.ConnectionConfigSupport;
 import com.enterprise.ai.model.instance.ModelInstanceRuntime;
 import com.enterprise.ai.model.instance.ModelProtectedOptions;
 import com.enterprise.ai.model.instance.ModelType;
@@ -511,6 +512,17 @@ public class OpenAiCompatibleRuntimeClient {
     }
 
     private HttpRequest.Builder requestBuilder(ModelInstanceRuntime runtime, String path) {
+        try {
+            return validatedRequestBuilder(runtime, path);
+        } catch (IllegalArgumentException invalidConfiguration) {
+            // JDK header/URI validation can include the full saved API key in its message.
+            // Do not retain the cause: it must not reach API responses, traces or logs.
+            throw new BizException(400, "模型连接配置无效，请检查服务地址与鉴权字段。");
+        }
+    }
+
+    private HttpRequest.Builder validatedRequestBuilder(ModelInstanceRuntime runtime, String path) {
+        ConnectionConfigSupport.validateAuthentication(runtime.getConnectionConfig());
         String baseUrl = stringConnection(runtime, "baseUrl");
         if (baseUrl == null || baseUrl.isBlank()) {
             throw new BizException(400, ModelProviderErrors.missingBaseUrl());

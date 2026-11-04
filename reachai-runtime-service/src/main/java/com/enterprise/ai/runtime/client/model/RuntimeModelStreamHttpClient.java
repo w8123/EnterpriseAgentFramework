@@ -33,6 +33,13 @@ public class RuntimeModelStreamHttpClient {
     private final ObjectMapper objectMapper;
     private final String modelServiceBaseUrl;
     private final HttpClient httpClient;
+    private String modelServiceSecret = "";
+
+    @Autowired
+    public void configureModelServiceSecret(
+            @Value("${reachai.internal.service-secret:${REACHAI_INTERNAL_SERVICE_SECRET:}}") String secret) {
+        this.modelServiceSecret = secret;
+    }
 
     @Autowired
     public RuntimeModelStreamHttpClient(
@@ -91,13 +98,17 @@ public class RuntimeModelStreamHttpClient {
                 return;
             }
             String body = objectMapper.writeValueAsString(request);
-            HttpRequest httpRequest = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(URI.create(modelServiceBaseUrl + "/model/chat/stream/events"))
                     .timeout(Duration.ofMinutes(10))
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
-                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
-                    .build();
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+            com.enterprise.ai.common.internalauth.ModelServiceRequestAuth.sign(modelServiceSecret,
+                    com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.CALLER_RUNTIME,
+                    "POST", modelServiceBaseUrl + "/model/chat/stream/events", body.getBytes(StandardCharsets.UTF_8))
+                    .forEach(requestBuilder::header);
+            HttpRequest httpRequest = requestBuilder.build();
 
             CompletableFuture<HttpResponse<InputStream>> future =
                     httpClient.sendAsync(httpRequest, HttpResponse.BodyHandlers.ofInputStream());

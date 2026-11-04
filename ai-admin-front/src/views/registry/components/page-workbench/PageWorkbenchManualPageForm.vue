@@ -217,7 +217,7 @@ function textOrUndefined(value: string) {
             v-model="form.businessPageUrl"
             placeholder="http://localhost:9200/orders/123"
           />
-          <small>浏览器可直接打开的完整地址；不要填写后端 API / 网关 Base URL。</small>
+          <small>浏览器可直接打开的完整地址；不要填写业务系统后端地址或网关地址。</small>
         </el-form-item>
         <el-form-item label="入口组件">
           <el-input v-model="form.componentPath" placeholder="src/views/order/Detail.vue" />

@@ -20,6 +20,24 @@
     },
     {
       "category": "violation",
+      "file": "src/views/registry/RegistryProjectDetail.vue",
+      "line": 582,
+      "message": "Enabled literal button has no detectable action or submit behavior.",
+      "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
+      "ruleId": "affordance.actionless-button",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/registry/RegistryProjectDetail.vue",
+      "line": 600,
+      "message": "Enabled literal button has no detectable action or submit behavior.",
+      "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
+      "ruleId": "affordance.actionless-button",
+      "severity": "error"
+    },
+    {
+      "category": "violation",
       "file": "src/components/memory/MemoryIdentityBinding.vue",
       "line": 13,
       "message": "Application-owned form does not declare its validation owner.",
@@ -80,16 +98,25 @@
       "remediation": "Use the shared Textarea owner or apply resize-none/resize: none with adequate height or auto-grow behavior.",
       "ruleId": "form.textarea-resize-missing",
       "severity": "error"
+    },
+    {
+      "category": "violation",
+      "file": "src/views/dashboard/dashboardOperations.scss",
+      "line": 301,
+      "message": "Scrollbar theme does not provide both standards-based scrollbar properties.",
+      "remediation": "Add global scrollbar-color and scrollbar-width standards properties plus fallbacks.",
+      "ruleId": "scrollbar.webkit-only",
+      "severity": "error"
     }
   ],
   "mode": "strict",
   "projectRoot": "D:\\work\\EnterpriseAgentFramework-dev\\ai-admin-front",
   "schemaVersion": 1,
   "summary": {
-    "errors": 9,
-    "total": 9,
+    "errors": 12,
+    "total": 12,
     "unresolved": 1,
-    "violations": 8,
+    "violations": 11,
     "warnings": 0
   }
 }

@@ -40,6 +40,9 @@ async function setup(path = '/capabilities', desktopCollapsed = false) {
     { path: '/unrelated', component: page, meta: { compactSidebarOnNarrow: false } },
     { path: '/plain', component: page },
     { path: '/no-breadcrumb', component: page, meta: { hideBreadcrumb: true } },
+    // Mirrors the real router: the overview hides the sidebar project panel through route meta.
+    { path: '/dashboard', component: page, meta: { hideSidebarProjectPanel: true } },
+    { path: '/getting-started', component: page, meta: { hideSidebarProjectPanel: true } },
   ] })
   await router.push(path)
   const pinia = createPinia()
@@ -145,6 +148,7 @@ async function setupNavigation(path = '/overview') {
     { path: '/login', component: { template: '<div data-test="login">Login</div>' } },
     { path: '/', component: MainLayout, children: [
       { path: 'overview', component: { template: '<section>Overview</section>' } },
+      { path: 'dashboard', component: { template: '<section>Dashboard</section>' } },
       { path: 'assets', component: { template: '<section>Assets</section>' } },
       { path: 'details/:id', component: detail },
       { path: 'studio/:id', component: detail, meta: { layoutMode: 'studio' } },
@@ -254,5 +258,16 @@ describe('MainLayout route continuity', () => {
     expect(view.find('.main-layout').exists()).toBe(false)
     expect(view.get('[data-test="login"]').text()).toBe('Login')
     expect(listeners.size).toBe(0)
+  })
+
+  it('hides sidebar project panel on overview / dashboard and getting-started', async () => {
+    const { view, router } = await setup('/dashboard')
+    expect(view.findComponent({ name: 'AppSidebar' }).props('hideProjectPanel')).toBe(true)
+    await router.push('/getting-started')
+    await flushPromises()
+    expect(view.findComponent({ name: 'AppSidebar' }).props('hideProjectPanel')).toBe(true)
+    await router.push('/capabilities')
+    await flushPromises()
+    expect(view.findComponent({ name: 'AppSidebar' }).props('hideProjectPanel')).toBe(false)
   })
 })

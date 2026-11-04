@@ -220,8 +220,6 @@ export function useDashboardLayoutEditor(options: {
       if (typeof raw !== 'number' || !Number.isFinite(raw)) continue
       config[field.key] = Math.min(field.max, Math.max(field.min, Math.round(raw)))
     }
-    if ('shortcutPreset' in patch) config.shortcutPreset = patch.shortcutPreset
-    if ('shortcutIds' in patch) config.shortcutIds = patch.shortcutIds
     applyChange(
       draftLayout.value.items.map((item) =>
         item.instanceId === id ? sanitizeLayoutItems([{ ...item, config }])[0]! : item,
@@ -229,22 +227,8 @@ export function useDashboardLayoutEditor(options: {
     )
   }
 
-  /** 常态自定义入口直接保存；布局编辑中仍只改草稿，纳入撤销/重做。 */
   function saveWidgetConfig(id: string, patch: Partial<DashboardWidgetConfig>) {
-    if (editing.value) { updateWidgetConfig(id, patch); return }
-    const target = savedLayout.value.items.find(item => item.instanceId === id)
-    if (!target) return
-    const [updated] = sanitizeLayoutItems([{ ...target, config: { ...target.config, ...patch } }])
-    if (!updated) return
-    try {
-      savedLayout.value = options.repository.save({
-        ...savedLayout.value,
-        items: savedLayout.value.items.map(item => item.instanceId === id ? updated : item),
-      })
-      saveError.value = null
-    } catch (error) {
-      saveError.value = error instanceof Error ? error.message : '快捷入口保存失败，请重试'
-    }
+    updateWidgetConfig(id, patch)
   }
 
   function tidyLayout() {

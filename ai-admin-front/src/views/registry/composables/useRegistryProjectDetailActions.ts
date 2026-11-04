@@ -16,6 +16,7 @@ import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
 import { readOpenApiDocumentFile } from '@/utils/openapiDocument'
 import { useProjectStore } from '@/store/project'
 import { platformSessionId } from '@/auth/platformSession'
+import { isBusinessPageUrl } from '@/utils/businessPageUrl'
 import {
   formatScanProjectBlockersMessage,
   parseScanProjectBlockersFromError,
@@ -114,6 +115,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     deps.editForm.owner = p.owner ?? ''
     deps.editForm.visibility = p.visibility || 'PRIVATE'
     deps.editForm.baseUrl = p.baseUrl
+    deps.editForm.businessPageUrl = p.businessPageUrl ?? ''
     deps.editForm.contextPath = p.contextPath || ''
     deps.editForm.specFile = p.specFile ?? ''
     // 文档内容不随项目返回；留空表示保留已上传的文档。
@@ -130,7 +132,12 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     const p = deps.project.value
     if (!p?.id) return
     if (!deps.editForm.name.trim() || !deps.editForm.baseUrl.trim()) {
-      ElMessage.warning(deps.isEditingSdkProject.value ? '请填写项目名称与 Base URL' : '请填写项目名称与项目域名')
+      ElMessage.warning('请填写项目名称与业务系统后端地址')
+      return
+    }
+    const businessPageUrl = deps.editForm.businessPageUrl?.trim() || ''
+    if (businessPageUrl && (!isBusinessPageUrl(businessPageUrl) || businessPageUrl.length > 2048 || new URL(businessPageUrl).username || new URL(businessPageUrl).password)) {
+      ElMessage.warning('业务系统页面地址须为有效的 HTTP 或 HTTPS 地址，且不能包含账号密码')
       return
     }
     if (deps.isEditingSdkProject.value && !deps.editForm.projectCode?.trim()) {
@@ -164,6 +171,7 @@ export function useRegistryProjectDetailActions(deps: UseRegistryProjectDetailAc
     try {
       const payload: ScanProjectUpsertRequest = {
         ...deps.editForm,
+        businessPageUrl,
         projectKind: deps.editAccessLockedToSdk.value ? 'REGISTERED' : deps.editForm.projectKind,
         specFile: !deps.isEditingSdkProject.value && deps.editForm.specContent ? deps.editForm.specFile || null : null,
         specContent: !deps.isEditingSdkProject.value ? deps.editForm.specContent || null : null,

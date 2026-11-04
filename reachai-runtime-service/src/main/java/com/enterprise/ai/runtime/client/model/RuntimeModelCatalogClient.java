@@ -15,7 +15,8 @@ import static com.enterprise.ai.common.util.Texts.firstText;
 
 @FeignClient(
         name = "reachai-model-catalog-runtime",
-        url = "${services.model-service.url:http://localhost:18601}"
+        url = "${services.model-service.url:http://localhost:18601}",
+        configuration = ModelInternalAuthFeignConfig.class
 )
 public interface RuntimeModelCatalogClient {
 

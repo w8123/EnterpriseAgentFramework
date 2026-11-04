@@ -2,6 +2,7 @@ package com.enterprise.ai.control.compat;
 
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsolePermissionPolicy;
+import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.mcp.application.port.McpPlatformBusinessSystemReadPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -46,7 +47,8 @@ final class CapabilityMcpPlatformBusinessSystemReadAdapter implements McpPlatfor
             case SENSITIVE_DATA_SCAN -> "/sensitive-data/scan";
         };
         var rule = PlatformConsolePermissionPolicy.ruleFor(path).orElseThrow();
-        if (actor == null || actor.user() == null || !PlatformConsolePermissionPolicy.admits(rule, "POST", path, actor)) {
+        if (actor == null || actor.user() == null || !PlatformConsolePermissionPolicy.admits(rule, "POST", path, actor)
+                || !proxy.hasProjectPermission(actor, projectId, PlatformPermissions.PLATFORM_WRITE)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "business system write permission is required");
         }
         ResponseEntity<byte[]> response;
@@ -79,7 +81,10 @@ final class CapabilityMcpPlatformBusinessSystemReadAdapter implements McpPlatfor
         String path = changePath(change, projectId);
         var rule = PlatformConsolePermissionPolicy.ruleFor(path).orElse(null);
         return rule != null && actor != null && actor.user() != null
-                && PlatformConsolePermissionPolicy.admits(rule, changeMethod(change).name(), path, actor);
+                && PlatformConsolePermissionPolicy.admits(rule, changeMethod(change).name(), path, actor)
+                && (change == Change.CREATE
+                    ? actor.hasGlobalPermission(PlatformPermissions.PLATFORM_WRITE)
+                    : proxy.hasProjectPermission(actor, projectId, PlatformPermissions.PLATFORM_WRITE));
     }
 
     @Override
@@ -137,7 +142,8 @@ final class CapabilityMcpPlatformBusinessSystemReadAdapter implements McpPlatfor
             case SENSITIVE_DATA_STATUS -> "/sensitive-data/status";
         };
         var rule = PlatformConsolePermissionPolicy.ruleFor(path).orElseThrow();
-        if (actor == null || actor.user() == null || !PlatformConsolePermissionPolicy.admits(rule, "GET", path, actor)) {
+        if (actor == null || actor.user() == null || !PlatformConsolePermissionPolicy.admits(rule, "GET", path, actor)
+                || !proxy.hasProjectPermission(actor, projectId, PlatformPermissions.PLATFORM_READ)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "business system read permission is required");
         }
         ResponseEntity<byte[]> response = proxy.consoleGet(path, query);

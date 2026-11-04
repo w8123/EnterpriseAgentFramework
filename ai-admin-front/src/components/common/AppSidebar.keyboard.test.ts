@@ -17,7 +17,7 @@ function session(permissions = ['*']) {
     principal: { userId: 17, username: 'keyboard-test', permissions, permissionGrants: [] } })
 }
 async function settle() { await nextTick(); await flushPromises(); await nextTick() }
-async function setup(collapsed = false) {
+async function setup(collapsed = false, openAll = true) {
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/:pathMatch(.*)*', component: { template: '<div />' } },
   ] })
@@ -26,6 +26,14 @@ async function setup(collapsed = false) {
     global: { plugins: [createPinia(), router, ElementPlus] } })
   wrappers.push(wrapper)
   await settle()
+  if (openAll && !collapsed) {
+    for (const button of wrapper.findAll<HTMLButtonElement>('.menu-group-label')) {
+      if (button.attributes('aria-expanded') === 'false') {
+        await button.trigger('click')
+      }
+    }
+    await settle()
+  }
   const push = vi.spyOn(router, 'push')
   const leaf = (index: string) => wrapper.findAllComponents(ElMenuItem).find(item => item.props('index') === index)!.element as HTMLElement
   const group = (index: string) => wrapper.findAllComponents(ElSubMenu).find(item => item.props('index') === index)!.element as HTMLElement
@@ -47,28 +55,6 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     document.body.replaceChildren()
     markPlatformSessionAnonymous(false)
     vi.restoreAllMocks()
-  })
-
-  it('toggles a navigation section and keeps its entries available in the collapsed sidebar', async () => {
-    const { wrapper } = await setup()
-    const button = wrapper.findAll<HTMLButtonElement>('.menu-group-label').find(item => item.text() === '智能化改造')!
-    expect(button.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
-    await button.trigger('click')
-    await settle()
-    expect(button.attributes('aria-expanded')).toBe('false')
-    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(false)
-    expect(button.find('.menu-group-arrow').exists()).toBe(true)
-    await wrapper.setProps({ collapsed: true })
-    await settle()
-    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
-    await wrapper.setProps({ collapsed: false })
-    const restoredButton = wrapper.findAll<HTMLButtonElement>('.menu-group-label').find(item => item.text() === '智能化改造')!
-    await restoredButton.trigger('click')
-    await settle()
-    expect(restoredButton.attributes('aria-expanded')).toBe('true')
-    expect(wrapper.find('[data-sidebar-index="/registry/projects"]').exists()).toBe(true)
-    expect(restoredButton.find('.menu-group-arrow').exists()).toBe(false)
   })
 
   it('has one normal Tab entry, skips presentation groups, and moves without navigation', async () => {

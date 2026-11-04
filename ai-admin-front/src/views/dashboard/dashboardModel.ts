@@ -166,7 +166,6 @@ export function buildProjectSummaries(
         agentCount: agents.filter((agent) => projectCode && trimmed(agent.projectCode) === projectCode).length,
         runs: sampleRuns.length,
         users: identities.distinctUsers,
-        identityCoverage: identities.coverage,
         tokens: tokens.total,
         tokenCoverage: tokens.coverage,
         technicalCompletionRate: outcome.technicalCompletionRate,
@@ -276,35 +275,4 @@ export function formatCompactNumber(value: number) {
     return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1).replace(/\.0$/, '')}K`
   }
   return new Intl.NumberFormat('zh-CN').format(value)
-}
-
-export function runStatusLabel(run: RunSummary) {
-  if (run.status === 'SUSPENDED') {
-    if (run.suspensionReason === 'APPROVAL') return '等待审批'
-    if (run.suspensionReason === 'USER_INPUT') return '等待交互'
-  }
-  const labels: Record<string, string> = {
-    RUNNING: '运行中',
-    COMPLETED: '已完成',
-    FAILED: '失败',
-    CANCELLED: '已取消',
-    TIMED_OUT: '超时',
-    SUSPENDED: '已暂停',
-  }
-  return labels[run.status] ?? run.status
-}
-
-export function runStatusTone(run: RunSummary) {
-  if (run.status === 'COMPLETED') return 'success'
-  if (run.status === 'RUNNING') return 'primary'
-  if (run.status === 'SUSPENDED') return 'warning'
-  if (run.status === 'CANCELLED') return 'muted'
-  return 'danger'
-}
-
-export function runTargetLabel(run: RunSummary) {
-  if (run.runType === 'WORKFLOW') {
-    return trimmed(run.workflowName) || trimmed(run.workflowKeySlug) || '未命名 Workflow'
-  }
-  return trimmed(run.agentName) || trimmed(run.agentKeySlug) || '未命名 Agent'
 }

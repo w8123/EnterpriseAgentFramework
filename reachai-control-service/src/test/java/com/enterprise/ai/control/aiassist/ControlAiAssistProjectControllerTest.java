@@ -164,7 +164,7 @@ class ControlAiAssistProjectControllerTest {
     }
 
     @Test
-    void hidesAiCodingKeyFromReadOnlyRolesAndOtherProjects() {
+    void readOnlyAccessIsScopedAndHidesAiCodingKey() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
         when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
@@ -172,13 +172,48 @@ class ControlAiAssistProjectControllerTest {
                 "projectCode", "orders",
                 "aiCodingAccess", Map.of("enabled", true, "accessKey", "aic_test")));
         MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/ai-assist/projects/7/onboarding-manifest");
-        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("billing"));
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, readOnlySession("orders"));
 
         var manifest = controller.onboardingManifest(7L, request).getBody();
 
         assertNotNull(manifest);
         assertEquals(true, manifest.aiCodingAccess().enabled());
         assertNull(manifest.aiCodingAccess().accessKey());
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, readOnlySession("billing"));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.onboardingManifest(7L, request)).getStatusCode());
+    }
+
+    @Test
+    void rejectsMismatchedOrMissingOwnerIdentity() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("orders"));
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of("id", 8L, "projectCode", "orders"),
+                Map.of("id", 7L, "projectCode", " "));
+        assertEquals(HttpStatus.BAD_GATEWAY, assertThrows(ResponseStatusException.class,
+                () -> controller.onboardingManifest(7L, request)).getStatusCode());
+        assertEquals(HttpStatus.BAD_GATEWAY, assertThrows(ResponseStatusException.class,
+                () -> controller.updateAiCodingAccess(7L, new CapabilityAiCodingAccessUpdateRequest(true, null), request)).getStatusCode());
+        verify(client, never()).updateAiCodingAccess(anyLong(), any());
+    }
+
+    @Test
+    void provisioningRequiresWriteOnActualProjectAndRejectsUnknownIdentity() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        ControlProjectAgentProvisioningService service = mock(ControlProjectAgentProvisioningService.class);
+        ControlAiAssistProjectProvisioningController controller = new ControlAiAssistProjectProvisioningController(service, client);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("billing"));
+        when(client.getProjectById(7L)).thenReturn(Map.of("projectId", 7L, "projectCode", "orders"));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> controller.provision(7L, Map.of(), request)).getStatusCode());
+        verify(service, never()).provision(anyLong(), any());
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("orders"));
+        when(service.provision(7L, Map.of())).thenReturn(Map.of("created", true));
+        assertEquals(HttpStatus.OK, controller.provision(7L, Map.of(), request).getStatusCode());
+        verify(service).provision(7L, Map.of());
     }
 
     @Test
@@ -205,7 +240,16 @@ class ControlAiAssistProjectControllerTest {
                 "session-1",
                 LocalDateTime.now().plusHours(1),
                 List.of("DEVELOPER"),
-                List.of(PlatformPermissions.PLATFORM_WRITE),
-                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, "PROJECT", writableProject)));
+                List.of(PlatformPermissions.PLATFORM_READ, PlatformPermissions.PLATFORM_WRITE),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_READ, "PROJECT", writableProject),
+                        new PlatformPermissionGrant(PlatformPermissions.PLATFORM_WRITE, "PROJECT", writableProject)));
+    }
+
+    private static PlatformAuthenticatedSession readOnlySession(String projectCode) {
+        PlatformUserEntity user = new PlatformUserEntity();
+        user.setId(10L);
+        return new PlatformAuthenticatedSession(PlatformPrincipal.fromUser(user), "session-read", LocalDateTime.now().plusHours(1),
+                List.of(), List.of(PlatformPermissions.PLATFORM_READ),
+                List.of(new PlatformPermissionGrant(PlatformPermissions.PLATFORM_READ, "PROJECT", projectCode)));
     }
 }

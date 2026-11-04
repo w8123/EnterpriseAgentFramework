@@ -22,6 +22,9 @@
         <HeaderMetaList :items="headerMetaItems" />
       </template>
       <template #actions>
+        <el-button v-if="businessPageUrl" tag="a" :href="businessPageUrl" target="_blank" rel="noopener noreferrer" type="primary" :icon="TopRight">
+          打开业务系统
+        </el-button>
         <el-tooltip v-if="canWriteProject" content="AI Coding 接入" placement="top">
           <LiquidGlassButton
             source="wallpaper"
@@ -546,7 +549,7 @@
 
       <el-form class="edit-project-form" label-position="top">
         <section class="edit-project-section glass-surface-control">
-          <GlassSectionHeader title="基础信息" description="用于识别项目、环境与负责人。">
+          <GlassSectionHeader title="基础信息" description="用于识别项目与负责人。">
             <template #icon><el-icon><Postcard /></el-icon></template>
           </GlassSectionHeader>
           <el-form-item label="项目名称" required>
@@ -556,20 +559,6 @@
             <el-col :span="12">
               <el-form-item label="项目编码" :required="isEditingSdkProject">
                 <el-input v-model="editForm.projectCode" :placeholder="isEditingSdkProject ? '如：customer-service' : '如 order-service'" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item label="接入方式">
-                <el-select v-model="editForm.projectKind" style="width: 100%" :disabled="editAccessLockedToSdk">
-                  <el-option v-for="opt in projectKindOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
-                </el-select>
-              </el-form-item>
-            </el-col>
-          </el-row>
-          <el-row class="edit-project-row" :gutter="14">
-            <el-col :span="12">
-              <el-form-item label="环境">
-                <el-input v-model="editForm.environment" placeholder="dev / test / prod" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
@@ -586,7 +575,13 @@
           </GlassSectionHeader>
           <el-row class="edit-project-row" :gutter="14">
             <el-col :span="12">
-              <el-form-item :label="isEditingSdkProject ? 'Base URL' : '项目域名'" required>
+              <el-form-item required>
+                <template #label>
+                  <span>业务系统后端地址</span>
+                  <el-tooltip content="填写 ReachAI 服务端能够访问的后端地址。如果业务系统采用微服务架构，通常填写可访问的网关地址；单体应用填写后端服务地址。" placement="top">
+                    <button type="button" class="address-help" aria-label="业务系统后端地址填写说明"><el-icon><QuestionFilled /></el-icon></button>
+                  </el-tooltip>
+                </template>
                 <el-input v-model="editForm.baseUrl" placeholder="http://localhost:8080" />
               </el-form-item>
             </el-col>
@@ -598,6 +593,15 @@
               </el-form-item>
             </el-col>
           </el-row>
+          <el-form-item>
+            <template #label>
+              <span>业务系统页面地址</span>
+              <el-tooltip content="填写用户在浏览器中打开业务系统的前端页面地址，例如系统首页。保存后可从项目详情直接跳转；不填写也不影响接入。" placement="top">
+                <button type="button" class="address-help" aria-label="业务系统页面地址填写说明"><el-icon><QuestionFilled /></el-icon></button>
+              </el-tooltip>
+            </template>
+            <el-input v-model="editForm.businessPageUrl" placeholder="例如 https://erp.example.com" maxlength="2048" />
+          </el-form-item>
           <template v-if="isEditingSdkProject">
             <el-row class="edit-project-row" :gutter="14">
               <el-col :span="12">
@@ -672,9 +676,11 @@ import {
   Lock,
   Monitor,
   Postcard,
+  QuestionFilled,
   Refresh,
   Tickets,
   Timer,
+  TopRight,
   WarningFilled,
 } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -692,7 +698,6 @@ import {
 import {
   formatProjectKindLabel,
   formatVisibilityLabel,
-  PROJECT_KIND_SELECT_OPTIONS,
   VISIBILITY_SELECT_OPTIONS,
 } from '@/utils/projectLabels'
 import { useTheme } from '@/composables/useTheme'
@@ -706,6 +711,7 @@ import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMi
 import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectWorkbenchLoadErrorState.vue'
 import ProjectBizIndexCard from '@/views/registry/components/ProjectBizIndexCard.vue'
 import { platformSessionUser } from '@/auth/platformSession'
+import { normalizeBusinessPageUrl } from '@/utils/businessPageUrl'
 import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
 
 const { theme } = useTheme()
@@ -714,7 +720,6 @@ const canWriteProject = computed(() => hasPlatformResourcePermission(
   platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, projectCode.value,
 ))
 
-const projectKindOptions = PROJECT_KIND_SELECT_OPTIONS
 const visibilityOptions = VISIBILITY_SELECT_OPTIONS
 const aiCodingDialogTab = ref<'overview' | 'endpoints' | 'credentials'>('overview')
 const editOpenapiFileInput = ref<HTMLInputElement | null>(null)
@@ -743,6 +748,7 @@ const {
 } = useRegistryProjectDetailData({
   loadAiCodingAccess: (projectId) => loadAiCodingAccessFn(projectId),
 })
+const businessPageUrl = computed(() => normalizeBusinessPageUrl(project.value?.businessPageUrl))
 
 const {
   editDialogVisible,
@@ -930,6 +936,18 @@ onMounted(refresh)
 .openapi-document-input {
   display: none;
 }
+
+.address-help {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  padding: 2px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: help;
+}
+.address-help:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 2px; }
 </style>
 
 <style lang="scss">

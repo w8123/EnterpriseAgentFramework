@@ -40,6 +40,7 @@ class ModelInstanceConsoleScopeTest {
 
     ModelInstanceConsoleScopeTest() {
         var controller = new KnowledgeModelConsoleProxyController(http, HttpClient.newHttpClient(), "http://knowledge", "http://model");
+        controller.configureModelServiceSecret("model-auth-unit-test-secret");
         controller.setModelScope(catalog);
         mvc = MockMvcBuilders.standaloneSetup(controller).build();
     }

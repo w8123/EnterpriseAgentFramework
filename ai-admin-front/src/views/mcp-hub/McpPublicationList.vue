@@ -182,24 +182,24 @@ function checkTeleportTarget() {
   canTeleportActions.value = typeof document !== 'undefined' && Boolean(document.getElementById('mcp-hub-actions'))
 }
 
-checkTeleportTarget()
-
 onMounted(() => {
-  if (!canTeleportActions.value) {
-    checkTeleportTarget()
-  }
+  checkTeleportTarget()
   reload()
 })
 </script>
 
 <template>
   <section class="publication-page mcp-list-page">
-    <Teleport to="#mcp-hub-actions" :disabled="!canTeleportActions">
+    <Teleport v-if="canTeleportActions" to="#mcp-hub-actions">
       <div class="publication-actions">
         <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
         <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
       </div>
     </Teleport>
+    <div v-else class="publication-actions">
+      <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
+      <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
+    </div>
 
     <LiquidGlassTable
       class="workbench-list-surface"

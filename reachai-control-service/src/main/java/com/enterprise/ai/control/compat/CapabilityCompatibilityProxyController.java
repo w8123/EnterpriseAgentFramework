@@ -2,6 +2,7 @@ package com.enterprise.ai.control.compat;
 
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformConsolePermissionPolicy;
 import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,6 +33,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 /**
  * Public /api capability route bridge from Control to the owning Capability service.
@@ -54,6 +56,7 @@ public class CapabilityCompatibilityProxyController {
     );
 
     private static final Pattern PROJECT_DETAIL_PATH = Pattern.compile("/api/scan-projects/\\d+");
+    private static final Pattern PROJECT_RESOURCE_PATH = Pattern.compile("/api/scan-projects/(\\d+)(?:/.*)?");
     private static final Pattern PROJECT_WRITE_PATH = Pattern.compile("/api/scan-projects(/\\d+(/scan-settings|/registry-credential)?)?");
     private static final List<String> PROJECT_SUMMARY_FIELDS = List.of(
             "id", "name", "projectCode", "projectKind", "environment", "status", "description");
@@ -104,18 +107,78 @@ public class CapabilityCompatibilityProxyController {
             "/api/scan-projects/{*path}"
     })
     public ResponseEntity<byte[]> proxy(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {
+        String path = request.getRequestURI();
+        PlatformAuthenticatedSession session = request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE)
+                instanceof PlatformAuthenticatedSession actor ? actor : null;
+        boolean read = HttpMethod.GET.equals(requestEntity.getMethod()) || HttpMethod.HEAD.equals(requestEntity.getMethod());
+        Matcher resource = PROJECT_RESOURCE_PATH.matcher(path);
+        if (resource.matches()) {
+            long projectId;
+            try { projectId = Long.parseLong(resource.group(1)); }
+            catch (NumberFormatException invalid) { return ResponseEntity.status(HttpStatus.FORBIDDEN).build(); }
+            if (!hasProjectPermission(session, projectId, read ? PlatformPermissions.PLATFORM_READ : PlatformPermissions.PLATFORM_WRITE)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+            }
+        } else if ("/api/scan-projects".equals(path) && !read
+                && (session == null || !session.hasGlobalPermission(PlatformPermissions.PLATFORM_WRITE))) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        } else if (!"/api/scan-projects".equals(path)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
         ResponseEntity<byte[]> response = proxyRequest(requestEntity, request);
         if (!HttpMethod.GET.equals(requestEntity.getMethod()) || !response.getStatusCode().is2xxSuccessful()) {
             return response;
         }
-        String path = request.getRequestURI();
         if ("/api/scan-projects".equals(path)) {
-            return sanitizeProjects(response, canReadProjectDetails(request));
+            return filterProjects(response, session);
         }
         if (PROJECT_DETAIL_PATH.matcher(path).matches()) {
             return sanitizeProjects(response, true);
         }
         return response;
+    }
+
+    /** Resolve project identity from the owning service, never from a client-supplied code. */
+    boolean hasProjectPermission(PlatformAuthenticatedSession actor, long projectId, String permission) {
+        if (actor == null || projectId < 1) return false;
+        ResponseEntity<byte[]> response = consoleGet("/api/scan-projects/" + projectId, Map.of());
+        if (response == null || !response.getStatusCode().is2xxSuccessful()) return false;
+        try {
+            JsonNode project = objectMapper.readTree(response.getBody());
+            JsonNode id = project.path("id");
+            JsonNode code = project.path("projectCode");
+            return id.isIntegralNumber() && id.canConvertToLong() && id.longValue() == projectId
+                    && code.isTextual() && StringUtils.hasText(code.asText())
+                    && actor.hasResourcePermission(permission, "PROJECT", null, code.asText().trim());
+        } catch (IOException | IllegalArgumentException | NullPointerException invalid) {
+            return false;
+        }
+    }
+
+    private ResponseEntity<byte[]> filterProjects(ResponseEntity<byte[]> response, PlatformAuthenticatedSession actor) {
+        if (actor == null) return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        try {
+            JsonNode root = objectMapper.readTree(response.getBody());
+            if (root == null || !root.isArray()) return unavailable();
+            var rule = PlatformConsolePermissionPolicy.ruleFor("/api/scan-projects").orElseThrow();
+            ArrayNode visible = objectMapper.createArrayNode();
+            for (JsonNode row : root) {
+                JsonNode id = row.path("id");
+                JsonNode code = row.path("projectCode");
+                if (!row.isObject() || !id.isIntegralNumber() || !id.canConvertToLong() || id.longValue() < 1
+                        || !code.isTextual() || !StringUtils.hasText(code.asText())) continue;
+                String projectCode = code.asText().trim();
+                if (rule.read().stream().noneMatch(permission -> actor.hasResourcePermission(permission, "PROJECT", null, projectCode))) continue;
+                boolean details = actor.hasResourcePermission(PlatformPermissions.PLATFORM_READ, "PROJECT", null, projectCode);
+                visible.add(sanitizeProject(row, details));
+            }
+            HttpHeaders headers = new HttpHeaders();
+            headers.putAll(response.getHeaders());
+            headers.remove(HttpHeaders.CONTENT_LENGTH);
+            return ResponseEntity.status(response.getStatusCode()).headers(headers).body(objectMapper.writeValueAsBytes(visible));
+        } catch (IOException | IllegalArgumentException invalid) {
+            return unavailable();
+        }
     }
 
     /** Same minimal project-picker projection for trusted in-process platform adapters. */
@@ -219,13 +282,6 @@ public class CapabilityCompatibilityProxyController {
         }
         project.remove("authApiKeyValue");
         return project;
-    }
-
-    private boolean canReadProjectDetails(HttpServletRequest request) {
-        return request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE)
-                instanceof PlatformAuthenticatedSession session
-                && (session.permissions().contains(PlatformPermissions.PLATFORM_READ)
-                || session.permissions().contains(PlatformPermissions.ALL));
     }
 
     private ResponseEntity<byte[]> proxyRequest(RequestEntity<byte[]> requestEntity, HttpServletRequest request) {

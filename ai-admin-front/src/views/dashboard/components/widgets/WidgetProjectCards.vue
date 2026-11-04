@@ -33,7 +33,6 @@ defineEmits<{
     <DashboardPanelState
       v-else-if="!projects.length"
       title="尚未接入业务系统"
-      detail="完成 Starter 注册或扫描项目接入后，这里会显示真实的项目运营入口。"
     />
     <div v-else class="ops-project-cards">
       <DashboardProjectCard

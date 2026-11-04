@@ -13,6 +13,29 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ConnectionConfigSupportTest {
 
     @Test
+    void responseNeverIncludesAnyPartOfApiKey() {
+        Map<String, Object> original = Map.of("baseUrl", "https://example.com", "apiKey", "private-key-value-12345678");
+        assertFalse(ConnectionConfigSupport.publicConnection(original).containsKey("apiKey"));
+        assertTrue(ConnectionConfigSupport.hasApiKey(original));
+        assertEquals("private-key-value-12345678", original.get("apiKey"));
+        assertFalse(ConnectionConfigSupport.publicConnection(Map.of("apiKey", Map.of("secret", "nested"))).containsKey("apiKey"));
+    }
+
+    @Test
+    void rejectsMalformedAuthenticationWithoutEchoingValues() {
+        for (String field : new String[]{"apiKey", "authHeader", "authPrefix"}) {
+            IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                    () -> ConnectionConfigSupport.validateAuthentication(Map.of(field, "PRIVATE_MARKER\r\n")));
+            assertFalse(failure.getMessage().contains("PRIVATE_MARKER"));
+        }
+        assertThrows(IllegalArgumentException.class,
+                () -> ConnectionConfigSupport.validateAuthentication(Map.of("authHeader", "Bad:Header")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConnectionConfigSupport.validateAuthentication(Map.of("apiKey", java.util.List.of("key"))));
+        ConnectionConfigSupport.validateAuthentication(Map.of("apiKey", "synthetic-key", "authHeader", "X-Api-Key", "authPrefix", "Bearer "));
+    }
+
+    @Test
     void authorityChangeWithMaskedApiKeyThrows() {
         Map<String, Object> original = Map.of(
                 "baseUrl", "https://api.openai.com/v1",

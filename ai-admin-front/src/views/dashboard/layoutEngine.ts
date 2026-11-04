@@ -10,6 +10,12 @@ export const DASHBOARD_GRID_COLUMNS = 12
 export const DASHBOARD_GRID_ROW_HEIGHT = 57
 export const DASHBOARD_GRID_GAP = 12
 
+/** 标准 12 行布局适配可用高度，低空间时保留最小行高并滚动。 */
+export function fitDashboardRowHeight(availableHeight: number, rows: number): number {
+  if (rows !== 12 || availableHeight <= 0) return DASHBOARD_GRID_ROW_HEIGHT
+  return Math.max(45, (availableHeight - (rows - 1) * DASHBOARD_GRID_GAP) / rows)
+}
+
 export type DashboardResizeEdge = 'left' | 'right' | 'bottom'
 
 export type LayoutParseResult =
@@ -166,12 +172,7 @@ function parseConfig(value: unknown): Record<string, unknown> {
     if ((key === 'topN' || key === 'displayCount') && typeof entry === 'number' && Number.isFinite(entry)) {
       result[key] = entry
     }
-    if (key === 'shortcutPreset' && typeof entry === 'string' && ['developer', 'operator', 'manager', 'admin', 'custom'].includes(entry)) {
-      result[key] = entry
-    }
-    if (key === 'shortcutIds' && Array.isArray(entry)) {
-      result[key] = entry.filter(id => typeof id === 'string')
-    }
+
   }
   return result
 }

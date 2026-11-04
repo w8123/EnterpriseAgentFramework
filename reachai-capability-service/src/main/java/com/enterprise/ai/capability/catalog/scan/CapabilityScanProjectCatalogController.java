@@ -326,6 +326,7 @@ public class CapabilityScanProjectCatalogController {
                 entity.getOwner(),
                 entity.getVisibility(),
                 entity.getBaseUrl(),
+                entity.getBusinessPageUrl(),
                 entity.getContextPath(),
                 entity.getSpecFile(),
                 org.springframework.util.StringUtils.hasText(entity.getOpenapiDocumentSha256()),
@@ -463,8 +464,13 @@ public class CapabilityScanProjectCatalogController {
             String baseUrl,
             String contextPath,
             String specFile,
-            String specContent
+            String specContent,
+            String businessPageUrl
     ) {
+        ScanProjectUpsertRequest(String name, String projectCode, String projectKind, String environment, String owner,
+                                 String visibility, String baseUrl, String contextPath, String specFile, String specContent) {
+            this(name, projectCode, projectKind, environment, owner, visibility, baseUrl, contextPath, specFile, specContent, null);
+        }
         CapabilityScanProjectCatalogService.ScanProjectUpsertRequest toServiceRequest() {
             return new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(
                     name,
@@ -476,7 +482,8 @@ public class CapabilityScanProjectCatalogController {
                     baseUrl,
                     contextPath,
                     specFile,
-                    specContent
+                    specContent,
+                    businessPageUrl
             );
         }
     }
@@ -539,6 +546,7 @@ public class CapabilityScanProjectCatalogController {
             String owner,
             String visibility,
             String baseUrl,
+            String businessPageUrl,
             String contextPath,
             String specFile,
             boolean openapiDocumentUploaded,

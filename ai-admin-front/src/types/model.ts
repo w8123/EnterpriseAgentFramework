@@ -123,6 +123,7 @@ export interface ModelInstance {
   providerAccountId?: string | null
   providerAccountName?: string | null
   connection: ModelConnectionConfig
+  apiKeyConfigured?: boolean
   defaultOptions: Record<string, unknown>
   paramsSchema: unknown
   status: ModelInstanceStatus

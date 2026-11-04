@@ -6,6 +6,7 @@ import type {
   DashboardWidgetContext,
   DashboardWidgetRect,
 } from '@/types/operationsDashboard'
+import { DASHBOARD_GRID_ROW_HEIGHT, fitDashboardRowHeight } from '../layoutEngine'
 import DashboardGrid from './DashboardGrid.vue'
 import DashboardLayoutToolbar from './DashboardLayoutToolbar.vue'
 import DashboardWidgetCatalogDrawer from './DashboardWidgetCatalogDrawer.vue'
@@ -54,10 +55,8 @@ const emit = defineEmits<{
   openAgents: []
   openRunops: []
   openAttention: [target: DashboardWidgetContext['attentionItems'][number]['to']]
-  openRunTrace: [traceId: string]
   retryRuns: []
   retryAll: []
-  openShortcut: [path: string]
 }>()
 
 const NARROW_BREAKPOINT = 1000
@@ -66,12 +65,19 @@ const selectedId = ref<string | null>(null)
 const settingsId = ref<string | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 // 初始值用窗口宽度兜底；真实宽度由 ResizeObserver / 测量回调覆盖（忽略 0 测量）。
+const availableGridHeight = ref(0)
 const containerWidth = ref(typeof window === 'undefined' ? NARROW_BREAKPOINT : window.innerWidth)
 let resizeObserver: ResizeObserver | null = null
 
 const narrow = computed(() => containerWidth.value < NARROW_BREAKPOINT)
 /** 编辑会话因窄屏暂停：草稿保留，但所有变更动作被阻止。 */
 const editPaused = computed(() => props.editing && narrow.value)
+// 12 行的标准看板在宽屏下适配内容区高度；小屏保留最小行高并允许滚动。
+const rowHeight = computed(() => {
+  const rows = Math.max(0, ...props.layout.items.map(item => item.rect.y + item.rect.h))
+  if (props.editing || narrow.value) return DASHBOARD_GRID_ROW_HEIGHT
+  return fitDashboardRowHeight(availableGridHeight.value, rows)
+})
 
 // 暂停时关闭残留的目录与设置面板，防止暂停态 overlay 仍能提交变更；草稿与历史保留。
 watch(editPaused, (paused) => {
@@ -86,6 +92,8 @@ watch(narrow, (value) => emit('narrowChange', value), { immediate: true })
 function measureWidth() {
   const element = rootRef.value
   const measured = element ? element.getBoundingClientRect().width : 0
+  const scrollArea = element?.closest<HTMLElement>('.ops-content')
+  if (scrollArea && element) availableGridHeight.value = Math.max(0, scrollArea.getBoundingClientRect().bottom - element.getBoundingClientRect().top - (parseFloat(getComputedStyle(scrollArea).paddingBottom) || 0))
   if (measured > 0) containerWidth.value = measured
   else if (typeof window !== 'undefined') containerWidth.value = window.innerWidth
 }
@@ -100,8 +108,11 @@ onMounted(() => {
     resizeObserver = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect?.width ?? 0
       if (width > 0) containerWidth.value = width
+      measureWidth()
     })
     resizeObserver.observe(rootRef.value as Element)
+    const scrollArea = rootRef.value?.closest('.ops-content')
+    if (scrollArea) resizeObserver.observe(scrollArea)
   }
   window.addEventListener('resize', handleWindowResize)
 })
@@ -256,6 +267,7 @@ function addFromEmptyState() {
       :items="layout.items"
       :editing="editing && !narrow"
       :narrow="narrow"
+      :row-height="rowHeight"
       :selected-id="selectedId"
       @select="onSelect"
       @commit-rect="commitRect"
@@ -277,23 +289,19 @@ function addFromEmptyState() {
           @open-agents="emit('openAgents')"
           @open-runops="emit('openRunops')"
           @open-attention="(target) => emit('openAttention', target)"
-          @open-run-trace="(traceId) => emit('openRunTrace', traceId)"
           @retry-runs="emit('retryRuns')"
           @retry-all="emit('retryAll')"
-          @open-shortcut="path => emit('openShortcut', path)"
         />
       </template>
     </DashboardGrid>
     <DashboardWidgetCatalogDrawer
       :open="catalogOpen && editing && !editPaused"
       :items="layout.items"
-      :permissions="context.permissions ?? []"
       @close="catalogOpen = false"
       @add="addWidget"
     />
     <DashboardWidgetSettingsDialog
       :instance="settingsInstance"
-      :permissions="context.permissions ?? []"
       :editing="editing"
       :save-error="saveError"
       @close="settingsId = null"

@@ -327,6 +327,9 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                 11. Keep node/edge ids stable and unique. Prefer concise Chinese summary in finalize_preview.
                 12. Set or replace the Workflow-level input contract with SET_INPUT_SCHEMA; put the complete
                     JSON Schema object directly in operation.patch. Do not put the Workflow contract in a USER_INPUT config.
+                13. Mutation rounds are limited. Submit related node, edge, input schema, entry, and exit
+                    operations together in dependency order where possible, then validate the complete path.
+                    Reserve later rounds for fixing validation errors rather than adding one item per round.
 
                 Canonical node contracts:
                 - USER_INPUT config mirrors the Workflow request contract for Studio editing: include outputAlias="params"

@@ -8,7 +8,7 @@ import java.util.Map;
 public class ModelProviderAccountRequest {
     private String name;
     private String provider;
-    /** baseUrl / apiKey / authHeader / authPrefix；编辑时 apiKey 传掩码表示保持不变 */
+    /** baseUrl / apiKey / authHeader / authPrefix；编辑时省略 apiKey 表示保持不变。 */
     private Map<String, Object> connection;
     private String remark;
 }

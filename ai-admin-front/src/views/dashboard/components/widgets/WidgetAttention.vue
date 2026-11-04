@@ -43,8 +43,7 @@ defineEmits<{
       </button>
     </div>
     <div v-else class="ops-attention-clear">
-      <strong>本次样本未发现异常信号</strong>
-      <span>结论仅覆盖当前返回的 {{ sampleCount }} 条运行记录，不代表生产全量。</span>
+      <strong>{{ sampleCount ? '本次样本未发现异常信号' : '暂无运行数据' }}</strong>
     </div>
   </div>
 </template>

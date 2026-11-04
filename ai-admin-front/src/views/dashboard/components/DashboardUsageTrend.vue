@@ -20,9 +20,9 @@ const gradientId = `ops-trend-area-${getCurrentInstance()?.uid ?? ++gradientSequ
 const gradientUrl = `url(#${gradientId})`
 
 const metricOptions: { key: TrendMetric; label: string; color: string }[] = [
-  { key: 'runs', label: '调用样本', color: 'var(--ops-blue)' },
+  { key: 'runs', label: '运行次数', color: 'var(--ops-blue)' },
   { key: 'tokens', label: 'Token', color: 'var(--ops-violet)' },
-  { key: 'users', label: '可识别用户', color: 'var(--ops-cyan)' },
+  { key: 'users', label: '使用人数', color: 'var(--ops-cyan)' },
 ]
 
 const activeOption = computed(() => metricOptions.find((option) => option.key === activeMetric.value)!)
@@ -102,7 +102,6 @@ const totals = computed(() => {
 <template>
   <div class="usage-trend__body widget-body">
     <div class="usage-trend__header">
-      <p class="usage-trend__meta">{{ rangeLabel }} · 仅基于最近返回样本，不外推平台总量</p>
       <div class="usage-trend__tabs" aria-label="趋势指标">
         <button
           v-for="option in metricOptions"
@@ -111,6 +110,11 @@ const totals = computed(() => {
           :class="{ 'is-active': activeMetric === option.key }"
           @click="activeMetric = option.key"
         >{{ option.label }}</button>
+      </div>
+      <div v-if="status === 'ready' && buckets.some(bucket => bucket.runs > 0)" class="usage-trend__legend" aria-hidden="true">
+        <span class="is-active-line"><i />{{ activeOption.label }}</span>
+        <span class="is-token"><i />Token 记录</span>
+        <span class="is-completion"><i />运行完成率</span>
       </div>
     </div>
 
@@ -126,16 +130,10 @@ const totals = computed(() => {
     />
     <DashboardPanelState
       v-else-if="!buckets.some((bucket) => bucket.runs > 0)"
-      title="当前时间范围暂无运行样本"
-      detail="这里不会生成示例曲线；产生真实 Agent 或 Workflow 运行后才会显示趋势。"
+      title="当前时间范围暂无运行记录"
     />
     <div v-else class="usage-trend__chart">
-      <div class="usage-trend__legend" aria-hidden="true">
-        <span class="is-active-line"><i />{{ activeOption.label }}</span>
-        <span class="is-token"><i />Token 记录</span>
-        <span class="is-completion"><i />技术完成率</span>
-      </div>
-      <svg viewBox="0 0 730 246" role="img" :aria-label="`${activeOption.label}、Token 与技术完成率综合态势`">
+      <svg viewBox="0 0 730 246" role="img" :aria-label="`${activeOption.label}、Token 与运行完成率综合态势`">
         <defs>
           <linearGradient :id="gradientId" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" :stop-color="activeOption.color" stop-opacity=".17" />
@@ -147,7 +145,7 @@ const totals = computed(() => {
         </g>
         <g class="usage-trend__axis" aria-hidden="true">
           <text class="usage-trend__axis-title" x="48" y="45">{{ activeOption.label }}</text>
-          <text class="usage-trend__axis-title" x="682" y="45" text-anchor="end">技术完成率</text>
+          <text class="usage-trend__axis-title" x="682" y="45" text-anchor="end">运行完成率</text>
           <text
             v-for="tick in metricTicks"
             :key="`metric-tick-${tick.key}`"
@@ -206,16 +204,16 @@ const totals = computed(() => {
             stroke-width="1.3"
           />
           <text v-if="showBucketLabel(index)" :x="bucketX(index)" y="231" text-anchor="middle">{{ bucket.label }}</text>
-          <title>{{ bucket.label }}：样本 {{ bucket.runs }}，Token {{ bucket.tokens }}，可识别用户 {{ bucket.users }}，技术完成率 {{ bucket.technicalCompletionRate == null ? '无终态样本' : `${bucket.technicalCompletionRate.toFixed(1)}%` }}</title>
+          <title>{{ bucket.label }}：运行 {{ bucket.runs }} 次，Token {{ bucket.tokens }}，使用人数 {{ bucket.users }}，运行完成率 {{ bucket.technicalCompletionRate == null ? '暂无已结束记录' : `${bucket.technicalCompletionRate.toFixed(1)}%` }}</title>
         </g>
       </svg>
     </div>
 
     <footer class="usage-trend__totals">
-      <span>运行样本 <strong>{{ formatCompactNumber(totals.runs) }}</strong></span>
+      <span>运行次数 <strong>{{ formatCompactNumber(totals.runs) }}</strong></span>
       <span>已记录 Token <strong>{{ totals.tokens ? formatCompactNumber(totals.tokens) : '—' }}</strong></span>
-      <span>分桶可识别用户 <strong>{{ formatCompactNumber(totals.users) }}</strong></span>
-      <span>技术完成率 <strong>{{ totals.completionRate == null ? '—' : `${totals.completionRate.toFixed(1)}%` }}</strong></span>
+      <span title="各时段内去重人数相加；同一人跨时段使用会重复计算">各时段人数之和 <strong>{{ formatCompactNumber(totals.users) }}</strong></span>
+      <span title="已结束的运行中，状态为完成的比例；不代表业务成功率">运行完成率 <strong>{{ totals.completionRate == null ? '—' : `${totals.completionRate.toFixed(1)}%` }}</strong></span>
     </footer>
   </div>
 </template>
@@ -233,6 +231,7 @@ const totals = computed(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
   padding: 6px 10px;
   background: var(--ops-panel-header-background);
@@ -242,7 +241,7 @@ const totals = computed(() => {
 .usage-trend__meta {
   margin: 0;
   color: var(--ops-text-muted);
-  font-size: 9px;
+  font-size: 10px;
   line-height: 1.35;
 }
 
@@ -261,7 +260,7 @@ const totals = computed(() => {
   background: transparent;
   border: 0;
   border-radius: 5px;
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -280,14 +279,12 @@ const totals = computed(() => {
 }
 
 .usage-trend__legend {
-  position: absolute;
-  z-index: 1;
-  top: 9px;
-  left: 18px;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 14px;
   color: var(--ops-text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .usage-trend__legend span {
@@ -320,13 +317,13 @@ const totals = computed(() => {
 
 .usage-trend__chart text {
   fill: var(--ops-text-muted);
-  font-size: 8.5px;
+  font-size: 9.5px;
   font-variant-numeric: tabular-nums;
 }
 
 .usage-trend__axis-title {
   fill: var(--ops-text-secondary) !important;
-  font-size: 8px !important;
+  font-size: 9px !important;
   font-weight: 650;
   letter-spacing: .02em;
 }
@@ -360,7 +357,7 @@ const totals = computed(() => {
   border-radius: 10px;
   box-shadow: var(--inner-highlight);
   color: var(--ops-text-muted);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 .usage-trend__totals span {
@@ -398,6 +395,7 @@ const totals = computed(() => {
 
 @media (max-width: 720px) {
   .usage-trend__header { align-items: stretch; flex-direction: column; }
+  .usage-trend__legend { justify-content: flex-start; }
   .usage-trend__tabs button { flex: 1; }
   .usage-trend__totals { grid-template-columns: repeat(2, 1fr); row-gap: 8px; }
 }

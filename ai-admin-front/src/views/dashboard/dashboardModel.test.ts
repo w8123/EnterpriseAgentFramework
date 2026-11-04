@@ -79,7 +79,6 @@ describe('dashboardModel', () => {
           agentCount: 0,
           runs: 1,
           users: 0,
-          identityCoverage: 0,
           tokens: 20,
           tokenCoverage: 100,
           technicalCompletionRate: 100,

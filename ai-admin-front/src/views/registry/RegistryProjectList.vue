@@ -178,8 +178,9 @@
                   <el-option v-for="opt in VISIBILITY_SELECT_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </LiquidGlassSelect>
               </el-form-item>
-              <el-form-item label="服务地址（Base URL）" required>
+              <el-form-item label="业务系统后端地址" required>
                 <el-input v-model="sdkForm.baseUrl" placeholder="http://localhost:8080" />
+                <small>填写 ReachAI 服务端可以访问的业务系统后端地址。</small>
               </el-form-item>
             </div>
             <LiquidGlassNotice
@@ -217,8 +218,9 @@
               <el-form-item label="负责人">
                 <el-input v-model="scanForm.owner" placeholder="负责人姓名" />
               </el-form-item>
-              <el-form-item label="服务地址（Base URL）" required>
+              <el-form-item label="业务系统后端地址" required>
                 <el-input v-model="scanForm.baseUrl" placeholder="http://localhost:18602" />
+                <small>填写 ReachAI 服务端可以访问的业务系统后端地址。</small>
               </el-form-item>
               <el-form-item label="可见性">
                 <LiquidGlassSelect v-model="scanForm.visibility" dropdown-title="项目可见性" aria-label="扫描项目可见性">
@@ -605,7 +607,7 @@ function openAccessDialog(tab: 'sdk' | 'scan' = 'sdk') {
 async function saveSdkProject() {
   if (saving.value) return
   if (!sdkForm.name.trim() || !sdkForm.projectCode.trim() || !sdkForm.baseUrl.trim()) {
-    ElMessage.warning('请填写项目名称、项目编码和 Base URL')
+    ElMessage.warning('请填写项目名称、项目编码和业务系统后端地址')
     return
   }
   const project: RegistryProjectRegisterRequest = {
@@ -652,7 +654,7 @@ async function handleOpenApiFileChange(event: Event) {
 
 async function saveScanProject() {
   if (!scanForm.name.trim() || !scanForm.baseUrl.trim() || (scanForm.projectKind !== 'REGISTERED' && !scanForm.specContent)) {
-    ElMessage.warning('请填写项目名称、域名，并上传 OpenAPI 文档')
+    ElMessage.warning('请填写项目名称、业务系统后端地址，并上传 OpenAPI 文档')
     return
   }
   saving.value = true
@@ -729,7 +731,7 @@ function projectInitial(value?: string | null) {
 function projectDescription(project: ScanProject) {
   if (project.description) return project.description
   const env = project.environment ? `${project.environment} 环境` : '未标注环境'
-  return `${env} · ${project.baseUrl || '未配置根地址'}`
+  return `${env} · ${project.baseUrl || '未配置业务系统后端地址'}`
 }
 
 function sdkVersionLabel(project: ScanProject) {

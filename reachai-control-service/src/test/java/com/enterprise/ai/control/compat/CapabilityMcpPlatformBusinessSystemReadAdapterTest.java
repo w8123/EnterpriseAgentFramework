@@ -21,6 +21,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
@@ -28,8 +30,21 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class CapabilityMcpPlatformBusinessSystemReadAdapterTest {
     private final RestTemplate http = new RestTemplate();
     private final MockRestServiceServer server = MockRestServiceServer.createServer(http);
+    private final CapabilityCompatibilityProxyController proxy = spy(
+            new CapabilityCompatibilityProxyController(http, "http://capability:18605"));
     private final CapabilityMcpPlatformBusinessSystemReadAdapter adapter = new CapabilityMcpPlatformBusinessSystemReadAdapter(
-            new CapabilityCompatibilityProxyController(http, "http://capability:18605"), new ObjectMapper());
+            proxy, new ObjectMapper());
+
+    CapabilityMcpPlatformBusinessSystemReadAdapterTest() {
+        // The proxy owns the verified id-to-projectCode lookup; these adapter tests exercise
+        // its result and confirm no protected owner call is forwarded on denial.
+        doAnswer(inv -> {
+            PlatformAuthenticatedSession actor = inv.getArgument(0);
+            long id = inv.getArgument(1);
+            String permission = inv.getArgument(2);
+            return actor.hasResourcePermission(permission, "PROJECT", null, id == 5 ? "orders" : "other");
+        }).when(proxy).hasProjectPermission(any(), anyLong(), anyString());
+    }
 
     @Test
     void projectDetailUsesTheConsoleSanitizationAndNeverReturnsTheStoredKey() {
@@ -113,11 +128,36 @@ class CapabilityMcpPlatformBusinessSystemReadAdapterTest {
         server.verify();
     }
 
+    @Test
+    void projectScopedActorCannotReadActOrChangeAnotherProjectOrCreateGlobalProject() {
+        var reader = scopedActor("platform:read", "orders");
+        var writer = scopedActor("platform:write", "orders");
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> adapter.read(reader, Operation.TOOLS, 6L, null, Map.of())).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> adapter.act(writer, Action.RESCAN, 6L, null, Map.of())).getStatusCode());
+        assertFalse(adapter.admits(writer, Change.UPDATE, 6L));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> adapter.change(writer, Change.DELETE, 6L, null)).getStatusCode());
+        assertFalse(adapter.admits(writer, Change.CREATE, null));
+        server.expect(requestTo("http://capability:18605/api/scan-projects/5/tools"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("[]"));
+        assertEquals(HttpStatus.OK, adapter.read(reader, Operation.TOOLS, 5L, null, Map.of()).getStatusCode());
+        server.verify();
+    }
+
     private static PlatformAuthenticatedSession actor(String permission) {
         var user = new PlatformUserEntity();
         user.setId(7L);
-        var grants = List.of(new PlatformPermissionGrant(permission, "GLOBAL", null));
+        var grants = List.of(new PlatformPermissionGrant(permission, "GLOBAL", "*"));
         return new PlatformAuthenticatedSession(PlatformPrincipal.fromUser(user), "pai_19", LocalDateTime.now().plusDays(1),
                 List.of(), List.of(permission), grants);
+    }
+
+    private static PlatformAuthenticatedSession scopedActor(String permission, String projectCode) {
+        var user = new PlatformUserEntity();
+        user.setId(7L);
+        return new PlatformAuthenticatedSession(PlatformPrincipal.fromUser(user), "pai_19", LocalDateTime.now().plusDays(1),
+                List.of(), List.of(permission), List.of(new PlatformPermissionGrant(permission, "PROJECT", projectCode)));
     }
 }

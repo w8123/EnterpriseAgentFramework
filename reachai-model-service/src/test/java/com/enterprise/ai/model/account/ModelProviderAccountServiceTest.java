@@ -88,7 +88,8 @@ class ModelProviderAccountServiceTest {
         Map<?, ?> stored = new ObjectMapper().readValue(cipher.decrypt(saved.getValue().getConnectionConfigJson()), Map.class);
         assertEquals(Map.of("baseUrl", "https://dashscope.aliyuncs.com/compatible-mode/v1", "apiKey", "sk-new-12345678"), stored);
         assertTrue(response.isApiKeyConfigured());
-        assertFalse(String.valueOf(response.getConnection().get("apiKey")).contains("12345678"));
+        assertFalse(response.getConnection().containsKey("apiKey"));
+        assertTrue(response.isApiKeyConfigured());
     }
 
     @Test

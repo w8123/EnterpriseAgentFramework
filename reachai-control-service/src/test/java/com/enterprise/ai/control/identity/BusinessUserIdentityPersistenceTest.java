@@ -61,8 +61,9 @@ class BusinessUserIdentityPersistenceTest {
 
     @Test void legacyErasureDetectsDisabledBusinessBindingsAndOldEmbedSessions() {
         var guard = new com.enterprise.ai.control.compliance.BusinessIdentityErasureGuard(
-                session.getMapper(ExternalUserBindingMapper.class),
-                session.getMapper(com.enterprise.ai.control.platform.PlatformEmbedSessionMapper.class));
+                new ExternalUserBindingErasureLookup(session.getMapper(ExternalUserBindingMapper.class)),
+                new com.enterprise.ai.control.platform.PlatformEmbedSessionErasureLookup(
+                        session.getMapper(com.enterprise.ai.control.platform.PlatformEmbedSessionMapper.class)));
         jdbc.update("UPDATE control_external_user_binding SET status='DISABLED' WHERE id=11");
         jdbc.update("INSERT INTO control_embed_session(tenant_id,external_user_id,global_user_id,status) VALUES ('tenant-a','embed-user','global-user','EXPIRED'),(NULL,'old-default','old-global','EXPIRED')");
         assertTrue(guard.hasPotentialBusinessIdentity("tenant-a", "old-user"));

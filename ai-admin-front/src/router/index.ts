@@ -73,14 +73,20 @@ export const routes: RouteRecordRaw[] = [
         path: 'dashboard',
         name: 'Dashboard',
         component: () => import('@/views/dashboard/Dashboard.vue'),
-        meta: { title: '概览', layoutMode: 'standard', hideBreadcrumb: true, compactSidebarOnNarrow: true },
+        meta: { title: '概览', layoutMode: 'standard', hideBreadcrumb: true, compactSidebarOnNarrow: true, hideSidebarProjectPanel: true },
       },
       // 新安装的首次引导与系统体检，只给平台管理员。
       {
         path: 'getting-started',
         name: 'GettingStarted',
         component: () => import('@/views/getting-started/GettingStarted.vue'),
-        meta: { title: '开始使用', layoutMode: 'standard', hideBreadcrumb: true, requiredPermissions: [PLATFORM_PERMISSION_ADMIN] },
+        meta: {
+          title: '开始使用',
+          layoutMode: 'standard',
+          hideBreadcrumb: true,
+          hideSidebarProjectPanel: true,
+          requiredPermissions: [PLATFORM_PERMISSION_ADMIN],
+        },
       },
       // 「我的」首页：人人都有；没有任何平台角色的账号（业务人员）登录后落在这里。
       {

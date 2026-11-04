@@ -1,14 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import LiquidGlassLayer from '@/components/common/LiquidGlassLayer.vue'
-import { Connection, Grid, Lock, Share } from '@element-plus/icons-vue'
 import type {
   DashboardWidgetDefinition,
   DashboardWidgetConfig,
   DashboardWidgetInstance,
 } from '@/types/operationsDashboard'
 import { listWidgetDefinitions, resolveWidgetTitle } from '../widgetRegistry'
-import { availableDashboardShortcuts, SHORTCUT_WIDGET_KEY, shortcutPresetConfig, shortcutPresets } from '../dashboardShortcuts'
 
 /**
  * Widget 目录抽屉：区分可添加、已添加（仍可再次添加）与不可用。
@@ -17,7 +15,6 @@ import { availableDashboardShortcuts, SHORTCUT_WIDGET_KEY, shortcutPresetConfig,
 const props = defineProps<{
   open: boolean
   items: DashboardWidgetInstance[]
-  permissions?: readonly string[]
 }>()
 
 const emit = defineEmits<{
@@ -34,14 +31,12 @@ interface CatalogEntry {
 }
 
 const categoryLabels: Record<string, string> = {
-  NAVIGATION: '快捷入口',
   KPI: '指标',
   RANKING: '排行',
   TREND: '趋势',
   QUALITY: '质量',
   PROJECT: '业务系统',
   DISTRIBUTION: '分布',
-  ACTIVITY: '动态',
   SERVICE: '服务状态',
   INSIGHT: '洞察',
   COST: '成本',
@@ -51,19 +46,6 @@ const categoryLabels: Record<string, string> = {
 const catalog = computed<CatalogEntry[]>(() =>
   listWidgetDefinitions().flatMap((definition): CatalogEntry[] => {
     const addedCount = props.items.filter((item) => item.widgetKey === definition.key).length
-    if (definition.key === SHORTCUT_WIDGET_KEY) {
-      const available = new Set(availableDashboardShortcuts(props.permissions ?? []).map(item => item.id))
-      return [...shortcutPresets.map(preset => ({
-        definition: { ...definition, title: preset.title, description: preset.description },
-        catalogKey: `${definition.key}.${preset.key}`,
-        config: shortcutPresetConfig(preset.key, props.permissions),
-        addedCount: props.items.filter(item => item.widgetKey === definition.key && item.config.shortcutPreset === preset.key).length,
-        addable: preset.ids.some(id => available.has(id)),
-      })), { definition: { ...definition, title: '自定义快捷入口' }, catalogKey: definition.key,
-        config: shortcutPresetConfig('custom'),
-        addedCount: props.items.filter(item => item.widgetKey === definition.key && (!item.config.shortcutPreset || item.config.shortcutPreset === 'custom')).length,
-        addable: available.size > 0 }]
-    }
     return [{
       definition,
       catalogKey: definition.key,
@@ -82,14 +64,8 @@ const grouped = computed(() => {
   return [...groups.entries()]
 })
 
-function instanceTitlesOf(widgetKey: string, preset?: DashboardWidgetConfig['shortcutPreset']) {
-  return props.items
-    .filter((item) => item.widgetKey === widgetKey && (!preset || item.config.shortcutPreset === preset || (preset === 'custom' && !item.config.shortcutPreset)))
-    .map((item) => resolveWidgetTitle(item))
-}
-
-function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
-  return preset === 'developer' ? Connection : preset === 'operator' ? Share : preset === 'admin' ? Lock : Grid
+function instanceTitlesOf(widgetKey: string) {
+  return props.items.filter(item => item.widgetKey === widgetKey).map(item => resolveWidgetTitle(item))
 }
 </script>
 
@@ -111,7 +87,7 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
         <header class="dash-catalog__header">
           <div>
             <h3>看板组件目录</h3>
-            <p>组合常用入口和数据组件，打造自己的工作台。布局保存在此浏览器。</p>
+            <p>组合数据组件，打造自己的工作台。布局保存在此浏览器。</p>
           </div>
           <button type="button" class="dash-catalog__close" aria-label="关闭组件目录" @click="emit('close')">✕</button>
         </header>
@@ -122,18 +98,17 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
               <li
                 v-for="entry in entries"
                 :key="entry.catalogKey"
-                :class="{ 'is-disabled': !entry.addable, 'is-shortcut': entry.definition.category === 'NAVIGATION' }"
+                :class="{ 'is-disabled': !entry.addable }"
                 :data-catalog-widget="entry.definition.key"
-                :data-catalog-preset="entry.config?.shortcutPreset"
               >
                 <div class="dash-catalog__meta">
-                  <strong><component v-if="entry.definition.category === 'NAVIGATION'" :is="presetIcon(entry.config?.shortcutPreset)" class="dash-catalog__preset-icon" aria-hidden="true" />{{ entry.definition.title }}</strong>
+                  <strong>{{ entry.definition.title }}</strong>
                   <p v-if="!entry.addable" class="dash-catalog__reason">
                     不可用：{{ entry.definition.availability.reason ?? '当前账号没有这组入口的访问权限' }}
                   </p>
                   <p v-else>{{ entry.definition.description }}</p>
                   <small v-if="entry.addable && entry.addedCount > 0">
-                    已添加 {{ entry.addedCount }} 个实例（{{ instanceTitlesOf(entry.definition.key, entry.config?.shortcutPreset).join('、') }}），可再次添加
+                    已添加 {{ entry.addedCount }} 个实例（{{ instanceTitlesOf(entry.definition.key).join('、') }}），可再次添加
                   </small>
                   <small v-else-if="entry.addable">未添加</small>
                 </div>
@@ -244,16 +219,6 @@ function presetIcon(preset?: DashboardWidgetConfig['shortcutPreset']) {
 }
 
 .dash-catalog__preset-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--ops-blue); }
-.dash-catalog__group li.is-shortcut {
-  padding: 13px 12px;
-  border-radius: 10px;
-  background: var(--surface-glass-inset);
-
-  strong { display: flex; align-items: center; gap: 7px; font-size: 13px; }
-  p { margin-top: 7px; font-size: 11px; }
-  small { font-size: 11px; }
-}
-
 .dash-catalog__meta p {
   margin: 3px 0 0;
   color: var(--ops-text-muted);

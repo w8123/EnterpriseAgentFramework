@@ -56,7 +56,7 @@
 
     <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="knowledge-tabs">
       <el-tab-pane label="文件" name="files">
-        <KnowledgeFilesTab :kb-code="kbCode" :kb="kbInfo" @changed="refreshSummary" />
+        <KnowledgeFilesTab :key="kbCode" :kb-code="kbCode" :kb="kbInfo" :active="activeTab === 'files'" @changed="refreshSummary" />
       </el-tab-pane>
       <el-tab-pane label="检索测试" name="retrieval">
         <KnowledgeRetrievalTab :kb-code="kbCode" :kb="kbInfo" @recorded="hitsTabRef?.refresh()" />

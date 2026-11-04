@@ -32,6 +32,17 @@ import static org.mockito.Mockito.when;
 class CapabilityScanProjectCatalogControllerTest {
 
     @Test
+    void readsOptionalBusinessPageUrlFromJson() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        var request = mapper.readValue("{\"name\":\"Orders\",\"baseUrl\":\"https://api.example.com\",\"businessPageUrl\":\"https://erp.example.com/\"}",
+                CapabilityScanProjectCatalogController.ScanProjectUpsertRequest.class);
+        assertEquals("https://erp.example.com/", request.toServiceRequest().businessPageUrl());
+        var legacy = mapper.readValue("{\"name\":\"Orders\",\"baseUrl\":\"https://api.example.com\"}",
+                CapabilityScanProjectCatalogController.ScanProjectUpsertRequest.class);
+        assertNull(legacy.toServiceRequest().businessPageUrl());
+    }
+
+    @Test
     void keepsScanProjectCollectionRouteShapeOnCapabilityService() throws Exception {
         RequestMapping controllerMapping = CapabilityScanProjectCatalogController.class.getAnnotation(RequestMapping.class);
         Method create = CapabilityScanProjectCatalogController.class.getDeclaredMethod(

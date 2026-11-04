@@ -17,7 +17,8 @@ import java.util.Map;
 @FeignClient(
         name = "reachai-model-service",
         url = "${services.model-service.url:http://localhost:18601}",
-        path = "/model"
+        path = "/model",
+        configuration = ModelInternalAuthFeignConfig.class
 )
 public interface RuntimeModelServiceClient {
 

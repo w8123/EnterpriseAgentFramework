@@ -9,9 +9,8 @@ import {
   resolveWorkspaceForMenu,
   sidebarWorkspaces,
 } from '@/components/common/sidebarWorkspaces'
-import { defaultShortcutConfig } from '@/views/dashboard/dashboardShortcuts'
 
-/** 从初始化 SQL 读取内置角色的权限，保证种子、侧栏和概览快捷入口三处一致。 */
+/** 从初始化 SQL 读取内置角色的权限，保证种子与侧栏一致。 */
 function seededRolePermissions(): Record<string, string[]> {
   const sql = readFileSync(resolve(__dirname, '../../../sql/initV2.sql'), 'utf-8')
   const result: Record<string, string[]> = {}
@@ -65,18 +64,6 @@ describe('built-in role navigation', () => {
     }
   })
 
-  it('picks the matching overview shortcuts for each role', () => {
-    expect(defaultShortcutConfig(roles.DEVELOPER, ['DEVELOPER'])).toEqual({
-      shortcutPreset: 'developer',
-      shortcutIds: ['projects', 'capabilities', 'agents', 'workflows', 'skills', 'knowledge'],
-    })
-    expect(defaultShortcutConfig(roles.MANAGER, ['MANAGER'])).toEqual({
-      shortcutPreset: 'manager',
-      shortcutIds: ['ai-usage', 'write-approvals', 'run-center', 'employee-connections', 'agents', 'tool-acl'],
-    })
-    expect(defaultShortcutConfig(roles.PLATFORM_ADMIN, ['PLATFORM_ADMIN'])?.shortcutPreset).toBe('admin')
-  })
-
   it('leaves accounts without roles only the overview entry', () => {
     expect(visibleLabels(filterSidebarMenu(sidebarMenu, []))).toEqual(['概览'])
   })
@@ -100,7 +87,7 @@ describe('role workspaces', () => {
 
   it('shows each role only its own work and platform admins the full menu', () => {
     expect(workspaceLabels('developer', roles.DEVELOPER)).toEqual([
-      '概览', '项目管理', '业务能力', 'API 市场', 'Agent', 'Workflow', 'Skill', '知识库', 'MCP 开放', 'A2A 互联中心', '模型中心',
+      '概览', '项目管理', '业务能力', 'Agent', 'Workflow', 'Skill', '知识库', 'API 市场', 'MCP 开放', 'A2A 互联中心', '模型中心',
     ])
     expect(workspaceLabels('manager', roles.MANAGER)).toEqual([
       '概览', 'AI 使用情况', '员工连接与审批', '运行中心', '自动化中心', 'Agent', 'Workflow', '知识库', '业务用户', '调用权限',

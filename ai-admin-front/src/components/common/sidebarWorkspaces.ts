@@ -12,7 +12,7 @@ export interface SidebarWorkspace {
   label: string
   description: string
   menu: SidebarEntry[]
-  /** 放在「参考」里的只读入口；从链接打开这些页面时优先切到把它当主业的工作台。 */
+  /** 放在「平台资源」里的只读入口；从链接打开这些页面时优先切到把它当主业的工作台。 */
   referenceIndexes?: string[]
 }
 
@@ -58,16 +58,16 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
       group('接入与能力'),
       entry('/registry/projects'),
       entry('/business-capabilities'),
-      entry('/api-market'),
       group('智能体开发'),
       entry('/agent'),
       entry('/workflows'),
       entry('/skills'),
       entry('/knowledge'),
       group('开放与互联'),
+      entry('/api-market'),
       entry('/mcp-hub'),
       entry('/a2a-hub'),
-      group('参考'),
+      group('平台资源'),
       entry('/model/instances'),
     ],
     referenceIndexes: ['/model/instances'],

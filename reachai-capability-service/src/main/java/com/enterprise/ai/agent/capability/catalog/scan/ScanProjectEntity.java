@@ -34,6 +34,9 @@ public class ScanProjectEntity {
 
     private String baseUrl;
 
+    /** 浏览器访问业务系统的页面地址，与后端调用地址分开。 */
+    private String businessPageUrl;
+
     private String contextPath;
 
     /** 上传的 OpenAPI 文档文件名，仅作来源标签。 */

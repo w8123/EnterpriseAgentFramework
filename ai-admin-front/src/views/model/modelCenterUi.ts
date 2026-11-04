@@ -331,11 +331,8 @@ export function isMaskedApiKey(value: unknown): boolean {
   return typeof value === 'string' && value.includes('******')
 }
 
-export function hasConfiguredApiKey(connection: ModelConnectionConfig | null | undefined): boolean {
-  const apiKey = connection?.apiKey
-  if (typeof apiKey !== 'string') return false
-  const trimmed = apiKey.trim()
-  return trimmed.length > 0
+export function hasConfiguredApiKey(instance: Pick<ModelInstance, 'apiKeyConfigured'>): boolean {
+  return instance.apiKeyConfigured === true
 }
 
 export function parseCredentialSchema(value: unknown): ModelCredentialSchemaField[] {
@@ -471,10 +468,8 @@ export function draftFromCustomOpenAi(modelType: ModelType = 'LLM'): ModelInstan
 export function draftFromInstance(instance: ModelInstance): ModelInstanceDraft {
   const modelType = isSupportedModelType(instance.modelType) ? instance.modelType : 'LLM'
   const connection = normalizeConnection(instance.connection)
-  const apiKeyConfigured = hasConfiguredApiKey(connection)
-  if (isMaskedApiKey(connection.apiKey) || apiKeyConfigured) {
-    delete connection.apiKey
-  }
+  const apiKeyConfigured = hasConfiguredApiKey(instance)
+  delete connection.apiKey
   return createEmptyDraft({
     name: instance.name,
     provider: instance.provider,

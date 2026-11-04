@@ -30,8 +30,7 @@ function percentLabel(value: number | null) {
     />
     <DashboardPanelState
       v-else-if="!items.length"
-      title="当前范围暂无 Agent 运行样本"
-      detail="排名只来自真实 Agent 运行，不使用启用状态或示例数据补位。"
+      title="当前范围暂无 Agent 运行记录"
     />
     <table v-else class="ops-table">
       <colgroup>
@@ -42,7 +41,7 @@ function percentLabel(value: number | null) {
         <col style="width: 58px" />
       </colgroup>
       <thead>
-        <tr><th>排名</th><th>Agent / 项目</th><th>配置态</th><th>样本</th><th>完成率</th></tr>
+        <tr><th>排名</th><th>Agent / 项目</th><th>配置态</th><th>运行次数</th><th title="已结束的运行中，状态为完成的比例；不代表业务成功率">运行完成率</th></tr>
       </thead>
       <tbody>
         <tr
@@ -59,7 +58,6 @@ function percentLabel(value: number | null) {
           </td>
           <td>
             <span class="ops-entity">
-              <span class="ops-entity__icon">AI</span>
               <span class="ops-entity__text"><strong>{{ agent.name }}</strong><small>{{ agent.projectName }}</small></span>
             </span>
           </td>

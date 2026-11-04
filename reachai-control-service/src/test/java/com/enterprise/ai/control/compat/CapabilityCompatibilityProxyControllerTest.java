@@ -2,6 +2,7 @@ package com.enterprise.ai.control.compat;
 
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformConsoleAuthInterceptor;
+import com.enterprise.ai.control.identity.PlatformPermissionGrant;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
@@ -79,7 +80,12 @@ class CapabilityCompatibilityProxyControllerTest {
                 .body(requestBody);
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("PUT", "/api/scan-projects/7");
         servletRequest.setQueryString("dryRun=true");
+        servletRequest.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE,
+                actor("platform:write", "GLOBAL", "*"));
 
+        server.expect(requestTo("http://capability:18605/api/scan-projects/7"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":7,\"projectCode\":\"yudao-erp\"}"));
         server.expect(requestTo("http://capability:18605/api/scan-projects/7?dryRun=true"))
                 .andExpect(method(HttpMethod.PUT))
                 .andExpect(header("X-Request-Id", "req-cap-1"))
@@ -118,13 +124,85 @@ class CapabilityCompatibilityProxyControllerTest {
                         .body(upstream.getBytes(StandardCharsets.UTF_8)));
         MockHttpServletRequest servletRequest = new MockHttpServletRequest("GET", "/api/scan-projects");
         servletRequest.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE,
-                new PlatformAuthenticatedSession(null, "s", null, List.of(), permissions, List.of()));
+                actor(permissions.get(0), "GLOBAL", "*"));
 
         ResponseEntity<byte[]> response = controller.proxy(
                 new RequestEntity<byte[]>(HttpMethod.GET, URI.create("/api/scan-projects")), servletRequest);
 
         server.verify();
         return new String(response.getBody(), StandardCharsets.UTF_8);
+    }
+
+    @Test
+    void projectScopedReaderOnlySeesGrantedProjectAndCannotReadOtherProjectOrChildren() {
+        RestTemplate http = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(http);
+        var controller = new CapabilityCompatibilityProxyController(http, "http://capability:18605");
+        var session = actor("platform:read", "PROJECT", "allowed");
+        server.expect(requestTo("http://capability:18605/api/scan-projects"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("[{\"id\":1,\"projectCode\":\"allowed\",\"baseUrl\":\"visible\"},{\"id\":2,\"projectCode\":\"private\",\"baseUrl\":\"secret\"}]"));
+        for (int i = 0; i < 2; i++) {
+            server.expect(requestTo("http://capability:18605/api/scan-projects/2"))
+                    .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                            .body("{\"id\":2,\"projectCode\":\"private\"}"));
+        }
+        server.expect(requestTo("http://capability:18605/api/scan-projects/1"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":1,\"projectCode\":\"allowed\"}"));
+        server.expect(requestTo("http://capability:18605/api/scan-projects/1"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":1,\"projectCode\":\"allowed\",\"baseUrl\":\"visible\"}"));
+
+        var list = call(controller, session, "GET", "/api/scan-projects");
+        assertEquals("[{\"id\":1,\"projectCode\":\"allowed\",\"baseUrl\":\"visible\"}]", new String(list.getBody(), StandardCharsets.UTF_8));
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "GET", "/api/scan-projects/2").getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "GET", "/api/scan-projects/2/tools").getStatusCode());
+        assertEquals(HttpStatus.OK, call(controller, session, "GET", "/api/scan-projects/1").getStatusCode());
+        server.verify();
+    }
+
+    @Test
+    void scopedWriteCannotCreateOrMutateOtherProject() {
+        RestTemplate http = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(http);
+        var controller = new CapabilityCompatibilityProxyController(http, "http://capability:18605");
+        var session = actor("platform:write", "PROJECT", "allowed");
+        server.expect(requestTo("http://capability:18605/api/scan-projects/2"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":2,\"projectCode\":\"private\"}"));
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "POST", "/api/scan-projects").getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "DELETE", "/api/scan-projects/2").getStatusCode());
+        server.verify();
+    }
+
+    @Test
+    void rejectsMissingOrMismatchedOwnerIdentityBeforeForwarding() {
+        RestTemplate http = new RestTemplate();
+        MockRestServiceServer server = MockRestServiceServer.createServer(http);
+        var controller = new CapabilityCompatibilityProxyController(http, "http://capability:18605");
+        var session = actor("platform:read", "PROJECT", "allowed");
+        server.expect(requestTo("http://capability:18605/api/scan-projects/3"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":4,\"projectCode\":\"allowed\"}"));
+        server.expect(requestTo("http://capability:18605/api/scan-projects/3"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"id\":3}"));
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "GET", "/api/scan-projects/3").getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, call(controller, session, "GET", "/api/scan-projects/3/tools").getStatusCode());
+        server.verify();
+    }
+
+    private static PlatformAuthenticatedSession actor(String permission, String scope, String value) {
+        return new PlatformAuthenticatedSession(null, "s", null, List.of(), List.of(permission),
+                List.of(new PlatformPermissionGrant(permission, scope, value)));
+    }
+
+    private static ResponseEntity<byte[]> call(CapabilityCompatibilityProxyController controller,
+                                                PlatformAuthenticatedSession session, String method, String path) {
+        var request = new MockHttpServletRequest(method, path);
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session);
+        return controller.proxy(new RequestEntity<byte[]>(HttpMethod.valueOf(method), URI.create(path)), request);
     }
 
     @Test

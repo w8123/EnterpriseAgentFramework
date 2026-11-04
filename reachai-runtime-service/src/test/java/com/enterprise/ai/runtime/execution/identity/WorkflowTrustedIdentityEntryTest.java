@@ -99,7 +99,8 @@ class WorkflowTrustedIdentityEntryTest {
 
     static Stream<WorkflowExecutionIdentity> users() {
         return Stream.of(
-                WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 9L, "caller-project", "trusted-user"),
+                // The Embed gateway attests the target Agent separately and sends no project.
+                WorkflowExecutionIdentity.fromEmbedSession("tenant-a", null, null, "trusted-user"),
                 WorkflowExecutionIdentity.fromAgent("tenant-a", 9L, "caller-project", "trusted-user"));
     }
 
@@ -154,6 +155,14 @@ class WorkflowTrustedIdentityEntryTest {
         assertEquals("trusted-user", request.getValue().getUserId());
         assertEquals(List.of("kb-one"), request.getValue().getKnowledgeBaseCodes());
         assertAudit("demo", "tenant-a", "trusted-user");
+    }
+
+    @Test
+    void embedSessionScopedToAnotherProjectCannotRunTheAgent() {
+        var foreign = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 9L, "caller-project", "trusted-user");
+        var error = assertThrows(IllegalArgumentException.class, () -> run(foreign, KNOWLEDGE, false));
+        assertEquals("business identity does not match the Agent project", error.getMessage());
+        verifyNoInteractions(knowledge);
     }
 
     @ParameterizedTest

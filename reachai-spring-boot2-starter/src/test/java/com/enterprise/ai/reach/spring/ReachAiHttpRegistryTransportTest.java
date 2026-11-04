@@ -112,23 +112,24 @@ class ReachAiHttpRegistryTransportTest {
     }
 
     @Test
-    void usesSixtySecondReadTimeoutByDefault() throws Exception {
+    void usesTwoMinuteReadTimeoutByDefault() throws Exception {
         ReachAiHttpRegistryTransport transport = new ReachAiHttpRegistryTransport();
         Field field = ReachAiHttpRegistryTransport.class.getDeclaredField("readTimeoutMs");
         field.setAccessible(true);
 
-        assertEquals(60000, field.getInt(transport));
+        assertEquals(120000, field.getInt(transport));
+        assertEquals(120000, new ReachAiRegistryProperties().getRegistry().getReadTimeoutMs());
     }
 
     @Test
     void registryPropertiesConfigureTheActualTransportWhileRegistrationIsDisabled() {
         new ApplicationContextRunner().withConfiguration(AutoConfigurations.of(ReachAiRegistryAutoConfiguration.class))
                 .withPropertyValues("reachai.registry.enabled=false", "reachai.registry.connect-timeout-ms=3000",
-                        "reachai.registry.read-timeout-ms=120000")
+                        "reachai.registry.read-timeout-ms=90000")
                 .run(context -> {
                     ReachAiHttpRegistryTransport transport = (ReachAiHttpRegistryTransport) context.getBean(ReachAiRegistryTransport.class);
                     assertEquals(3000, timeout(transport, "connectTimeoutMs"));
-                    assertEquals(120000, timeout(transport, "readTimeoutMs"));
+                    assertEquals(90000, timeout(transport, "readTimeoutMs"));
                 });
     }
 

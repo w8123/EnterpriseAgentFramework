@@ -14,7 +14,7 @@
       <section class="hero" aria-labelledby="login-brand-heading">
         <div class="hero-copy">
           <p class="hero-eyebrow">面向已有企业业务系统</p>
-          <h1 id="login-brand-heading">AI 不只回答，更能替你把<span class="hero-accent">工作做完</span></h1>
+          <h1 id="login-brand-heading">AI 不只回答，<br class="mobile-title-break" />更能替你把<span class="hero-accent">工作做完</span></h1>
           <p class="hero-lede">
             让 Agent 在 Workflow、知识库与模型支撑下，调用 OA、EHR、ERP、CRM 等系统能力，完成查询、审批与业务办理。
           </p>
@@ -513,6 +513,10 @@ async function handleLogin() {
   background: linear-gradient(100deg, var(--brand-primary) 5%, var(--scene-violet) 60%, #4f9dde 105%);
   -webkit-background-clip: text;
   background-clip: text;
+}
+
+.mobile-title-break {
+  display: none;
 }
 
 .hero-lede {
@@ -1264,6 +1268,52 @@ async function handleLogin() {
 
   .foundation-chip {
     gap: 5px;
+  }
+}
+
+@media (max-width: 767px) {
+  .hero-lede,
+  .scene-canvas {
+    display: none;
+  }
+
+  .topbar {
+    padding: 0 24px;
+  }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 24px;
+    padding: 16px 20px 32px;
+  }
+
+  .hero {
+    width: 100%;
+    max-width: 400px;
+  }
+
+  .hero-copy {
+    margin-bottom: 0;
+  }
+
+  .hero h1 {
+    font-size: clamp(26px, 7vw, 32px);
+  }
+
+  .mobile-title-break {
+    display: initial;
+  }
+
+  .hero-accent {
+    display: inline-block;
+  }
+
+  .login-zone {
+    max-width: 400px;
+    min-height: 0;
+    padding: 36px 28px;
   }
 }
 

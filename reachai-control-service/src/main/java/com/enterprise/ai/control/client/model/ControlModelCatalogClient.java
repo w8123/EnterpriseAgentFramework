@@ -10,7 +10,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import java.util.Map;
 
-@FeignClient(name = "reachai-model-catalog", url = "${services.model-service.url:http://localhost:18601}")
+@FeignClient(name = "reachai-model-catalog", url = "${services.model-service.url:http://localhost:18601}",
+        configuration = ModelInternalAuthFeignConfig.class)
 public interface ControlModelCatalogClient {
 
     default ResponseEntity<Map<String, Object>> list(String projectCode, String modelType, String provider) {

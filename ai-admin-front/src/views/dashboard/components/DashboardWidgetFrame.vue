@@ -13,15 +13,12 @@ withDefaults(
     selected?: boolean
     /** 裸模式（KPI 卡片）：常态不渲染标题栏，卡片自身标签即标题；编辑态仍显示可拖动标题栏。 */
     bare?: boolean
-    /** 紧凑工具条：内容与标题同排，窄容器下换行。 */
-    inline?: boolean
   }>(),
   {
     subtitle: '',
     editing: false,
     selected: false,
     bare: false,
-    inline: false,
   },
 )
 
@@ -66,7 +63,6 @@ function onHandleKeydown(event: KeyboardEvent) {
       'is-editing': editing,
       'is-selected': editing && selected,
       'dash-frame--bare': bare && !editing,
-      'dash-frame--inline': inline,
     }"
     :data-grid-item="instanceId"
     @pointerdown="emit('select')"
@@ -76,7 +72,6 @@ function onHandleKeydown(event: KeyboardEvent) {
       class="dash-frame__bar"
       :class="{ 'is-draggable': editing }"
       :data-grid-drag="editing ? instanceId : undefined"
-      :data-grid-intrinsic-height="inline ? instanceId : undefined"
       :tabindex="editing ? 0 : undefined"
       :aria-label="editing ? `拖动标题栏移动模块 ${title}；方向键移动，Shift 加方向键调整尺寸，Delete 删除` : undefined"
       @keydown="onHandleKeydown"
@@ -89,7 +84,6 @@ function onHandleKeydown(event: KeyboardEvent) {
           <p v-if="subtitle" class="dash-frame__subtitle">{{ subtitle }}</p>
         </slot>
       </div>
-      <div v-if="inline" class="dash-frame__inline-content"><slot name="inline-content" /></div>
       <div v-if="!editing" class="dash-frame__actions">
         <slot name="actions" />
       </div>
@@ -98,7 +92,7 @@ function onHandleKeydown(event: KeyboardEvent) {
         <button type="button" class="is-danger" :aria-label="`删除 ${title}`" title="删除" @click="emit('remove')">✕</button>
       </span>
     </header>
-    <div v-if="!inline" class="dash-frame__body">
+    <div class="dash-frame__body">
       <slot />
     </div>
     <template v-if="editing">
@@ -113,46 +107,16 @@ function onHandleKeydown(event: KeyboardEvent) {
 .dash-frame {
   position: relative;
   min-width: 0;
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 
 .dash-frame--bare {
   display: block;
-}
-
-.dash-frame--inline .dash-frame__bar {
-  flex: 0 0 auto;
-  min-height: 55px;
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 14px;
-  border-bottom: 0;
-  background: transparent;
-}
-
-.dash-frame__inline-content {
-  min-width: 0;
-  padding-left: 14px;
-  border-left: 1px solid var(--ops-divider);
-}
-
-@container (max-width: 640px) {
-  .dash-frame--inline .dash-frame__bar {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 6px 10px;
-    padding: 8px 12px;
-  }
-
-  .dash-frame__inline-content {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    padding-left: 0;
-    border-left: 0;
-  }
 }
 
 .dash-frame__bar {
@@ -191,7 +155,7 @@ function onHandleKeydown(event: KeyboardEvent) {
   margin: 0;
   overflow: hidden;
   color: var(--ops-text-strong);
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -252,7 +216,8 @@ function onHandleKeydown(event: KeyboardEvent) {
 }
 
 .dash-frame--bare .dash-frame__body {
-  overflow: visible;
+  height: 100%;
+  overflow: hidden;
 }
 
 .dash-frame__resize-edge {

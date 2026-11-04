@@ -48,23 +48,17 @@ const sparklinePoints = computed(() => {
         <strong>{{ project.name }}</strong>
         <small>{{ project.projectCode || '未配置项目编码' }}</small>
       </span>
-      <span class="project-ops-card__link">查看详情 ›</span>
     </header>
     <dl>
       <div><dt>Agent</dt><dd>{{ project.agentCount }}</dd></div>
-      <div><dt>运行样本</dt><dd>{{ formatCompactNumber(project.runs) }}</dd></div>
+      <div><dt>运行次数</dt><dd>{{ formatCompactNumber(project.runs) }}</dd></div>
       <div><dt>已记录 Token</dt><dd>{{ project.tokens ? formatCompactNumber(project.tokens) : '—' }}</dd></div>
-      <div><dt>可识别用户</dt><dd>{{ project.users || '—' }}</dd></div>
-      <div><dt>技术完成率</dt><dd>{{ rateLabel }}</dd></div>
+      <div><dt title="运行记录中可识别的去重人数">使用人数</dt><dd>{{ project.users || '—' }}</dd></div>
+      <div><dt title="已结束的运行中，状态为完成的比例；不代表业务成功率">运行完成率</dt><dd>{{ rateLabel }}</dd></div>
     </dl>
     <svg v-if="sparklinePoints" class="project-ops-card__sparkline" viewBox="0 0 150 30" preserveAspectRatio="none" aria-hidden="true">
       <polyline :points="sparklinePoints" fill="none" stroke="currentColor" stroke-width="1.4" vector-effect="non-scaling-stroke" />
     </svg>
-    <footer>
-      <span>身份覆盖</span>
-      <span class="project-ops-card__bar"><i :style="{ width: `${project.identityCoverage ?? 0}%` }" /></span>
-      <strong>{{ project.identityCoverage == null ? '—' : `${project.identityCoverage.toFixed(1)}%` }}</strong>
-    </footer>
   </button>
 </template>
 
@@ -100,7 +94,7 @@ const sparklinePoints = computed(() => {
 
 .project-ops-card header {
   display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   padding-bottom: 8px;
@@ -141,15 +135,12 @@ const sparklinePoints = computed(() => {
 .project-ops-card__title small {
   overflow: hidden;
   color: var(--ops-text-muted);
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.project-ops-card__link {
-  color: color-mix(in srgb, var(--project-tone) 82%, var(--ops-text-strong));
-  font-size: 9px;
-}
+
 
 .project-ops-card dl {
   display: grid;
@@ -170,26 +161,17 @@ const sparklinePoints = computed(() => {
 
 .project-ops-card dt {
   color: var(--ops-text-muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .project-ops-card dd {
   margin: 0;
   color: var(--ops-text-strong);
-  font: 600 11px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 600 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace;
   font-variant-numeric: tabular-nums;
 }
 
-.project-ops-card footer {
-  display: grid;
-  grid-template-columns: auto minmax(28px, 1fr) auto;
-  gap: 7px;
-  align-items: center;
-  padding-top: 7px;
-  border-top: 1px solid color-mix(in srgb, var(--project-tone) 16%, transparent);
-  color: var(--ops-text-muted);
-  font-size: 9px;
-}
+
 
 .project-ops-card__sparkline {
   width: 100%;
@@ -199,24 +181,11 @@ const sparklinePoints = computed(() => {
   opacity: .9;
 }
 
-.project-ops-card__bar {
-  height: 4px;
-  overflow: hidden;
-  background: var(--ops-track);
-  border-radius: 99px;
-}
 
-.project-ops-card__bar i {
-  display: block;
-  height: 100%;
-  background: var(--project-tone);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--project-tone) 56%, transparent);
-}
 
-.project-ops-card footer strong {
-  color: var(--ops-text-secondary);
-  font-size: 9px;
-}
+
+
+
 
 @media (prefers-reduced-motion: reduce) {
   .project-ops-card { transition: none; }

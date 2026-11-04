@@ -4,6 +4,7 @@ import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   EditPen,
+  Delete,
   Refresh,
   Switch,
   Warning,
@@ -70,7 +71,6 @@ const loadError = ref('')
 const instance = ref<ModelInstance | null>(null)
 const editing = ref(false)
 const draft = ref<ModelInstanceDraft | null>(null)
-const editSnapshot = ref<ModelInstanceDraft | null>(null)
 const apiKey = ref('')
 const dirty = ref(false)
 const saving = ref(false)
@@ -119,7 +119,6 @@ async function loadDetail() {
     instance.value = readModelApiPayload<ModelInstance>(data)
     if (!editing.value) {
       draft.value = null
-      editSnapshot.value = null
       apiKey.value = ''
       dirty.value = false
       draftTestResult.value = null
@@ -137,7 +136,6 @@ function enterEdit() {
   if (!instance.value || archived.value) return
   const next = draftFromInstance(instance.value)
   draft.value = next
-  editSnapshot.value = structuredClone(next)
   apiKey.value = ''
   editing.value = true
   dirty.value = false
@@ -146,7 +144,7 @@ function enterEdit() {
 }
 
 function cancelEdit() {
-  draft.value = editSnapshot.value ? structuredClone(editSnapshot.value) : null
+  draft.value = null
   apiKey.value = ''
   editing.value = false
   dirty.value = false
@@ -226,7 +224,6 @@ async function handleSave() {
     editing.value = false
     dirty.value = false
     draft.value = null
-    editSnapshot.value = null
     apiKey.value = ''
     draftTestResult.value = null
     draftTestStale.value = false
@@ -271,9 +268,9 @@ async function handleToggle() {
 async function handleArchive() {
   if (!instance.value || archived.value) return
   try {
-    await ElMessageBox.confirm(ARCHIVE_CONFIRM_MESSAGE, '归档模型', {
+    await ElMessageBox.confirm(`模型「${instance.value.name}」：${ARCHIVE_CONFIRM_MESSAGE}`, '删除模型（归档）', {
       type: 'warning',
-      confirmButtonText: '确认归档',
+      confirmButtonText: '确认删除并归档',
       cancelButtonText: '取消',
     })
   } catch {
@@ -449,11 +446,16 @@ onBeforeUnmount(() => {
           >
             更换上游模型
           </LiquidGlassButton>
+          <LiquidGlassButton v-if="canManageModels && !archived && !editing" source="wallpaper"
+            :icon="Delete" :loading="archiving" @click="handleArchive">
+            删除（归档）
+          </LiquidGlassButton>
         </template>
       </PageHeader>
 
       <div v-if="!editing" class="model-detail__panels">
-        <WorkbenchPanel class="glass-workspace-adaptive" title="基本信息" density="compact">
+        <div class="model-detail__column">
+        <WorkbenchPanel class="glass-workspace-adaptive model-detail__panel" title="基本信息" density="comfortable">
           <div class="info-grid">
             <div class="info-row span-2 brand-row">
               <ModelProviderIcon :provider="instance.provider" :size="44" />
@@ -471,7 +473,13 @@ onBeforeUnmount(() => {
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel class="glass-workspace-adaptive" title="连接配置" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive model-detail__panel" title="默认模型参数" description="调用时使用的默认参数" density="comfortable">
+          <pre class="json-block">{{ defaultOptionsJson }}</pre>
+        </WorkbenchPanel>
+        </div>
+
+        <div class="model-detail__column">
+        <WorkbenchPanel class="glass-workspace-adaptive model-detail__panel" title="连接配置" density="comfortable">
           <div class="info-grid">
             <div class="info-row span-2">
               <span>Base URL</span>
@@ -489,16 +497,12 @@ onBeforeUnmount(() => {
             <div class="info-row"><span>authPrefix</span><em>{{ instance.connection?.authPrefix || '-' }}</em></div>
             <div class="info-row">
               <span>API Key</span>
-              <em>{{ hasConfiguredApiKey(instance.connection) ? '已配置' : '未配置' }}</em>
+              <em>{{ hasConfiguredApiKey(instance) ? '已配置' : '未配置' }}</em>
             </div>
           </div>
         </WorkbenchPanel>
 
-        <WorkbenchPanel class="glass-workspace-adaptive" title="默认模型参数" density="compact">
-          <pre class="json-block">{{ defaultOptionsJson }}</pre>
-        </WorkbenchPanel>
-
-        <WorkbenchPanel class="glass-workspace-adaptive" title="最近测试" density="compact">
+        <WorkbenchPanel class="glass-workspace-adaptive model-detail__panel" title="最近测试" density="comfortable">
           <div class="info-grid">
             <div class="info-row">
               <span>测试状态</span>
@@ -518,16 +522,13 @@ onBeforeUnmount(() => {
             <el-button :loading="testing" @click="handleSavedTest">测试当前已保存配置</el-button>
           </div>
         </WorkbenchPanel>
+        </div>
 
-        <WorkbenchPanel v-if="canManageModels && !archived" class="glass-workspace-adaptive model-detail__danger" title="危险操作" density="compact">
-          <LiquidGlassNotice
-            type="warning"
-            :title="ARCHIVE_CONFIRM_MESSAGE"
-            source="backdrop"
-          />
-          <div class="panel-actions">
-            <el-button type="danger" :icon="Warning" :loading="archiving" @click="handleArchive">
-              归档模型
+        <WorkbenchPanel v-if="canManageModels && !archived" class="glass-workspace-adaptive model-detail__danger" title="删除模型" density="comfortable">
+          <div class="model-detail__danger-content">
+            <p>删除会将模型归档，归档后无法恢复。已有业务引用不会自动移除，继续调用可能失败。</p>
+            <el-button type="danger" plain :icon="Delete" :loading="archiving" @click="handleArchive">
+              删除（归档）
             </el-button>
           </div>
         </WorkbenchPanel>
@@ -626,6 +627,32 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
 }
 
+.model-detail__column {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.model-detail__panel :deep(.workbench-panel__header) {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-divider);
+}
+
+.model-detail__danger-content {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+}
+
+.model-detail__danger-content p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 .model-detail__edit {
   display: grid;
   gap: 16px;
@@ -634,7 +661,7 @@ onBeforeUnmount(() => {
 .info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px 18px;
+  gap: 18px 24px;
 }
 
 .info-row {
@@ -652,6 +679,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 
+.info-row :deep(.status-tag) {
+  justify-self: start;
+}
+
 .info-row em,
 .info-row code,
 .info-row strong,
@@ -666,6 +697,8 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 12px;
   align-items: center;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-divider);
 }
 
 .brand-row p {

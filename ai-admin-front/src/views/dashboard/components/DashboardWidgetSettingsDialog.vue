@@ -1,10 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import LiquidGlassLayer from '@/components/common/LiquidGlassLayer.vue'
 import type { DashboardWidgetConfig, DashboardWidgetInstance } from '@/types/operationsDashboard'
 import { getWidgetDefinition } from '../widgetRegistry'
-import { SHORTCUT_WIDGET_KEY } from '../dashboardShortcuts'
-import DashboardShortcutEditor from './DashboardShortcutEditor.vue'
 
 /**
  * Widget 设置面板：修改实例标题；支持配置字段（topN / 显示数量）。
@@ -13,7 +11,6 @@ import DashboardShortcutEditor from './DashboardShortcutEditor.vue'
  */
 const props = defineProps<{
   instance: DashboardWidgetInstance | null
-  permissions?: readonly string[]
   editing?: boolean
   saveError?: string | null
 }>()
@@ -25,9 +22,7 @@ const emit = defineEmits<{
 
 const titleDraft = ref('')
 const numberDrafts = ref<Record<string, number>>({})
-const shortcutDraft = ref<DashboardWidgetConfig>({})
 const dialogRef = ref<HTMLElement | null>(null)
-const isShortcuts = computed(() => props.instance?.widgetKey === SHORTCUT_WIDGET_KEY)
 let previousFocus: HTMLElement | null = null
 
 function handleKeydown(event: KeyboardEvent) {
@@ -58,7 +53,6 @@ watch(
   (instance) => {
     if (!instance) return
     titleDraft.value = instance.config.title ?? ''
-    shortcutDraft.value = JSON.parse(JSON.stringify(instance.config)) as DashboardWidgetConfig
     const drafts: Record<string, number> = {}
     for (const field of getWidgetDefinition(instance.widgetKey)?.configFields ?? []) {
       const value = instance.config[field.key]
@@ -72,10 +66,6 @@ watch(
 function apply() {
   if (!props.instance) return
   const patch: DashboardWidgetConfig = { title: titleDraft.value }
-  if (isShortcuts.value) {
-    patch.shortcutIds = shortcutDraft.value.shortcutIds
-    patch.shortcutPreset = shortcutDraft.value.shortcutPreset
-  }
   for (const [key, value] of Object.entries(numberDrafts.value)) {
     patch[key as 'topN' | 'displayCount'] = value
   }
@@ -89,20 +79,19 @@ function apply() {
       <aside
         ref="dialogRef"
         class="dash-settings app-frosted-overlay liquid-glass-host"
-        :class="{ 'dash-settings--shortcuts': isShortcuts }"
         role="dialog"
         aria-modal="true"
-        :aria-label="isShortcuts ? '自定义快捷入口' : '组件设置'"
+        aria-label="组件设置"
         data-testid="widget-settings"
       >
         <LiquidGlassLayer host-selector=".app-frosted-overlay" />
         <header class="dash-settings__header">
-          <div><span v-if="isShortcuts" class="dash-settings__eyebrow">我的工作台</span><h3>{{ isShortcuts ? '自定义快捷入口' : '组件设置' }}</h3></div>
+          <h3>组件设置</h3>
           <button type="button" class="dash-settings__close" aria-label="关闭设置" @click="emit('close')">✕</button>
         </header>
         <div class="dash-settings__body">
           <label class="dash-settings__field">
-            <span>{{ isShortcuts ? '组件名称' : '实例标题' }}</span>
+            <span>实例标题</span>
             <input
               v-model="titleDraft"
               type="text"
@@ -111,7 +100,6 @@ function apply() {
               placeholder="留空使用组件默认标题"
             >
           </label>
-          <DashboardShortcutEditor v-if="isShortcuts" v-model="shortcutDraft" :permissions="permissions ?? []" />
           <label
             v-for="field in getWidgetDefinition(instance.widgetKey)?.configFields ?? []"
             :key="field.key"
@@ -156,7 +144,6 @@ function apply() {
   flex-direction: column;
 }
 
-.dash-settings--shortcuts { width: min(580px, calc(100vw - 32px)); }
 .dash-settings__eyebrow { display: block; margin-bottom: 3px; color: var(--ops-text-secondary); font-size: 11px; }
 .dash-settings__error { margin: 0; color: var(--ops-danger); font-size: 12px; }
 
@@ -191,9 +178,6 @@ function apply() {
   overflow-y: auto;
 }
 
-.dash-settings--shortcuts .dash-settings__header,
-.dash-settings--shortcuts .dash-settings__footer { padding: 16px 20px; }
-.dash-settings--shortcuts .dash-settings__body { padding: 18px 20px; gap: 20px; }
 
 .dash-settings__field {
   display: grid;

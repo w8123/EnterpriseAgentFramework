@@ -84,7 +84,6 @@ export interface DashboardProjectSummaryItem {
   agentCount: number
   runs: number
   users: number
-  identityCoverage: number | null
   tokens: number
   tokenCoverage: number | null
   technicalCompletionRate: number | null
@@ -153,9 +152,7 @@ export interface DashboardWidgetConfig {
   title?: string
   topN?: number
   displayCount?: number
-  shortcutPreset?: 'developer' | 'operator' | 'manager' | 'admin' | 'custom'
-  /** 只保存代码注册的入口 ID；地址、图标与权限始终从导航注册表解析。 */
-  shortcutIds?: string[]
+
 }
 
 export interface DashboardWidgetAvailability {
@@ -212,16 +209,13 @@ export interface DashboardAttentionSignal {
 
 /** Widget 渲染上下文：Dashboard 壳统一加载真实数据后分发给各 Widget 体。 */
 export interface DashboardWidgetContext {
-  permissions?: readonly string[]
   deniedDomains?: Partial<Record<DashboardDataDomain, boolean>>
   metrics: Record<string, DashboardMetricCardModel>
   runsStatus: DashboardDomainStatus
   runsData: RunSummary[]
   agentRanking: DashboardAgentRankingItem[]
   projectStatus: DashboardDomainStatus
-  rankedProjects: DashboardProjectSummaryItem[]
   projectSummaries: DashboardProjectSummaryItem[]
-  maxProjectRuns: number
   tokenDistributionStatus: DashboardDomainStatus
   tokenDistribution: DashboardTokenDistributionItem[]
   attentionItems: DashboardAttentionSignal[]

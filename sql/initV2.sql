@@ -143,6 +143,14 @@ CREATE TABLE IF NOT EXISTS `model_template` (
     KEY `idx_model_template_verified` (`last_verified_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Platform model catalog templates (no secrets)';
 
+CREATE TABLE IF NOT EXISTS `model_internal_auth_nonce` (
+    `nonce` VARCHAR(128) NOT NULL,
+    `caller` VARCHAR(64) NOT NULL,
+    `created_at` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    PRIMARY KEY (`nonce`),
+    KEY `idx_model_internal_auth_nonce_created_at` (`created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Model service signed request replay protection';
+
 CREATE TABLE IF NOT EXISTS `model_instance` (
     `id`                       VARCHAR(64)   NOT NULL PRIMARY KEY,
     `name`                     VARCHAR(128)  NOT NULL COMMENT 'Human-readable model instance name',
@@ -904,6 +912,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project` (
     `id`            BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `name`          VARCHAR(128) NOT NULL                COMMENT '项目名称',
     `base_url`      VARCHAR(256) NOT NULL                COMMENT '项目域名',
+    `business_page_url` VARCHAR(2048) DEFAULT NULL       COMMENT '业务系统浏览器页面地址',
     `context_path`  VARCHAR(128) NOT NULL DEFAULT ''     COMMENT '公共路径前缀',
     `spec_file`     VARCHAR(256) DEFAULT NULL            COMMENT '上传的 OpenAPI 文档文件名（仅作来源标签）',
     `openapi_document` MEDIUMTEXT DEFAULT NULL          COMMENT '上传的 OpenAPI 文档内容；平台不读取服务器本地文件',
@@ -924,6 +933,7 @@ CREATE TABLE IF NOT EXISTS `capability_scan_project` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='扫描项目表';
 
 -- 已存在、且建表时尚无鉴权列的旧库：由下列调用补齐；新库建表已含四列，此处为幂等 no-op
+CALL add_col_if_absent('capability_scan_project', 'business_page_url', 'VARCHAR(2048) DEFAULT NULL COMMENT ''业务系统浏览器页面地址'' AFTER `base_url`');
 CALL add_col_if_absent('capability_scan_project', 'auth_type',          'VARCHAR(32) NOT NULL DEFAULT ''none'' COMMENT ''鉴权: none / api_key'' AFTER `error_message`');
 CALL add_col_if_absent('capability_scan_project', 'auth_api_key_in',    'VARCHAR(16) DEFAULT NULL COMMENT ''api_key 时: header / query'' AFTER `auth_type`');
 CALL add_col_if_absent('capability_scan_project', 'auth_api_key_name',  'VARCHAR(128) DEFAULT NULL COMMENT ''API Key 参数名'' AFTER `auth_api_key_in`');

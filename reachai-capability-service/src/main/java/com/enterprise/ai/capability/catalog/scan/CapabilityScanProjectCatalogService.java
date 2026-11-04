@@ -800,6 +800,18 @@ public class CapabilityScanProjectCatalogService {
         if (!isValidRestClientBaseUrl(normalizedBaseUrl)) {
             throw new IllegalArgumentException("Project baseUrl must be an absolute URL with host");
         }
+        if (StringUtils.hasText(request.businessPageUrl())) {
+            String pageUrl = request.businessPageUrl().trim();
+            try {
+                URI uri = URI.create(pageUrl);
+                if (pageUrl.length() > 2048 || uri.getHost() == null || uri.getUserInfo() != null
+                        || !("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))) {
+                    throw new IllegalArgumentException();
+                }
+            } catch (IllegalArgumentException ex) {
+                throw new IllegalArgumentException("业务系统页面地址必须是有效的 HTTP 或 HTTPS 地址，且不能包含账号密码");
+            }
+        }
         normalizeProjectKind(request.projectKind());
         if (request.specContent() != null && request.specContent().length() > MAX_OPENAPI_SPEC_CHARS) {
             throw new IllegalArgumentException("OpenAPI 文档过大（上限 5 MB）");
@@ -817,6 +829,9 @@ public class CapabilityScanProjectCatalogService {
         entity.setOwner(StringUtils.hasText(request.owner()) ? request.owner().trim() : null);
         entity.setVisibility(normalizeVisibility(request.visibility()));
         entity.setBaseUrl(normalizeHttpBaseUrl(request.baseUrl()));
+        if (request.businessPageUrl() != null) {
+            entity.setBusinessPageUrl(request.businessPageUrl().trim());
+        }
         entity.setContextPath(normalizeContextPath(request.contextPath()));
         if (StringUtils.hasText(request.specContent())) {
             // A new upload replaces the stored document; omitting it keeps the current one.
@@ -918,8 +933,13 @@ public class CapabilityScanProjectCatalogService {
             String baseUrl,
             String contextPath,
             String specFile,
-            String specContent
+            String specContent,
+            String businessPageUrl
     ) {
+        public ScanProjectUpsertRequest(String name, String projectCode, String projectKind, String environment, String owner,
+                                        String visibility, String baseUrl, String contextPath, String specFile, String specContent) {
+            this(name, projectCode, projectKind, environment, owner, visibility, baseUrl, contextPath, specFile, specContent, null);
+        }
     }
 
     public record ScanProjectRegistryCredentialSaveRequest(String appKey, String appSecret) {

@@ -12,7 +12,7 @@ export function submitDocumentImportJob(params: {
   chunkStrategy: string
   chunkSize: number
   chunkOverlap: number
-  /** true：解析完成后直接入库（知识库详情页上传）；false：先预览再确认。 */
+  /** 控制台当前要求解析后确认；服务端会将该值固定为 false。 */
   autoCommit?: boolean
   extraParams?: Record<string, unknown>
 }) {

@@ -86,6 +86,13 @@ public class KnowledgeModelConsoleProxyController {
     private com.enterprise.ai.control.mcp.application.port.McpPlatformModelCatalogPort modelScope;
     private final String knowledgeServiceUrl;
     private final String modelServiceUrl;
+    private String modelServiceSecret = "";
+
+    @Autowired
+    public void configureModelServiceSecret(
+            @Value("${reachai.internal.service-secret:${REACHAI_INTERNAL_SERVICE_SECRET:}}") String secret) {
+        this.modelServiceSecret = secret;
+    }
 
     @Autowired
     public KnowledgeModelConsoleProxyController(
@@ -211,12 +218,15 @@ public class KnowledgeModelConsoleProxyController {
     public ResponseEntity<StreamingResponseBody> modelStream(RequestEntity<byte[]> requestEntity,
                                                              HttpServletResponse servletResponse) {
         byte[] body = requestEntity.getBody() == null ? new byte[0] : requestEntity.getBody();
-        HttpRequest upstream = HttpRequest.newBuilder()
+        HttpRequest.Builder upstreamBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(modelServiceUrl + MODEL_STREAM_PATH))
                 .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .header(HttpHeaders.ACCEPT, MediaType.TEXT_EVENT_STREAM_VALUE)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body));
+        com.enterprise.ai.common.internalauth.ModelServiceRequestAuth.sign(modelServiceSecret,
+                com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.CALLER_CONTROL,
+                "POST", modelServiceUrl + MODEL_STREAM_PATH, body).forEach(upstreamBuilder::header);
+        HttpRequest upstream = upstreamBuilder.build();
         servletResponse.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, no-transform");
         servletResponse.setHeader("X-Accel-Buffering", "no");
         StreamingResponseBody stream = output -> {
@@ -393,6 +403,7 @@ public class KnowledgeModelConsoleProxyController {
     ResponseEntity<byte[]> modelSend(HttpMethod method, String path, byte[] body) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        signModelHeaders(headers, method.name(), modelServiceUrl + path, body);
         try {
             return restTemplate.exchange(URI.create(modelServiceUrl + path), method,
                     new HttpEntity<>(body == null ? new byte[0] : body, headers), byte[].class);
@@ -435,7 +446,11 @@ public class KnowledgeModelConsoleProxyController {
                 .query(StringUtils.hasText(request.getQueryString()) ? request.getQueryString() : null)
                 .build(true)
                 .toUri();
-        HttpEntity<byte[]> entity = new HttpEntity<>(requestEntity.getBody(), forwardHeaders(requestEntity.getHeaders()));
+        HttpHeaders headers = forwardHeaders(requestEntity.getHeaders());
+        if ("MODEL_SERVICE_UNAVAILABLE".equals(unavailableCode)) {
+            signModelHeaders(headers, requestEntity.getMethod().name(), target.toString(), requestEntity.getBody());
+        }
+        HttpEntity<byte[]> entity = new HttpEntity<>(requestEntity.getBody(), headers);
         try {
             ResponseEntity<byte[]> response = restTemplate.exchange(target, requestEntity.getMethod(), entity, byte[].class);
             return ResponseEntity.status(response.getStatusCode())
@@ -451,6 +466,12 @@ public class KnowledgeModelConsoleProxyController {
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(body.getBytes(StandardCharsets.UTF_8));
         }
+    }
+
+    private void signModelHeaders(HttpHeaders headers, String method, String target, byte[] body) {
+        com.enterprise.ai.common.internalauth.ModelServiceRequestAuth.sign(modelServiceSecret,
+                com.enterprise.ai.common.internalauth.InternalServiceAuthHeaders.CALLER_CONTROL,
+                method, target, body).forEach(headers::set);
     }
 
     static HttpHeaders forwardHeaders(HttpHeaders source) {

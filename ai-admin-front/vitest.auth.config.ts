@@ -21,6 +21,7 @@ export default defineConfig({
       'src/components/common/PageHeader.test.ts',
       'src/components/common/AppSidebar.projectScope.test.ts',
       'src/components/common/AppSidebar.keyboard.test.ts',
+      'src/components/common/AppSidebar.groups.test.ts',
       'src/store/project.test.ts',
       'src/views/layout/MainLayout.test.ts',
       'src/views/me/AiToolAccess.test.ts',

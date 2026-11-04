@@ -9,11 +9,11 @@
 
         <div class="ops-topbar__controls glass-surface-frost">
           <span
+            v-if="scopeLabel !== '全部可见项目'"
             class="ops-scope-chip"
             :aria-label="`当前数据范围：${scopeLabel}`"
             :title="`当前数据范围为${scopeLabel}`"
           >{{ scopeLabel }}</span>
-          <span class="ops-date-chip"><i aria-hidden="true" />{{ currentDateLabel }}</span>
           <div v-if="!overviewDenied" class="ops-range" aria-label="统计时间范围">
             <button
               type="button"
@@ -26,10 +26,6 @@
               @click="selectRange(7)"
             >近 7 天</button>
           </div>
-          <span class="ops-refresh-status" :class="{ 'is-paused': !pageVisible || overviewDenied }">
-            <i aria-hidden="true" />
-            {{ refreshStatusLabel }}
-          </span>
           <button
             type="button"
             class="ops-icon-btn"
@@ -39,14 +35,15 @@
             title="刷新运营数据"
             @click="refresh()"
           ><span class="ops-icon-btn__icon" aria-hidden="true">↻</span></button>
-          <span class="ops-last-updated">{{ lastUpdatedLabel }}</span>
           <button
             v-if="!overviewDenied && !editor.editing.value && !layoutNarrow"
             type="button"
-            class="ops-action-btn"
+            class="ops-icon-btn"
+            aria-label="编辑布局"
+            title="编辑布局"
             data-testid="edit-layout"
             @click="editor.beginEdit()"
-          ><span aria-hidden="true">✎</span> 编辑布局</button>
+          ><span aria-hidden="true">✎</span></button>
           <span
             v-else-if="!overviewDenied && !editor.editing.value"
             class="ops-editing-badge"
@@ -111,14 +108,12 @@
           @resize-widget="editor.resizeWidgetInstanceBy"
           @commit-rect="editor.commitWidgetRect"
           @update-config="editor.saveWidgetConfig"
-          @open-shortcut="go"
           @open-agent="openAgent"
           @open-project="openProject"
           @open-projects="go('/registry/projects')"
           @open-agents="go('/agent')"
           @open-runops="go('/runops')"
           @open-attention="(target) => go(target)"
-          @open-run-trace="(traceId) => go(`/runops/${encodeURIComponent(traceId)}`)"
           @retry-runs="loadRuns"
           @retry-all="refresh()"
         />
@@ -172,8 +167,7 @@ import {
   summarizeTokens,
 } from './dashboardModel'
 import { createDashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository'
-import { dashboardDomainLabels, defaultConsoleLayoutFor } from './widgetRegistry'
-import { SHORTCUT_WIDGET_KEY } from './dashboardShortcuts'
+import { dashboardDomainLabels, defaultConsoleLayout } from './widgetRegistry'
 import { useDashboardLayoutEditor } from './useDashboardLayoutEditor'
 import DashboardLayoutContainer from './components/DashboardLayoutContainer.vue'
 import DashboardPanelState from './components/DashboardPanelState.vue'
@@ -199,8 +193,6 @@ const health = ref<DashboardDomainState<DashboardServiceHealthSignal[]>>({ statu
 
 const rangeDays = ref<DashboardRangeDays>(1)
 const refreshing = ref(false)
-const pageVisible = ref(typeof document === 'undefined' ? true : !document.hidden)
-const lastUpdatedAt = ref<Date | null>(null)
 const dashboardRoot = ref<HTMLElement | null>(null)
 const isFullscreen = ref(false)
 const layoutNarrow = ref(false)
@@ -208,7 +200,6 @@ type Domain = DashboardDataDomain
 const deniedDomains = ref<Partial<Record<Domain, boolean>>>({})
 const requestVersions: Record<Domain, number> = { projects: 0, agents: 0, workflows: 0, agentStats: 0, runs: 0, health: 0 }
 let accessVersion = 0
-let autoRefreshTimer: number | undefined
 const localFeedback = { errorFeedback: 'local' as const }
 // Only the four necessary operational reads being denied retires the overview.
 // Auxiliary project/health reads and valid empty 200s cannot deny other domains.
@@ -219,9 +210,6 @@ const deniedLabels = computed(() => (Object.keys(dashboardDomainLabels) as Domai
   .filter(domain => deniedDomains.value[domain]).map(domain => dashboardDomainLabels[domain]))
 const partialDeniedWarning = computed(() => !overviewDenied.value && deniedLabels.value.length
   ? `部分总览数据读取受限：${deniedLabels.value.join('、')}` : '')
-const refreshStatusLabel = computed(() => !pageVisible.value ? '页面不可见 · 已暂停'
-  : overviewDenied.value ? '已拒绝数据 · 自动重试已暂停'
-  : deniedLabels.value.length ? '自动刷新 · 已拒绝数据暂停重试' : '自动刷新 · 每 30 秒')
 const projectOnly = computed(() => {
   const grants = platformSessionUser.value?.permissionGrants ?? []
   return grants.length > 0 && grants.every(grant => grant.scopeType?.trim().toUpperCase() === 'PROJECT')
@@ -237,19 +225,10 @@ const availableTasks = computed(() => filterSidebarMenu(sidebarMenu, platformSes
   .filter(entry => entry.kind === 'item')
   .filter(entry => ['/business-capabilities', '/workflows'].includes(entry.index)))
 
-// 默认快捷入口优先按当前身份挑选，其余角色作为回退。
-const workspaceRoles = computed(() => {
-  const roles = platformSessionUser.value?.roles ?? []
-  const current = currentWorkspace.value.roleCode
-  return current ? [current, ...roles.filter(role => role !== current)] : roles
-})
-const editor = useDashboardLayoutEditor({ repository, fallback: () => defaultConsoleLayoutFor(platformSessionUser.value?.permissions ?? [], workspaceRoles.value) })
+const editor = useDashboardLayoutEditor({ repository, fallback: () => defaultConsoleLayout })
 editor.initialize()
 watch(() => [platformSessionUser.value?.userId, currentWorkspace.value.key], () => editor.initialize())
-const visibleLayout = computed(() => overviewDenied.value ? {
-  ...editor.layoutForRender.value,
-  items: editor.layoutForRender.value.items.filter(item => item.widgetKey === SHORTCUT_WIDGET_KEY),
-} : editor.layoutForRender.value)
+const visibleLayout = computed(() => overviewDenied.value ? { ...editor.layoutForRender.value, items: [] } : editor.layoutForRender.value)
 
 function requireArray<T>(value: unknown, label: string): T[] {
   if (!Array.isArray(value)) throw new Error(`${label}响应不是数组`)
@@ -396,24 +375,14 @@ async function refresh(recheckDenied = true) {
     loadHealth(recheckDenied),
   ])
   if (access !== accessVersion) return
-  lastUpdatedAt.value = new Date()
   refreshing.value = false
 }
 
 async function selectRange(days: DashboardRangeDays) {
   if (rangeDays.value === days) return
-  const access = accessVersion
   rangeDays.value = days
   if (!deniedDomains.value.runs) runs.value = { status: 'loading', data: [] }
-  const pending = loadRuns(false)
-  const requestVersion = requestVersions.runs
-  await pending
-  if (access === accessVersion && requestVersion === requestVersions.runs) lastUpdatedAt.value = new Date()
-}
-
-function handleVisibilityChange() {
-  pageVisible.value = !document.hidden
-  if (pageVisible.value) void refresh(false)
+  await loadRuns(false)
 }
 
 function handleFullscreenChange() {
@@ -434,17 +403,11 @@ async function toggleFullscreen() {
 
 onMounted(() => {
   void refresh()
-  autoRefreshTimer = window.setInterval(() => {
-    if (!document.hidden) void refresh(false)
-  }, 30_000)
-  document.addEventListener('visibilitychange', handleVisibilityChange)
   document.addEventListener('fullscreenchange', handleFullscreenChange)
 })
 
 onBeforeUnmount(() => {
   accessVersion++
-  if (autoRefreshTimer != null) window.clearInterval(autoRefreshTimer)
-  document.removeEventListener('visibilitychange', handleVisibilityChange)
   document.removeEventListener('fullscreenchange', handleFullscreenChange)
 })
 
@@ -459,7 +422,6 @@ watch(() => JSON.stringify([platformSessionId.value, platformSessionUser.value])
   runs.value = { status: 'loading', data: [] }
   health.value = { status: 'loading', data: [] }
   refreshing.value = false
-  lastUpdatedAt.value = null
   if (platformSessionId.value) void refresh()
 })
 
@@ -479,8 +441,6 @@ const allProjectSummaries = computed(() =>
     })),
 )
 const projectSummaries = computed(() => allProjectSummaries.value.slice(0, 6))
-const rankedProjects = computed(() => allProjectSummaries.value.filter((project) => project.runs > 0).slice(0, 5))
-const maxProjectRuns = computed(() => Math.max(1, ...rankedProjects.value.map((project) => project.runs)))
 const tokenDistribution = computed(() => buildTokenDistribution(allProjectSummaries.value, runs.value.data))
 
 function combineStatus(...states: DashboardDomainStatus[]): DashboardDomainStatus {
@@ -534,9 +494,9 @@ const metricCards = computed<DashboardMetricCardModel[]>(() => {
     },
     {
       key: 'business-runs',
-      label: '运行样本',
+      label: '运行次数',
       value: formatCompactNumber(runs.value.data.length),
-      detail: `${rangeLabel.value} · 最近 ${DASHBOARD_SAMPLE_LIMIT} 条上限`,
+      detail: `${rangeLabel.value} · 最多统计最近 ${DASHBOARD_SAMPLE_LIMIT} 条记录`,
       status: runs.value.status,
       tone: 'cyan',
       icon: 'runs',
@@ -544,11 +504,11 @@ const metricCards = computed<DashboardMetricCardModel[]>(() => {
     },
     {
       key: 'active-runtime-users',
-      label: '可识别用户',
+      label: '使用人数',
       value: identities.identifiedRuns ? formatCompactNumber(identities.distinctUsers) : '—',
       detail: identities.coverage == null
-        ? '当前无运行样本'
-        : `userId 样本覆盖 ${identities.coverage.toFixed(1)}%`,
+        ? '暂无运行记录'
+        : `最近记录中的去重人数 · 可识别率 ${identities.coverage.toFixed(1)}%`,
       status: runs.value.status,
       tone: 'violet',
       icon: 'users',
@@ -559,7 +519,7 @@ const metricCards = computed<DashboardMetricCardModel[]>(() => {
       label: '已记录 Token',
       value: tokens.recordedRuns ? formatCompactNumber(tokens.total) : '—',
       detail: tokens.coverage == null
-        ? '当前无运行样本'
+        ? '暂无运行记录'
         : `非零记录 ${tokens.recordedRuns}/${tokens.totalRuns} 条`,
       status: runs.value.status,
       tone: 'orange',
@@ -568,9 +528,9 @@ const metricCards = computed<DashboardMetricCardModel[]>(() => {
     },
     {
       key: 'technical-completion-rate',
-      label: '技术完成率',
+      label: '运行完成率',
       value: outcomes.technicalCompletionRate == null ? '—' : `${outcomes.technicalCompletionRate.toFixed(1)}%`,
-      detail: `${outcomes.completed}/${outcomes.terminal} 个终态样本完成`,
+      detail: `${outcomes.completed}/${outcomes.terminal} 次已结束运行的状态为完成，不代表业务成功率`,
       status: runs.value.status,
       tone: 'green',
       icon: 'success',
@@ -620,16 +580,13 @@ const attentionItems = computed<DashboardAttentionSignal[]>(() => {
 const attentionHasSignals = computed(() => attentionItems.value.some((item) => item.value > 0))
 
 const widgetContext = computed<DashboardWidgetContext>(() => ({
-  permissions: platformSessionUser.value?.permissions ?? [],
   deniedDomains: deniedDomains.value,
   metrics: Object.fromEntries(metricCards.value.map((metric) => [`kpi.${metric.key}`, metric])),
   runsStatus: runs.value.status,
   runsData: runs.value.data,
   agentRanking: agentRanking.value,
   projectStatus: projectStatus.value,
-  rankedProjects: rankedProjects.value,
   projectSummaries: projectSummaries.value,
-  maxProjectRuns: maxProjectRuns.value,
   tokenDistributionStatus:
     runs.value.status === 'ready' && projects.value.status === 'error' ? 'error' : runs.value.status,
   tokenDistribution: tokenDistribution.value,
@@ -659,21 +616,6 @@ const dataWarning = computed(() => {
     warnings.push(`运行记录达到 ${DASHBOARD_SAMPLE_LIMIT} 条接口上限，当前页面仅代表最近样本`)
   }
   return warnings.join('；')
-})
-
-const currentDateLabel = computed(() => {
-  const date = lastUpdatedAt.value ?? new Date()
-  return `今天 · ${String(date.getMonth() + 1).padStart(2, '0')}月${String(date.getDate()).padStart(2, '0')}日`
-})
-
-const lastUpdatedLabel = computed(() => {
-  if (!lastUpdatedAt.value) return '等待首次刷新'
-  return `更新于 ${new Intl.DateTimeFormat('zh-CN', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: false,
-  }).format(lastUpdatedAt.value)}`
 })
 
 function go(target: RouteLocationRaw) {

@@ -64,6 +64,7 @@ export interface ScanProject {
   owner?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
+  businessPageUrl?: string | null
   contextPath: string
   /** 已上传 OpenAPI 文档的文件名，仅作展示 */
   specFile?: string | null
@@ -101,6 +102,7 @@ export interface ScanProjectUpsertRequest {
   owner?: string | null
   visibility?: 'PRIVATE' | 'PROJECT' | 'SHARED' | 'PUBLIC'
   baseUrl: string
+  businessPageUrl?: string | null
   contextPath: string
   /** OpenAPI 文档文件名；与 specContent 一起提交，留空则保留已上传的文档 */
   specFile?: string | null

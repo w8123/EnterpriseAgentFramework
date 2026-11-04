@@ -19,8 +19,9 @@ public class ModelInstanceResponse {
     /** 引用的厂商账号；为空表示连接配置由实例自己保存 */
     private String providerAccountId;
     private String providerAccountName;
-    /** 脱敏后的连接配置 */
+    /** 公开连接配置；不含 apiKey 或密钥片段。 */
     private Map<String, Object> connection;
+    private boolean apiKeyConfigured;
     private Map<String, Object> defaultOptions;
     private Object paramsSchema;
     private String status;

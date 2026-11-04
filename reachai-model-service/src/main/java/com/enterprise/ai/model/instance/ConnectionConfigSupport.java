@@ -82,19 +82,33 @@ public final class ConnectionConfigSupport {
         return k.contains("key") || k.contains("secret") || k.contains("token") || k.contains("password");
     }
 
-    public static Map<String, Object> mask(Map<String, Object> source) {
-        Map<String, Object> masked = new LinkedHashMap<>();
-        if (source == null) {
-            return masked;
-        }
-        source.forEach((key, value) -> {
-            if (value instanceof String s && isSensitive(key)) {
-                masked.put(key, maskString(s));
-            } else {
-                masked.put(key, value);
+    /** 查询响应不携带密钥，也不暴露密钥的前后缀。 */
+    public static Map<String, Object> publicConnection(Map<String, Object> source) {
+        Map<String, Object> result = normalize(source);
+        stripSecrets(result);
+        return result;
+    }
+
+    public static boolean hasApiKey(Map<String, Object> source) {
+        return source != null && source.get(API_KEY) instanceof String key && !key.isBlank();
+    }
+
+    /** 只报告字段名；请求头校验的底层异常可能包含完整凭据，禁止透传。 */
+    public static void validateAuthentication(Map<String, Object> connection) {
+        if (connection == null) return;
+        for (String field : Set.of(API_KEY, AUTH_HEADER, AUTH_PREFIX)) {
+            Object value = connection.get(field);
+            if (value == null) continue;
+            if (!(value instanceof String text)
+                    || text.chars().anyMatch(c -> c < 32 || c > 126)) {
+                throw new IllegalArgumentException("connection." + field + " must be printable ASCII text");
             }
-        });
-        return masked;
+        }
+        Object header = connection.get(AUTH_HEADER);
+        if (header instanceof String name && !name.isBlank()
+                && !name.matches("[!#$%&'*+.^_`|~0-9A-Za-z-]+")) {
+            throw new IllegalArgumentException("connection.authHeader must be a valid HTTP header name");
+        }
     }
 
     /**
@@ -227,13 +241,6 @@ public final class ConnectionConfigSupport {
         return value != null && value.contains("******");
     }
 
-    public static String maskString(String value) {
-        if (value == null || value.length() <= 8) {
-            return "******";
-        }
-        return value.substring(0, 4) + "******" + value.substring(value.length() - 4);
-    }
-
     public static String requireBaseUrl(Map<String, Object> connection) {
         Object value = connection == null ? null : connection.get(BASE_URL);
         String baseUrl = value == null ? null : String.valueOf(value).trim();
@@ -241,6 +248,7 @@ public final class ConnectionConfigSupport {
             throw new IllegalArgumentException("connection.baseUrl is required");
         }
         validateBaseUrl(baseUrl);
+        validateAuthentication(connection);
         return baseUrl;
     }
 

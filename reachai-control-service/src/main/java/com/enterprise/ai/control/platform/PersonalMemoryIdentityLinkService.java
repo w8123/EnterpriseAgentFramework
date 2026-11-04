@@ -1,4 +1,4 @@
-package com.enterprise.ai.control.memory;
+package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.control.identity.PlatformPermissions;

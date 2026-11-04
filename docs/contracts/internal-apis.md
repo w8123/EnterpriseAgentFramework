@@ -90,7 +90,7 @@
 | `PUT /internal/runtime/session-retention/tenants/{tenantId}/sessions/{sessionId}/legal-hold` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/session-retention/tenants/{tenantId}/sessions/{sessionId}/erase` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/session-retention/tenants/{tenantId}/owner-erasure` | `reachai-runtime-service` | `reachai-control-service` | No |
-| `GET /internal/model/instances`, `GET /internal/model/instances/{id}` | `reachai-model-service` | `reachai-runtime-service`, `reachai-control-service` | No |
+| `GET /internal/model/instances`, `GET /internal/model/instances/{id}` | `reachai-model-service` | `reachai-runtime-service`, `reachai-control-service` | No；Model 验证精确 body、原始路径和查询参数的服务 HMAC，持久化 nonce 防重放；Runtime 仅读列表，管理限 Control |
 | `POST /internal/knowledge/retrieval/query` | `reachai-knowledge-service` | `reachai-runtime-service` | No |
 | `POST /internal/knowledge/personal-memories/events` | `reachai-knowledge-service` | `reachai-control-service` | No |
 | `POST /internal/knowledge/personal-memories/query` | `reachai-knowledge-service` | `reachai-control-service` | No |

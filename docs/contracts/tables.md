@@ -69,6 +69,7 @@
 | `runtime_agent_remote_agent_binding` | `reachai-runtime-service` | - | Exact remote Agent revision delegated by a published Agent configuration; Runtime validates through Control internal API |
 | `model_template` | `reachai-model-service` | - | Model Center V2 catalog templates (no secrets) |
 | `model_instance` | `reachai-model-service` | - | Model Center V2 executable instances (stable modelInstanceId) |
+| `model_internal_auth_nonce` | `reachai-model-service` | - | Model signed-ingress HMAC nonce anti-replay store |
 | `model_provider_account` | `reachai-model-service` | - | Provider base URL and API key stored once and referenced by model instances |
 | `model_catalog_source` | `reachai-model-service` | - | Official provider source metadata and safe fetch policy; no credentials |
 | `model_catalog_setting` | `reachai-model-service` | - | Singleton automatic-sync setting; defaults to manual-only mode |

@@ -25,6 +25,7 @@ export function emptyRegistryProjectEditForm(): ScanProjectUpsertRequest {
     owner: '',
     visibility: 'PRIVATE',
     baseUrl: '',
+    businessPageUrl: '',
     contextPath: '',
     specFile: '',
     specContent: '',

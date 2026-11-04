@@ -101,7 +101,7 @@ describe('Dashboard 部分授权', () => {
     if (domain !== 'stats') expect(wrapper.get('[data-grid-item="kpi.agent-inventory#default"] strong').text()).toBe('2')
     if (domain !== 'runs') {
       expect(wrapper.get('[data-grid-item="kpi.business-runs#default"] strong').text()).toBe('1')
-      expect(wrapper.get('[data-grid-item="activity.runtime-stream#default"]').text()).toContain('授权订单助手')
+      if (domain !== 'agents' && domain !== 'projects') expect(wrapper.get('[data-grid-item="ranking.agent-top#default"]').text()).toContain('授权订单助手')
     }
     if (domain === 'stats') expect(wrapper.get('[data-grid-item="kpi.agent-inventory#default"]').text()).toContain('读取受限')
     if (domain === 'runs') {
@@ -119,23 +119,23 @@ describe('Dashboard 部分授权', () => {
     await vi.advanceTimersByTimeAsync(30_000)
     expect(mocks[domain]).toHaveBeenCalledTimes(1)
     for (const key of ['agents', 'stats', 'runs', 'workflows', 'projects', 'health'] as const) {
-      if (key !== domain) expect(mocks[key]).toHaveBeenCalledTimes(2)
+      if (key !== domain) expect(mocks[key]).toHaveBeenCalledTimes(1)
     }
   })
 
-  it('允许域保持可见且自动/可见性刷新，403域只在显式刷新时重新核验', async () => {
+  it('定时和切回页面不刷新，手动刷新重查全部数据', async () => {
     populated()
     mocks.agents.mockRejectedValue(forbidden())
     const wrapper = render()
     await flushPromises()
     mocks.stats.mockResolvedValue({ data: { totalAgents: 3, enabledAgents: 2, workflowToolAgents: 1, activeWorkflowTools: 1 } })
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(wrapper.get('[data-grid-item="kpi.agent-inventory#default"] strong').text()).toBe('3')
+    expect(wrapper.get('[data-grid-item="kpi.agent-inventory#default"] strong').text()).toBe('2')
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
     expect(mocks.agents).toHaveBeenCalledTimes(1)
-    for (const request of [mocks.projects, mocks.stats, mocks.workflows, mocks.runs, mocks.health]) expect(request).toHaveBeenCalledTimes(3)
-    expect(wrapper.find('.ops-refresh-status').text()).toContain('自动刷新')
+    for (const request of [mocks.projects, mocks.stats, mocks.workflows, mocks.runs, mocks.health]) expect(request).toHaveBeenCalledTimes(1)
+    expect(wrapper.find('.ops-refresh-status').exists()).toBe(false)
     populated()
     await wrapper.find('.ops-icon-btn').trigger('click')
     await flushPromises()
@@ -155,7 +155,7 @@ describe('Dashboard 部分授权', () => {
     expect(wrapper.text()).toContain('当前时间范围暂无运行记录')
     expect(wrapper.text()).not.toContain('平台总览不可查看')
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(mocks.runs).toHaveBeenCalledTimes(2)
+    expect(mocks.runs).toHaveBeenCalledTimes(1)
     expect(mocks.stats).toHaveBeenCalledTimes(1)
   })
 
@@ -226,7 +226,7 @@ describe('Dashboard 部分授权', () => {
     completeOld({ data: [{ traceId: 'old-session', agentName: '旧身份范围数据', status: 'COMPLETED' }] })
     await flushPromises()
     expect(wrapper.text()).not.toContain('旧身份范围数据')
-    expect(wrapper.get('.ops-last-updated').text()).toBe('等待首次刷新')
+    expect(wrapper.find('.ops-last-updated').exists()).toBe(false)
   })
 })
 afterEach(() => {
@@ -248,7 +248,7 @@ describe('Dashboard 真实会话的受限入口', () => {
     expect(links.map(link => link.text())).toEqual(['业务能力', 'Workflow'])
   })
 
-  it('自动轮询与可见性恢复不重试已403的数据，显式刷新可以重新检查', async () => {
+  it('定时与切回页面不触发请求，显式刷新可以重新检查', async () => {
     deniedOverview()
     const wrapper = render()
     await flushPromises()
@@ -256,13 +256,13 @@ describe('Dashboard 真实会话的受限入口', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     await flushPromises()
     for (const request of [mocks.agents, mocks.workflows, mocks.stats, mocks.runs]) expect(request).toHaveBeenCalledTimes(1)
-    expect(mocks.health.mock.calls.length).toBeGreaterThan(1)
+    expect(mocks.health).toHaveBeenCalledTimes(1)
     await wrapper.find('.ops-icon-btn').trigger('click')
     await flushPromises()
     for (const request of [mocks.agents, mocks.workflows, mocks.stats, mocks.runs]) expect(request).toHaveBeenCalledTimes(2)
   })
 
-  it('权限/会话改变后重查拒绝项，原授权总览仍正常加载及自动刷新', async () => {
+  it('权限/会话改变后重查拒绝项，等待期间不自动刷新', async () => {
     deniedOverview()
     const wrapper = render()
     await flushPromises()
@@ -273,10 +273,10 @@ describe('Dashboard 真实会话的受限入口', () => {
     expect(wrapper.text()).not.toContain('平台总览不可查看')
     expect(wrapper.text()).toContain('Agent 总数')
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(mocks.agents).toHaveBeenCalledTimes(3)
+    expect(mocks.agents).toHaveBeenCalledTimes(2)
     mocks.setSession('next-session')
     await flushPromises()
-    expect(mocks.agents).toHaveBeenCalledTimes(4)
+    expect(mocks.agents).toHaveBeenCalledTimes(3)
   })
 
   it('只给真实可用菜单，没有权限时解释没有可用任务，不假称PROJECT', async () => {
@@ -296,6 +296,9 @@ describe('Dashboard 真实会话的受限入口', () => {
     expect(wrapper.text()).not.toContain('平台总览不可查看')
     expect(wrapper.text()).toContain('部分数据暂不可用：Agent 列表')
     await vi.advanceTimersByTimeAsync(30_000)
+    expect(mocks.agents).toHaveBeenCalledTimes(1)
+    await wrapper.find('.ops-icon-btn').trigger('click')
+    await flushPromises()
     expect(mocks.agents).toHaveBeenCalledTimes(2)
   })
 

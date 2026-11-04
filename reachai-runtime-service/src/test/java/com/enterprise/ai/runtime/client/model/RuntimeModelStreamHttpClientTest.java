@@ -67,6 +67,7 @@ class RuntimeModelStreamHttpClientTest {
         });
 
         RuntimeModelStreamHttpClient client = new RuntimeModelStreamHttpClient(objectMapper, baseUrl);
+        client.configureModelServiceSecret("stream-unit-test-secret");
         ModelStreamSubscription subscription = new ModelStreamSubscription();
         List<RuntimeModelStreamHttpClient.ModelStreamEventDto> events = new ArrayList<>();
         AtomicReference<Throwable> error = new AtomicReference<>();
@@ -113,6 +114,7 @@ class RuntimeModelStreamHttpClientTest {
         });
 
         RuntimeModelStreamHttpClient client = new RuntimeModelStreamHttpClient(objectMapper, baseUrl);
+        client.configureModelServiceSecret("stream-unit-test-secret");
         ModelStreamSubscription subscription = new ModelStreamSubscription();
         List<RuntimeModelStreamHttpClient.ModelStreamEventDto> events = new ArrayList<>();
         CountDownLatch gotFirst = new CountDownLatch(1);
@@ -149,6 +151,7 @@ class RuntimeModelStreamHttpClientTest {
         });
 
         RuntimeModelStreamHttpClient client = new RuntimeModelStreamHttpClient(objectMapper, baseUrl);
+        client.configureModelServiceSecret("stream-unit-test-secret");
         List<RuntimeModelStreamHttpClient.ModelStreamEventDto> events = new ArrayList<>();
         client.streamChatEvents(minimalRequest(), events::add);
         assertEquals(3, events.size());
@@ -173,6 +176,7 @@ class RuntimeModelStreamHttpClientTest {
         });
 
         RuntimeModelStreamHttpClient client = new RuntimeModelStreamHttpClient(objectMapper, baseUrl);
+        client.configureModelServiceSecret("stream-unit-test-secret");
         List<RuntimeModelStreamHttpClient.ModelStreamEventDto> events = new ArrayList<>();
         client.streamChatEvents(minimalRequest(), events::add);
         assertEquals(1, events.size());

@@ -59,7 +59,7 @@ const account = {
   id: 'acct-1',
   name: '通义千问账号',
   provider: 'tongyi',
-  connection: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKey: 'sk-ab******wxyz' },
+  connection: { baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
   apiKeyConfigured: true,
   status: 'ACTIVE',
   instanceCount: 0,
@@ -184,6 +184,7 @@ describe('ModelOnboardingDialog provider-first flow', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('通义千问账号')
+    expect(wrapper.text()).toContain('Key 已配置')
     await button(wrapper, '获取模型列表').trigger('click')
     await flushPromises()
 
@@ -192,5 +193,20 @@ describe('ModelOnboardingDialog provider-first flow', () => {
     expect(wrapper.text()).toContain('已接入')
     const checks = wrapper.findAll('.row-check')
     expect(checks.filter((item) => (item.element as HTMLInputElement).disabled)).toHaveLength(1)
+  })
+  it('edits an existing account without resubmitting a saved key', async () => {
+    api.getProviderAccounts.mockResolvedValue({ data: { data: [account] } })
+    api.updateProviderAccount.mockResolvedValue({ data: { data: account } })
+    const wrapper = mountDialog()
+    await wrapper.setProps({ modelValue: true })
+    await wrapper.get('.pick-provider').trigger('click')
+    await flushPromises()
+    await button(wrapper, '修改地址或 Key').trigger('click')
+    await button(wrapper, '保存').trigger('click')
+    await flushPromises()
+    expect(api.updateProviderAccount).toHaveBeenCalledWith('acct-1', {
+      name: account.name,
+      connection: { baseUrl: account.connection.baseUrl },
+    })
   })
 })

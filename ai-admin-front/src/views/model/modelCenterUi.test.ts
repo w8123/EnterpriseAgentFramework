@@ -59,8 +59,8 @@ function sampleInstance(partial?: Partial<ModelInstance>): ModelInstance {
     connection: {
       baseUrl: 'https://api.openai.com/v1',
       chatPath: '/chat/completions',
-      apiKey: 'sk-li******abcd',
     },
+    apiKeyConfigured: true,
     defaultOptions: { temperature: 0.2 },
     paramsSchema: [],
     status: 'ACTIVE',

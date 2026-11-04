@@ -105,7 +105,8 @@ class ModelInstanceServiceTest {
         ModelInstanceResponse response = service.toResponse(entity);
         assertEquals("acct-1", response.getProviderAccountId());
         assertEquals("百炼主账号", response.getProviderAccountName());
-        assertFalse(String.valueOf(response.getConnection().get("apiKey")).contains("12345678"));
+        assertFalse(response.getConnection().containsKey("apiKey"));
+        assertTrue(response.isApiKeyConfigured());
     }
 
     @Test
@@ -198,9 +199,8 @@ class ModelInstanceServiceTest {
         assertNull(entity.getProjectScopeKey());
         assertNull(entity.getProjectCode());
         assertTrue(entity.getConnectionConfigJson().startsWith("aesgcm:"));
-        assertEquals("******", String.valueOf(response.getConnection().get("apiKey")).contains("******")
-                ? "******" : response.getConnection().get("apiKey"));
-        assertTrue(String.valueOf(response.getConnection().get("apiKey")).contains("******"));
+        assertFalse(response.getConnection().containsKey("apiKey"));
+        assertTrue(response.isApiKeyConfigured());
     }
 
     @Test
@@ -331,7 +331,8 @@ class ModelInstanceServiceTest {
         assertEquals("sk-custom-abcdef", plain.get("apiKey"));
         assertFalse(plain.containsKey("apiBase"));
         assertFalse(plain.containsKey("token"));
-        assertTrue(String.valueOf(response.getConnection().get("apiKey")).contains("******"));
+        assertFalse(response.getConnection().containsKey("apiKey"));
+        assertTrue(response.isApiKeyConfigured());
         assertEquals("https://api.openai.com/v1", response.getConnection().get("baseUrl"));
     }
 
@@ -382,7 +383,8 @@ class ModelInstanceServiceTest {
 
         ModelInstanceResponse response = service.update("id-1", request);
 
-        assertTrue(String.valueOf(response.getConnection().get("apiKey")).contains("******"));
+        assertFalse(response.getConnection().containsKey("apiKey"));
+        assertTrue(response.isApiKeyConfigured());
         Map<String, Object> plain = readPlain(existing.getConnectionConfigJson());
         assertEquals("sk-live-abcdefgh", plain.get("apiKey"));
     }

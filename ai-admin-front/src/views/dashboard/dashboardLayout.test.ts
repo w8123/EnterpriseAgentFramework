@@ -158,9 +158,9 @@ describe('Dashboard 可配置布局编辑', () => {
     vi.restoreAllMocks()
   })
 
-  it('默认渲染 13 个领导首屏 widget，常态由顶栏进入布局编辑', async () => {
+  it('默认渲染 9 个领导首屏 widget，常态由顶栏进入布局编辑', async () => {
     const wrapper = await mountDashboard()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     expect(wrapper.find('[data-testid="edit-layout"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="toggle-fullscreen"]').exists()).toBe(true)
     expect(wrapper.text()).not.toContain('当前浏览器布局 · revision 0')
@@ -170,11 +170,11 @@ describe('Dashboard 可配置布局编辑', () => {
     const wrapper = await mountDashboard()
     await enterEdit(wrapper)
     expect(wrapper.find('[data-testid="open-catalog"]').exists()).toBe(true)
-    expect(wrapper.findAll('[data-grid-drag]').length).toBe(13)
-    expect(wrapper.findAll('[data-grid-resize]').length).toBe(39)
-    expect(wrapper.findAll('[data-grid-resize-edge="left"]').length).toBe(13)
-    expect(wrapper.findAll('[data-grid-resize-edge="right"]').length).toBe(13)
-    expect(wrapper.findAll('[data-grid-resize-edge="bottom"]').length).toBe(13)
+    expect(wrapper.findAll('[data-grid-drag]').length).toBe(9)
+    expect(wrapper.findAll('[data-grid-resize]').length).toBe(27)
+    expect(wrapper.findAll('[data-grid-resize-edge="left"]').length).toBe(9)
+    expect(wrapper.findAll('[data-grid-resize-edge="right"]').length).toBe(9)
+    expect(wrapper.findAll('[data-grid-resize-edge="bottom"]').length).toBe(9)
     expect(wrapper.find('.dash-frame__handle').exists()).toBe(false)
     expect(wrapper.find('button[title="复制"]').exists()).toBe(false)
 
@@ -182,10 +182,10 @@ describe('Dashboard 可配置布局编辑', () => {
     const firstFrame = widgetFrames(wrapper)[0]
     await firstFrame.find('button[title="删除"]').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    expect(widgetFrames(wrapper)).toHaveLength(8)
     await findToolbarButton(wrapper, 'cancel-edit').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     expect(wrapper.find('[data-testid="edit-layout"]').exists()).toBe(true)
   })
 
@@ -194,6 +194,9 @@ describe('Dashboard 可配置布局编辑', () => {
     await enterEdit(wrapper)
     await findToolbarButton(wrapper, 'open-catalog').trigger('click')
     const catalog = document.querySelector('[data-testid="widget-catalog"]')!
+    expect(catalog.querySelector('[data-catalog-widget="ranking.project-top"]')).toBeNull()
+    expect(catalog.querySelector('[data-catalog-widget="navigation.shortcuts"]')).toBeNull()
+    expect(catalog.querySelector('[data-catalog-widget="activity.runtime-stream"]')).toBeNull()
     expect(catalog.textContent).toContain('已添加 1 个实例')
     expect(catalog.textContent).toContain('可再次添加')
     // 不可用组件展示原因且没有添加按钮
@@ -206,7 +209,7 @@ describe('Dashboard 可配置布局编辑', () => {
     const addable = catalog.querySelector('[data-catalog-widget="kpi.agent-inventory"] button') as HTMLButtonElement
     addable.click()
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(14)
+    expect(widgetFrames(wrapper)).toHaveLength(10)
   })
 
   it('添加、删除、撤销、重做形成连续历史', async () => {
@@ -219,19 +222,19 @@ describe('Dashboard 可配置布局编辑', () => {
     const catalog = document.querySelector('[data-testid="widget-catalog"]')!
     ;(catalog.querySelector('[data-catalog-widget="kpi.agent-inventory"] button') as HTMLButtonElement).click()
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(14)
+    expect(widgetFrames(wrapper)).toHaveLength(10)
 
     // 删除一个 widget
     await widgetFrames(wrapper)[0].find('button[title="删除"]').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
 
     await findToolbarButton(wrapper, 'undo').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(14)
+    expect(widgetFrames(wrapper)).toHaveLength(10)
     await findToolbarButton(wrapper, 'redo').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
   })
 
   it('标题栏本身承担移动入口，不再渲染点阵移动和复制按钮', async () => {
@@ -258,21 +261,21 @@ describe('Dashboard 可配置布局编辑', () => {
     const stored = readStoredLayout()
     expect(stored.schemaVersion).toBe(2)
     expect(stored.revision).toBe(1)
-    expect(stored.items).toHaveLength(12)
+    expect(stored.items).toHaveLength(8)
     expect(first.find('[data-testid="edit-layout"]').exists()).toBe(true)
     first.unmount()
     wrappers.splice(0)
 
-    // 重新挂载模拟 reload：恢复 12 个 widget
+    // 重新挂载模拟 reload：恢复 8 个 widget
     const reloaded = await mountDashboard()
-    expect(widgetFrames(reloaded)).toHaveLength(12)
+    expect(widgetFrames(reloaded)).toHaveLength(8)
     expect(reloaded.find('[data-testid="edit-layout"]').exists()).toBe(true)
   })
 
   it('localStorage 中畸形数据回退默认布局，页面不白屏', async () => {
     localStorage.setItem(LAYOUT_STORAGE_KEY, '{"schemaVersion":99')
     const wrapper = await mountDashboard()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     expect(wrapper.text()).toContain('智能体运营中心')
   })
 
@@ -282,7 +285,7 @@ describe('Dashboard 可配置布局编辑', () => {
       JSON.stringify({ schemaVersion: 99, revision: 9, mode: 'CONSOLE', columns: 12, items: [] }),
     )
     const wrapper = await mountDashboard()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     expect(wrapper.find('[data-testid="edit-layout"]').exists()).toBe(true)
   })
 
@@ -291,38 +294,38 @@ describe('Dashboard 可配置布局编辑', () => {
     await enterEdit(wrapper)
     await widgetFrames(wrapper)[0].find('button[title="删除"]').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    expect(widgetFrames(wrapper)).toHaveLength(8)
     await findToolbarButton(wrapper, 'reset-default').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     await findToolbarButton(wrapper, 'undo').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    expect(widgetFrames(wrapper)).toHaveLength(8)
   })
 
   it('整理布局压缩纵向空隙', async () => {
     const wrapper = await mountDashboard()
     await enterEdit(wrapper)
-    // 把最后一个“实时动态”用键盘下移 3 格制造空隙
-    const activityFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('实时动态'))!
+    // 把最后一个“Token 使用分布”用键盘下移 3 格制造空隙
+    const activityFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('Token 使用分布'))!
     const itemEl = activityFrame.element.closest('.dash-grid__item') as HTMLElement
     const topBefore = itemEl.style.top
     const handle = activityFrame.find('[data-grid-drag]')
     for (let i = 0; i < 3; i += 1) await handle.trigger('keydown', { key: 'ArrowDown' })
     await flushPromises()
-    const movedFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('实时动态'))!
+    const movedFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('Token 使用分布'))!
     const movedEl = movedFrame.element.closest('.dash-grid__item') as HTMLElement
     expect(movedEl.style.top).not.toBe(topBefore)
 
     // 整理布局把空隙收回，且动作可撤销
     await findToolbarButton(wrapper, 'tidy').trigger('click')
     await flushPromises()
-    const tidiedFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('实时动态'))!
+    const tidiedFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('Token 使用分布'))!
     const tidiedEl = tidiedFrame.element.closest('.dash-grid__item') as HTMLElement
     expect(tidiedEl.style.top).toBe(topBefore)
     await findToolbarButton(wrapper, 'undo').trigger('click')
     await flushPromises()
-    const undoneFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('实时动态'))!
+    const undoneFrame = widgetFrames(wrapper).find((frame) => frame.text().includes('Token 使用分布'))!
     const undoneEl = undoneFrame.element.closest('.dash-grid__item') as HTMLElement
     expect(undoneEl.style.top).not.toBe(topBefore)
   })
@@ -483,7 +486,7 @@ describe('Dashboard 可配置布局编辑', () => {
     // 编辑中删除一个 widget
     await widgetFrames(wrapper)[0].find('button[title="删除"]').trigger('click')
     await flushPromises()
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    expect(widgetFrames(wrapper)).toHaveLength(8)
     expect(findToolbarButton(wrapper, 'save-layout').attributes('disabled')).toBeUndefined()
 
     // 派发 window resize 到窄屏：布局编辑暂停
@@ -498,8 +501,8 @@ describe('Dashboard 可配置布局编辑', () => {
     expect(findToolbarButton(wrapper, 'reset-default').attributes('disabled')).toBeDefined()
     // 取消仍可用
     expect(findToolbarButton(wrapper, 'cancel-edit').attributes('disabled')).toBeUndefined()
-    // 草稿保留：仍是 12 个 widget，编辑会话未退出（工具栏仍处于编辑态控件组）
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    // 草稿保留：仍是 8 个 widget，编辑会话未退出（工具栏仍处于编辑态控件组）
+    expect(widgetFrames(wrapper)).toHaveLength(8)
     expect(wrapper.find('[data-testid="save-layout"]').exists()).toBe(true)
 
     // 恢复宽屏：同一草稿继续
@@ -507,7 +510,7 @@ describe('Dashboard 可配置布局编辑', () => {
     window.dispatchEvent(new Event('resize'))
     await flushPromises()
     expect(wrapper.find('[data-testid="edit-paused"]').exists()).toBe(false)
-    expect(widgetFrames(wrapper)).toHaveLength(12)
+    expect(widgetFrames(wrapper)).toHaveLength(8)
     expect(findToolbarButton(wrapper, 'save-layout').attributes('disabled')).toBeUndefined()
   })
 
@@ -610,7 +613,7 @@ describe('Dashboard 可配置布局编辑', () => {
       }),
     )
     const wrapper = await mountDashboard()
-    expect(widgetFrames(wrapper)).toHaveLength(13)
+    expect(widgetFrames(wrapper)).toHaveLength(9)
     expect(wrapper.find('[data-testid="edit-layout"]').exists()).toBe(true)
   })
 

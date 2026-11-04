@@ -500,15 +500,52 @@ const {
 } = useSidebarWorkspace()
 // 从链接进入其他工作台的页面时，侧栏跟着切过去。
 watch(activeMenu, followActiveMenu, { immediate: true })
-const closedGroups = ref<Set<string>>(new Set())
+const DEFAULT_COLLAPSED_GROUP_LABELS = new Set(['AI 资产', '运行与治理', '平台资源'])
+
+function findGroupForIndex(index: string): string | null {
+  let currentGroup: string | null = null
+  for (const entry of visibleSidebarMenu.value) {
+    if (entry.kind === 'group') {
+      currentGroup = entry.label
+    } else if (entry.kind === 'item') {
+      if (entry.index === index) return currentGroup
+      if (entry.children?.some(child => child.index === index)) return currentGroup
+    }
+  }
+  return null
+}
+
+const activeGroupLabel = computed(() => findGroupForIndex(activeMenu.value))
+const manualGroupStates = ref<Map<string, boolean>>(new Map())
 const groupKey = (label: string) => `${currentWorkspace.value.key}:${label}`
-const isGroupClosed = (label: string) => closedGroups.value.has(groupKey(label))
-function toggleGroup(label: string) {
-  const next = new Set(closedGroups.value)
+
+watch(activeGroupLabel, (group) => {
+  if (group) {
+    const key = groupKey(group)
+    const next = new Map(manualGroupStates.value)
+    next.set(key, true)
+    manualGroupStates.value = next
+  }
+}, { immediate: true })
+
+const isGroupClosed = (label: string) => {
   const key = groupKey(label)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  closedGroups.value = next
+  const manual = manualGroupStates.value.get(key)
+  if (manual !== undefined) {
+    return !manual
+  }
+  if (activeGroupLabel.value === label) {
+    return false
+  }
+  return DEFAULT_COLLAPSED_GROUP_LABELS.has(label)
+}
+
+function toggleGroup(label: string) {
+  const key = groupKey(label)
+  const currentlyClosed = isGroupClosed(label)
+  const next = new Map(manualGroupStates.value)
+  next.set(key, currentlyClosed)
+  manualGroupStates.value = next
 }
 const displayedSidebarMenu = computed(() => {
   if (collapsed.value) return visibleSidebarMenu.value

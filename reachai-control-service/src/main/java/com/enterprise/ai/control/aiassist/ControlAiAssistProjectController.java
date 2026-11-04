@@ -176,6 +176,7 @@ public class ControlAiAssistProjectController {
                                                                          HttpServletRequest request) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
+            requireProjectPermission(request, projectId, project, PlatformPermissions.PLATFORM_READ);
             String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
             String projectApiRoot = baseUrl + "/api/ai-assist/projects/" + projectId;
             OnboardingManifestResponse manifest = buildManifest(project, baseUrl, projectApiRoot);
@@ -197,14 +198,33 @@ public class ControlAiAssistProjectController {
             HttpServletRequest httpRequest) {
         try {
             Map<String, Object> project = capabilityClient.getOnboardingProjectById(projectId);
-            if (!canWriteProject(httpRequest, project.get("projectCode"))) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN,
-                        "platform permission is required for the scoped resource: " + PlatformPermissions.PLATFORM_WRITE);
-            }
+            requireProjectPermission(httpRequest, projectId, project, PlatformPermissions.PLATFORM_WRITE);
             Map<String, Object> body = capabilityClient.updateAiCodingAccess(projectId, request);
             return ResponseEntity.ok(toAiCodingAccess(body));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
+        }
+    }
+
+    /** Authorize against the owner service's actual project identity, never a client-supplied code. */
+    static void requireProjectPermission(HttpServletRequest request, Long projectId,
+                                         Map<String, Object> project, String permission) {
+        Object id = project == null ? null : project.get("id");
+        Object summaryId = project == null ? null : project.get("projectId");
+        if (id == null) id = summaryId;
+        Object code = project == null ? null : project.get("projectCode");
+        if (projectId == null || projectId <= 0 || id == null
+                || !String.valueOf(projectId).equals(String.valueOf(id))
+                || (summaryId != null && !String.valueOf(projectId).equals(String.valueOf(summaryId)))
+                || !(code instanceof String projectCode) || !StringUtils.hasText(projectCode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "project identity is unavailable");
+        }
+        Object candidate = request == null ? null
+                : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        if (!(candidate instanceof PlatformAuthenticatedSession session)
+                || !session.hasResourcePermission(permission, "PROJECT", null, projectCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "platform permission is required for the scoped resource: " + permission);
         }
     }
 

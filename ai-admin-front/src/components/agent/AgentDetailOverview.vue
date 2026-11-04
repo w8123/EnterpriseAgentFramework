@@ -242,6 +242,21 @@ function riskClass(value?: string) {
     </div>
 
     <aside class="agent-overview-side" aria-label="Agent 配置状态与快捷操作">
+      <WorkbenchPanel class="overview-side-card scope-summary-card" density="compact">
+        <h2>使用范围</h2>
+        <dl>
+          <div><span class="scope-icon"><el-icon><Connection /></el-icon></span><dt>所属项目</dt><dd>{{ props.projectLabel }}</dd></div>
+          <div><span class="scope-icon is-blue"><el-icon><Lock /></el-icon></span><dt>允许角色</dt><dd>{{ roleLabel }}</dd></div>
+        </dl>
+        <el-button v-if="props.canWrite" link type="primary" @click="emit('edit-section', 'basic')">调整范围 <el-icon class="el-icon--right"><ArrowRight /></el-icon></el-button>
+      </WorkbenchPanel>
+
+      <WorkbenchPanel v-if="props.canDebug" class="overview-side-card debug-summary-card" density="compact">
+        <div class="debug-summary-heading"><span class="debug-icon"><el-icon><ChatDotRound /></el-icon></span><h2>开始调试</h2></div>
+        <p>模拟一次真实提问，检查回答内容和 Workflow 调用过程。</p>
+        <el-button type="primary" :icon="VideoPlay" @click="emit('debug')">进入调试</el-button>
+      </WorkbenchPanel>
+
       <WorkbenchPanel class="overview-side-card status-summary-card" density="compact">
         <h2>配置状态</h2>
         <div class="status-summary-hero" :class="{ 'has-draft': props.draftVersionNo }">
@@ -266,20 +281,6 @@ function riskClass(value?: string) {
         @open-eval="emit('open-eval')"
       />
 
-      <WorkbenchPanel class="overview-side-card scope-summary-card" density="compact">
-        <h2>使用范围</h2>
-        <dl>
-          <div><span class="scope-icon"><el-icon><Connection /></el-icon></span><dt>所属项目</dt><dd>{{ props.projectLabel }}</dd></div>
-          <div><span class="scope-icon is-blue"><el-icon><Lock /></el-icon></span><dt>允许角色</dt><dd>{{ roleLabel }}</dd></div>
-        </dl>
-        <el-button v-if="props.canWrite" link type="primary" @click="emit('edit-section', 'basic')">调整范围 <el-icon class="el-icon--right"><ArrowRight /></el-icon></el-button>
-      </WorkbenchPanel>
-
-      <WorkbenchPanel v-if="props.canDebug" class="overview-side-card debug-summary-card" density="compact">
-        <div class="debug-summary-heading"><span class="debug-icon"><el-icon><ChatDotRound /></el-icon></span><h2>开始调试</h2></div>
-        <p>模拟一次真实提问，检查回答内容和 Workflow 调用过程。</p>
-        <el-button type="primary" :icon="VideoPlay" @click="emit('debug')">进入调试</el-button>
-      </WorkbenchPanel>
     </aside>
   </div>
 </template>

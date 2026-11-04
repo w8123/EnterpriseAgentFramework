@@ -49,7 +49,7 @@
       v-if="clientError"
       type="warning"
       class="job-alert"
-      title="页面刷新已暂停"
+      :title="clientErrorTitle"
       :description="clientError"
       source="backdrop"
     />
@@ -113,12 +113,14 @@ withDefaults(defineProps<{
   title?: string
   busy?: boolean
   clientError?: string
+  clientErrorTitle?: string
   showActions?: boolean
   dismissible?: boolean
 }>(), {
   title: '文档导入任务',
   busy: false,
   clientError: '',
+  clientErrorTitle: '页面刷新已暂停',
   showActions: true,
   dismissible: false,
 })

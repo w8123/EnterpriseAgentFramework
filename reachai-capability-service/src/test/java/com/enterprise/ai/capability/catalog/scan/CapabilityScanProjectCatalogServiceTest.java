@@ -255,6 +255,35 @@ class CapabilityScanProjectCatalogServiceTest {
     }
 
     @Test
+    void businessPageAddressCanBeSavedPreservedAndCleared() {
+        ScanProjectEntity project = new ScanProjectEntity();
+        project.setId(9L);
+        project.setProjectCode("orders");
+        when(scanProjectMapper.selectById(9L)).thenReturn(project);
+        when(scanProjectMapper.selectOne(any())).thenReturn(null);
+
+        service.update(9L, new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(
+                "Orders", "orders", "REGISTERED", "prod", null, "PRIVATE", "https://api.example.com", "", null, null,
+                " https://erp.example.com/#/home "));
+        assertEquals("https://erp.example.com/#/home", project.getBusinessPageUrl());
+        service.update(9L, new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(
+                "Orders", "orders", "REGISTERED", "prod", null, "PRIVATE", "https://api.example.com", "", null, null));
+        assertEquals("https://erp.example.com/#/home", project.getBusinessPageUrl());
+        service.update(9L, new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(
+                "Orders", "orders", "REGISTERED", "prod", null, "PRIVATE", "https://api.example.com", "", null, null, ""));
+        assertEquals("", project.getBusinessPageUrl());
+    }
+
+    @Test
+    void rejectsUnsafeBusinessPageAddress() {
+        for (String url : List.of("javascript:alert(1)", "https://user:pass@example.com/", "https://")) {
+            assertThrows(IllegalArgumentException.class, () -> service.create(
+                    new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(
+                            "Orders", "orders", "REGISTERED", "prod", null, "PRIVATE", "https://api.example.com", "", null, null, url)));
+        }
+    }
+
+    @Test
     void rejectsBlankName() {
         assertThrows(IllegalArgumentException.class,
                 () -> service.create(new CapabilityScanProjectCatalogService.ScanProjectUpsertRequest(

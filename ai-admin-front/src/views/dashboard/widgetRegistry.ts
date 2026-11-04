@@ -6,7 +6,6 @@ import type {
   DashboardWidgetInstance,
 } from '@/types/operationsDashboard'
 import { clampRect, DASHBOARD_GRID_COLUMNS, DASHBOARD_LAYOUT_SCHEMA_VERSION } from './layoutEngine'
-import { defaultShortcutConfig, isShortcutPreset, sanitizeShortcutIds, SHORTCUT_WIDGET_KEY } from './dashboardShortcuts'
 
 export const dashboardDomainLabels: Record<DashboardDataDomain, string> = {
   projects: '业务系统', agents: 'Agent 列表', agentStats: 'Agent 统计',
@@ -42,14 +41,6 @@ function define(
  * DISABLED + 真实原因呈现，不允许用近似指标冒充。
  */
 export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> = {
-  [SHORTCUT_WIDGET_KEY]: define({
-    key: SHORTCUT_WIDGET_KEY,
-    category: 'NAVIGATION',
-    title: '快捷入口',
-    description: '把常用功能放在手边，按自己的习惯增删和排序。',
-    grid: { minW: 4, minH: 1, maxW: 12, maxH: 6, defaultW: 12, defaultH: 1 },
-    defaultConfig: { shortcutPreset: 'custom', shortcutIds: [] },
-  }),
   'kpi.agent-inventory': define({
     key: 'kpi.agent-inventory',
     category: 'KPI',
@@ -69,15 +60,15 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
   'kpi.business-runs': define({
     key: 'kpi.business-runs',
     category: 'KPI',
-    title: '运行样本',
+    title: '运行次数',
     dataDomains: ['runs'],
-    description: '当前时间范围内最近返回的运行样本数量。',
+    description: '当前时间范围内最近返回的运行记录数量。',
     grid: { ...KPI_GRID },
   }),
   'kpi.active-runtime-users': define({
     key: 'kpi.active-runtime-users',
     category: 'KPI',
-    title: '可识别用户',
+    title: '使用人数',
     dataDomains: ['runs'],
     description: '样本中携带 userId 的去重用户数与身份覆盖率。',
     grid: { ...KPI_GRID },
@@ -93,9 +84,9 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
   'kpi.technical-completion-rate': define({
     key: 'kpi.technical-completion-rate',
     category: 'KPI',
-    title: '技术完成率',
+    title: '运行完成率',
     dataDomains: ['runs'],
-    description: '终态样本中 COMPLETED 占比；不是业务成功率。',
+    description: '已结束的运行中，状态为完成的比例；不代表业务成功率。',
     grid: { ...KPI_GRID },
   }),
   'ranking.agent-top': define({
@@ -103,7 +94,7 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
     category: 'RANKING',
     title: '今日 TOP Agent',
     dataDomains: ['runs', 'agents', 'projects'],
-    description: '按最近返回运行样本排序的 Agent 排行，支持 TOP N 配置。',
+    description: '按最近返回的运行记录排序的 Agent 排行，支持 TOP N 配置。',
     grid: { minW: 3, minH: 4, maxW: 6, maxH: 10, defaultW: 3, defaultH: 6 },
     configFields: [{ key: 'topN', label: '显示条数（TOP N）', min: 1, max: 10 }],
     defaultConfig: { topN: 5 },
@@ -113,16 +104,8 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
     category: 'TREND',
     title: '今日运行态势',
     dataDomains: ['runs'],
-    description: '调用、Token 与可识别用户的分桶趋势，只基于真实样本。',
+    description: '运行次数、Token 与使用人数随时间变化的趋势，基于最近记录。',
     grid: { minW: 4, minH: 5, maxW: 12, maxH: 10, defaultW: 6, defaultH: 6 },
-  }),
-  'ranking.project-top': define({
-    key: 'ranking.project-top',
-    category: 'RANKING',
-    title: '业务系统贡献排行',
-    dataDomains: ['projects', 'agents', 'runs'],
-    description: '按运行样本数排序的业务系统排行，可钻取到项目详情。',
-    grid: { minW: 2, minH: 3, maxW: 6, maxH: 8, defaultW: 3, defaultH: 3 },
   }),
   'quality.attention': define({
     key: 'quality.attention',
@@ -137,7 +120,7 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
     category: 'PROJECT',
     title: '业务系统运营',
     dataDomains: ['projects', 'agents', 'runs'],
-    description: '项目资产与运行样本联合视角的运营卡片，支持显示数量配置。',
+    description: '项目资产与运行记录联合视角的运营卡片，支持显示数量配置。',
     grid: { minW: 4, minH: 4, maxW: 12, maxH: 10, defaultW: 9, defaultH: 4 },
     configFields: [{ key: 'displayCount', label: '显示数量', min: 1, max: 6 }],
     defaultConfig: { displayCount: 4 },
@@ -149,14 +132,6 @@ export const dashboardWidgetRegistry: Record<string, DashboardWidgetDefinition> 
     dataDomains: ['projects', 'runs'],
     description: '项目维度的已记录 Token 分布；仅统计大于 0 的记录。',
     grid: { minW: 2, minH: 4, maxW: 6, maxH: 10, defaultW: 3, defaultH: 4 },
-  }),
-  'activity.runtime-stream': define({
-    key: 'activity.runtime-stream',
-    category: 'ACTIVITY',
-    title: '实时动态',
-    dataDomains: ['runs'],
-    description: '最近返回的运行样本快照，点击跳转 RunOps 详情。',
-    grid: { minW: 4, minH: 1, maxW: 12, maxH: 4, defaultW: 12, defaultH: 1 },
   }),
   'service.data-source-status': define({
     key: 'service.data-source-status',
@@ -238,33 +213,16 @@ export const defaultConsoleLayout: DashboardLayoutDocument = {
   mode: 'CONSOLE',
   columns: DASHBOARD_GRID_COLUMNS,
   items: [
-    instance('kpi.agent-inventory', 0, 0, 2, 2),
-    instance('kpi.enabled-agents', 2, 0, 2, 2),
-    instance('kpi.business-runs', 4, 0, 2, 2),
-    instance('kpi.active-runtime-users', 6, 0, 2, 2),
-    instance('kpi.recorded-tokens', 8, 0, 2, 2),
-    instance('kpi.technical-completion-rate', 10, 0, 2, 2),
+    instance('kpi.agent-inventory', 0, 0, 3, 2),
+    instance('kpi.business-runs', 3, 0, 3, 2),
+    instance('kpi.active-runtime-users', 6, 0, 3, 2),
+    instance('kpi.recorded-tokens', 9, 0, 3, 2),
     instance('ranking.agent-top', 0, 2, 3, 6),
     instance('trend.usage', 3, 2, 6, 6),
-    instance('ranking.project-top', 9, 2, 3, 3),
-    instance('quality.attention', 9, 5, 3, 3),
+    instance('quality.attention', 9, 2, 3, 3),
     instance('projects.operations-cards', 0, 8, 9, 4),
-    instance('distribution.token-by-project', 9, 8, 3, 4),
-    instance('activity.runtime-stream', 0, 12, 12, 1),
+    instance('distribution.token-by-project', 9, 5, 3, 7),
   ],
-}
-
-/** 首次进入只放一套与账号授权匹配的入口；已保存布局不自动追加或覆盖。 */
-export function defaultConsoleLayoutFor(permissions: readonly string[], roles: readonly string[] = []): DashboardLayoutDocument {
-  const config = defaultShortcutConfig(permissions, roles)
-  const layout = JSON.parse(JSON.stringify(defaultConsoleLayout)) as DashboardLayoutDocument
-  if (!config) return layout
-  const shortcuts = instance(SHORTCUT_WIDGET_KEY, 0, 0, 12, 1)
-  shortcuts.config = config
-  return {
-    ...layout,
-    items: [shortcuts, ...layout.items.map(item => ({ ...item, rect: { ...item.rect, y: item.rect.y + 1 } }))],
-  }
 }
 
 /**
@@ -310,6 +268,31 @@ function matchesLegacyDefault(document: DashboardLayoutDocument) {
 }
 
 export function migrateLegacyDefaultLayout(document: DashboardLayoutDocument): DashboardLayoutDocument {
+  const shortcut = document.items.find(item => item.widgetKey === 'navigation.shortcuts')
+  const offset = shortcut ? 1 : 0
+  const previous = [
+    ['kpi.agent-inventory', 0, 0, 2, 2], ['kpi.enabled-agents', 2, 0, 2, 2],
+    ['kpi.business-runs', 4, 0, 2, 2], ['kpi.active-runtime-users', 6, 0, 2, 2],
+    ['kpi.recorded-tokens', 8, 0, 2, 2], ['kpi.technical-completion-rate', 10, 0, 2, 2],
+    ['ranking.agent-top', 0, 2, 3, 6], ['trend.usage', 3, 2, 6, 6],
+    ['ranking.project-top', 9, 2, 3, 3], ['quality.attention', 9, 5, 3, 3],
+    ['projects.operations-cards', 0, 8, 9, 4], ['distribution.token-by-project', 9, 8, 3, 4],
+    ['activity.runtime-stream', 0, 12, 12, 1],
+  ] as const
+  const matchesPrevious = document.items.length === previous.length + offset
+    && (!shortcut || (shortcut.rect.x === 0 && shortcut.rect.y === 0 && shortcut.rect.w === 12 && shortcut.rect.h === 1))
+    && previous.every(([key, x, y, w, h]) => {
+      const item = document.items.find(candidate => candidate.widgetKey === key)
+      const defaults = getWidgetDefinition(key)?.defaultConfig ?? {}
+      return item && item.rect.x === x && item.rect.y === y + offset && item.rect.w === w && item.rect.h === h
+        && JSON.stringify(item.config) === JSON.stringify(defaults)
+    })
+  if (matchesPrevious) {
+    return { ...document, items: [
+      ...(shortcut ? [shortcut] : []),
+      ...defaultConsoleLayout.items.map(item => ({ ...item, rect: { ...item.rect, y: item.rect.y + offset }, config: { ...item.config } })),
+    ] }
+  }
   if (!matchesLegacyDefault(document)) return document
   return {
     ...defaultConsoleLayout,
@@ -322,25 +305,34 @@ export function migrateLegacyDefaultLayout(document: DashboardLayoutDocument): D
   }
 }
 
-/** v1 双行全宽入口升级为单行，只移除它独占的空余行，保留配置与其余相对布局。 */
-export function migrateShortcutStripLayout(document: DashboardLayoutDocument): DashboardLayoutDocument {
-  if (document.schemaVersion !== 1) return document
-  let items = document.items
-  const strips = items.filter(item => item.widgetKey === SHORTCUT_WIDGET_KEY
-    && item.rect.x === 0 && item.rect.w === document.columns && item.rect.h === 2)
-    .sort((a, b) => a.rect.y - b.rect.y)
-  for (const strip of strips) {
-    const current = items.find(item => item.instanceId === strip.instanceId)!
-    const removedRow = current.rect.y + 1
-    if (items.some(item => item.instanceId !== current.instanceId
-      && item.rect.y < removedRow + 1 && item.rect.y + item.rect.h > removedRow)) continue
-    items = items.map(item => ({
-      ...item,
-      rect: item.instanceId === current.instanceId
-        ? { ...item.rect, h: 1 }
-        : { ...item.rect, y: item.rect.y > removedRow ? item.rect.y - 1 : item.rect.y },
-    }))
+/** 移除已退役组件；快捷入口独占整行时收回其占用的空间。 */
+export function removeRetiredWidgets(document: DashboardLayoutDocument): DashboardLayoutDocument {
+  let items = document.items.filter(item => item.widgetKey !== 'activity.runtime-stream')
+  const shortcuts = items.filter(item => item.widgetKey === 'navigation.shortcuts').sort((a, b) => a.rect.y - b.rect.y)
+  for (const shortcut of shortcuts) {
+    const current = items.find(item => item.instanceId === shortcut.instanceId)!
+    items = items.filter(item => item.instanceId !== current.instanceId)
+    const { y, h } = current.rect
+    if (current.rect.x === 0 && current.rect.w === document.columns
+      && !items.some(item => item.rect.y < y + h && item.rect.y + item.rect.h > y)) {
+      items = items.map(item => item.rect.y >= y + h ? { ...item, rect: { ...item.rect, y: item.rect.y - h } } : item)
+    }
   }
+  // 仅调整旧默认右侧布局；自定义位置或尺寸保留原样。
+  const ranking = items.filter(item => item.widgetKey === 'ranking.project-top')
+  const attention = items.filter(item => item.widgetKey === 'quality.attention')
+  const distribution = items.filter(item => item.widgetKey === 'distribution.token-by-project')
+  const rectIs = (item: DashboardWidgetInstance, x: number, y: number, w: number, h: number) =>
+    item.rect.x === x && item.rect.y === y && item.rect.w === w && item.rect.h === h
+  if (ranking.length === 1 && attention.length === 1 && distribution.length === 1
+    && rectIs(ranking[0], 9, 2, 3, 3) && rectIs(attention[0], 9, 5, 3, 3)
+    && rectIs(distribution[0], 9, 8, 3, 4)
+    && !items.some(item => ![ranking[0], attention[0], distribution[0]].includes(item)
+      && item.rect.x < 12 && item.rect.x + item.rect.w > 9 && item.rect.y < 12 && item.rect.y + item.rect.h > 2)) {
+    items = items.map(item => item === attention[0] ? { ...item, rect: { ...item.rect, y: 2 } }
+      : item === distribution[0] ? { ...item, rect: { ...item.rect, y: 5, h: 7 } } : item)
+  }
+  items = items.filter(item => item.widgetKey !== 'ranking.project-top')
   return { ...document, schemaVersion: DASHBOARD_LAYOUT_SCHEMA_VERSION, items }
 }
 
@@ -391,10 +383,6 @@ export function sanitizeLayoutItems(items: DashboardWidgetInstance[]): Dashboard
       if (typeof value === 'number' && Number.isFinite(value)) {
         config[field.key] = Math.min(field.max, Math.max(field.min, Math.round(value)))
       }
-    }
-    if (item.widgetKey === SHORTCUT_WIDGET_KEY) {
-      if (isShortcutPreset(item.config.shortcutPreset)) config.shortcutPreset = item.config.shortcutPreset
-      if (Array.isArray(item.config.shortcutIds)) config.shortcutIds = sanitizeShortcutIds(item.config.shortcutIds)
     }
     result.push({
       instanceId: item.instanceId,

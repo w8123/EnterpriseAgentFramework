@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { embedChatDevMiddleware } from './scripts/embed-chat-dev-middleware.mjs'
+import { forwardDevOrigin } from './scripts/forward-dev-origin.mjs'
 
 export default defineConfig({
   define: {
@@ -55,6 +56,7 @@ export default defineConfig({
           }
         },
         configure(proxy) {
+          proxy.on('proxyReq', forwardDevOrigin)
           // SSE：禁止中间层缓冲，保证 message.delta 按帧到达浏览器
           proxy.on('proxyRes', (proxyRes, _req, res) => {
             const contentType = String(proxyRes.headers['content-type'] || '')

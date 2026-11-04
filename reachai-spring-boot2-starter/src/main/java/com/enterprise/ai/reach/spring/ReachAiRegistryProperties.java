@@ -43,7 +43,7 @@ public class ReachAiRegistryProperties {
         private String credentialStorePath;
         private long heartbeatIntervalMs = 180000L;
         private int connectTimeoutMs = 5000;
-        private int readTimeoutMs = 60000;
+        private int readTimeoutMs = 120000;
 
         public int getConnectTimeoutMs() { return connectTimeoutMs; }
         public void setConnectTimeoutMs(int value) { connectTimeoutMs = value; }

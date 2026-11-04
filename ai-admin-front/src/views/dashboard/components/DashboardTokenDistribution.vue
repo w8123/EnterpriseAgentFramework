@@ -28,9 +28,6 @@ const donutStyle = computed(() => {
 
 <template>
   <div class="token-distribution widget-body">
-    <header class="token-distribution__header">
-      <p>仅统计样本中大于 0 的已记录 Token</p>
-    </header>
     <div v-if="status === 'loading'" class="token-distribution__loading" aria-busy="true" aria-label="Token 分布加载中">
       <span />
       <i v-for="i in 4" :key="i" />
@@ -75,28 +72,13 @@ const donutStyle = computed(() => {
   flex-direction: column;
 }
 
-.token-distribution__header {
-  min-height: 36px;
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-end;
-  gap: 12px;
-  padding: 8px 11px;
-  background: var(--ops-panel-header-background);
-  border-bottom: 1px solid var(--ops-divider);
-}
-
-.token-distribution__header p {
-  margin: 0;
-  color: var(--ops-text-muted);
-  font-size: 9px;
-}
-
 .token-distribution__body {
   flex: 1;
   min-height: 180px;
   display: grid;
-  grid-template-columns: minmax(96px, 132px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  overflow: auto;
   gap: 18px;
   align-items: center;
   padding: 12px 15px 16px;
@@ -105,7 +87,7 @@ const donutStyle = computed(() => {
 .token-distribution__donut {
   position: relative;
   width: 100%;
-  max-width: 126px;
+  max-width: 160px;
   aspect-ratio: 1;
   margin: 0 auto;
   border-radius: 50%;
@@ -138,7 +120,7 @@ const donutStyle = computed(() => {
 .token-distribution__donut small {
   margin-top: 3px;
   color: var(--ops-text-muted);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .token-distribution ul {
@@ -157,7 +139,7 @@ const donutStyle = computed(() => {
   gap: 7px;
   align-items: center;
   color: var(--ops-text-secondary);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .token-distribution li i {
@@ -175,20 +157,21 @@ const donutStyle = computed(() => {
 
 .token-distribution li strong {
   color: var(--ops-text-strong);
-  font: 600 10px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
+  font: 600 11px/1 ui-monospace, SFMono-Regular, Consolas, monospace;
 }
 
 .token-distribution li small {
   min-width: 40px;
   color: var(--ops-text-muted);
   text-align: right;
+  font-size: 10px;
 }
 
 .token-distribution__loading {
   flex: 1;
   min-height: 180px;
   display: grid;
-  grid-template-columns: minmax(96px, 126px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   align-items: center;
   padding: 14px;
@@ -205,9 +188,7 @@ const donutStyle = computed(() => {
 }
 
 .token-distribution__loading i {
-  grid-column: 2;
   height: 10px;
-  margin-top: -50px;
   background: var(--ops-track);
   border-radius: 3px;
 }

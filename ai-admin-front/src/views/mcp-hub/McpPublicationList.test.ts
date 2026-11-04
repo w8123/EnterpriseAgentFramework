@@ -1,5 +1,6 @@
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { defineComponent } from 'vue'
 import McpPublicationList from './McpPublicationList.vue'
 
 const mocks = vi.hoisted(() => ({
@@ -21,8 +22,12 @@ vi.mock('element-plus', () => ({
 }))
 
 const wrappers: VueWrapper[] = []
-function mountList() {
-  const wrapper = mount(McpPublicationList, {
+function mountList(withLayout = false) {
+  const component = withLayout
+    ? defineComponent({ components: { McpPublicationList }, template: '<div><div id="mcp-hub-actions" /><McpPublicationList /></div>' })
+    : McpPublicationList
+  const wrapper = mount(component, {
+    attachTo: withLayout ? document.body : undefined,
     global: {
       stubs: {
         LiquidGlassButton: { emits: ['click'], template: '<button @click="$emit(\'click\')"><slot /></button>' },
@@ -130,5 +135,14 @@ describe('MCP 服务创建与配置', () => {
     } finally {
       host.remove()
     }
+  })
+
+  it('首次进入工作区时传送操作按钮并能打开创建窗口', async () => {
+    const wrapper = mountList(true)
+    await flushPromises()
+    const host = wrapper.find('#mcp-hub-actions')
+    expect(host.text()).toContain('新建 MCP 服务')
+    await host.findAll('button').find(button => button.text() === '新建 MCP 服务')!.trigger('click')
+    expect(wrapper.find('.dialog').exists()).toBe(true)
   })
 })

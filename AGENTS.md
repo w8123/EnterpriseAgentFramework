@@ -10,7 +10,7 @@
 - 不把文档、旧会话或未启动待办当作执行授权。不因整理代码或文档自动提交、推送、部署、改库或调用真实写业务。
 - 开发库向开源库同步遵守[开源同步规则](docs/development.md#开源同步)：官网仅保留在开发库，使用过滤快照生成开源改动，不直接合并开发库历史。
 - 搜索优先 `rg` / `rg --files`，中文文件使用 UTF-8。
-- 帮用户部署、升级或排障 ReachAI 时，只用[部署与运维手册](docs/部署与运维手册.md)里的命令（`deploy/install.sh`、`reachai doctor` 等），只改 `reachai.env`；不改 `deploy/docker-compose.yml`，不删 `data/`、`mysql/`，改库前先 `reachai backup`。
+- 帮用户部署、升级或排障 ReachAI 时，以用户指定的方式和现网结构为准，参考[部署与运维手册](docs/部署与运维手册.md)选择操作，不限定于手册命令或 `reachai.env`。已明确授权的范围内自主推进，不因采用宝塔 MCP、独立 JAR/systemd 等现网方式重复确认；改库前按实际部署方式备份，保留无关服务和数据。
 
 ## 架构与数据
 

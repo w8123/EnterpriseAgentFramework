@@ -4,7 +4,7 @@ import {
   DASHBOARD_LAYOUT_SCHEMA_VERSION,
   parseLayoutDocument,
 } from './layoutEngine'
-import { migrateLegacyDefaultLayout, migrateShortcutStripLayout, sanitizeLayoutItems } from './widgetRegistry'
+import { migrateLegacyDefaultLayout, removeRetiredWidgets, sanitizeLayoutItems } from './widgetRegistry'
 
 /**
  * Dashboard 布局仓储接口。当前唯一实现是浏览器 localStorage 的临时仓储；
@@ -61,10 +61,11 @@ export function createDashboardLayoutLocalRepository(
         if (!raw) return null
         const parsed = parseLayoutDocument(JSON.parse(raw))
         if (!parsed.ok) return null
-        if (parsed.document.items.length === 0) return migrateShortcutStripLayout(parsed.document)
-        const items = sanitizeLayoutItems(parsed.document.items)
+        const migrated = removeRetiredWidgets(migrateLegacyDefaultLayout(parsed.document))
+        if (!migrated.items.length) return migrated
+        const items = sanitizeLayoutItems(migrated.items)
         if (!items.length) return null
-        return migrateShortcutStripLayout(migrateLegacyDefaultLayout({ ...parsed.document, items }))
+        return { ...migrated, items }
       } catch {
         return null
       }

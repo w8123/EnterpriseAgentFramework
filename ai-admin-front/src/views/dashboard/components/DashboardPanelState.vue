@@ -60,7 +60,7 @@ defineEmits<{
 
 .dashboard-panel-state strong {
   color: var(--ops-text);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .dashboard-panel-state p {

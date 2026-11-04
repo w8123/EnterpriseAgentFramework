@@ -62,7 +62,7 @@ const emit = defineEmits<{
           <dl class="source-detail-facts">
             <div><dt>接口标识</dt><dd><code>{{ row.name }}</code></dd></div>
             <div><dt>HTTP 端点</dt><dd><code>{{ row.httpMethod || '-' }} {{ row.contextPath || '' }}{{ row.endpointPath || '-' }}</code></dd></div>
-            <div><dt>Base URL</dt><dd>{{ row.baseUrl || '-' }}</dd></div>
+            <div><dt>接口服务地址</dt><dd>{{ row.baseUrl || '-' }}</dd></div>
             <div><dt>来源定位</dt><dd>{{ row.sourceLocation || '-' }}</dd></div>
             <div><dt>请求体类型</dt><dd>{{ row.requestBodyType || '-' }}</dd></div>
             <div><dt>响应类型</dt><dd>{{ row.responseType || '-' }}</dd></div>

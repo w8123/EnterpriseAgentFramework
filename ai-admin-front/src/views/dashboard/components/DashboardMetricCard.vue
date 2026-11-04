@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ElTooltip } from 'element-plus'
 import type { DashboardMetricCardModel } from '@/types/operationsDashboard'
 
 const props = defineProps<{
@@ -70,8 +71,10 @@ const safeProgress = computed(() => {
       <span class="ops-metric__label">{{ metric.label }}</span>
       <span v-if="metric.status === 'loading'" class="ops-metric__skeleton" role="status" :aria-label="`${metric.label}加载中`" />
       <span v-else-if="metric.status === 'error'" class="ops-metric__unavailable">暂不可用</span>
-      <strong v-else>{{ metric.value }}</strong>
-      <span class="ops-metric__detail" :title="metric.status === 'ready' ? metric.detail : metric.note">{{ metric.status === 'ready' ? metric.detail : metric.note || '等待数据源响应' }}</span>
+      <ElTooltip v-else :content="metric.detail" placement="top" :disabled="!metric.detail">
+        <strong tabindex="0" :aria-label="`${metric.label}：${metric.value}。${metric.detail}`">{{ metric.value }}</strong>
+      </ElTooltip>
+      <span v-if="metric.status !== 'ready'" class="ops-metric__detail">{{ metric.note || '等待数据源响应' }}</span>
     </div>
 
     <div v-if="metric.status === 'ready'" class="ops-metric__visual" aria-hidden="true">
@@ -136,7 +139,7 @@ const safeProgress = computed(() => {
   padding-right: 34px;
   overflow: hidden;
   color: var(--ops-text-secondary);
-  font-size: 11.5px;
+  font-size: 15px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -150,7 +153,7 @@ const safeProgress = computed(() => {
   color: var(--ops-text-strong);
   font: 700 clamp(27px, 2vw, 36px)/1 var(--font-family-mono);
   /* 按卡片内容宽度收缩，避免 100.0% 这类长数值溢出卡片 */
-  font-size: clamp(20px, 26cqi, 36px);
+  font-size: clamp(24px, 22cqi, 48px);
   letter-spacing: -0.04em;
   overflow: hidden;
   white-space: nowrap;
@@ -169,7 +172,7 @@ const safeProgress = computed(() => {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   color: var(--ops-text-muted);
-  font-size: 9.5px;
+  font-size: 12px;
   line-height: 1.35;
   overflow-wrap: anywhere;
 }

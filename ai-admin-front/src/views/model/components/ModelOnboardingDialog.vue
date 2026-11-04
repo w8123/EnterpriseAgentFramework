@@ -264,14 +264,12 @@ function cancelAccountForm() {
   accountError.value = ''
 }
 
-/** 修改已有账号：Key 留空表示不变（回传掩码，服务端保留原值）。 */
+/** 修改已有账号：Key 留空时省略该字段，由服务端保留原值。 */
 async function saveEditedAccount() {
   const form = accountForm.value
   if (!form.name.trim()) return ElMessage.warning('请填写账号名称')
   if (!form.baseUrl.trim()) return ElMessage.warning('请填写 Base URL')
-  const account = accounts.value.find((item) => item.id === editingAccountId.value)
   const connection: Record<string, string> = accountConnection()
-  if (!connection.apiKey && account?.apiKeyConfigured) connection.apiKey = String(account.connection.apiKey || '')
   accountBusy.value = true
   accountError.value = ''
   try {
@@ -485,7 +483,7 @@ function handlePrevious() {
           >
             <strong>{{ account.name }}</strong>
             <span>{{ account.connection.baseUrl }}</span>
-            <span>Key {{ account.apiKeyConfigured ? account.connection.apiKey : '未配置' }} · 已接入 {{ account.instanceCount }} 个模型</span>
+            <span>Key {{ account.apiKeyConfigured ? '已配置' : '未配置' }} · 已接入 {{ account.instanceCount }} 个模型</span>
             <el-button
               class="onboarding-account__edit"
               link

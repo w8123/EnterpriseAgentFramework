@@ -268,7 +268,7 @@ function itemPixels(instance: DashboardWidgetInstance) {
 
 const gridHeight = computed(() => props.items.reduce((max, item) => {
   const pixels = itemPixels(item)
-  return Math.max(max, pixels.top + pixels.height + props.gap)
+  return Math.max(max, pixels.top + pixels.height)
 }, 0))
 
 function itemStyle(instance: DashboardWidgetInstance) {

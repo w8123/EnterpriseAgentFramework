@@ -14,7 +14,8 @@ import java.util.Map;
 @FeignClient(
         name = "reachai-model-service",
         url = "${embedding.model-service.url:}",
-        path = "/model"
+        path = "/model",
+        configuration = ModelInternalAuthFeignConfig.class
 )
 public interface ModelServiceClient {
 

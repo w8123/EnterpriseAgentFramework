@@ -15,6 +15,11 @@
     <description>ReachAI Model Gateway deployment unit - 统一 LLM Chat、Embedding、Rerank 接入与多 Provider 适配</description>
 
     <dependencies>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 内部公共库 -->
         <dependency>
             <groupId>com.enterprise.ai</groupId>

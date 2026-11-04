@@ -337,13 +337,12 @@ public class ModelProviderAccountService {
 
     private ModelProviderAccountResponse toResponse(ModelProviderAccountEntity entity) {
         Map<String, Object> connection = readConnection(entity);
-        Object apiKey = connection.get(ConnectionConfigSupport.API_KEY);
         return ModelProviderAccountResponse.builder()
                 .id(entity.getId())
                 .name(entity.getName())
                 .provider(entity.getProvider())
-                .connection(ConnectionConfigSupport.mask(connection))
-                .apiKeyConfigured(apiKey instanceof String key && !key.isBlank())
+                .connection(ConnectionConfigSupport.publicConnection(connection))
+                .apiKeyConfigured(ConnectionConfigSupport.hasApiKey(connection))
                 .status(entity.getStatus())
                 .remark(entity.getRemark())
                 .instanceCount(countInstances(entity.getId()))

@@ -8,6 +8,7 @@ import {
   compactLayout,
   computeColumnWidth,
   findFreeRect,
+  fitDashboardRowHeight,
   parseLayoutDocument,
   pixelsToGridUnits,
   rectToPixels,
@@ -19,6 +20,8 @@ import { dashboardLayoutLocalRepository } from './dashboardLayoutLocalRepository
 import {
   dashboardWidgetRegistry,
   defaultConsoleLayout,
+  migrateLegacyDefaultLayout,
+  removeRetiredWidgets,
   sanitizeLayoutItems,
 } from './widgetRegistry'
 
@@ -343,12 +346,7 @@ describe('dashboardLayoutLocalRepository', () => {
     expect(loaded?.revision).toBe(7)
     expect(loaded?.items).toHaveLength(defaultConsoleLayout.items.length)
     expect(loaded?.items.some((item) => item.widgetKey === 'service.data-source-status')).toBe(false)
-    expect(loaded?.items.find((item) => item.widgetKey === 'activity.runtime-stream')?.rect).toEqual({
-      x: 0,
-      y: 12,
-      w: 12,
-      h: 1,
-    })
+    expect(loaded?.items.some(item => item.widgetKey === 'activity.runtime-stream')).toBe(false)
   })
 
   it('存储写入失败时抛出受控错误而不是静默成功', () => {
@@ -364,5 +362,67 @@ describe('dashboardLayoutLocalRepository', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+
+describe('概览默认布局迁移', () => {
+  it('只迁移未经修改的旧默认布局，保留自定义布局', () => {
+    const keys = ['kpi.agent-inventory', 'kpi.enabled-agents', 'kpi.business-runs', 'kpi.active-runtime-users', 'kpi.recorded-tokens', 'kpi.technical-completion-rate']
+    const old = structuredClone(defaultConsoleLayout)
+    old.items = [
+      ...keys.map((key, index) => ({ instanceId: `${key}#default`, widgetKey: key, rect: { x: index * 2, y: 0, w: 2, h: 2 }, config: {} })),
+      ...old.items.filter(item => !item.widgetKey.startsWith('kpi.')).map(item => item.widgetKey === 'quality.attention' ? { ...item, rect: { x: 9, y: 5, w: 3, h: 3 } } : item.widgetKey === 'distribution.token-by-project' ? { ...item, rect: { x: 9, y: 8, w: 3, h: 4 } } : item),
+      { instanceId: 'ranking.project-top#default', widgetKey: 'ranking.project-top', rect: { x: 9, y: 2, w: 3, h: 3 }, config: {} },
+      { instanceId: 'activity.runtime-stream#default', widgetKey: 'activity.runtime-stream', rect: { x: 0, y: 12, w: 12, h: 1 }, config: {} },
+    ]
+    const migrated = migrateLegacyDefaultLayout(old)
+    expect(migrated.items.filter(item => item.widgetKey.startsWith('kpi.')).map(item => item.rect.w)).toEqual([3, 3, 3, 3])
+    const customized = structuredClone(old)
+    customized.items[0].rect.w = 3
+    expect(migrateLegacyDefaultLayout(customized)).toBe(customized)
+  })
+})
+
+
+describe('退役概览组件迁移', () => {
+  it('移除快捷入口及实时动态，收回独占行并保留其他配置', () => {
+    const old = structuredClone(defaultConsoleLayout)
+    old.items = [
+      { instanceId: 'nav', widgetKey: 'navigation.shortcuts', rect: { x: 0, y: 0, w: 12, h: 1 }, config: {} },
+      ...old.items.map(item => ({ ...item, rect: { ...item.rect, y: item.rect.y + 1 } })),
+      { instanceId: 'stream', widgetKey: 'activity.runtime-stream', rect: { x: 0, y: 13, w: 12, h: 1 }, config: {} },
+    ]
+    old.items[1].config.title = '自定义标题'
+    const result = removeRetiredWidgets(old)
+    expect(result.items.map(item => item.widgetKey)).not.toContain('navigation.shortcuts')
+    expect(result.items.map(item => item.widgetKey)).not.toContain('activity.runtime-stream')
+    expect(result.items[0].rect.y).toBe(0)
+    expect(result.items[0].config.title).toBe('自定义标题')
+  })
+})
+
+
+describe('业务系统排行退役', () => {
+  it('调整原默认右侧布局，且保留用户自定义布局', () => {
+    const previous = structuredClone(defaultConsoleLayout)
+    previous.items = previous.items.map(item => item.widgetKey === 'quality.attention' ? { ...item, rect: { x: 9, y: 5, w: 3, h: 3 } } : item.widgetKey === 'distribution.token-by-project' ? { ...item, rect: { x: 9, y: 8, w: 3, h: 4 } } : item)
+    previous.items.push({ instanceId: 'old-ranking', widgetKey: 'ranking.project-top', rect: { x: 9, y: 2, w: 3, h: 3 }, config: {} })
+    const updated = removeRetiredWidgets(previous)
+    expect(updated.items.some(item => item.widgetKey === 'ranking.project-top')).toBe(false)
+    expect(updated.items.find(item => item.widgetKey === 'quality.attention')?.rect).toEqual({ x: 9, y: 2, w: 3, h: 3 })
+    expect(updated.items.find(item => item.widgetKey === 'distribution.token-by-project')?.rect).toEqual({ x: 9, y: 5, w: 3, h: 7 })
+    previous.items.find(item => item.widgetKey === 'distribution.token-by-project')!.rect.h = 5
+    expect(removeRetiredWidgets(previous).items.find(item => item.widgetKey === 'distribution.token-by-project')?.rect).toEqual({ x: 9, y: 8, w: 3, h: 5 })
+  })
+})
+
+
+describe('标准看板高度适配', () => {
+  it('按空间缩放 12 行布局并限制最小和最大行高，自定义行数保持原尺寸', () => {
+    expect(fitDashboardRowHeight(744, 12)).toBe(51)
+    expect(fitDashboardRowHeight(300, 12)).toBe(45)
+    expect(fitDashboardRowHeight(2000, 12)).toBeCloseTo((2000 - 11 * 12) / 12)
+    expect(fitDashboardRowHeight(744, 15)).toBe(57)
   })
 })

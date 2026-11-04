@@ -5,14 +5,14 @@ import type { ScanProject, ScanProjectBlockers, ScanProjectUpsertRequest } from 
 import { useRegistryProjectDetailActions, type UseRegistryProjectDetailActionsDeps } from './useRegistryProjectDetailActions'
 
 const mocks = vi.hoisted(() => ({ blockers: vi.fn(), delete: vi.fn(), confirm: vi.fn(), alert: vi.fn(),
-  success: vi.fn(), error: vi.fn(), push: vi.fn(), clear: vi.fn() }))
-vi.mock('element-plus', () => ({ ElMessage: { success: mocks.success, error: mocks.error },
+  success: vi.fn(), error: vi.fn(), warning: vi.fn(), update: vi.fn(), push: vi.fn(), clear: vi.fn() }))
+vi.mock('element-plus', () => ({ ElMessage: { success: mocks.success, error: mocks.error, warning: mocks.warning },
   ElMessageBox: { confirm: mocks.confirm, alert: mocks.alert } }))
 vi.mock('vue-router', () => ({ useRouter: () => ({ push: mocks.push }) }))
 vi.mock('@/store/project', () => ({ useProjectStore: () => ({ clearCurrentProject: mocks.clear }) }))
 vi.mock('@/auth/platformSession', async () => ({ platformSessionId: (await import('vue')).ref('session-a') }))
 vi.mock('@/api/scanProject', () => ({ getScanProjectOperationBlockers: mocks.blockers, deleteScanProject: mocks.delete,
-  updateScanProject: vi.fn(), updateScanProjectRegistryCredential: vi.fn() }))
+  updateScanProject: mocks.update, updateScanProjectRegistryCredential: vi.fn() }))
 vi.mock('@/api/registry', () => ({ purgeRegistryProjectOfflineInstances: vi.fn(), updateRegistryProjectInstanceStatus: vi.fn() }))
 
 const scopes: ReturnType<typeof effectScope>[] = []
@@ -88,4 +88,26 @@ it('does not continue a preflight after the project page is disposed', async () 
 it('refuses deletion when the blocker check fails', async () => {
   mocks.blockers.mockRejectedValue(new Error('unavailable')); await setup().actions.handleDeleteProject()
   expect(mocks.error).toHaveBeenCalledWith('检查引用关系失败'); expect(mocks.delete).not.toHaveBeenCalled()
+})
+
+it('preserves project kind and environment while saving the page address', async () => {
+  const { actions, deps } = setup()
+  deps.project.value = { ...project(), projectKind: 'REGISTERED', environment: 'prod', baseUrl: 'https://api.example.com', registryCredentialConfigured: true }
+  mocks.update.mockResolvedValue({ data: { projectCode: 'orders' } })
+  actions.openEditDialog()
+  deps.editForm.businessPageUrl = ' https://erp.example.com/#/home '
+  await actions.saveEditProject()
+  expect(mocks.update).toHaveBeenCalledWith(7, expect.objectContaining({
+    projectKind: 'REGISTERED', environment: 'prod', businessPageUrl: 'https://erp.example.com/#/home',
+  }))
+})
+
+it('rejects a page address that is not a safe browser URL', async () => {
+  const { actions, deps } = setup()
+  deps.project.value = { ...project(), baseUrl: 'https://api.example.com', registryCredentialConfigured: true }
+  actions.openEditDialog()
+  deps.editForm.businessPageUrl = 'javascript:alert(1)'
+  await actions.saveEditProject()
+  expect(mocks.warning).toHaveBeenCalledWith(expect.stringContaining('业务系统页面地址'))
+  expect(mocks.update).not.toHaveBeenCalled()
 })

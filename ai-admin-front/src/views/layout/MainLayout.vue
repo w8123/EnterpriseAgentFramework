@@ -83,6 +83,7 @@ const sidebarWidth = computed(() =>
     ? 'var(--layout-sidebar-collapsed-width)'
     : 'var(--layout-sidebar-expanded-width)',
 )
+// Dashboard already sets meta.hideSidebarProjectPanel; the shell reads route meta only.
 const hideSidebarProjectPanel = computed(() => Boolean(route.meta.hideSidebarProjectPanel))
 const hideBreadcrumb = computed(() => Boolean(route.meta.hideBreadcrumb))
 

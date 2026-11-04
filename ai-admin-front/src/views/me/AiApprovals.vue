@@ -426,7 +426,7 @@ const isBusinessSystem = computed(() => reviewed.value?.action === 'BUSINESS_SYS
 const systemOperationLabel = computed(() => ({ CREATE: '新建', UPDATE: '修改', SCAN_SETTINGS: '扫描设置修改', REGISTRY_CREDENTIAL: '注册凭据替换', DELETE: '删除' } as Record<string, string>)[String(reviewed.value?.arguments?.operation)] ?? '')
 const systemBefore = computed(() => isBusinessSystem.value ? reviewed.value?.arguments?.before as Record<string, unknown> | null : null)
 const systemAfter = computed(() => isBusinessSystem.value ? reviewed.value?.arguments?.after as Record<string, unknown> | null : null)
-const systemFieldLabels: Record<string, string> = { name: '名称', projectCode: '项目编码', projectKind: '类型', environment: '环境', owner: '负责人', visibility: '可见范围', baseUrl: '服务地址', contextPath: '上下文路径' }
+const systemFieldLabels: Record<string, string> = { name: '名称', projectCode: '项目编码', projectKind: '类型', environment: '环境', owner: '负责人', visibility: '可见范围', baseUrl: '业务系统后端地址', contextPath: '上下文路径' }
 const systemChangedFields = computed(() => Object.entries(systemFieldLabels)
   .filter(([key]) => (systemBefore.value?.[key] ?? null) !== (systemAfter.value?.[key] ?? null))
   .map(([key, label]) => ({ key, label, before: String(systemBefore.value?.[key] ?? '空'), after: String(systemAfter.value?.[key] ?? '空') })))
