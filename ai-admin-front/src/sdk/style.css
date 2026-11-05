@@ -22,6 +22,20 @@
   isolation: isolate;
 }
 
+/* All SDK-owned scroll regions inherit this baseline, including overlay panels. */
+:is(.eaf-chat, .reachai-chat-root),
+:is(.eaf-chat, .reachai-chat-root) * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--reachai-chat-scrollbar-thumb) var(--reachai-chat-scrollbar-track);
+}
+:is(.eaf-chat, .reachai-chat-root) ::-webkit-scrollbar { width: 6px; height: 6px; }
+:is(.eaf-chat, .reachai-chat-root) ::-webkit-scrollbar-track { background: var(--reachai-chat-scrollbar-track); }
+:is(.eaf-chat, .reachai-chat-root) ::-webkit-scrollbar-thumb { border-radius: 6px; background: var(--reachai-chat-scrollbar-thumb); }
+:is(.eaf-chat, .reachai-chat-root) ::-webkit-scrollbar-thumb:hover { background: var(--reachai-chat-scrollbar-thumb-hover); }
+@media (forced-colors: active) {
+  :is(.eaf-chat, .reachai-chat-root), :is(.eaf-chat, .reachai-chat-root) * { scrollbar-color: auto; }
+}
+
 .eaf-chat.eaf-chat {
   /* 高于共享 token 的单类默认值，且仍允许业务方以内联变量覆盖。 */
   --reachai-chat-atmosphere-image: url('./conversation-atmosphere.webp');
@@ -185,6 +199,7 @@
 }
 
 .eaf-chat__brand {
+  min-width: 0;
   overflow: hidden;
   font-size: 14px;
   font-weight: 650;
@@ -198,6 +213,70 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 0 0 auto;
+}
+
+/* A 108px window holds exactly three 36px icon slots; duplicated halves make a seamless rightward loop. */
+.eaf-chat__ai-tools {
+  display: block;
+  flex: 0 0 108px;
+  width: 108px;
+  height: 34px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.eaf-chat__ai-tools:disabled { display: none; }
+
+.eaf-chat__ai-tools-track {
+  display: flex;
+  width: max-content;
+  animation: eaf-ai-tools-scroll 18s linear infinite;
+}
+
+.eaf-chat__ai-tool-icon {
+  display: grid;
+  flex: 0 0 36px;
+  width: 36px;
+  height: 34px;
+  place-items: center;
+}
+
+.eaf-chat__ai-tool-icon img {
+  display: block;
+  width: 28px;
+  height: 28px;
+  max-width: none;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--reachai-chat-primary-contrast, #fff);
+  object-fit: contain;
+}
+
+.eaf-chat__ai-tools:hover,
+.eaf-chat__ai-tools:focus-visible { background: rgb(255 255 255 / 0.18); }
+.eaf-chat__ai-tools:hover .eaf-chat__ai-tools-track,
+.eaf-chat__ai-tools:focus-visible .eaf-chat__ai-tools-track,
+.eaf-chat--closed .eaf-chat__ai-tools-track { animation-play-state: paused; }
+.eaf-chat__ai-tools:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.eaf-chat__ai-tools:active { background: rgb(255 255 255 / 0.3); }
+
+@keyframes eaf-ai-tools-scroll {
+  0%, 14% { transform: translateX(-50%); }
+  16.6667%, 30.6667% { transform: translateX(calc(-50% + 36px)); }
+  33.3333%, 47.3333% { transform: translateX(calc(-50% + 72px)); }
+  50%, 64% { transform: translateX(calc(-50% + 108px)); }
+  66.6667%, 80.6667% { transform: translateX(calc(-50% + 144px)); }
+  83.3333%, 97.3333% { transform: translateX(calc(-50% + 180px)); }
+  100% { transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eaf-chat__ai-tools-track { animation: none; }
 }
 
 .eaf-chat__connection-status {

@@ -48,6 +48,39 @@ describe('createEafChat facade', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('opens AI connections from the three-slot header entry and restores focus on Escape', async () => {
+    ;(globalThis.fetch as any).mockImplementation(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }))
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await flushMicrotasks()
+    const entry = mountEl.querySelector<HTMLButtonElement>('.eaf-chat__ai-tools')!
+    expect(entry.disabled).toBe(false)
+    expect(entry.getAttribute('aria-label')).toBe('在我的 AI 工具中使用')
+    entry.focus()
+    entry.click()
+    await flushMicrotasks()
+    const panel = mountEl.querySelector<HTMLElement>('.eaf-aitool')!
+    expect(panel).toBeTruthy()
+    expect(document.activeElement).toBe(panel)
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flushMicrotasks()
+    expect(mountEl.querySelector('.eaf-aitool')).toBeNull()
+    expect(document.activeElement).toBe(entry)
+    chat.destroy()
+  })
+
+  it('omits the header AI tool entry when the host disables AI tools', async () => {
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok', aiTools: false,
+      bridge: createEafPageBridge({ route: '/' }),
+    })
+    await flushMicrotasks()
+    expect(mountEl.querySelector('.eaf-chat__ai-tools')).toBeNull()
+    chat.destroy()
+  })
+
   it('exposes context clear using the current authenticated session', async () => {
     ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
       if (String(url).endsWith('/chat/sessions')) return sessionResponse('sess-clear')

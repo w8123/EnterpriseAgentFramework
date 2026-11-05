@@ -1,17 +1,22 @@
 <template>
-  <div class="eaf-chat employee-assistant" data-testid="employee-assistant">
+  <div class="eaf-chat employee-assistant" :data-theme="theme" data-testid="employee-assistant">
     <EmbedChatHost
+      ref="host"
       api-base="/api/embed"
       :token-provider="provideToken"
       :bridge="bridge"
       :memory-panel="false"
       :ai-tool-panel="false"
+      :on-event="handleEvent"
+      :on-error="handleError"
       placeholder="说说要办的事，例如：帮我查一下最近的库存"
     />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
+import { useTheme } from '@/composables/useTheme'
 import EmbedChatHost from '@/sdk/EmbedChatHost.vue'
 import { createEafPageBridge } from '@/sdk/eafPageBridge'
 import type { EafChatError, EafChatTokenProviderContext, EafChatTokenResult } from '@/sdk/eafChat'
@@ -24,6 +29,23 @@ import '@/sdk/style.css'
 const props = defineProps<{
   getToken: () => Promise<string>
 }>()
+
+const emit = defineEmits<{ busy: [value: boolean]; completed: []; expired: [] }>()
+const host = ref<InstanceType<typeof EmbedChatHost> | null>(null)
+const { theme } = useTheme()
+watch(() => host.value?.busy, value => emit('busy', Boolean(value)))
+function handleEvent(event: { type: string }) {
+  if (event.type === 'message.completed') emit('completed')
+}
+function handleError(error: EafChatError) {
+  if (error.httpStatus === 401) emit('expired')
+}
+defineExpose({
+  async sendMessage(text: string) {
+    if (!host.value) throw new Error('AI 助手尚未准备好，请重试。')
+    return host.value.sendMessage(text)
+  },
+})
 
 const bridge = createEafPageBridge({ route: '/my/ai-tools' })
 

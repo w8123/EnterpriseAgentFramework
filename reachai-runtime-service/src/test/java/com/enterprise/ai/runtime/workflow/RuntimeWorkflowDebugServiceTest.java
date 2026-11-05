@@ -25,6 +25,41 @@ import static org.mockito.Mockito.when;
 class RuntimeWorkflowDebugServiceTest {
 
     @Test
+    void structuredDebugInputDoesNotFillAnOmittedOptionalNumberFromMessage() {
+        var calls = new java.util.ArrayList<Map<String, Object>>();
+        var client = new NoopCapabilityClient() {
+            @Override public Map<String, Object> executeTool(String name, Map<String, Object> request) {
+                calls.add(request);
+                return Map.of("success", true, "data", Map.of());
+            }
+        };
+        var debug = new RuntimeWorkflowDebugService(workflowService,
+                new RuntimeGraphSpecExecutor(new ObjectMapper(), new NoopModelClient(), client,
+                        mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)),
+                mock(com.enterprise.ai.runtime.runops.RuntimeRunLifecycleService.class),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceEvidenceWriter(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), mock(com.enterprise.ai.runtime.trace.RuntimeToolCallLogMapper.class)),
+                new ObjectMapper(), new RuntimeWorkflowDocumentCanonicalizer(new ObjectMapper()),
+                new com.enterprise.ai.runtime.trace.RuntimeTraceRootService(mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper.class), new ObjectMapper()),
+                mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService.class));
+        String graph = """
+                {"schemaVersion":2,"entryNodeId":"input","exitNodeIds":["method"],"nodes":[
+                 {"id":"input","type":"USER_INPUT","config":{"fields":[
+                  {"name":"keyword","type":"string","source":"input.message"},
+                  {"name":"page","type":"integer","required":false,"source":"input.page","defaultValue":""}]}},
+                 {"id":"method","type":"TOOL","ref":{"qualifiedName":"demo:search"},
+                  "config":{"inputMapping":{"keyword":"params.keyword","page":"params.page"}}}
+                ],"edges":[{"from":"input","to":"method","condition":"always"}]}
+                """;
+        var request = new RuntimeWorkflowDebugService.DebugRunRequest(null, "demo", "demo", "GENERAL", "demo",
+                "GRAPH_SPEC", null, graph, null, "find phones", Map.of("keyword", "phone"), Map.of());
+        var result = debug.debugRun(request);
+        assertTrue(result.success(), result.errorCode() + ": " + result.errorMessage());
+        Map<?, ?> input = (Map<?, ?>) calls.get(0).get("input");
+        assertEquals("phone", input.get("keyword"));
+        assertEquals(null, input.get("page"));
+    }
+
+    @Test
     void trustedEmbedDebugPassesVerifiedIdentityToTheRealPageActionNode() {
         var control = mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class);
         when(control.executePageBridge(any())).thenReturn(new com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse(
@@ -320,7 +355,7 @@ class RuntimeWorkflowDebugServiceTest {
         }
     }
 
-    private static final class NoopCapabilityClient implements RuntimeCapabilityCatalogClient {
+    private static class NoopCapabilityClient implements RuntimeCapabilityCatalogClient {
         @Override
         public Map<String, Object> getToolDefinition(String qualifiedName) {
             return Map.of();

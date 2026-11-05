@@ -3,7 +3,7 @@ import type { McpEmployeeConnectionPage, McpItemPageView, McpPublication } from 
 import type { ModelInstance } from '@/types/model'
 import type { ScanProject } from '@/types/scanProject'
 
-/** 首次引导的四步：让员工能用自己的 AI 工具办业务。 */
+/** 首次引导的四步：连接模型、业务系统和员工的 AI 工具。 */
 export type GettingStartedStepKey = 'model' | 'system' | 'publish' | 'employee'
 
 /** done=已完成，next=建议现在做，todo=还没做，unknown=当前账号看不到这项数据。 */
@@ -61,8 +61,8 @@ const STEP_COPY: Record<GettingStartedStepKey, Omit<GettingStartedStep, 'state' 
   },
   employee: {
     key: 'employee',
-    title: '让员工连上自己的 AI 工具',
-    description: '员工在业务系统的 AI 助手里点「在我的 AI 工具中使用」，复制一行到 Claude Code 或 Codex。',
+    title: '让员工在业务系统或 AI 工具中使用',
+    description: '接入嵌入式 AI 助手后，员工可直接在业务系统页面对话；也可从助手连接自己的 AI 工具。',
     actionLabel: '查看员工连接',
     actionPath: '/mcp-hub/employee-connections',
   },

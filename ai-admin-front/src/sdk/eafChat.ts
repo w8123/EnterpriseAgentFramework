@@ -202,6 +202,7 @@ type EmbedChatHostInstance = ComponentPublicInstance & {
   sendMessage: (message: string) => Promise<EafChatMessageResponse>
   retryAuthentication: () => Promise<string>
   clearContext: () => Promise<void>
+  openAiTools: () => void
   refreshToken: (reason?: EafChatTokenReason) => Promise<string>
   setContext: (context: Record<string, unknown>) => void
   getSessionId: () => string | null
@@ -501,6 +502,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     locale,
     resizable: options.resizable,
     launcherDraggable: options.launcherDraggable,
+    aiTools: options.aiTools,
+    onAiTools: () => hostInstance?.openAiTools(),
     onOpen: () => {
       unread = false
       syncLauncherVisualState()
@@ -514,6 +517,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     authStatus = state.status
     root.dataset.authState = state.status
     connectionStatus.hidden = state.status === 'ready'
+    if (shell.aiToolsButton) shell.aiToolsButton.disabled = state.status !== 'ready'
     connectionStatus.classList.toggle('is-error', state.status === 'error')
     connectionStatus.textContent = state.status === 'loading'
       ? (locale === 'en-US' ? 'Connecting' : '正在连接')
@@ -550,6 +554,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     preferStream: options.stream !== false,
     memoryPanel: options.memories !== false,
     aiToolPanel: options.aiTools !== false,
+    aiToolHeaderEntry: true,
     onEvent: emitPublicEvent,
     onError: (error: EafChatError) => options.onError?.(error),
     onAuthStateChange: handleAuthState,

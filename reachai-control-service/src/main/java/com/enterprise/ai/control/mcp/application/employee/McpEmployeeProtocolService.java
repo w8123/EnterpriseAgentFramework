@@ -167,10 +167,18 @@ public class McpEmployeeProtocolService {
             annotations.put("riskLevel", riskLevel(target.tool()));
             annotations.put("sourceKind", target.tool().sourceKind().name());
             annotations.put("businessSystem", target.system().access().label());
+            // MCP clients may discard non-standard annotation fields during schema parsing.
+            annotations.put("readOnlyHint", "READ".equals(riskLevel(target.tool())));
             if (approval) {
                 annotations.put("requiresApproval", true);
             }
             view.put("annotations", annotations);
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("reachai/riskLevel", riskLevel(target.tool()));
+            metadata.put("reachai/sourceKind", target.tool().sourceKind().name());
+            metadata.put("reachai/businessSystem", target.system().access().label());
+            metadata.put("reachai/requiresApproval", approval);
+            view.put("_meta", metadata);
             tools.add(view);
         }
         if (anyApproval && !session.exposed().containsKey(APPROVAL_STATUS_TOOL)) {
@@ -208,7 +216,9 @@ public class McpEmployeeProtocolService {
         view.put("name", APPROVAL_STATUS_TOOL);
         view.put("description", "查询你提交的写操作审批：是否已通过、驳回原因、执行结果。");
         view.put("inputSchema", schema);
-        view.put("annotations", Map.of("riskLevel", "READ", "sourceKind", "BUILT_IN"));
+        view.put("annotations", Map.of("riskLevel", "READ", "sourceKind", "BUILT_IN", "readOnlyHint", true));
+        view.put("_meta", Map.of("reachai/riskLevel", "READ", "reachai/sourceKind", "BUILT_IN",
+                "reachai/requiresApproval", false));
         return view;
     }
 

@@ -12,7 +12,7 @@
       v-for="(node, index) in content.nodes"
       :key="node.name"
       class="setup-visual__node glass-surface-control"
-      :class="`setup-visual__node--${index}`"
+      :class="[`setup-visual__node--${index}`, { 'setup-visual__node--primary': stage === 'employee' && index < 2 }]"
       aria-hidden="true"
     >
       <img v-if="node.src" :src="node.src" alt="">
@@ -30,9 +30,10 @@ import deepseekLogo from '@/assets/model-providers/deepseek.png'
 import qianfanLogo from '@/assets/model-providers/qianfan.png'
 import kimiLogo from '@/assets/model-providers/kimi.png'
 import openaiLogo from '@/assets/model-providers/openai.png'
-import claudeCodeLogo from '@/assets/ai-coding-providers/claude-code.svg'
+import workbuddyLogo from '@/assets/getting-started/workbuddy-color.svg'
 import codexLogo from '@/assets/ai-coding-providers/codex.svg'
-import cursorLogo from '@/assets/ai-coding-providers/cursor.svg'
+import businessPageIcon from '@/assets/getting-started/entry-page.svg'
+import portalIcon from '@/assets/getting-started/entry-portal.svg'
 import type { GettingStartedStepKey } from './gettingStarted'
 
 const props = defineProps<{ stage: GettingStartedStepKey }>()
@@ -75,12 +76,13 @@ const VISUALS: Record<GettingStartedStepKey, VisualContent> = {
   },
   employee: {
     icon: User,
-    caption: '在员工熟悉的工具中使用',
-    label: '员工以本人身份，在 Claude Code、Codex、Cursor 等 AI 工具中办理业务',
+    caption: '在业务页面或企业门户对话，也可连接 AI 工具',
+    label: '员工可在业务系统页面或企业门户与 AI 助手对话，也可连接 WorkBuddy、Codex 等 AI 工具',
     nodes: [
-      { name: 'Claude Code', src: claudeCodeLogo },
+      { name: '业务系统', src: businessPageIcon },
+      { name: '企业门户', src: portalIcon },
+      { name: 'WorkBuddy', src: workbuddyLogo },
       { name: 'Codex', src: codexLogo },
-      { name: 'Cursor', src: cursorLogo },
     ],
   },
 }
@@ -144,6 +146,16 @@ const content = computed(() => VISUALS[props.stage])
   font-weight: 500;
 
   img { width: 26px; height: 26px; object-fit: contain; }
+}
+
+.setup-visual__node--primary {
+  gap: 10px;
+  min-width: 122px;
+  padding: 14px;
+  font-size: 14px;
+  font-weight: 600;
+
+  img { width: 34px; height: 34px; }
 }
 
 .setup-visual__node--0 { top: 28px; left: 0; transform: rotate(-5deg); }

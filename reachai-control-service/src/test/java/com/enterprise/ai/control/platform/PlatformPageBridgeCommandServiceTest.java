@@ -20,6 +20,69 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PlatformPageBridgeCommandServiceTest {
 
     @Test
+    void catalogConfirmationIsTheMinimumForEveryRealBridgeCommand() {
+        // The GraphSpec's missing and explicit false both arrive as false here.
+        for (boolean catalogRequires : List.of(false, true)) {
+            for (boolean graphRequires : List.of(false, true)) {
+                var sessions = mock(PlatformEmbedSessionMapper.class);
+                var events = mock(PlatformPageActionEventMapper.class);
+                var session = new PlatformEmbedSessionEntity();
+                session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+                session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+                session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+                when(sessions.selectOne(any())).thenReturn(session);
+                var catalog = activeCatalog();
+                var action = catalog.findAction("erp", "orders", "change").orElseThrow();
+                when(action.confirmRequired()).thenReturn(catalogRequires);
+                var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+                when(events.insert(any())).thenAnswer(invocation -> {
+                    PlatformPageActionEventEntity event = invocation.getArgument(0);
+                    created.add(event); event.setId(1L); event.setStatus("USER_CANCELLED"); return 1;
+                });
+                when(events.selectById(1L)).thenAnswer(invocation -> created.get(0));
+                var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog)
+                        .execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                                "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                                graphRequires, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a"));
+                assertEquals(1, created.size());
+                assertEquals(catalogRequires || graphRequires, created.get(0).getConfirmRequired());
+                assertEquals("PAGE_ACTION", created.get(0).getCommandType());
+                assertTrue(result.success()); // USER_CANCELLED is a business terminal result, not execution success.
+                assertEquals("USER_CANCELLED", result.status());
+            }
+        }
+    }
+
+    @Test
+    void missingInactiveOrUnauthorizedCatalogEntriesCannotEnqueue() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var request = new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a");
+        var catalog = activeCatalog();
+        var action = catalog.findAction("erp", "orders", "change").orElseThrow();
+        var page = catalog.findPageForAction(1L).orElseThrow();
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog);
+        when(action.allowedAgentIds()).thenReturn(List.of("another-agent"));
+        assertEquals("PAGE_BRIDGE_ACTION_FORBIDDEN", service.execute(request).code());
+        when(action.allowedAgentIds()).thenReturn(List.of());
+        when(action.status()).thenReturn("DISABLED");
+        assertEquals("PAGE_BRIDGE_ACTION_UNAVAILABLE", service.execute(request).code());
+        when(action.status()).thenReturn("ACTIVE");
+        when(page.lifecycleStatus()).thenReturn("ARCHIVED");
+        assertEquals("PAGE_BRIDGE_ACTION_UNAVAILABLE", service.execute(request).code());
+        when(catalog.findAction("erp", "orders", "change")).thenReturn(java.util.Optional.empty());
+        assertEquals("PAGE_BRIDGE_ACTION_UNAVAILABLE", service.execute(request).code());
+        verifyNoInteractions(events);
+    }
+
+    @Test
     void crossPageNavigationRequiresConfirmationBeforeTheTargetAction() {
         var sessions = mock(PlatformEmbedSessionMapper.class);
         var events = mock(PlatformPageActionEventMapper.class);
@@ -37,9 +100,11 @@ class PlatformPageBridgeCommandServiceTest {
             return 1;
         });
         when(events.selectById(any())).thenAnswer(invocation -> created.get(0));
-        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
+        var catalog = activeCatalog();
+        when(catalog.findAction("erp", "products", "change").orElseThrow().confirmRequired()).thenReturn(true);
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog);
         var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
-                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), true,
+                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), false,
                 2_000, 30_000, "EMBED_SESSION", "tenant-a", "user-a"));
         assertEquals("PAGE_BRIDGE_NAVIGATION_FAILED", result.code());
         assertEquals(1, created.size());
@@ -55,7 +120,7 @@ class PlatformPageBridgeCommandServiceTest {
         session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("Alice");
         session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders"); session.setStatus("ACTIVE");
         when(sessions.selectOne(any())).thenReturn(session);
-        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), activeCatalog());
         for (var identity : java.util.List.of(
                 java.util.List.of("EMBED_SESSION", "tenant-b", "Alice"),
                 java.util.List.of("EMBED_SESSION", "tenant-a", "alice"),
@@ -81,7 +146,7 @@ class PlatformPageBridgeCommandServiceTest {
         session.setRoute("/");
         session.setStatus("ACTIVE");
         when(sessions.selectOne(any())).thenReturn(session);
-        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper());
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), activeCatalog());
         for (String pageKey : new String[]{null, "", "  "}) {
             session.setPageKey(pageKey);
             var result = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -112,7 +177,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
                 mock(PlatformPageActionEventMapper.class),
-                new ObjectMapper());
+                new ObjectMapper(), activeCatalog());
 
         PlatformPageBridgeCommandService.PageBridgeContextResolution resolved = service.resolveContext(
                 new PlatformPageBridgeCommandService.PageBridgeContextResolutionRequest("embed-1", "qmssmp"));
@@ -162,7 +227,7 @@ class PlatformPageBridgeCommandServiceTest {
         when(eventMapper.selectById(any())).thenAnswer(invocation ->
                 events.get(((Number) invocation.getArgument(0)).longValue()));
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
-                sessionMapper, eventMapper, new ObjectMapper());
+                sessionMapper, eventMapper, new ObjectMapper(), activeCatalog());
         long startedAt = System.nanoTime();
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -207,7 +272,7 @@ class PlatformPageBridgeCommandServiceTest {
                 completed.setErrorMessage("Page Bridge command was not claimed before its wait timeout");
             }
             when(events.selectById(1L)).thenReturn(completed);
-            var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper()).execute(
+            var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), activeCatalog()).execute(
                     new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
                             "embed-1", "qmssmp", "team-agent", "teamArchive.list", "teamArchive.list",
                             null, "setEnabled", Map.of(), false, 2_000, 2_000,
@@ -248,7 +313,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
                 eventMapper,
-                new ObjectMapper());
+                new ObjectMapper(), activeCatalog());
 
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -293,7 +358,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
                 eventMapper,
-                new ObjectMapper());
+                new ObjectMapper(), activeCatalog());
 
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -350,7 +415,7 @@ class PlatformPageBridgeCommandServiceTest {
         PlatformPageBridgeCommandService service = new PlatformPageBridgeCommandService(
                 sessionMapper,
                 eventMapper,
-                new ObjectMapper());
+                new ObjectMapper(), activeCatalog());
         long startedAt = System.nanoTime();
         PlatformPageBridgeCommandService.PageBridgeExecutionResponse result = service.execute(
                 new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
@@ -365,4 +430,16 @@ class PlatformPageBridgeCommandServiceTest {
                 "execution time after confirmation must not consume the confirmation wait budget");
         assertTrue(elapsedMs < 2_500);
     }
+    private static com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService activeCatalog() {
+        var catalog = mock(com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService.class);
+        var action = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView.class);
+        var page = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView.class);
+        when(action.id()).thenReturn(1L);
+        when(action.status()).thenReturn("ACTIVE");
+        when(page.lifecycleStatus()).thenReturn("ACTIVE");
+        when(catalog.findAction(any(), any(), any())).thenReturn(java.util.Optional.of(action));
+        when(catalog.findPageForAction(1L)).thenReturn(java.util.Optional.of(page));
+        return catalog;
+    }
+
 }

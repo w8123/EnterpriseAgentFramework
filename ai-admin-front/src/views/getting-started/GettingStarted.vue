@@ -6,7 +6,7 @@
       action-presentation="inline"
       domain="platform"
       title="开始使用"
-      description="把模型、业务系统和员工的 AI 工具连起来。"
+      description="让员工在业务系统页面或自己的 AI 工具中使用 AI。"
     >
       <template #actions>
         <LiquidGlassButton :loading="loading" @click="reload">
@@ -49,7 +49,7 @@
                 </span>
                 <span class="gs-step__copy">
                   <strong>{{ STEP_NAMES[step.key] }}</strong>
-                  <small :class="{ 'gs-step__summary': loaded && step.state === 'done', 'gs-step__unavailable': loaded && step.state === 'unknown' }">
+                  <small v-if="step.key !== 'employee'" :class="{ 'gs-step__summary': loaded && step.state === 'done', 'gs-step__unavailable': loaded && step.state === 'unknown' }">
                     {{ loaded ? STATE_LABELS[step.state] : '检查中' }}
                   </small>
                 </span>
@@ -68,7 +68,7 @@
               <ul v-if="loaded && progress.allDone" class="gs-completed" aria-label="已完成的设置">
                 <li v-for="step in progress.steps" :key="step.key"><el-icon aria-hidden="true"><Check /></el-icon>{{ step.summary }}</li>
               </ul>
-              <div class="gs-focus__actions">
+              <div v-if="!loaded || progress.nextStep?.key !== 'employee'" class="gs-focus__actions">
                 <LiquidGlassButton
                   v-if="loaded && progress.nextStep"
                   type="primary"
@@ -130,7 +130,7 @@ const STEP_HINTS: Record<GettingStartedStepKey, string> = {
   model: '准备一个模型厂商的 API Key',
   system: '支持 Java SDK 与 OpenAPI 接入',
   publish: '选择允许 AI 调用的业务能力',
-  employee: '员工从业务系统创建个人连接',
+  employee: '此步骤进度按员工个人连接统计，页面对话接入需另行配置',
 }
 
 const router = useRouter()
@@ -145,7 +145,7 @@ const focusTitle = computed(() => {
 })
 const focusDescription = computed(() => {
   if (!loaded.value) return '正在读取模型、业务系统、工具集和员工连接的状态。'
-  if (progress.value.allDone) return '四项设置已完成，可以前往概览查看使用情况。'
+  if (progress.value.allDone) return '四项设置已完成；业务系统页面对话需另行配置嵌入式助手。'
   return progress.value.nextStep?.description ?? '部分接入信息暂时无法获取。请刷新重试，也可以从上方进入对应页面检查。'
 })
 const visualStage = computed<GettingStartedStepKey>(() => progress.value.allDone ? 'employee' : progress.value.nextStep?.key ?? 'model')

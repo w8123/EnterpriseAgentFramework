@@ -17,7 +17,7 @@
       </button>
     </div>
     <div
-      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && (memoryPanel || aiToolPanel || hasSession)"
+      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && (memoryPanel || (aiToolPanel && !aiToolHeaderEntry) || hasSession)"
       class="eaf-chat-tools"
     >
       <button v-if="hasSession" type="button" class="eaf-chat-memory-toggle"
@@ -25,11 +25,11 @@
         {{ locale === 'en-US' ? 'Clear context' : '清除上下文' }}
       </button>
       <button
-        v-if="aiToolPanel"
+        v-if="aiToolPanel && !aiToolHeaderEntry"
         type="button"
         class="eaf-chat-memory-toggle"
         :title="locale === 'en-US' ? 'Use in my AI tool' : '在我的 AI 工具中使用'"
-        @click="aiToolOpen = true"
+        @click="openAiTools"
       >
         {{ locale === 'en-US' ? 'Use in my AI tool' : '在我的 AI 工具中使用' }}
       </button>
@@ -55,7 +55,7 @@
       :api-base="apiBase"
       :get-token="() => resolveToken('send')"
       :locale="locale"
-      @close="aiToolOpen = false"
+      @close="closeAiTools"
     />
     <EmbedMemoryPanel
       v-if="memoryOpen"
@@ -66,6 +66,7 @@
     />
     <ConversationView
       class="eaf-chat__conversation"
+      :inert="memoryOpen || aiToolOpen"
       chrome="inline"
       density="compact"
       surface="embed"
@@ -84,7 +85,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref } from 'vue'
 import {
   ConversationView,
   createConversationController,
@@ -139,6 +140,8 @@ const props = withDefaults(defineProps<{
   memoryPanel?: boolean
   /** Show 在我的 AI 工具中使用: the end user connects their own Claude Code / Codex as themselves. */
   aiToolPanel?: boolean
+  /** The SDK shell owns the entry; standalone hosts keep the text entry. */
+  aiToolHeaderEntry?: boolean
   onEvent?: (event: EmbedChatHostEvent) => void
   onError?: (error: EafChatError) => void
   onAuthStateChange?: (state: EafChatAuthState) => void
@@ -158,6 +161,7 @@ const props = withDefaults(defineProps<{
 const snapshot = ref<ConversationSnapshot>(createEmptySnapshot())
 const memoryOpen = ref(false)
 const aiToolOpen = ref(false)
+let aiToolTrigger: HTMLElement | null = null
 const clearConfirm = ref(false)
 const clearError = ref('')
 const clearing = ref(false)
@@ -860,8 +864,16 @@ function openMemories() {
 }
 
 function openAiTools() {
+  aiToolTrigger = document.activeElement instanceof HTMLElement ? document.activeElement : null
   memoryOpen.value = false
   aiToolOpen.value = true
+}
+
+function closeAiTools() {
+  aiToolOpen.value = false
+  void nextTick(() => {
+    if (aiToolTrigger?.isConnected) aiToolTrigger.focus({ preventScroll: true })
+  })
 }
 
 function disposeHost() {
@@ -885,6 +897,7 @@ onUnmounted(() => {
 })
 
 defineExpose({
+  busy: clearBlocked,
   sendMessage,
   clearContext,
   retryAuthentication,

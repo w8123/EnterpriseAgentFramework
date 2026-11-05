@@ -55,14 +55,14 @@
           <div><small>调用权限</small><strong :class="{ 'is-ready': row.permissionKey }">{{ row.permissionKey ? '已配置' : '待配置' }}</strong></div>
         </div>
 
-        <details class="config-asset-card__settings">
+        <details class="config-asset-card__settings" :open="!row.riskLevel || undefined">
           <summary>高级</summary>
           <div class="tool-override-grid config-card-settings-grid">
             <el-form-item label="调用标识">
               <el-input v-model="row.toolName" placeholder="通常无需修改" />
             </el-form-item>
             <el-form-item label="操作类型">
-              <el-select v-model="row.riskLevel" @change="syncReadOnly(row)">
+              <el-select v-model="row.riskLevel" placeholder="请选择操作类型" @change="syncReadOnly(row)">
                 <el-option label="只查询" value="READ" />
                 <el-option label="会修改数据" value="WRITE" />
                 <el-option label="会操作页面" value="PAGE_ACTION" />
@@ -97,7 +97,7 @@
     <div class="workflow-picker-intro">
       <div>
         <strong>选择已发布的 Workflow</strong>
-        <p>添加后，请确认操作类型和所需权限；调用标识通常不用修改。</p>
+        <p>将依据已发布版本提示业务方法和 API 的最低风险；请结合整个流程确认操作类型和所需权限。</p>
       </div>
       <span>{{ workflowPickerTotal }} 个可用</span>
     </div>
@@ -181,7 +181,7 @@
     </div>
     <template #footer>
       <LiquidGlassButton @click="workflowPickerVisible = false">取消</LiquidGlassButton>
-      <LiquidGlassButton type="primary" @click="applyWorkflowPickerSelection">
+      <LiquidGlassButton type="primary" :loading="workflowPickerApplying" @click="applyWorkflowPickerSelection">
         添加所选 Workflow（{{ workflowPickerSelection.length }}）
       </LiquidGlassButton>
     </template>
@@ -197,6 +197,7 @@ import { useAgentEditorContext } from './useAgentEditor'
 
 const {
   workflowPickerVisible,
+  workflowPickerApplying,
   workflowPickerKeyword,
   workflowPickerSelection,
   workflowPickerPage,

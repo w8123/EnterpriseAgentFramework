@@ -28,6 +28,44 @@ import static org.mockito.Mockito.when;
 class PageCatalogApplicationServiceTest {
 
     @Test
+    void sdkReportsCannotClearOrEraseAnExistingConfirmationFloor() {
+        var pageMapper = mock(ProjectPageMapper.class);
+        var resources = mock(PageResourceMapper.class);
+        var actions = mock(PageActionMapper.class);
+        var service = new PageCatalogApplicationService(pageMapper, resources, actions, new ObjectMapper(),
+                mock(PageWorkbenchProjectPort.class));
+        var page = new ProjectPageEntity();
+        page.setId(41L); page.setProjectId(7L); page.setProjectCode("orders"); page.setPageKey("orders.list");
+        page.setSourceType("SDK"); page.setLifecycleStatus("ACTIVE");
+        var action = new PageActionEntity();
+        action.setId(91L); action.setPageId(41L); action.setProjectId(7L); action.setProjectCode("orders");
+        action.setPageKey("orders.list"); action.setActionKey("change"); action.setSourceType("SDK");
+        action.setStatus("ACTIVE"); action.setConfirmRequired(true); action.setRiskLevel("WRITE");
+        action.setAllowedAgentIdsJson("[\"trusted-agent\"]");
+        when(pageMapper.selectOne(any())).thenReturn(page);
+        when(pageMapper.selectById(41L)).thenReturn(page);
+        when(actions.selectOne(any())).thenReturn(action);
+        when(actions.selectList(any())).thenReturn(List.of(action));
+        when(resources.selectList(any())).thenReturn(List.of());
+        var noConfirmation = new ActionInput("change", "Change", null, "PAGE_ACTION", "READ", false,
+                null, null, null, null, List.of(), null, null);
+        service.upsertPageCatalog(7L, "orders", new PageReport("orders.list", null, null, "Orders", null,
+                "/orders", null, null, null, List.of(noConfirmation)), com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSource.SDK, false);
+        assertEquals(Boolean.TRUE, action.getConfirmRequired());
+        assertEquals("WRITE", action.getRiskLevel());
+        assertEquals("[\"trusted-agent\"]", action.getAllowedAgentIdsJson());
+        service.upsertPageCatalog(7L, "orders", new PageReport("orders.list", null, null, "Orders", null,
+                "/orders", null, null, null, List.of()), com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSource.SDK, true);
+        assertEquals("INACTIVE", action.getStatus());
+        verify(actions, never()).deleteById(91L);
+        service.upsertPageCatalog(7L, "orders", new PageReport("orders.list", null, null, "Orders", null,
+                "/orders", null, null, null, List.of(noConfirmation)), com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSource.SDK, false);
+        assertEquals("INACTIVE", action.getStatus());
+        assertEquals(Boolean.TRUE, action.getConfirmRequired());
+        assertEquals("[\"trusted-agent\"]", action.getAllowedAgentIdsJson());
+    }
+
+    @Test
     void rejectsNonHttpBusinessPageUrl() {
         ProjectPageMapper pageMapper = mock(ProjectPageMapper.class);
         PageResourceMapper resourceMapper = mock(PageResourceMapper.class);

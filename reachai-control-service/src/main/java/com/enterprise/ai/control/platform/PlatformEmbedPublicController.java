@@ -7,6 +7,8 @@ import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.identity.BusinessUserSyncService;
 import com.enterprise.ai.control.knowledge.CapabilityProjectRequestVerificationGateway;
+import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway;
 import com.fasterxml.jackson.annotation.JsonAlias;
@@ -22,6 +24,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.util.StopWatch;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -63,6 +66,12 @@ public class PlatformEmbedPublicController {
     private BusinessUserSyncService businessUserSyncService;
     private CapabilityProjectRequestVerificationGateway projectRequestVerifier;
     private PlatformEmbedBusinessSessionRevocation businessSessionRevocation;
+    private PageCatalogApplicationService pageCatalog;
+
+    @Autowired
+    void setPageCatalog(PageCatalogApplicationService pageCatalog) {
+        this.pageCatalog = pageCatalog;
+    }
 
     @Autowired
     void setProjectRequestVerifier(CapabilityProjectRequestVerificationGateway verifier) {
@@ -525,6 +534,7 @@ public class PlatformEmbedPublicController {
     }
 
     @PostMapping("/chat/sessions/{sessionId}/page-actions/{requestId}/claim")
+    @Transactional
     public ResponseEntity<ApiResult<PageActionClaimResponse>> claimPageAction(
             @PathVariable String sessionId,
             @PathVariable String requestId,
@@ -547,6 +557,28 @@ public class PlatformEmbedPublicController {
                     && StringUtils.hasText(event.getActionKey())
                     && !event.getActionKey().equals(request.actionKey().trim())) {
                 throw new IllegalArgumentException("page action claim actionKey does not match request");
+            }
+            // Navigation is a platform-owned command, not a business catalog action.
+            // Re-evaluate the catalog before an already queued action can be claimed:
+            // an administrator may have restricted it after it was dispatched.
+            boolean navigation = "NAVIGATE".equals(event.getCommandType())
+                    && PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey());
+            if (!navigation) {
+                if (pageCatalog == null || !StringUtils.hasText(session.getProjectCode())
+                        || !StringUtils.hasText(event.getTargetPageKey())
+                        || !StringUtils.hasText(event.getActionKey())) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(ApiResult.fail(409, "page action catalog is unavailable"));
+                }
+                ActionView action = pageCatalog.findActiveActionForUpdate(session.getProjectCode(),
+                        event.getTargetPageKey(), event.getActionKey()).orElse(null);
+                if (action == null
+                        || (action.allowedAgentIds() != null && !action.allowedAgentIds().isEmpty()
+                                && !action.allowedAgentIds().contains(session.getAgentId()))
+                        || (action.confirmRequired() && !Boolean.TRUE.equals(event.getConfirmRequired()))) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(ApiResult.fail(409, "page action policy changed or is unavailable"));
+                }
             }
             int updated = pageActionEventMapper.update(
                     null,

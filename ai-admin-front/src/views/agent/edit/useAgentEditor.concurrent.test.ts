@@ -6,6 +6,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const mocks = vi.hoisted(() => ({
   routeId: 'agent-1', create: vi.fn(), update: vi.fn(), getAgent: vi.fn(), list: vi.fn(),
   context: vi.fn(), save: vi.fn(), copy: vi.fn(), publish: vi.fn(), freshness: vi.fn(), fetchProjects: vi.fn(), push: vi.fn(),
+  workflowVersions: vi.fn(),
 }))
 vi.mock('vue-router', () => ({
   useRoute: () => ({ params: { id: mocks.routeId }, query: {} }),
@@ -15,7 +16,7 @@ vi.mock('@/api/workflow', () => ({
   createAgent: mocks.create, updateAgent: mocks.update, getAgent: mocks.getAgent,
   listAgentConfigVersions: mocks.list, getAgentDraftEditContext: mocks.context,
   saveAgentDraftIfUnchanged: mocks.save, copyAgentConfigToDraftIfUnchanged: mocks.copy,
-  publishAgentConfigIfUnchanged: mocks.publish, searchWorkflows: vi.fn(),
+  publishAgentConfigIfUnchanged: mocks.publish, searchWorkflows: vi.fn(), listWorkflowVersions: mocks.workflowVersions,
 }))
 vi.mock('@/api/agentWorkflowFreshness', () => ({
   getAgentWorkflowFreshness: mocks.freshness, publishLatestAgentWorkflowVersions: vi.fn(),
@@ -72,6 +73,65 @@ beforeEach(() => {
 afterEach(() => { wrapper?.unmount(); wrapper = undefined; vi.restoreAllMocks() })
 
 describe('human and AI Agent draft collaboration', () => {
+  it('uses the published write floor when adding a Workflow', async () => {
+    mocks.workflowVersions.mockResolvedValue({ data: [{ status: 'ACTIVE', snapshotJson: JSON.stringify({ businessMethodRiskFloor: 'WRITE' }) }] })
+    await mountEditor()
+    editor.publishedWorkflows.value = [{ id: 'shop', keySlug: 'shop', name: '取消订单' }]
+    editor.workflowPickerVisible.value = true
+    editor.workflowPickerSelection.value = ['shop']
+    await editor.applyWorkflowPickerSelection()
+    expect(editor.workflowTools.value[0]).toMatchObject({ riskLevel: 'WRITE', readOnly: false })
+  })
+
+  it('keeps the picker open on version lookup failure and ignores results after cancellation', async () => {
+    const error = vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    mocks.workflowVersions.mockRejectedValueOnce(new Error('offline'))
+    await mountEditor()
+    editor.publishedWorkflows.value = [{ id: 'shop', keySlug: 'shop', name: '商城' }]
+    editor.workflowPickerVisible.value = true
+    editor.workflowPickerSelection.value = ['shop']
+    await editor.applyWorkflowPickerSelection()
+    expect(editor.workflowTools.value).toEqual([])
+    expect(editor.workflowPickerVisible.value).toBe(true)
+    expect(error).toHaveBeenCalled()
+    let finish!: (value: unknown) => void
+    mocks.workflowVersions.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const pending = editor.applyWorkflowPickerSelection()
+    editor.workflowPickerVisible.value = false
+    finish({ data: [{ status: 'ACTIVE', snapshotJson: JSON.stringify({ businessMethodRiskFloor: 'WRITE' }) }] })
+    await pending
+    expect(editor.workflowTools.value).toEqual([])
+  })
+
+  it('requires an explicit operation type when a published version has no reliable risk', async () => {
+    vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    mocks.workflowVersions.mockResolvedValue({ data: [{ status: 'ACTIVE', snapshotJson: '{}' }] })
+    await mountEditor()
+    editor.publishedWorkflows.value = [{ id: 'shop', keySlug: 'shop', name: '商城' }]
+    editor.workflowPickerVisible.value = true
+    editor.workflowPickerSelection.value = ['shop']
+    await editor.applyWorkflowPickerSelection()
+    expect(editor.workflowTools.value[0].riskLevel).toBeUndefined()
+    expect(await editor.saveDraft()).toBe(false)
+    expect(mocks.save).not.toHaveBeenCalled()
+    expect(mocks.update).not.toHaveBeenCalled()
+  })
+
+  it('does not apply a version response after the selection changes', async () => {
+    let finish!: (value: unknown) => void
+    mocks.workflowVersions.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    await mountEditor()
+    editor.publishedWorkflows.value = [{ id: 'shop', keySlug: 'shop', name: '商城' }]
+    editor.workflowPickerVisible.value = true
+    editor.workflowPickerSelection.value = ['shop']
+    const pending = editor.applyWorkflowPickerSelection()
+    editor.workflowPickerSelection.value = []
+    finish({ data: [{ status: 'ACTIVE', snapshotJson: JSON.stringify({ businessMethodRiskFloor: 'WRITE' }) }] })
+    await pending
+    expect(editor.workflowTools.value).toEqual([])
+    expect(editor.workflowPickerVisible.value).toBe(true)
+  })
+
   it('keeps unsaved human input and reports a conflict when the shared draft changed', async () => {
     const error = vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
     mocks.save.mockRejectedValue({ response: { status: 409, data: { code: 'AGENT_DRAFT_CHANGED' } } })

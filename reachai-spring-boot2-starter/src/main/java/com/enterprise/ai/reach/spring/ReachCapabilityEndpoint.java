@@ -1,6 +1,8 @@
 package com.enterprise.ai.reach.spring;
 
 import com.enterprise.ai.reach.sdk.auth.ReachAiInvocationToken;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -10,6 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -39,7 +42,18 @@ public class ReachCapabilityEndpoint {
                          @RequestHeader(value = ReachAiInvocationToken.HEADER_NAME, required = false) String invocationToken,
                          @RequestBody(required = false) Map<String, Object> arguments) {
         ReachAiInvocationContext context = verifyInvocation(capabilityName, invocationToken);
-        return invokeWithContext(context, capabilityName, arguments);
+        try {
+            return invokeWithContext(context, capabilityName, arguments);
+        } catch (RuntimeException executionFailure) {
+            // Host applications often translate all exceptions into HTTP 200 responses using
+            // their own envelope. Keep failures at this signed endpoint unambiguous without
+            // exposing exception messages or changing the host application's other routes.
+            Map<String, Object> body = new LinkedHashMap<String, Object>();
+            body.put("success", false);
+            body.put("code", "CAPABILITY_EXECUTION_FAILED");
+            body.put("message", "业务方法执行失败");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(body);
+        }
     }
 
     public Object invoke(String capabilityName, Map<String, Object> arguments) {

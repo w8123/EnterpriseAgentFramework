@@ -20,6 +20,23 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ReachCapabilityEndpointTest {
 
     @Test
+    void capabilityExceptionCannotBeTurnedIntoHttpSuccessByHostAdvice() throws Exception {
+        ReachCapabilityEndpoint endpoint = new ReachCapabilityEndpoint(
+                new ReachCapabilityInvoker(new Object[]{new FailingCapability()}));
+        org.springframework.test.web.servlet.MockMvc mvc = org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(endpoint).setControllerAdvice(new HostExceptionAdvice()).build();
+        org.springframework.test.web.servlet.MvcResult result = mvc.perform(
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post("/reachai/capabilities/fail/invoke")
+                        .contentType(org.springframework.http.MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is5xxServerError())
+                .andReturn();
+        com.fasterxml.jackson.databind.JsonNode body = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(result.getResponse().getContentAsByteArray());
+        assertEquals(false, body.path("success").asBoolean(true));
+        org.junit.jupiter.api.Assertions.assertFalse(body.toString().contains("sensitive detail"));
+    }
+
+    @Test
     void delegatesInvokeRequestToCapabilityInvoker() {
         ReachCapabilityEndpoint endpoint = new ReachCapabilityEndpoint(
                 new ReachCapabilityInvoker(new Object[]{new ContractCapability()}));
@@ -185,6 +202,22 @@ class ReachCapabilityEndpointTest {
                 .appKey(properties.getRegistry().getAppKey())
                 .appSecret(properties.getRegistry().getAppSecret())
                 .build();
+    }
+
+    @org.springframework.web.bind.annotation.RestControllerAdvice
+    static class HostExceptionAdvice {
+        @org.springframework.web.bind.annotation.ExceptionHandler(Exception.class)
+        public Map<String, Object> handle(Exception ex) {
+            Map<String, Object> result = new LinkedHashMap<String, Object>();
+            result.put("resultCode", 500);
+            result.put("message", "host error");
+            return result;
+        }
+    }
+
+    static class FailingCapability {
+        @ReachCapability(name = "fail")
+        public String fail() { throw new IllegalArgumentException("sensitive detail"); }
     }
 
     static class ContractCapability {

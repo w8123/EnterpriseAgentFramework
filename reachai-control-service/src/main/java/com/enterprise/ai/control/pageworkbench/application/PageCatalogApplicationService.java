@@ -173,6 +173,21 @@ public class PageCatalogApplicationService {
         return action == null ? Optional.empty() : Optional.of(toActionView(action));
     }
 
+    /** Caller must hold a transaction until its action claim has been persisted. */
+    public Optional<ActionView> findActiveActionForUpdate(String projectCode, String pageKey, String actionKey) {
+        ProjectPageEntity page = pageMapper.selectOne(Wrappers.<ProjectPageEntity>lambdaQuery()
+                .eq(ProjectPageEntity::getProjectCode, requireText(projectCode, "projectCode"))
+                .eq(ProjectPageEntity::getPageKey, requireText(pageKey, "pageKey"))
+                .last("LIMIT 1 FOR UPDATE"));
+        if (page == null || !"ACTIVE".equalsIgnoreCase(page.getLifecycleStatus())) return Optional.empty();
+        PageActionEntity action = actionMapper.selectOne(Wrappers.<PageActionEntity>lambdaQuery()
+                .eq(PageActionEntity::getPageId, page.getId())
+                .eq(PageActionEntity::getActionKey, requireText(actionKey, "actionKey"))
+                .last("LIMIT 1 FOR UPDATE"));
+        return action == null || !"ACTIVE".equalsIgnoreCase(action.getStatus())
+                ? Optional.empty() : Optional.of(toActionView(action));
+    }
+
     public Optional<ActionView> findAction(Long actionId) {
         if (actionId == null) {
             return Optional.empty();
@@ -240,7 +255,7 @@ public class PageCatalogApplicationService {
         ProjectPageEntity page = pageMapper.selectOne(Wrappers.<ProjectPageEntity>lambdaQuery()
                 .eq(ProjectPageEntity::getId, pageId)
                 .eq(ProjectPageEntity::getProjectCode, requireText(projectCode, "projectCode"))
-                .last("LIMIT 1"));
+                .last("LIMIT 1 FOR UPDATE"));
         if (page == null) {
             return false;
         }
@@ -267,7 +282,10 @@ public class PageCatalogApplicationService {
             throw new IllegalArgumentException("page report is required");
         }
         String pageKey = requireText(report.pageKey(), "pageKey");
-        ProjectPageEntity page = findEntityByKey(projectCode, pageKey);
+        ProjectPageEntity page = pageMapper.selectOne(Wrappers.<ProjectPageEntity>lambdaQuery()
+                .eq(ProjectPageEntity::getProjectCode, projectCode)
+                .eq(ProjectPageEntity::getPageKey, pageKey)
+                .last("LIMIT 1 FOR UPDATE"));
         LocalDateTime now = LocalDateTime.now();
         boolean create = page == null;
         if (create) {
@@ -333,7 +351,9 @@ public class PageCatalogApplicationService {
                     page.getComponentPath(),
                     textOrNull(report.componentPath())));
         }
-        page.setLifecycleStatus(PageLifecycle.ACTIVE.name());
+        if (create || source != PageSource.SDK || PageLifecycle.ACTIVE.name().equalsIgnoreCase(page.getLifecycleStatus())) {
+            page.setLifecycleStatus(PageLifecycle.ACTIVE.name());
+        }
         if (source == PageSource.AI_SCAN) {
             page.setLastDiscoveredAt(discoveredAt);
         } else {
@@ -406,11 +426,19 @@ public class PageCatalogApplicationService {
         List<PageActionEntity> existingForSource = actionMapper.selectList(
                 Wrappers.<PageActionEntity>lambdaQuery()
                         .eq(PageActionEntity::getPageId, page.getId())
-                        .eq(PageActionEntity::getSourceType, source.name()));
+                        .eq(PageActionEntity::getSourceType, source.name())
+                        .last("FOR UPDATE"));
         for (PageActionEntity existing : existingForSource) {
             if (source.name().equalsIgnoreCase(existing.getSourceType())
                     && !reportedKeys.contains(existing.getActionKey())) {
-                actionMapper.deleteById(existing.getId());
+                if (source == PageSource.SDK) {
+                    // Keep the policy floor if a browser removes and later re-reports an action.
+                    existing.setStatus("INACTIVE");
+                    existing.setUpdatedAt(LocalDateTime.now());
+                    actionMapper.updateById(existing);
+                } else {
+                    actionMapper.deleteById(existing.getId());
+                }
             }
         }
         for (ActionInput input : normalized) {
@@ -429,7 +457,7 @@ public class PageCatalogApplicationService {
         PageActionEntity existing = actionMapper.selectOne(Wrappers.<PageActionEntity>lambdaQuery()
                 .eq(PageActionEntity::getPageId, page.getId())
                 .eq(PageActionEntity::getActionKey, actionKey)
-                .last("LIMIT 1"));
+                .last("LIMIT 1 FOR UPDATE"));
         if (existing != null
                 && sourcePriority(source) < sourcePriority(existing.getSourceType())) {
             return;
@@ -464,6 +492,10 @@ public class PageCatalogApplicationService {
         LocalDateTime now = LocalDateTime.now();
         boolean create = existing == null;
         PageActionEntity entity = create ? new PageActionEntity() : existing;
+        boolean sdkPriorInactive = source == PageSource.SDK && !create
+                && !"ACTIVE".equalsIgnoreCase(entity.getStatus());
+        List<String> priorAllowedAgents = !create && source == PageSource.SDK
+                ? readStringList(entity.getAllowedAgentIdsJson()) : List.of();
         entity.setPageId(page.getId());
         entity.setProjectId(page.getProjectId());
         entity.setProjectCode(page.getProjectCode());
@@ -472,17 +504,26 @@ public class PageCatalogApplicationService {
         entity.setTitle(firstText(input.title(), entity.getActionKey()));
         entity.setDescription(textOrNull(input.description()));
         entity.setActionType(firstText(input.actionType(), "PAGE_ACTION"));
-        entity.setRiskLevel(firstText(input.riskLevel(), "READ").toUpperCase());
-        entity.setConfirmRequired(Boolean.TRUE.equals(input.confirmRequired()));
+        String reportedRisk = firstText(input.riskLevel(), "READ").toUpperCase();
+        String previousRisk = entity.getRiskLevel();
+        if (source == PageSource.SDK && !create && ("IRREVERSIBLE".equalsIgnoreCase(previousRisk)
+                || ("WRITE".equalsIgnoreCase(previousRisk) && "READ".equalsIgnoreCase(reportedRisk)))) {
+            reportedRisk = previousRisk;
+        }
+        entity.setRiskLevel(reportedRisk);
+        boolean previousConfirmationRequired = !create && Boolean.TRUE.equals(entity.getConfirmRequired());
+        entity.setConfirmRequired(Boolean.TRUE.equals(input.confirmRequired())
+                || (source == PageSource.SDK && previousConfirmationRequired));
         entity.setPermissionKey(textOrNull(input.permissionKey()));
         entity.setInputSchemaJson(writeJson(input.inputSchema()));
         entity.setOutputSchemaJson(writeJson(input.outputSchema()));
         entity.setSampleArgsJson(writeJson(input.sampleArgs()));
-        entity.setAllowedAgentIdsJson(writeJson(
-                input.allowedAgentIds() == null ? List.of() : input.allowedAgentIds()));
+        entity.setAllowedAgentIdsJson(writeJson(!priorAllowedAgents.isEmpty() ? priorAllowedAgents
+                : input.allowedAgentIds() == null ? List.of() : input.allowedAgentIds()));
         entity.setImplementationRef(textOrNull(input.implementationRef()));
         entity.setSourceType(source.name());
-        entity.setStatus("ACTIVE");
+        // Only an authorized management edit may reactivate a previously inactive action.
+        entity.setStatus(sdkPriorInactive ? entity.getStatus() : "ACTIVE");
         entity.setMetadataJson(writeJsonOrNull(input.metadata()));
         entity.setLastVerifiedAt(now);
         entity.setUpdatedAt(now);

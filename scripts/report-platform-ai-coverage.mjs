@@ -407,12 +407,14 @@ export const UNOPENED = {
   'PUT /api/ai-coding-console/projects/{}/credential-policy': ['human-only', '决定编码智能体能用哪些凭据，由人设置'],
   'PUT /api/platform/business-users/{}': ['not-yet', '业务用户资料修改尚未开放；身份绑定已开放'],
   'UNKNOWN {}{}{} [unresolved]': ['covered-elsewhere', '员工门户的本人记忆接口（资源路径可配置），AI 用 reachai_my_memory_* 工具'],
+  'GET /api/employee-portal{}': ['covered-elsewhere', '工作台使用员工门户的独立业务会话读取本人资料、开放能力、调用与审批；不把平台权限转为业务身份'],
 }
 
 // Browser storage reviewed file by file. Only shared business state would need a server copy the AI can reach;
 // a file not listed here stays unclassified in the report until someone reviews it.
 export const STORAGE_CLASSES = {
   'ai-admin-front/src/utils/platformAuth.ts': ['login-session', '本人登录令牌与用户缓存；AI 用自己的平台连接，不读浏览器令牌'],
+  'ai-admin-front/src/views/me/myWorkbench.ts': ['login-session', '工作台按平台会话隔离的标签页业务连接；置顶和最近选择仅为不含凭据的显示偏好，不作为共享业务状态'],
   'ai-admin-front/src/composables/useTheme.ts': ['viewer-preference', '主题'],
   'ai-admin-front/src/composables/useSidebarWorkspace.ts': ['viewer-preference', '按账号记住侧边栏工作台'],
   'ai-admin-front/src/views/agent/AgentDebug.vue': ['viewer-preference', '调试面板宽度'],

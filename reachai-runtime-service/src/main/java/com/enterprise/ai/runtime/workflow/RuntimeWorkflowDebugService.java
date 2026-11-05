@@ -626,6 +626,9 @@ public class RuntimeWorkflowDebugService {
         Map<String, Object> context = new LinkedHashMap<>();
         if (inputParams != null) {
             context.putAll(inputParams);
+            // Match published Workflow execution: named caller inputs are also available under
+            // params, including the distinction between an omitted key and an explicit null.
+            context.putIfAbsent("params", new LinkedHashMap<>(inputParams));
         }
         if (StringUtils.hasText(modelInstanceId)) {
             context.put("modelInstanceId", modelInstanceId);

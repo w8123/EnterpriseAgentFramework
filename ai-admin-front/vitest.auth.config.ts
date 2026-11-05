@@ -26,6 +26,8 @@ export default defineConfig({
       'src/views/layout/MainLayout.test.ts',
       'src/views/me/AiToolAccess.test.ts',
       'src/views/me/AiApprovals.test.ts',
+      'src/views/me/MyWorkbench.test.ts',
+      'src/views/me/components/WorkbenchAssistant.test.ts',
       'src/composables/usePageProjectScope.test.ts',
       'src/composables/useTheme.test.ts',
       'src/composables/useSidebarWorkspace.test.ts',

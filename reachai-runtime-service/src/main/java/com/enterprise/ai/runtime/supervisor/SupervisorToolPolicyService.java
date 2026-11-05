@@ -37,13 +37,36 @@ public class SupervisorToolPolicyService {
     private static final TypeReference<List<String>> STRING_LIST_TYPE = new TypeReference<>() {
     };
     private static final Pattern EXPLICIT_PAGE_INTENT = Pattern.compile(
-            "(?i)(打开|跳转|进入|切换到|导航到|在.{0,20}(页面|界面)|操作.{0,20}(页面|界面)|页面上|界面上|"
+            "(?i)(打开|跳转|进入|切换到|导航到|操作.{0,20}(页面|界面)|"
+                    + "(?:在.{0,20}(?:页面|界面)|页面上|界面上).{0,20}(?:查看|查询|检索|搜索|填写|填入|输入|清空|清除|筛选|操作|设置|选择|显示|展示|读取)|"
                     + "(读取|查看|查询|获取).{0,20}(当前)?(页面|界面).{0,20}(状态|筛选|内容|数据|表格|行)|"
-                    + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page|"
+                    + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page.{0,30}(?:read|inspect|query|get|fill|enter|type|clear|reset)|"
                     + "(read|inspect|query|get).{0,30}(current\\s+)?(page|screen).{0,30}(state|filter|content|data|table|row))");
     private static final Pattern WRITE_INTENT = Pattern.compile(
             "(?i)\\b(?:create|add|modify|update|edit|delete|remove|cancel|submit|save|pay|ship|"
                     + "enable|disable|activate|deactivate|archive|unarchive|restore)\\b");
+    private static final Pattern PAGE_CONTROL = Pattern.compile(
+            "(?i)(搜索框|输入框|文本框|搜索栏|输入栏|表单字段|页面字段|筛选框|"
+                    + "\\b(?:search\\s+(?:box|field|bar)|input\\s+(?:box|field)|text\\s+field)\\b)");
+    private static final Pattern PAGE_CONTROL_OPERATION = Pattern.compile(
+            "(?i)(填写|填入|填上|填为|输入|键入|清空|清除|清掉|重置|"
+                    + "\\b(?:fill(?:ing)?|enter(?:ing)?|typ(?:e|ing)|clear(?:ing)?|reset(?:ting)?)\\b)");
+    private static final Pattern NEGATED_CLAUSE = Pattern.compile(
+            "(?i)(不要|请勿|禁止|无需|无须|不需要|不必|不得|不能|不可|不允许|不想|不愿|不应|不希望|"
+                    + "不在|不向|不对|不把|不将|不让|不再|不会|不用|不是|暂不|未曾|未要求|未授权|没有要求|从不|别|勿|"
+                    + "不(?:打开|跳转|进入|操作|读取|查询|查看|填写|填入|填上|输入|键入|清空|清除|清掉|重置)|"
+                    + "\\b(?:do\\s+not|don't|must\\s+not|never|not|without)\\b)");
+    private static final Pattern NEGATED_PAGE_OPERATION = Pattern.compile(
+            "(?i)(填写|填入|填上|填为|输入|键入|清空|清除|清掉|重置|打开|跳转|导航|进入|切换|操作|执行|点击|按下|选中|选择|提交|"
+                    + "\\b(?:fill(?:ing)?|enter(?:ing)?|typ(?:e|ing)|clear(?:ing)?|reset(?:ting)?|open(?:ing)?|navigat(?:e|ing)|click(?:ing)?|execut(?:e|ing)|submit(?:ting)?|select(?:ing)?)\\b)");
+    private static final Pattern PAGE_TARGET = Pattern.compile(
+            "(?i)(页面|界面|屏幕|按钮|控件|字段|表单|搜索框|输入框|文本框|"
+                    + "\\b(?:page|screen|button|control|field|form)\\b)");
+    private static final Pattern GENERIC_MUTATION = Pattern.compile(
+            "(?i)(修改|改|动|更新|删除|新增|创建|保存|停用|启用|禁用|恢复|归档|"
+                    + "\\b(?:modify|update|edit|delete|remove|create|save|disable|enable|touch)\\b)");
+    private static final Pattern HYPOTHETICAL_CLAUSE = Pattern.compile(
+            "(?i)(如果|假如|假设|例如|比如|\\b(?:if|for\\s+example)\\b)");
 
     private final RuntimeGuardDecisionWriter guardDecisions;
     private final SupervisorApprovalInteractionService approvalService;
@@ -430,18 +453,29 @@ public class SupervisorToolPolicyService {
         String message = firstText(
                 text(input == null ? null : input.get("message")),
                 text(input == null ? null : input.get("input")), "");
-        if (EXPLICIT_PAGE_INTENT.matcher(message).find()) {
-            return true;
+        if (!StringUtils.hasText(message)) return false;
+        // A negative clause must never become positive solely because it contains
+        // "页面上" or an action verb. Separate clauses preserve a later, explicit
+        // positive request such as "不要搜索，但是填写搜索框".
+        String unquotedMessage = message.replaceAll("“[^”]*”|\"[^\"]*\"", "");
+        String[] clauses = unquotedMessage.split("(?i)[，,。.;；!?！？\\n]|但是|但|\\bbut\\b");
+        // A different positive request must not turn an explicitly forbidden
+        // page edit/navigation into permission for a multi-action Workflow.
+        for (String clause : clauses) {
+            if (NEGATED_CLAUSE.matcher(clause).find()
+                    && (NEGATED_PAGE_OPERATION.matcher(clause).find()
+                    || (PAGE_TARGET.matcher(clause).find() && GENERIC_MUTATION.matcher(clause).find()))) return false;
         }
-        // An embedded page already supplies the page identity. In that context a natural-language
-        // business request against the current page is explicit page intent even when the user
-        // does not know the internal action name or repeat words such as "operate this page".
-        // Write safety remains enforced by the published PAGE_ACTION confirmation contract.
-        if (!StringUtils.hasText(contextText(input, "pageKey"))) {
-            return false;
+        for (String clause : clauses) {
+            if (!StringUtils.hasText(clause) || NEGATED_CLAUSE.matcher(clause).find()
+                    || HYPOTHETICAL_CLAUSE.matcher(clause).find()) continue;
+            if (EXPLICIT_PAGE_INTENT.matcher(clause).find()) return true;
+            if (!StringUtils.hasText(contextText(input, "pageKey"))) continue;
+            if (PAGE_CONTROL.matcher(clause).find() && PAGE_CONTROL_OPERATION.matcher(clause).find()) return true;
+            if (containsAny(clause, "查", "查询", "统计", "多少", "哪些", "列表", "筛选", "读取", "总数", "查看", "获取")
+                    || hasUnnegatedWriteIntent(clause)) return true;
         }
-        return containsAny(message, "查", "查询", "统计", "多少", "哪些", "列表", "筛选", "读取", "总数", "查看", "获取")
-                || hasUnnegatedWriteIntent(message);
+        return false;
     }
 
     private boolean hasUnnegatedWriteIntent(String message) {

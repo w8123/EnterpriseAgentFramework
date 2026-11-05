@@ -54,7 +54,7 @@ const selectionMissing = computed(() => !!props.selected && props.selected !== '
 </script>
 
 <template>
-  <div class="catalog-classification" :class="{ 'catalog-classification--many': many }">
+  <div class="catalog-classification" :class="{ 'catalog-classification--many': many, 'catalog-classification--flat': layout === 'flat' }">
     <template v-if="allProjects">
       <slot :rows="rows" :memberships-for="membershipsFor" :selected-ids="selectedIds" :is-selected="isSelected" :toggle-row="toggleRow" />
     </template>
@@ -137,6 +137,10 @@ const selectionMissing = computed(() => !!props.selected && props.selected !== '
 .classification-selection { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; color: var(--text-secondary); font-size: 12px; }
 .classification-selection .classification-create { margin-left: auto; }
 .classification-results { display: grid; gap: 8px; min-width: 0; }
+// Flat catalogs pass the panel's available height through to the table scroller.
+.catalog-classification--flat,
+.classification-results--flat { display: flex; flex: 1; min-height: 0; flex-direction: column; }
+.catalog-classification--flat :deep(.el-table) { flex: 1; height: 100%; min-height: 0; }
 .classification-section { min-width: 0; }
 .classification-section__header { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border-divider); }
 .classification-section__toggle { display: inline-flex; align-items: center; gap: 7px; padding: 0; border: 0; background: transparent; color: var(--text-primary); cursor: pointer; font-size: 13px; line-height: 1.5; }

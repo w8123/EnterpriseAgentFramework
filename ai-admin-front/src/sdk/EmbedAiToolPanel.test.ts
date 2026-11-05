@@ -72,17 +72,21 @@ describe('EmbedAiToolPanel', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     const wrapper = mount(EmbedAiToolPanel, {
+      attachTo: document.body,
       props: { apiBase: '/api/embed', getToken: () => Promise.resolve('tok') },
     })
     await flushPromises()
     expect(wrapper.text()).toContain('Codex')
 
+    ;(wrapper.find('.eaf-aitool__item .danger').element as HTMLButtonElement).focus()
     await wrapper.find('.eaf-aitool__item .danger').trigger('click')
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledWith('/api/embed/ai-tool-connections/5', expect.objectContaining({ method: 'DELETE' }))
     expect(wrapper.find('.eaf-aitool__item .danger').exists()).toBe(false)
     expect(wrapper.text()).toContain('已停用')
+    expect(document.activeElement).toBe(wrapper.element)
+    wrapper.unmount()
   })
 
   it('shows the server message when loading fails', async () => {
@@ -94,7 +98,40 @@ describe('EmbedAiToolPanel', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('[role="alert"]').text()).toBe('账号已停用')
+    expect(wrapper.find('[role="alert"] span').text()).toBe('账号已停用')
+    expect(wrapper.find('[role="alert"] button').text()).toBe('重试')
+  })
+
+  it('retries a failed load and submits the selected tool once while creation is pending', async () => {
+    let failed = true
+    let resolveCreate: ((value: Response) => void) | undefined
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (failed) return Promise.resolve(new Response(JSON.stringify({ message: '暂时不可用' }), { status: 503 }))
+      if (url.endsWith('/options')) return ok(options)
+      if (init?.method === 'POST') return new Promise<Response>((resolve) => { resolveCreate = resolve })
+      return ok([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(EmbedAiToolPanel, {
+      props: { apiBase: '/api/embed', getToken: () => Promise.resolve('tok') },
+    })
+    await flushPromises()
+    failed = false
+    await wrapper.find('[role="alert"] button').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('input[type="radio"]')[1].setValue(true)
+    await wrapper.find('.eaf-aitool__primary').trigger('click')
+    await flushPromises()
+    await wrapper.find('.eaf-aitool__primary').trigger('click')
+    const posts = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')
+    expect(posts).toHaveLength(1)
+    expect(JSON.parse(String(posts[0][1]?.body))).toEqual({ toolKind: 'CODEX', systems: ['yudao-erp'] })
+    expect(wrapper.find('.eaf-aitool__primary').attributes('disabled')).toBeDefined()
+    resolveCreate?.(new Response(JSON.stringify({ message: '请稍后重试' }), { status: 503 }))
+    await flushPromises()
+    expect(wrapper.find('.eaf-aitool__primary').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[role="alert"]').text()).toContain('请稍后重试')
+    wrapper.unmount()
   })
 
   it('lists the employee\'s write approvals with their outcome', async () => {

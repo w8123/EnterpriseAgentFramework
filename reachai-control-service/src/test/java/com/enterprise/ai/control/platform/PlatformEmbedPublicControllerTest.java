@@ -5,6 +5,8 @@ import com.enterprise.ai.control.client.capability.CapabilityProxyClient;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.enterprise.ai.control.identity.BusinessUserSyncService;
 import com.enterprise.ai.control.knowledge.CapabilityProjectRequestVerificationGateway;
+import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.common.internalauth.InternalServiceHmac;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -930,7 +932,13 @@ class PlatformEmbedPublicControllerTest {
         event.setRequestId("req-claim");
         event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.enable");
+        event.setTargetPageKey("orders.list");
         event.setStatus("REQUESTED");
+        var catalog = mock(PageCatalogApplicationService.class);
+        var action = mock(ActionView.class);
+        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(action));
+        controller.setPageCatalog(catalog);
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
         when(pageActionEventMapper.update(any(), any())).thenReturn(1);
 
@@ -943,6 +951,75 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(true, response.getBody().getData().claimed());
         assertEquals("EXECUTING", response.getBody().getData().status());
+
+        // A request dispatched with the current confirmation floor remains claimable.
+        event.setConfirmRequired(true);
+        when(action.confirmRequired()).thenReturn(true);
+        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
+    }
+
+    @Test
+    void claimRejectsChangedCatalogPolicyBeforeStartingBusinessAction() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var catalog = mock(PageCatalogApplicationService.class);
+        var action = mock(ActionView.class);
+        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), events);
+        controller.setPageCatalog(catalog);
+        when(sessions.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
+        var event = new PlatformPageActionEventEntity();
+        event.setId(42L); event.setSessionId("embed-1"); bindEvent(event);
+        event.setRequestId("req-1"); event.setActionKey("orders.enable");
+        event.setTargetPageKey("orders.list"); event.setStatus("REQUESTED");
+        when(events.selectOne(any())).thenReturn(event);
+        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(action));
+        var auth = "Bearer " + embedToken(tokens);
+        var claim = new PlatformEmbedPublicController.PageActionClaimRequest("req-1", "orders.enable");
+
+        // The catalog was strengthened after this unconfirmed event was queued.
+        event.setConfirmRequired(false);
+        when(action.confirmRequired()).thenReturn(true);
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-1", auth, claim).getStatusCode());
+        // Even a confirmed event cannot run after the Agent loses access.
+        event.setConfirmRequired(true);
+        when(action.allowedAgentIds()).thenReturn(List.of("different-agent"));
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-1", auth, claim).getStatusCode());
+        // An inactive/missing action or page is returned as empty by the locked lookup.
+        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.empty());
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-1", auth, claim).getStatusCode());
+        verify(events, never()).update(any(), any());
+    }
+
+    @Test
+    void platformNavigationDoesNotRequireABusinessActionCatalogEntry() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), events);
+        when(sessions.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
+        var event = new PlatformPageActionEventEntity();
+        event.setId(42L); event.setSessionId("embed-1"); bindEvent(event);
+        event.setRequestId("nav-1"); event.setCommandType("NAVIGATE");
+        event.setActionKey(PlatformPageBridgeCommandService.NAVIGATE_ACTION); event.setStatus("REQUESTED");
+        when(events.selectOne(any())).thenReturn(event);
+        when(events.update(any(), any())).thenReturn(1);
+        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "nav-1", "Bearer " + embedToken(tokens),
+                new PlatformEmbedPublicController.PageActionClaimRequest("nav-1",
+                        PlatformPageBridgeCommandService.NAVIGATE_ACTION)).getStatusCode());
     }
 
     @Test

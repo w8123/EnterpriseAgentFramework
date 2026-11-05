@@ -176,7 +176,7 @@ class PlatformEmbedRebindTransactionTest {
         var navigation = fixture.events.selectById(1L);
         assertEquals(200, fixture.controller.rebindPageBridge("embed-1", fixture.authorization, request()).getStatusCode().value());
         fixture.jdbc.update("UPDATE control_embed_session SET updated_at=TIMESTAMP '2000-01-01 00:00:00' WHERE id=1");
-        var service = new PlatformPageBridgeCommandService(fixture.sessions, fixture.events, new ObjectMapper());
+        var service = new PlatformPageBridgeCommandService(fixture.sessions, fixture.events, new ObjectMapper(), mock(com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService.class));
         assertEquals("page-2", service.awaitRegisteredPageInstance(original, navigation, "orders.audit", System.currentTimeMillis() + 1_000));
         fixture.jdbc.update("UPDATE control_page_action_event SET result_json=? WHERE id=1",
                 "{\"data\":{\"ready\":true,\"pageInstanceId\":\"different-instance\"}}");

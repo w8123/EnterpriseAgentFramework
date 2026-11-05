@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
+import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -32,6 +34,7 @@ public class PlatformPageBridgeCommandService {
     private final PlatformEmbedSessionMapper sessionMapper;
     private final PlatformPageActionEventMapper eventMapper;
     private final ObjectMapper objectMapper;
+    private final PageCatalogApplicationService pageCatalog;
 
     /**
      * Resolves the trusted Page Bridge identity for an AI Coding smoke test.
@@ -96,17 +99,32 @@ public class PlatformPageBridgeCommandService {
             return failure("PAGE_BRIDGE_PAGE_NOT_BOUND",
                     "当前页面尚未绑定页面动作，请打开目标业务页面后重试。", List.of());
         }
+        // Resolve the minimum confirmation policy from the Control-owned catalog,
+        // never from the GraphSpec or the browser command. A missing or inactive
+        // action must fail closed before either navigation or action is queued.
+        ActionView catalogAction = pageCatalog.findAction(session.getProjectCode(),
+                request.targetPageKey(), request.actionKey()).orElse(null);
+        if (catalogAction == null || !"ACTIVE".equalsIgnoreCase(catalogAction.status())
+                || pageCatalog.findPageForAction(catalogAction.id())
+                        .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).isEmpty()) {
+            return failure("PAGE_BRIDGE_ACTION_UNAVAILABLE", "Page or action is unavailable", List.of());
+        }
+        if (catalogAction.allowedAgentIds() != null && !catalogAction.allowedAgentIds().isEmpty()
+                && !catalogAction.allowedAgentIds().contains(session.getAgentId())) {
+            return failure("PAGE_BRIDGE_ACTION_FORBIDDEN", "Agent is not allowed to execute this page action", List.of());
+        }
+        boolean confirmRequired = request.confirmRequired() || catalogAction.confirmRequired();
         List<PageBridgePhase> phases = new ArrayList<>();
         String parentRequestId = "bridge-" + UUID.randomUUID();
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));
         if (crossRoute) {
             long navigationDeadline = System.currentTimeMillis()
-                    + normalizedTimeout(request.confirmRequired()
+                    + normalizedTimeout(confirmRequired
                     ? request.confirmationTimeoutMs() : request.executionTimeoutMs());
             PlatformPageActionEventEntity navigation = enqueue(session, parentRequestId, "NAVIGATE", NAVIGATE_ACTION,
                     request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
                     Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute())),
-                    request.confirmRequired());
+                    confirmRequired);
             PlatformPageActionEventEntity completedNavigation = await(
                     navigation, navigationDeadline, request.executionTimeoutMs());
             phases.add(phase("NAVIGATE", completedNavigation));
@@ -133,10 +151,25 @@ public class PlatformPageBridgeCommandService {
                     request.targetRoute(), targetInstance, null, navigationData));
         }
 
+        // Navigation can take long enough for an administrator to change the
+        // catalog. Recheck it before dispatching the actual business action.
+        ActionView currentAction = pageCatalog.findAction(session.getProjectCode(),
+                request.targetPageKey(), request.actionKey()).orElse(null);
+        if (currentAction == null || !"ACTIVE".equalsIgnoreCase(currentAction.status())
+                || pageCatalog.findPageForAction(currentAction.id())
+                        .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).isEmpty()) {
+            return failure("PAGE_BRIDGE_ACTION_UNAVAILABLE", "Page or action is unavailable", phases);
+        }
+        if (currentAction.allowedAgentIds() != null && !currentAction.allowedAgentIds().isEmpty()
+                && !currentAction.allowedAgentIds().contains(session.getAgentId())) {
+            return failure("PAGE_BRIDGE_ACTION_FORBIDDEN", "Agent is not allowed to execute this page action", phases);
+        }
+        confirmRequired = confirmRequired || currentAction.confirmRequired();
+
         PlatformPageActionEventEntity action = enqueue(session, parentRequestId, "PAGE_ACTION", request.actionKey(),
                 request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
-                request.args() == null ? Map.of() : request.args(), request.confirmRequired());
-        long requestedActionTimeout = request.confirmRequired()
+                request.args() == null ? Map.of() : request.args(), confirmRequired);
+        long requestedActionTimeout = confirmRequired
                 ? normalizedTimeout(request.confirmationTimeoutMs())
                 : normalizedTimeout(request.executionTimeoutMs());
         PlatformPageActionEventEntity completedAction = await(

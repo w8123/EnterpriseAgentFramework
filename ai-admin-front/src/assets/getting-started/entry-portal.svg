@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="portal-panel" x1="12" y1="6" x2="53" y2="59" gradientUnits="userSpaceOnUse"><stop stop-color="#77B9FF"/><stop offset="1" stop-color="#6873E8"/></linearGradient>
+    <linearGradient id="portal-tile" x1="20" y1="24" x2="42" y2="48" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset="1" stop-color="#DAE9FF"/></linearGradient>
+  </defs>
+  <rect x="6" y="10" width="52" height="46" rx="11" fill="#657EDB" opacity=".12"/>
+  <rect x="6" y="6" width="52" height="46" rx="11" fill="url(#portal-panel)" stroke="#C9E5FF" stroke-width="1.5"/>
+  <path d="M7 20H57" stroke="#C5E5FF" stroke-width="1.5"/>
+  <circle cx="15" cy="13" r="1.5" fill="#fff"/><circle cx="21" cy="13" r="1.5" fill="#fff" opacity=".65"/>
+  <path d="M45 13H50" stroke="#fff" stroke-width="2" stroke-linecap="round" opacity=".8"/>
+  <rect x="15" y="27" width="13" height="16" rx="3" fill="url(#portal-tile)"/>
+  <rect x="34" y="27" width="15" height="6" rx="2" fill="#fff" opacity=".9"/>
+  <rect x="34" y="37" width="15" height="6" rx="2" fill="#fff" opacity=".6"/>
+</svg>

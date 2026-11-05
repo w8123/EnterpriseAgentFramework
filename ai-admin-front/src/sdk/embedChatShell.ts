@@ -1,3 +1,5 @@
+import { aiToolIcons } from './aiToolIcons'
+
 type EafChatPosition = 'inline' | 'bottom-right' | 'bottom-left'
 export type EafChatLauncherState = 'idle' | 'thinking' | 'unread' | 'error'
 
@@ -9,6 +11,8 @@ interface EmbedChatShellOptions {
   locale: string
   resizable?: boolean
   launcherDraggable?: boolean
+  aiTools?: boolean
+  onAiTools?: () => void
   onOpen?: () => void
 }
 
@@ -17,6 +21,7 @@ export interface EmbedChatShellController {
   readonly panel: HTMLElement
   readonly body: HTMLElement
   readonly connectionStatus: HTMLElement
+  readonly aiToolsButton: HTMLButtonElement | null
   readonly minimizeButton: HTMLButtonElement
   readonly launcher: HTMLButtonElement
   isOpen(): boolean
@@ -75,11 +80,18 @@ export function createEmbedChatShell(options: EmbedChatShellOptions): EmbedChatS
   const openLabel = english ? `Open ${options.brandName}` : `打开${options.brandName}`
   const minimizeLabel = english ? `Minimize ${options.brandName}` : `最小化${options.brandName}`
   const resizeLabel = english ? 'Resize conversation' : '调整对话框大小'
+  const aiToolsLabel = english ? 'Use in my AI tool' : '在我的 AI 工具中使用'
+  const iconTrack = [...aiToolIcons, ...aiToolIcons].map((icon) =>
+    `<span class="eaf-chat__ai-tool-icon"><img src="${escapeHtml(icon.src)}" alt="" width="22" height="22" draggable="false"></span>`,
+  ).join('')
   root.innerHTML = `
     <section id="${panelId}" class="eaf-chat__panel" aria-label="${escapeHtml(options.brandName)}">
       <div class="eaf-chat__header">
         <div class="eaf-chat__brand">${escapeHtml(options.brandName)}</div>
         <div class="eaf-chat__header-actions">
+          ${options.aiTools !== false ? `<button class="eaf-chat__ai-tools" type="button" disabled aria-label="${aiToolsLabel}" title="${aiToolsLabel}">
+            <span class="eaf-chat__ai-tools-track" aria-hidden="true">${iconTrack}</span>
+          </button>` : ''}
           <span class="eaf-chat__connection-status" role="status" aria-live="polite">${english ? 'Connecting' : '正在连接'}</span>
           <button
             class="eaf-chat__toggle eaf-chat__minimize"
@@ -124,6 +136,7 @@ export function createEmbedChatShell(options: EmbedChatShellOptions): EmbedChatS
   const header = requiredElement<HTMLElement>(root, '.eaf-chat__header')
   const body = requiredElement<HTMLElement>(root, '.eaf-chat__body')
   const connectionStatus = requiredElement<HTMLElement>(root, '.eaf-chat__connection-status')
+  const aiToolsButton = root.querySelector<HTMLButtonElement>('.eaf-chat__ai-tools')
   const minimizeButton = requiredElement<HTMLButtonElement>(root, '.eaf-chat__minimize')
   const resizeHandle = requiredElement<HTMLButtonElement>(root, '.eaf-chat__resize-handle')
   const launcherWrap = requiredElement<HTMLElement>(root, '.eaf-chat__launcher-wrap')
@@ -471,6 +484,7 @@ export function createEmbedChatShell(options: EmbedChatShellOptions): EmbedChatS
   }
 
   minimizeButton.addEventListener('click', () => setOpen(false))
+  aiToolsButton?.addEventListener('click', () => options.onAiTools?.())
   header.addEventListener('pointerdown', onPanelPointerDown)
   launcher.addEventListener('click', onLauncherClick)
   launcher.addEventListener('pointerdown', onLauncherPointerDown)
@@ -495,6 +509,7 @@ export function createEmbedChatShell(options: EmbedChatShellOptions): EmbedChatS
     panel,
     body,
     connectionStatus,
+    aiToolsButton,
     minimizeButton,
     launcher,
     isOpen: () => opened,

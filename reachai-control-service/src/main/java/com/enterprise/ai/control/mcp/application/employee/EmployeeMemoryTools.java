@@ -239,7 +239,10 @@ public class EmployeeMemoryTools {
         view.put("name", name);
         view.put("description", description);
         view.put("inputSchema", schema);
-        view.put("annotations", Map.of("riskLevel", risk, "sourceKind", "BUILT_IN"));
+        view.put("annotations", Map.of("riskLevel", risk, "sourceKind", "BUILT_IN",
+                "readOnlyHint", "READ".equals(risk)));
+        view.put("_meta", Map.of("reachai/riskLevel", risk, "reachai/sourceKind", "BUILT_IN",
+                "reachai/requiresApproval", false));
         return view;
     }
 

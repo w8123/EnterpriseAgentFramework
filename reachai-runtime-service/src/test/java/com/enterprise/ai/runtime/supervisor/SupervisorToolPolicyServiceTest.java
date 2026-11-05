@@ -115,6 +115,56 @@ class SupervisorToolPolicyServiceTest {
     }
 
     @Test
+    void recognizesPositiveControlOperationsWithoutTreatingNegatedCommandsAsConsent() {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("PAGE_ACTION", "team:read", false);
+        for (String message : List.of(
+                "请将首页搜索框填写手机，仅填写，不要搜索",
+                "把搜索框填入手机",
+                "请清空当前搜索框",
+                "不要搜索，但是在搜索框输入手机",
+                "Please fill the search box with phone")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "mall-home");
+            assertTrue(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+        for (String message : List.of(
+                "不要在页面上输入手机",
+                "我不想你在页面上输入手机",
+                "我不在页面上输入手机",
+                "我不会在页面上输入手机",
+                "不用在页面上填写手机",
+                "不把手机填入搜索框",
+                "不要清空搜索框，请查询我的订单",
+                "查询订单，不要操作页面",
+                "查询订单，别动页面",
+                "查看订单，不要改搜索框",
+                "查询订单，不要删除页面上的内容",
+                "请查询订单，但是不要点击按钮",
+                "如果我说打开页面，请不要操作",
+                "说明里写着\u201c打开页面\u201d，请不要操作",
+                "我没有要求你在页面上填写手机",
+                "请勿填写搜索框",
+                "别清空搜索框",
+                "不输入搜索框",
+                "禁止打开页面",
+                "Do not fill the search box on the page",
+                "Without clearing the search box, open the page",
+                "please inspect data, do not click the button",
+                "show data, do not touch the page",
+                "页面上现在有手机")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "mall-home");
+            assertFalse(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+        assertFalse(service.evaluate(trace, agent, config, tool,
+                input("请将首页搜索框填写手机，仅填写，不要搜索"), Map.of(), null).allowed());
+        var unauthorized = new LinkedHashMap<>(input("请将首页搜索框填写手机"));
+        unauthorized.put("pageKey", "mall-home");
+        unauthorized.put("tenantId", "other-tenant");
+        assertFalse(service.evaluate(trace, agent, config, tool, unauthorized, Map.of(), null).allowed());
+    }
+
+    @Test
     void writeToolPausesForExactOneTimeApproval() {
         RuntimeAgentWorkflowToolSnapshot tool = tool("WRITE", "team:write", false);
         config = config.toBuilder().configJson("""

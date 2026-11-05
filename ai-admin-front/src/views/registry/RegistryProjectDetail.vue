@@ -22,9 +22,18 @@
         <HeaderMetaList :items="headerMetaItems" />
       </template>
       <template #actions>
-        <el-button v-if="businessPageUrl" tag="a" :href="businessPageUrl" target="_blank" rel="noopener noreferrer" type="primary" :icon="TopRight">
-          打开业务系统
-        </el-button>
+        <div class="project-header-actions">
+          <el-button v-if="project && businessPageUrl" class="business-system-entry" tag="a" :href="businessPageUrl" target="_blank" rel="noopener noreferrer" type="primary" :icon="TopRight">
+            打开业务系统
+          </el-button>
+          <el-tooltip v-else-if="project" :content="canWriteProject ? '先填写业务系统的前端页面地址，保存后即可跳转。' : '请联系项目管理员填写业务系统页面地址。'" placement="top">
+            <span class="business-system-entry-wrap">
+              <el-button class="business-system-entry" type="primary" :icon="TopRight" :disabled="!canWriteProject" @click="openEditDialog">
+                {{ canWriteProject ? '配置业务系统地址' : '业务系统地址未配置' }}
+              </el-button>
+            </span>
+          </el-tooltip>
+          <div class="project-header-actions__tools">
         <el-tooltip v-if="canWriteProject" content="AI Coding 接入" placement="top">
           <LiquidGlassButton
             source="wallpaper"
@@ -67,6 +76,8 @@
             @click="handleDeleteProject"
           />
         </el-tooltip>
+          </div>
+        </div>
       </template>
     </PageHeader>
 
@@ -935,6 +946,27 @@ onMounted(refresh)
 
 .openapi-document-input {
   display: none;
+}
+
+.project-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.project-header-actions__tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.business-system-entry-wrap { display: inline-flex; }
+.business-system-entry.el-button {
+  min-width: 190px;
+  min-height: 46px;
+  padding-inline: 22px;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 700;
+}
+@media (max-width: 900px) {
+  .project-header-actions { align-items: flex-start; }
+  .project-header-actions__tools { justify-content: flex-start; }
 }
 
 .address-help {

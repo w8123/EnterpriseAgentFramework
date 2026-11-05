@@ -26,6 +26,7 @@ import {
   getAgent,
   getAgentDraftEditContext,
   listAgentConfigVersions,
+  listWorkflowVersions,
   publishAgentConfigIfUnchanged,
   saveAgentDraftIfUnchanged,
   searchWorkflows,
@@ -52,6 +53,7 @@ import type { ScanProject } from '@/types/scanProject'
 import type { ModelInstance } from '@/types/model'
 import { useProjectStore } from '@/store/project'
 import { formatWorkflowKindLabel } from '@/utils/workflowLabels'
+import { publishedWorkflowRisk } from './publishedWorkflowRisk'
 import { normalizeActiveModelInstances } from '@/utils/modelSelection'
 import { platformSessionUser } from '@/auth/platformSession'
 import {
@@ -96,6 +98,8 @@ export function useAgentEditor() {
   const systemPromptDialogVisible = ref(false)
   const systemPromptDraft = ref('')
   const workflowPickerVisible = ref(false)
+  const workflowPickerApplying = ref(false)
+  let workflowSelectionRequest = 0
   const workflowPickerKeyword = ref('')
   const workflowPickerSelection = ref<string[]>([])
   const workflowPickerPage = ref(1)
@@ -478,6 +482,8 @@ export function useAgentEditor() {
   }
 
   function openWorkflowPicker() {
+    workflowSelectionRequest++
+    workflowPickerApplying.value = false
     if (workflowPickerSearchTimer) {
       clearTimeout(workflowPickerSearchTimer)
       workflowPickerSearchTimer = null
@@ -508,9 +514,27 @@ export function useAgentEditor() {
     workflowPickerSelection.value = [...next]
   }
 
-  function applyWorkflowPickerSelection() {
-    selectedWorkflowIds.value = [...workflowPickerSelection.value]
-    workflowPickerVisible.value = false
+  async function applyWorkflowPickerSelection() {
+    if (workflowPickerApplying.value) return
+    const selected = [...workflowPickerSelection.value]
+    const added = selected.filter(id => !workflowTools.value.some(tool => tool.workflowId === id))
+    const project = form.projectId
+    const request = ++workflowSelectionRequest
+    workflowPickerApplying.value = true
+    try {
+      const versions = await Promise.all(added.map(id => listWorkflowVersions(id)))
+      if (request !== workflowSelectionRequest || !workflowPickerVisible.value || form.projectId !== project
+          || selected.join('\u0000') !== workflowPickerSelection.value.join('\u0000')) return
+      const risks = new Map(added.map((id, index) => [id, publishedWorkflowRisk(versions[index].data || [])]))
+      syncWorkflowSelection(selected, risks)
+      workflowPickerVisible.value = false
+    } catch {
+      if (request === workflowSelectionRequest && workflowPickerVisible.value) {
+        ElMessage.error('无法读取已发布的 Workflow 版本，请重试。')
+      }
+    } finally {
+      if (request === workflowSelectionRequest) workflowPickerApplying.value = false
+    }
   }
 
   function workflowInitial(value?: string | null) {
@@ -571,28 +595,27 @@ export function useAgentEditor() {
     }
   }
 
-  function defaultWorkflowTool(workflow: WorkflowWorkingCopy): AgentWorkflowToolConfig {
-    const pageAction = workflow.workflowKind === 'PAGE_ASSISTANT'
+  function defaultWorkflowTool(workflow: WorkflowWorkingCopy, risk?: 'READ' | 'WRITE' | 'IRREVERSIBLE'): AgentWorkflowToolConfig {
     return {
       workflowId: workflow.id,
       workflowKeySlug: workflow.keySlug,
       workflowName: workflow.name,
       toolName: workflowToolName(workflow),
-      riskLevel: pageAction ? 'PAGE_ACTION' : 'READ',
+      riskLevel: risk,
       permissionKey: `workflow:${workflow.keySlug}`,
-      readOnly: !pageAction,
+      readOnly: risk === undefined ? undefined : risk === 'READ',
       enabled: true,
       priority: workflowTools.value.length,
     }
   }
 
-  function syncWorkflowSelection(workflowIds: string[]) {
+  function syncWorkflowSelection(workflowIds: string[], risks = new Map<string, 'READ' | 'WRITE' | 'IRREVERSIBLE' | undefined>()) {
     const current = new Map(workflowTools.value.map((tool) => [tool.workflowId, tool]))
     workflowTools.value = workflowIds.flatMap((workflowId, priority) => {
       const existing = current.get(workflowId)
       const workflow = workflowById(workflowId)
       if (!existing && !workflow) return []
-      return [{ ...(existing || defaultWorkflowTool(workflow!)), priority }]
+      return [{ ...(existing || defaultWorkflowTool(workflow!, risks.get(workflowId))), priority }]
     })
   }
 
@@ -956,6 +979,7 @@ export function useAgentEditor() {
     validateJson(entryConfigText.value, '扩展配置')
     const toolNames = new Set<string>()
     for (const tool of workflowTools.value) {
+      if (!tool.riskLevel) throw new Error(`请确认 Workflow“${tool.workflowName || tool.workflowId}”的操作类型`)
       if (!/^[A-Za-z][A-Za-z0-9_]{1,127}$/.test(tool.toolName || '')) {
         throw new Error(`Workflow“${tool.workflowName || tool.workflowId}”的调用标识格式不正确`)
       }
@@ -1321,6 +1345,7 @@ export function useAgentEditor() {
   })
 
   onUnmounted(() => {
+    workflowSelectionRequest++
     if (workflowPickerSearchTimer) clearTimeout(workflowPickerSearchTimer)
   })
 
@@ -1350,6 +1375,7 @@ export function useAgentEditor() {
     systemPromptDialogVisible,
     systemPromptDraft,
     workflowPickerVisible,
+    workflowPickerApplying,
     workflowPickerKeyword,
     workflowPickerSelection,
     workflowPickerPage,

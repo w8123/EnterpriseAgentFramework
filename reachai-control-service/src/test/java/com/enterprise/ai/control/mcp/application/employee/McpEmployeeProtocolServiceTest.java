@@ -201,9 +201,22 @@ class McpEmployeeProtocolServiceTest {
                         "project:yudao-erp", "yudao-erp", "芋道 ERP", 21L, "备注", "AI_TOOL", "Claude Code",
                         null, LocalDateTime.now(), LocalDateTime.now()), true, false, false));
 
-        var names = withMemory.visibleTools(session).stream().map(t -> t.get("name")).toList();
+        var visible = withMemory.visibleTools(session);
+        var names = visible.stream().map(t -> t.get("name")).toList();
         assertTrue(names.containsAll(List.of(EmployeeMemoryTools.SEARCH, EmployeeMemoryTools.SAVE,
                 EmployeeMemoryTools.FORGET)));
+        for (var item : visible) {
+            if (!List.of(EmployeeMemoryTools.SEARCH, EmployeeMemoryTools.SAVE, EmployeeMemoryTools.FORGET)
+                    .contains(item.get("name"))) continue;
+            @SuppressWarnings("unchecked")
+            var hints = (Map<String, Object>) item.get("annotations");
+            @SuppressWarnings("unchecked")
+            var metadata = (Map<String, Object>) item.get("_meta");
+            boolean readOnly = EmployeeMemoryTools.SEARCH.equals(item.get("name"));
+            assertEquals(readOnly, hints.get("readOnlyHint"));
+            assertEquals(readOnly ? "READ" : "WRITE", metadata.get("reachai/riskLevel"));
+            assertEquals(false, metadata.get("reachai/requiresApproval"));
+        }
 
         var saved = withMemory.callTool(session, EmployeeMemoryTools.SAVE,
                 Map.of("content", "查库存默认看 1 号仓", "projectCode", "yudao-erp"));

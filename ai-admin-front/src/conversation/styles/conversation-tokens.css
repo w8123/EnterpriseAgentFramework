@@ -131,6 +131,10 @@
   --reachai-chat-width: 380px;
   --reachai-chat-height: 560px;
   --reachai-chat-font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --reachai-chat-color-scheme: light;
+  --reachai-chat-scrollbar-thumb: color-mix(in srgb, var(--reachai-chat-text-muted) 38%, transparent);
+  --reachai-chat-scrollbar-thumb-hover: var(--reachai-chat-text-muted);
+  --reachai-chat-scrollbar-track: transparent;
   --reachai-chat-avatar-size: 56px;
   --reachai-chat-user-avatar-size: 38px;
   --reachai-chat-card-max-width: 820px;
@@ -212,6 +216,7 @@ html[data-theme='dark'] .reachai-conversation:not(.eaf-chat .reachai-conversatio
   --reachai-chat-card-rose-glow: color-mix(in srgb, var(--reachai-chat-spectrum-rose) 5%, transparent);
   --reachai-chat-card-warm-glow: color-mix(in srgb, var(--reachai-chat-spectrum-warm) 4%, transparent);
   --reachai-chat-surface: #151821;
+  --reachai-chat-color-scheme: dark;
   --reachai-chat-surface-muted: #1c2130;
   --reachai-chat-text: #eef2ff;
   --reachai-chat-text-secondary: #c7d0e0;

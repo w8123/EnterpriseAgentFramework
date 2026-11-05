@@ -248,8 +248,23 @@ final class RuntimeDeterministicNodeHandlers {
                     && ("input.message".equals(source) || ("input." + field.name()).equals(source))) {
                 continue;
             }
+            // Structured callers (Studio and published Workflow tools) distinguish an omitted
+            // optional field from the user's message. Do not fill an absent named value from
+            // that message or turn it into an empty string. Explicit named input and defaults
+            // still take precedence; required fields retain their existing fallback behavior.
+            if (!field.required() && existing != null && !existing.containsKey(field.name())
+                    && (!StringUtils.hasText(source) || "input.message".equals(source)
+                    || ("input." + field.name()).equals(source))) {
+                boolean explicitNamedInput = ("input." + field.name()).equals(source)
+                        && (context.containsKey(source)
+                        || context.get("input") instanceof Map<?, ?> input && input.containsKey(field.name()));
+                if (!explicitNamedInput) {
+                    if (hasInputDefault(field.defaultValue())) params.put(field.name(), field.defaultValue());
+                    continue;
+                }
+            }
             Object value = resolveUserInputFieldValue(field, context, rawInput);
-            if (value == null && field.defaultValue() != null) {
+            if (value == null && hasInputDefault(field.defaultValue())) {
                 value = field.defaultValue();
             }
             params.put(field.name(), value == null ? "" : value);
@@ -258,6 +273,10 @@ final class RuntimeDeterministicNodeHandlers {
         for (Map.Entry<String, Object> entry : params.entrySet()) {
             context.put(WorkflowVariableNamespaces.PARAMS_ROOT + "." + entry.getKey(), entry.getValue());
         }
+    }
+
+    private static boolean hasInputDefault(Object value) {
+        return value != null && (!(value instanceof CharSequence text) || StringUtils.hasText(text));
     }
 
     private Object resolveUserInputFieldValue(GraphSpecUserInputContract.InputField field,

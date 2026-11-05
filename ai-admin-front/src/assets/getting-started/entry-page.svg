@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="page-panel" x1="8" y1="6" x2="52" y2="54" gradientUnits="userSpaceOnUse"><stop stop-color="#74CDBD"/><stop offset="1" stop-color="#4D9CB4"/></linearGradient>
+    <linearGradient id="page-assistant" x1="39" y1="34" x2="60" y2="57" gradientUnits="userSpaceOnUse"><stop stop-color="#fff"/><stop offset="1" stop-color="#DDF5F1"/></linearGradient>
+  </defs>
+  <rect x="5" y="10" width="51" height="44" rx="10" fill="#4D9CB4" opacity=".12"/>
+  <rect x="5" y="6" width="51" height="44" rx="10" fill="url(#page-panel)" stroke="#C5EEE7" stroke-width="1.5"/>
+  <path d="M6 19H55" stroke="#C5EEE7" stroke-width="1.5"/>
+  <circle cx="13" cy="12.5" r="1.5" fill="#fff"/><circle cx="19" cy="12.5" r="1.5" fill="#fff" opacity=".65"/>
+  <rect x="12" y="25" width="9" height="18" rx="2.5" fill="#fff" opacity=".85"/>
+  <path d="M28 27H47M28 34H44M28 41H36" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".85"/>
+  <path d="M41 35H54C58 35 60 37 60 41V48C60 52 58 54 54 54H49L43 59V54H41C37 54 35 52 35 48V41C35 37 37 35 41 35Z" fill="url(#page-assistant)" stroke="#BCE8E0" stroke-width="1.5"/>
+  <path d="M47.5 39.5L49 43L52.5 44.5L49 46L47.5 49.5L46 46L42.5 44.5L46 43L47.5 39.5Z" fill="#4FA99C"/>
+</svg>

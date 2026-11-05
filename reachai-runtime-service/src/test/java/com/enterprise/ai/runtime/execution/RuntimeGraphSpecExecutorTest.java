@@ -201,6 +201,30 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void optionalNamedInputIsNotFilledFromMessageWhenCallerOmittedIt() {
+        var snapshot = new com.enterprise.ai.runtime.workflow.RuntimePublishedWorkflowSnapshot(
+                "workflow", 2L, "{}", "WORKFLOW", 1L, "demo", null, null);
+        var input = snapshot.executionInput(Map.of("keyword", "手机", "message", "查找手机"));
+        String graph = """
+                {"entryNodeId":"input", "exitNodeIds":["method"], "nodes":[
+                  {"id":"input","type":"USER_INPUT","config":{"fields":[
+                    {"name":"keyword","type":"string","source":"input.message"},
+                    {"name":"page","type":"integer","required":false,"source":"input.page"}]}},
+                  {"id":"method","type":"TOOL","ref":{"qualifiedName":"demo:search"},
+                   "config":{"inputMapping":{"keyword":"params.keyword","page":"params.page"}}}
+                ],"edges":[{"from":"input","to":"method","condition":"always"}]}
+                """;
+        RuntimeGraphSpecExecutionResult result = executor.execute(graph, input);
+
+        assertTrue(result.success());
+        Map<?, ?> methodInput = (Map<?, ?>) capabilityClient.requests.get(0).get("input");
+        assertEquals("手机", methodInput.get("keyword"));
+        assertEquals(null, methodInput.get("page"));
+        assertTrue(executor.execute(graph.replace("input.page", "input.message"), input).success());
+        assertEquals(null, ((Map<?, ?>) capabilityClient.requests.get(1).get("input")).get("page"));
+    }
+
+    @Test
     void explicitUserInputSourceStillOverridesExistingNamedParameter() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {

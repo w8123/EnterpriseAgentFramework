@@ -52,6 +52,18 @@ import {
 
 管理端与 SDK 共用的对话样式在 `src/conversation/styles/conversation-tokens.css`。SDK 只读取自身根节点主题，不被宿主的 `html.dark` 或同名变量污染；`eaf.*` 与 `Eaf*` 是兼容技术身份。
 
+### 个人工作台
+
+「我的首页」使用紧凑的公共 `PageHeader`，系统入口在上、对话在中、最近办事记录在下。系统卡片的「打开系统」与「AI 办事／连接 AI」分开表达，系统多时展示六个入口并提供可搜索的全部系统弹窗。欢迎态复用 `ConversationComposer`，开始办事后复用员工个人页 `EmployeeAssistant` 和 SDK 对话宿主；不另写流式消息、审批交互或鉴权逻辑。未连接时明确引导连接；推荐内容来自当前系统已发布的只读能力，点击只填入草稿。状态、连接隔离和使用边界见[产品说明](../docs/product.md)。
+
+| Capability | Canonical owner | Source of truth | Allowed variants | Verification |
+| --- | --- | --- | --- | --- |
+| Select/Listbox | `LiquidGlassSelect` / Element Plus | 公共组件与主题 token | authored | 组件行为测试、浏览器打开与键盘选择 |
+| Date | 原生日期输入或页面既有日期组件 | 当前页面契约与 locale | native / authored；工作台只格式化显示时间 | 对应页面行为测试 |
+| Form | 公共输入组件；对话使用 `ConversationComposer` | 页面校验与共享对话控制器 | 应用校验、IME 安全提交 | 行为测试 |
+| Scrollbar | 全局 `src/styles/index.scss` 与语义 token | 全局应用样式 | 全局基线、局部尺寸 | 主题检查与浏览器计算样式 |
+| Toast | Element Plus `ElMessage` | 应用入口与统一主题 | success / warning / info / error；可恢复错误在页内展示 | 相关页面行为测试 |
+
 ## 业务能力与 Studio
 
 Java 方法和 HTTP API 目录均为平铺分页表，分类是可选元数据。关键词与下拉分开保存，刷新或分类变化不能丢失未提交输入。普通模式隐藏批量调整控件，进入“整理 → 调整分类”后就地维护成员；失权、未知分类与确认未分类分开处理。

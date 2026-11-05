@@ -94,9 +94,15 @@ class McpWriteApprovalServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> create = (Map<String, Object>) tools.get(1).get("annotations");
         assertEquals(true, create.get("requiresApproval"));
+        assertEquals(false, create.get("readOnlyHint"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> createMeta = (Map<String, Object>) tools.get(1).get("_meta");
+        assertEquals(true, createMeta.get("reachai/requiresApproval"));
+        assertEquals("WRITE", createMeta.get("reachai/riskLevel"));
         @SuppressWarnings("unchecked")
         Map<String, Object> read = (Map<String, Object>) tools.get(0).get("annotations");
         assertFalse(read.containsKey("requiresApproval"));
+        assertEquals(true, read.get("readOnlyHint"));
     }
 
     @Test

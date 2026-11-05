@@ -9,7 +9,10 @@
             <p v-if="me">{{ me.userName || me.account }} · {{ me.systemName }}</p>
           </div>
         </div>
-        <LiquidGlassButton v-if="me" source="wallpaper" :loading="signingOut" @click="signOut">退出</LiquidGlassButton>
+        <div v-if="me" class="employee-portal__head-actions">
+          <a class="employee-portal__workbench-link" href="/me?connect=business">在工作台中使用</a>
+          <LiquidGlassButton source="wallpaper" :loading="signingOut" @click="signOut">退出</LiquidGlassButton>
+        </div>
       </header>
 
       <LiquidGlassCard v-if="state === 'loading'" class="employee-portal__card">
@@ -146,6 +149,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { EMPLOYEE_PORTAL_TOKEN_KEY } from '@/api/employeePortal'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassEmptyState } from '@/components/common/liquid-glass'
 import MemoryWorkspace from '@/components/memory/MemoryWorkspace.vue'
 import SharedMemoryPanel from '@/components/memory/SharedMemoryPanel.vue'
@@ -207,7 +211,7 @@ interface EmployeeSkill {
 }
 
 const API = '/api/employee-portal'
-const TOKEN_KEY = 'reachai.employee-portal.token'
+const TOKEN_KEY = EMPLOYEE_PORTAL_TOKEN_KEY
 
 // 员工的「AI 工具接入」：照宝塔 MCP 面板分成接入与体验、我能办的事、访问凭据、任务记录，外加我的审批、我的助手（全屏对话）和我的记忆。
 const tabs = [
@@ -540,6 +544,11 @@ onMounted(signIn)
 </script>
 
 <style scoped lang="scss">
+.employee-portal__head-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.employee-portal__workbench-link { padding: 8px 0; color: var(--brand-on-surface); font-size: 13px; text-decoration: none; cursor: pointer; }
+.employee-portal__workbench-link:hover { text-decoration: underline; }
+.employee-portal__workbench-link:active { color: var(--text-primary); }
+.employee-portal__workbench-link:focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
 .employee-portal {
   min-height: 100vh;
   padding: 32px 16px 48px;
