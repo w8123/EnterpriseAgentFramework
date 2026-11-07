@@ -71,6 +71,30 @@ class CapabilityMcpPlatformBusinessSystemReadAdapterTest {
     }
 
     @Test
+    void httpApiUploadNeedsProjectWriteForwardsTheBatchAndReportsLostResultsAsUnknown() {
+        var apis = List.of(Map.of("httpMethod", "GET", "path", "/erp/stock/{id}"));
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> adapter.uploadHttpApis(actor("platform:read"), 5L, apis)).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> adapter.uploadHttpApis(scopedActor("platform:write", "orders"), 6L, apis)).getStatusCode());
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> adapter.uploadHttpApis(actor("platform:write"), 5L, List.of())).getStatusCode());
+        server.expect(requestTo("http://capability:18605/api/scan-projects/5/manual-http-apis/batch"))
+                .andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON)
+                        .body("{\"saved\":1,\"failed\":0,\"results\":[{\"ok\":true,\"apiId\":9}]}"));
+        server.expect(requestTo("http://capability:18605/api/scan-projects/5/manual-http-apis/batch"))
+                .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
+        var ok = adapter.uploadHttpApis(actor("platform:write"), 5L, apis);
+        assertEquals(200, ok.getStatusCode().value());
+        assertTrue(ok.getBody().toString().contains("\"saved\":1"));
+        var lost = adapter.uploadHttpApis(actor("platform:write"), 5L, apis);
+        assertEquals(202, lost.getStatusCode().value());
+        assertTrue(lost.getBody().toString().contains("UNKNOWN"));
+        server.verify();
+    }
+
+    @Test
     void scanActionsNeedPlatformWriteHideOwnerErrorsAndReportLostResultsAsUnknown() {
         assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
                 () -> adapter.act(actor("platform:read"), Action.RESCAN, 5L, null, Map.of())).getStatusCode());

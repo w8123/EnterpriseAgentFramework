@@ -98,6 +98,7 @@ export const LINKS = [
   ['POST', '/api/scan-projects/{}/sdk-access-check', 'reachai_business_system_sdk_access_check', '同一控制台代理与路径权限，结果未知不重发'],
   ['POST', '/api/scan-projects/{}/sdk-sync/scan', 'reachai_business_system_sdk_sync_scan', '同一控制台代理与路径权限，结果未知不重发'],
   ['POST', '/api/scan-projects/{}/scan-tools/{}/rescan-from-source', 'reachai_business_system_tool_rescan_from_source', '同一控制台代理与路径权限，过期结果返回稳定代码'],
+  ['POST', '/api/scan-projects/{}/manual-http-apis', 'reachai_http_apis_upload', '同一控制台代理与项目写权限；AI 走批量入口，每项单独校验，上传后仍需人接纳'],
   ['POST', '/api/scan-projects/{}/sensitive-data/scan', 'reachai_business_system_sensitive_scan', '同一控制台代理与路径权限，只接受模型实例参数'],
   ['POST', '/api/scan-projects', 'reachai_business_system_request_change', '本人审核后执行一次，同一控制台代理与路径权限；OpenAPI 文档上传未开放'],
   ['PUT', '/api/scan-projects/{}', 'reachai_business_system_request_change', '本人审核，冻结当前配置，被改动时拒绝执行'],
@@ -345,6 +346,7 @@ const HUMAN_DECISION = ['human-decision', '人对 AI 或员工操作的批准、
 export const UNOPENED = {
   'GET /api/ai-assist/projects/{}/onboarding-manifest': ['secret-shown-once', '接入清单含项目的 AI Coding 密钥，只给项目维护人看'],
   'GET /api/ai-coding-console/projects/{}/credential-policy': ['not-yet', 'AI 编码凭据策略读取尚未开放；修改保留给人'],
+  'DELETE /api/scan-projects/{}/manual-http-apis/{}': ['human-only', '删除手工来源可能让已接纳的 API 变成来源缺失、无法调用，留给人在详情页确认'],
   'GET /api/me/ai-access/capabilities': ['covered-elsewhere', '同一份能力清单就是 MCP tools/list'],
   'GET /api/platform/embed/chat-events': ['human-only', '终端用户的嵌入聊天内容，暂不向 AI 开放'],
   'GET /api/platform/embed/page-actions/catalog/{}/references': ['covered-elsewhere', '接口目前固定返回空列表，无可读内容'],

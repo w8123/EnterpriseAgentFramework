@@ -73,12 +73,12 @@ assert.equal(tabs.length, 1, 'Java/HTTP分类只能在资产目录出现一份')
 assert.equal(directive(tabs[0].node, 'if')?.exp?.content, "activeWorkspace === 'catalog'", '项目共享来源、分组、语义与图谱不得显示分类TAB')
 const sharedScope = withClass('business-capability-scope')
 assert.equal(sharedScope.length, 0, '不得恢复已移除的页签右侧项目共享说明')
-assert.doesNotMatch(descriptor.template.content, /项目共享 · Java 业务方法与 HTTP API/, '不得恢复已移除的页签右侧项目共享说明')
+assert.doesNotMatch(descriptor.template.content, /项目共享 · (?:Java )?业务方法与 HTTP API/, '不得恢复已移除的页签右侧项目共享说明')
 assert.ok(elements.some(({ node, ancestors }) => node.tag === 'router-view' && directive(node, 'else')
   && ancestors[ancestors.length - 1]?.tag === 'section'
   && !ancestors.some(parent => ['el-tabs', 'el-tab-pane'].includes(parent.tag))), '共享工作视图必须直接承接内容，不能嵌入分类TAB')
 
-for (const text of ['Java 业务方法', 'HTTP API', '能力目录', '接入与变更', '批量整理说明', '关联分析']) assert.ok(shell.includes(text), `工作台缺少 ${text}`)
+for (const text of ['业务方法', 'HTTP API', '能力目录', '接入与变更', '批量整理说明', '关联分析']) assert.ok(shell.includes(text), `工作台缺少 ${text}`)
 assert.doesNotMatch(shell, /合并业务分类|command="merge"/, '业务分类合并入口必须退场')
 function assertTaskNavigation(source) {
   const script = compileScript(parseSfc(source).descriptor, { id: 'task-navigation' }).scriptSetupAst || []
@@ -105,7 +105,7 @@ assert.match(scope, /scope\?\.canLoadData\.value/, '来源工作区必须使用�
 assert.match(scope, /platformSessionId/, '来源工作区必须隔离账号')
 assert.match(scope, /:key="contextKey"/, '账号或项目变化必须卸载旧控制器')
 assert.doesNotMatch(panel, /<h1|<PageHeader|<el-tab-pane/, '共享来源组件不能创建第二页头或第三套分类')
-assert.doesNotMatch(panel, /整理整个项目的 Java 业务方法和 HTTP API|项目共享 · Java 业务方法与 HTTP API/, '共享内容不得恢复已移除的项目范围说明')
+assert.doesNotMatch(panel, /整理整个项目的 (?:Java )?业务方法和 HTTP API|项目共享 · (?:Java )?业务方法与 HTTP API/, '共享内容不得恢复已移除的项目范围说明')
 for (const feature of ['SourceImportDialog', 'SourceObservationsPanel', 'SourceSemanticTasksDrawer',
   'SourceSemanticDialogs', 'SourceObservationDiffDialog', 'SourceGraphPanel', 'SourceSemanticDocsPanel']) {
   assert.ok(panel.includes(`<${feature}`), `真实功能未承接：${feature}`)

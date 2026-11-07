@@ -175,18 +175,30 @@ class RuntimeWorkflowWaitingPersistenceTest {
     @Test
     void matchingVerifiedIdentityIgnoresForgedBodyAttributionAndReachesTheExecutor() {
         create("tenant-a");
-        var response = submit(identity("tenant-a", "user-a"), Map.of(
-                "tenantId", "forged-tenant", "userId", "forged-user", "operatorId", "forged-operator"));
+        var identity = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", null, "orders", "user-a", java.util.List.of("Customer"));
+        var response = submit(identity, Map.of(
+                "tenantId", "forged-tenant", "userId", "forged-user", "operatorId", "forged-operator",
+                "roles", java.util.List.of("Admin")));
         assertEquals(true, response.get("success"), response.toString());
         var captured = org.mockito.ArgumentCaptor.forClass(WorkflowExecutionIdentity.class);
         verify(executor).executeFromCheckpoint(eq(GRAPH), any(), eq("form"), eq(1), any(), captured.capture());
         assertEquals("tenant-a", captured.getValue().tenantId());
         assertEquals("user-a", captured.getValue().userId());
         assertEquals("orders", captured.getValue().projectCode());
+        assertEquals(java.util.List.of("Customer"), captured.getValue().roles());
         assertEquals("user-a", db.jdbc().queryForObject(
                 "SELECT operator_id FROM runtime_interaction_event WHERE session_id = ? AND event_type = 'SUBMITTED'",
                 String.class, ID));
         assertEquals("COMPLETED", row().getStatus());
+    }
+
+    @Test
+    void wrongBusinessProjectCannotResumeEvenWithMatchingSessionAndUser() {
+        create("tenant-a");
+        var identity = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", null, "other", "user-a", java.util.List.of("Admin"));
+        assertForbidden(submit(identity, Map.of()));
+        verifyNoInteractions(executor);
+        assertEquals("WAITING_USER", row().getStatus());
     }
 
     @Test

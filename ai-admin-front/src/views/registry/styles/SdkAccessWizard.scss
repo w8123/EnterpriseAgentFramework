@@ -3,6 +3,11 @@
   background: var(--surface-solid-opaque-raised);
 }
 
+.sdk-language-picker {
+  width: 190px;
+  max-width: 100%;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;

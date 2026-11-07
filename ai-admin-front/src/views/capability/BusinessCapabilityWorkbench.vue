@@ -1,7 +1,7 @@
 <template>
   <WorkbenchPage layout="list" class="business-capability-workbench" :class="{ 'is-catalog': activeWorkspace === 'catalog', 'is-graph': activeWorkspace === 'graph' }">
     <PageHeader variant="standard" compact :artwork="false" presentation="plain" action-presentation="inline" domain="platform" title="业务能力"
-      description="查找和维护 Java 业务方法与 HTTP API。">
+      description="查找和维护业务方法与 HTTP API。">
       <template #actions><div class="business-capability-navigation">
       <LiquidGlassNav v-if="!classificationMode.active.value" source="wallpaper" class="business-capability-workspaces" aria-label="业务能力工作视图">
         <router-link v-for="view in workspaces" :key="view.value" :to="workspaceLocation(view.value)"
@@ -53,7 +53,7 @@ const router = useRouter()
 const classificationMode = provideCatalogClassificationMode()
 const toolsTrigger = ref<{ focus: () => void }>()
 const tabs = [
-  { value: 'java-methods', label: 'Java 业务方法', path: BUSINESS_METHOD_CATALOG_PATH },
+  { value: 'java-methods', label: '业务方法', path: BUSINESS_METHOD_CATALOG_PATH },
   { value: 'http-apis', label: 'HTTP API', path: HTTP_API_CATALOG_PATH },
 ]
 const workspaces = [{ value: 'catalog', label: '能力目录' }, { value: 'sources', label: '接入与变更' }] as const

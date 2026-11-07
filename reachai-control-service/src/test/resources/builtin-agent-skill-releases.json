@@ -1,4 +1,20 @@
 {
+  "reachai-onboarding@0.6.9": {
+    "sourceSha256": "b04481d79c9ffccde68526a3b70d2367cfa5bc2764f0068189c282604e0ecff4",
+    "contentTreeSha256": "060bd371ad9e203004212326e8ed04d8e9eb96f8e915b0800584b5439c38fcb7"
+  },
+  "reachai-onboarding@0.6.8": {
+    "sourceSha256": "cdbff7e9c01d7fa4132356d070aa710aa49c9874ad258fe91e181d17ab341a31",
+    "contentTreeSha256": "14e1213b90c3ac015f9ee7763401c17638a0d983d9daa847dc438d42c4654596"
+  },
+  "reachai-onboarding@0.6.7": {
+    "sourceSha256": "0c38b9ad5c49393399f97a79b66056ad9a15b9f41dca8c0168ea2bf03d9be106",
+    "contentTreeSha256": "4264380142c8a996a546b19f3a0bff115d9184f784efe036c1be172c6334741b"
+  },
+  "reachai-onboarding@0.6.6": {
+    "sourceSha256": "c0466f46f933df895bf7adc634e751ebfce0d1930193ca114c98349ce8e8a884",
+    "contentTreeSha256": "0a71b90dfc282ea9357ba6b6de96edb521fc7a24f5232a07e15af2953d7fe70a"
+  },
   "agent-ai-coding@0.1.3": {
     "sourceSha256": "6c65cfe3f4ba64698598cc44587123f15d4a99973c6f1b992c2c434143c9685d",
     "contentTreeSha256": "5705cded2befe30722bb905372c8af1f575c2d22bcdd177dd19f9b4e0f613e0b"

@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.mcp.application.port;
 
 import java.util.Map;
+import java.util.List;
 
 /**
  * Outbound execution boundary from the MCP protocol layer to Runtime.
@@ -27,7 +28,16 @@ public interface McpRuntimeExecutionGateway {
             String tenantId,
             long publicationId,
             int revisionNo,
-            String capabilityContractHash) {
+            String capabilityContractHash,
+            List<String> employeeRoles) {
+        public EmployeeToolExecutionCommand(String sourceKind, String sourceRef, Long workflowVersionId,
+                String toolName, Map<String, Object> arguments, long connectionId, String aiToolKind,
+                String externalUserId, Long projectId, String projectCode, String tenantId,
+                long publicationId, int revisionNo, String capabilityContractHash) {
+            this(sourceKind, sourceRef, workflowVersionId, toolName, arguments, connectionId, aiToolKind,
+                    externalUserId, projectId, projectCode, tenantId, publicationId, revisionNo,
+                    capabilityContractHash, List.of());
+        }
     }
 
     record ToolExecutionCommand(

@@ -66,11 +66,11 @@ public final class ControlSdkAccessReadinessCalculator {
                 null));
         checks.add(new ControlAiAssistProjectController.SdkAccessCheckItem(
                 "EMBED_SDK_ARTIFACT",
-                "Embed SDK 制品",
+                "SDK 制品",
                 embedArtifactAvailable ? "PASS" : "WARN",
                 embedArtifactAvailable
-                        ? "Embed SDK 安装制品已就绪"
-                        : "平台缺少 Embed SDK 安装制品",
+                        ? "所需 SDK 安装制品已就绪"
+                        : "平台缺少当前接入所需的 SDK 安装制品",
                 embedArtifactEvidence));
         checks.add(callbackCheck);
 
@@ -184,7 +184,7 @@ public final class ControlSdkAccessReadinessCalculator {
             return "已观测到业务实例注册，项目配置和 SDK 接入已实际生效。";
         }
         if (!artifact) {
-            return "请重新构建 Embed SDK 制品（npm run build:sdk:pack）并重启 Control 服务。";
+            return "请检查当前语言的后端 SDK 与 Embed SDK 制品，构建后重启 Control 服务。";
         }
         if (!aiCoding) {
             return "请启用 AI Coding 接入，并确认项目注册凭据已配置。";

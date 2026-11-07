@@ -295,19 +295,24 @@ public class RuntimeAgentExecutionInternalController {
                     || !businessProject.trim().matches("(?i)[a-z0-9._:-]{1,96}"))) {
             return null;
         }
+        java.util.List<String> roles = java.util.List.of();
+        if (request != null && request.identity() != null && "EMBED_SESSION".equals(verified.identitySource())) {
+            roles = trustedRoles(request.identity().roles());
+            if (roles == null) return null;
+        }
         return resolveIdentity(
-                verified.identitySource(), verified.identityTenantId(), verified.identityUserId(), businessProject);
+                verified.identitySource(), verified.identityTenantId(), verified.identityUserId(), businessProject, roles);
     }
 
     private static WorkflowExecutionIdentity resolveIdentity(String source, String tenantId, String userId,
-                                                              String businessProject) {
+                                                              String businessProject, java.util.List<String> roles) {
         if (!StringUtils.hasText(source)) {
             return null;
         }
         String normalized = source.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "EMBED_SESSION" -> StringUtils.hasText(userId)
-                    ? WorkflowExecutionIdentity.fromEmbedSession(tenantId, null, businessProject, userId)
+                    ? WorkflowExecutionIdentity.fromEmbedSession(tenantId, null, businessProject, userId, roles)
                     : null;
             case "AGENT" -> StringUtils.hasText(userId)
                     ? WorkflowExecutionIdentity.fromAgent(tenantId, null, null, userId)
@@ -317,6 +322,15 @@ public class RuntimeAgentExecutionInternalController {
                     : null;
             default -> null;
         };
+    }
+
+    private static java.util.List<String> trustedRoles(java.util.List<String> roles) {
+        if (roles == null) return java.util.List.of();
+        if (roles.size() > 100) return null;
+        for (String role : roles) {
+            if (!StringUtils.hasText(role) || role.length() > 128) return null;
+        }
+        return roles.stream().map(String::trim).toList();
     }
 
     /**
@@ -484,7 +498,11 @@ public class RuntimeAgentExecutionInternalController {
             String source,
             String tenantId,
             String userId,
-            String projectCode
+            String projectCode,
+            java.util.List<String> roles
     ) {
+        public TrustedIdentityPayload(String source, String tenantId, String userId, String projectCode) {
+            this(source, tenantId, userId, projectCode, null);
+        }
     }
 }

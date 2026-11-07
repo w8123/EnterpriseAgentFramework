@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <strong>ReachAI · 面向 Java 企业系统的企业智能体开发与运行底座</strong>
+  <strong>ReachAI · 面向企业业务系统的智能体开发与运行底座</strong>
 </p>
 
 > **Codex for Open Source application verification:** I am the owner and core maintainer of this repository. The OpenAI/ChatGPT account used for the application is associated with the masked email address `jonellmednick****@outlook.jp`. This notice is published solely to help OpenAI reviewers verify that the applicant controls this repository.
@@ -156,9 +156,9 @@ ReachAI 将任务范围、仓库上下文、修改约束、结构化输出和验
   </tr>
 </table>
 
-### 3. 将 Java 接口和业务方法沉淀为可治理的 Capability
+### 3. 将业务接口和方法沉淀为可治理的 Capability
 
-对于可修改的 Java 系统，JDK 8 兼容的 SDK 与 Spring Boot 2 Starter 可以主动注册项目、实例和业务能力；对于暂不具备代码改造条件的历史系统，可上传 Swagger / OpenAPI 文档导入接口。平台不读取服务器上的源码目录。
+对于可修改的业务系统，Java SDK / Spring Boot 2 Starter、C# ASP.NET Core SDK、Python FastAPI SDK、Node.js Express SDK 与 Go SDK 可以主动注册项目、实例和业务能力；对于暂不具备代码改造条件的历史系统，可上传 Swagger / OpenAPI 文档导入接口。平台不读取服务器上的源码目录。
 
 ```java
 import com.enterprise.ai.reach.sdk.annotation.ReachCapability;
@@ -395,7 +395,7 @@ flowchart LR
 | --- | --- |
 | 平台后端 | Java 17、Spring Boot 3.4.5、Spring AI 1.0.0、Spring AI Alibaba 1.0.0.2 |
 | 智能体与工作流 | AgentScope 2.0.0、LangGraph4j 1.8.16、GraphSpec |
-| 业务系统接入 | JDK 8 兼容 Capability SDK / Spring Boot 2 Starter、Embed Chat SDK、Page Bridge |
+| 业务系统接入 | Java Capability SDK / Spring Boot 2 Starter、C# ASP.NET Core SDK、Python FastAPI SDK、Node.js Express SDK、Go SDK、Embed Chat SDK、Page Bridge |
 | 管理端 | Vue 3.5、TypeScript、Element Plus、Pinia、Vue Flow、Vite 6 |
 | 基础设施 | MySQL 8；Milvus 2.4（知识库向量检索）、Docling（文档解析）、Redis（Runtime 生产多实例）按需 |
 
@@ -403,7 +403,7 @@ flowchart LR
 <summary><strong>当前实现边界</strong></summary>
 
 - 项目处于快速迭代阶段；README 描述的是当前主路径，不代表所有能力都已经达到生产完备状态。
-- 新建或可修改的 Java 系统优先使用 SDK 主动注册；改不了代码的系统上传 OpenAPI 文档导入接口。
+- 可修改的 Java、ASP.NET Core、FastAPI、Express 和 Go 系统可使用对应 SDK 主动注册；改不了代码的系统上传 OpenAPI 文档导入接口。
 - Workflow 节点按 Runtime 能力注册表分级开放，部分节点仍处于 BETA；发布校验结果优先于画布显示。
 - Tool ACL、Guard、人工确认、开放协议和治理面仍在持续产品化；真实业务系统保留最终鉴权与事务边界。
 - 当前五服务共用一个 MySQL 库，但代码、表所有权和 internal API 必须遵守服务边界。

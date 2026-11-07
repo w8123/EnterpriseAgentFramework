@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.springframework.util.StringUtils;
 
 import java.util.Locale;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -32,6 +33,7 @@ public final class WorkflowExecutionIdentity {
     private final String userId;
     private final boolean projectTrusted;
     private final boolean userTrusted;
+    private final List<String> roles;
 
     private WorkflowExecutionIdentity(
             Source source,
@@ -41,6 +43,11 @@ public final class WorkflowExecutionIdentity {
             String userId,
             boolean projectTrusted,
             boolean userTrusted) {
+        this(source, tenantId, projectId, projectCode, userId, projectTrusted, userTrusted, List.of());
+    }
+
+    private WorkflowExecutionIdentity(Source source, String tenantId, Long projectId, String projectCode,
+                                      String userId, boolean projectTrusted, boolean userTrusted, List<String> roles) {
         this.source = source == null ? Source.DEBUG_UNTRUSTED : source;
         this.tenantId = StringUtils.hasText(tenantId) ? tenantId.trim() : null;
         this.projectId = projectId;
@@ -48,6 +55,7 @@ public final class WorkflowExecutionIdentity {
         this.userId = StringUtils.hasText(userId) ? userId.trim() : null;
         this.projectTrusted = projectTrusted;
         this.userTrusted = userTrusted;
+        this.roles = userTrusted && roles != null ? List.copyOf(roles) : List.of();
     }
 
     public static WorkflowExecutionIdentity fromAgent(Long projectId, String projectCode) {
@@ -80,6 +88,15 @@ public final class WorkflowExecutionIdentity {
         }
         return new WorkflowExecutionIdentity(
                 Source.EMBED_SESSION, tenantId, projectId, projectCode, userId, true, true);
+    }
+
+    /** Roles are accepted only from Control's verified, signed Embed identity envelope. */
+    public static WorkflowExecutionIdentity fromEmbedSession(String tenantId, Long projectId,
+                                                             String projectCode, String userId,
+                                                             List<String> roles) {
+        if (!StringUtils.hasText(userId)) throw new IllegalArgumentException("Embed session identity requires userId");
+        return new WorkflowExecutionIdentity(Source.EMBED_SESSION, tenantId, projectId, projectCode,
+                userId, true, true, roles);
     }
 
     /**
@@ -168,6 +185,16 @@ public final class WorkflowExecutionIdentity {
                 externalUserId, true, true);
     }
 
+    /** Roles must come from the employee account in Control's verified, signed request. */
+    public static WorkflowExecutionIdentity fromMcpEmployee(
+            String tenantId, Long projectId, String projectCode, String externalUserId, List<String> roles) {
+        if (!StringUtils.hasText(externalUserId)) {
+            throw new IllegalArgumentException("MCP employee identity requires externalUserId");
+        }
+        return new WorkflowExecutionIdentity(Source.MCP_EMPLOYEE, tenantId, projectId, projectCode,
+                externalUserId, true, true, roles);
+    }
+
     /**
      * Bind an already attested caller to the server-resolved Agent target project.
      * This does not authorize access to that Agent. No business-input map is accepted here.
@@ -187,7 +214,9 @@ public final class WorkflowExecutionIdentity {
                 || (hasCallerProject && !caller.authorizeProjectCredential(projectId, projectCode)))) {
             throw new IllegalArgumentException("business identity does not match the Agent project");
         }
-        return restoreFromTrustedSnapshot(caller.source, caller.tenantId, projectId, projectCode, caller.userId);
+        WorkflowExecutionIdentity resolved = restoreFromTrustedSnapshot(caller.source, caller.tenantId, projectId, projectCode, caller.userId);
+        return new WorkflowExecutionIdentity(resolved.source, resolved.tenantId, resolved.projectId, resolved.projectCode,
+                resolved.userId, resolved.projectTrusted, resolved.userTrusted, caller.roles);
     }
 
     /**
@@ -296,6 +325,10 @@ public final class WorkflowExecutionIdentity {
 
     public String userId() {
         return userId;
+    }
+
+    public List<String> roles() {
+        return roles;
     }
 
     public boolean projectTrusted() {

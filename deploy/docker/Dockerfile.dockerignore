@@ -1,6 +1,8 @@
 **/node_modules
 **/target
 **/dist
+reachai-dotnet/**/bin
+reachai-dotnet/**/obj
 .git
 docs
 sql

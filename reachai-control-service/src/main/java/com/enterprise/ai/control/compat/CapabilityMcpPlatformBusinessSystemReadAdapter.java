@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -73,6 +74,35 @@ final class CapabilityMcpPlatformBusinessSystemReadAdapter implements McpPlatfor
         } catch (Exception invalid) {
             return ResponseEntity.accepted().body(Map.of("status", "UNKNOWN", "projectId", projectId,
                     "message", "操作结果未确认，请重新读取业务系统状态；不要直接再次执行。"));
+        }
+    }
+
+    @Override
+    public ResponseEntity<?> uploadHttpApis(PlatformAuthenticatedSession actor, long projectId, List<?> apis) {
+        if (projectId < 1 || apis == null || apis.isEmpty() || apis.size() > 200) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "apis must contain 1 to 200 items");
+        }
+        String path = "/api/scan-projects/" + projectId + "/manual-http-apis/batch";
+        var rule = PlatformConsolePermissionPolicy.ruleFor(path).orElseThrow();
+        if (actor == null || actor.user() == null || !PlatformConsolePermissionPolicy.admits(rule, "POST", path, actor)
+                || !proxy.hasProjectPermission(actor, projectId, PlatformPermissions.PLATFORM_WRITE)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "business system write permission is required");
+        }
+        ResponseEntity<byte[]> response;
+        try { response = proxy.consoleSend(HttpMethod.POST, path, Map.of(), Map.of("apis", apis)); }
+        catch (RuntimeException lost) { response = null; }
+        if (response == null || response.getStatusCode().is5xxServerError()) {
+            return ResponseEntity.accepted().body(Map.of("status", "UNKNOWN", "projectId", projectId,
+                    "message", "上传结果未确认。先用 reachai_http_apis_list 查看；同一方法和路径重新上传只会覆盖，不会重复。"));
+        }
+        byte[] body = response.getBody();
+        if (body != null && body.length > MAX_RESPONSE_BYTES) return ResponseEntity.status(HttpStatus.BAD_GATEWAY).build();
+        try {
+            // The owner's 400/200 bodies are our own validation messages, so they can cross the boundary.
+            Object parsed = body == null || body.length == 0 ? Map.of() : json.readTree(body);
+            return ResponseEntity.status(response.getStatusCode()).body(parsed);
+        } catch (Exception invalid) {
+            return ResponseEntity.status(response.getStatusCode()).build();
         }
     }
 

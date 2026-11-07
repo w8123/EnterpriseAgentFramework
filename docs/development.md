@@ -20,6 +20,12 @@ npm run dev
 
 Vite 默认端口 5200。浏览器 API 经 Control，代理规则以 [vite.config.ts](../ai-admin-front/vite.config.ts)为准。
 
+Python SDK 在 `reachai-python/` 单独构建，支持 Python 3.10–3.13。安装 `python -m pip install -e 'reachai-python[test]'` 后运行 `python -m pytest reachai-python/tests`。更新 SDK 后运行 `python scripts/pack-python-sdk-artifacts.py` 生成 Control 分发的 wheel 与摘要；`python scripts/pack-python-sdk-artifacts.py --check` 校验包和源码的一致性。需要 `setuptools` 和 `wheel` 构建依赖；实际依赖约束与接入说明见 [Python SDK](../reachai-python/README.md)。
+
+Node.js SDK 在 `reachai-node/` 单独构建，执行 `npm ci --prefix reachai-node` 与 `npm test --prefix reachai-node`；更新 SDK 后执行 `node scripts/pack-node-sdk-artifacts.mjs` 生成 Control 分发的包与摘要，`node scripts/pack-node-sdk-artifacts.mjs --check` 校验包与源码的一致性。运行版本、Express 适配及接入约束见 [Node.js SDK](../reachai-node/README.md)。
+
+Go SDK 在 `reachai-go/` 单独构建和测试，执行 `go test ./...`；更新 SDK 后在仓库根目录执行 `python scripts/pack-go-sdk-artifacts.py` 生成 Control 分发的源码包与摘要，`python scripts/pack-go-sdk-artifacts.py --check` 校验包与源码的一致性。接入方式和运行约束见 [Go SDK](../reachai-go/README.md)。
+
 官网源码位于开发仓库的 `reachai-website/`，本地开发、演示地址配置与静态构建见开发库中该模块的 README。开源仓库不分发官网源码；核心服务与管理端无需构建官网。
 
 ## 开源同步
@@ -52,6 +58,9 @@ node --test scripts/open-source-sync.test.mjs
 | 改动 | 最小验证 |
 | --- | --- |
 | 后端 | 对应 Maven 模块的目标测试；涉及边界时运行架构检查 |
+| Python SDK | 支持版本的目标测试、共享协议向量和分发制品一致性；身份与业务调用另做端到端验收 |
+| Node.js SDK | 目标测试、共享协议向量和分发制品一致性；身份与业务调用另做端到端验收 |
+| Go SDK | 目标测试、共享协议向量和分发制品一致性；身份与业务调用另做端到端验收 |
 | 前端 | 相关行为测试、`npm run build`（包含未使用本地符号与参数检查），并核对真实页面的交互与布局 |
 | 体验初始化 Agent | `python scripts/test-quickstart-agent-revisions.py`，使用隔离 API 夹具，不执行真实初始化 |
 | 数据库 | 同步 `sql/initV2.sql`；已有环境需要时提供 upgrade SQL，执行后回读结构与中文 |

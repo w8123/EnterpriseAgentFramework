@@ -271,6 +271,10 @@ public class RuntimeTrustedAgentExecutionGateway {
             PersonalMemoryPrincipal owner = validEmbedOwner(memoryOwner, identityTenantId, identityUserId);
             if (owner == null) throw new IllegalArgumentException("embed business identity is required");
             identity.put("projectCode", owner.ownerDomain().substring("BUSINESS:".length()));
+            // Embed's runtime body is constructed server-side from verified token/session claims.
+            // Promote only those roles into the separately signed identity envelope.
+            Object roles = body == null ? null : body.get("roles");
+            if (roles instanceof java.util.List<?> list) identity.put("roles", list);
         }
         envelope.put("identity", identity);
         if (personalMemoryRecallService != null

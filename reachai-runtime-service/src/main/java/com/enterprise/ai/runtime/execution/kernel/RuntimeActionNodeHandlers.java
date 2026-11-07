@@ -280,7 +280,10 @@ final class RuntimeActionNodeHandlers {
                     executionTimeoutMs,
                     trustedEmbed ? identity.source().name() : null,
                     trustedEmbed ? firstText(identity.tenantId(), "default") : null,
-                    trustedEmbed ? identity.userId() : null));
+                    trustedEmbed ? identity.userId() : null,
+                    trustedEmbed && context.get(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY)
+                            instanceof com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace trustedTrace
+                            ? trustedTrace.traceId() : null));
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), "PAGE_ACTION");
             }

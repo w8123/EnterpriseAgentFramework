@@ -1,6 +1,6 @@
 import type { AssetParameter } from './assetParameter'
 
-/** Accepted Java operation owned by Capability; identity is independent of Tool projections. */
+/** Accepted business operation owned by Capability; identity is independent of Tool projections. */
 export interface BusinessMethodInfo {
   assetType: 'BUSINESS_METHOD'
   assetId: number

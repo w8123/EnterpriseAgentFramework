@@ -36,6 +36,114 @@ import static org.mockito.Mockito.when;
 class RuntimeGraphSpecExecutorTest {
 
     @Test
+    void pageActionOptionalExtractDefaultsDoNotSupplyAbsentFields() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var model = new CapturingModelClient("{\"nickName\":\"Alice\",\"address\":null,\"explicitBlank\":\"\"}");
+        var target = new RuntimeGraphSpecExecutor(new ObjectMapper(), model, capabilityClient, control);
+        String graph = """
+                {"entryNodeId":"extract","exitNodeIds":["action"],"nodes":[
+                  {"id":"extract","type":"PARAMETER_EXTRACT","config":{"extractMode":"llm","fields":[
+                    {"name":"nickName","type":"string","required":false,"defaultValue":""},
+                    {"name":"address","type":"string","required":false,"defaultValue":""},
+                    {"name":"signature","type":"string","required":false,"defaultValue":""},
+                    {"name":"explicitBlank","type":"string","required":false,"defaultValue":""},
+                    {"name":"fallback","type":"string","required":false,"defaultValue":"keep"},
+                    {"name":"count","type":"integer","required":false,"defaultValue":0},
+                    {"name":"enabled","type":"boolean","required":false,"defaultValue":false}
+                  ]}},
+                  {"id":"action","type":"PAGE_ACTION","config":{"pageKey":"personal","actionKey":"fill",
+                    "inputMapping":{"nickName":"nodeOutput.extract.nickName","address":"nodeOutput.extract.address",
+                      "signature":"nodeOutput.extract.signature",
+                      "explicitBlank":"nodeOutput.extract.explicitBlank","fallback":"nodeOutput.extract.fallback",
+                      "count":"nodeOutput.extract.count","enabled":"nodeOutput.extract.enabled"}}}
+                ],"edges":[{"from":"extract","to":"action"}]}
+                """;
+        var input = Map.<String, Object>of("sessionId", "s1", "agentId", "bot", "projectCode", "mall",
+                "message", "Update nickname", "workflowDefaultModelInstanceId", "model");
+        assertTrue(target.execute(graph, input).success());
+        var request = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control).executePageBridge(request.capture());
+        var args = request.getValue().args();
+        assertEquals("Alice", args.get("nickName"));
+        assertTrue(args.containsKey("address"));
+        assertEquals(null, args.get("address"));
+        assertEquals(null, args.get("signature"));
+        assertEquals("", args.get("explicitBlank"));
+        assertEquals("keep", args.get("fallback"));
+        assertEquals(0, args.get("count"));
+        assertEquals(false, args.get("enabled"));
+    }
+
+    @Test
+    void expressionExtractOmitsOptionalBlankDefaultButRequiredBlankStillFails() {
+        String graph = """
+                {"entryNodeId":"extract","exitNodeIds":["tool"],"nodes":[
+                  {"id":"extract","type":"PARAMETER_EXTRACT","config":{"extractMode":"expression","fields":[
+                    {"name":"nickname","type":"string","source":"params.nickname","required":false,"defaultValue":""},
+                    {"name":"fallback","type":"string","source":"params.absent","required":false,"defaultValue":"ok"}
+                  ]}},
+                  {"id":"tool","type":"TOOL","ref":{"qualifiedName":"orders:query"},"config":{"inputMapping":{
+                    "nickname":"nodeOutput.extract.nickname","fallback":"nodeOutput.extract.fallback"}}}
+                ],"edges":[{"from":"extract","to":"tool"}]}
+                """;
+        assertTrue(executor.execute(graph, Map.of("params", Map.of())).success());
+        var mapped = capabilityClient.requests.get(0).get("input");
+        assertTrue(mapped instanceof Map<?, ?>);
+        assertEquals(null, ((Map<?, ?>) mapped).get("nickname"));
+        assertEquals("ok", ((Map<?, ?>) mapped).get("fallback"));
+        String required = """
+                {"entryNodeId":"extract","exitNodeIds":["extract"],"nodes":[
+                  {"id":"extract","type":"PARAMETER_EXTRACT","config":{"extractMode":"expression","fields":[
+                    {"name":"nickname","type":"string","source":"params.nickname","required":true,"defaultValue":""}
+                  ]}}]}
+                """;
+        assertFalse(executor.execute(required, Map.of("params", Map.of())).success());
+    }
+
+    @Test
+    void pageActionTraceRequiresRuntimeMarkerAndCannotBeOverwrittenByGraphVariables() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        var graph = """
+                {"entryNodeId":"assign","exitNodeIds":["action"],"nodes":[
+                  {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{
+                    "supervisorTraceId":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
+                  {"id":"action","type":"PAGE_ACTION","config":{"pageKey":"orders","actionKey":"orders.open"}}
+                ],"edges":[{"from":"assign","to":"action","condition":"always"}]}
+                """;
+        String trace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var input = new java.util.LinkedHashMap<String, Object>();
+        input.put("sessionId", "s1"); input.put("agentId", "bot"); input.put("projectCode", "erp");
+        input.put("supervisorTraceId", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        input.put(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY,
+                Map.of("traceId", trace)); // public JSON can only supply a map
+        var trusted = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "erp", "real-user");
+        assertTrue(executor.execute(graph, input, trusted).success());
+        input.put(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY,
+                com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.fromRuntime(trace));
+        var completed = executor.execute(graph, input, trusted);
+        assertTrue(completed.success());
+        assertFalse(completed.resumeCheckpoint().containsKey(
+                com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY));
+        var reservedAssignment = """
+                {"entryNodeId":"assign","exitNodeIds":["assign"],"nodes":[
+                  {"id":"assign","type":"VARIABLE_ASSIGN","config":{"assignments":{
+                    "__trustedSupervisorTrace":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}}]}
+                """;
+        assertFalse(executor.execute(reservedAssignment, input, trusted).success());
+        assertTrue(executor.execute(graph, input, WorkflowExecutionIdentity.untrustedDebug()).success());
+        var captured = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control, org.mockito.Mockito.times(3)).executePageBridge(captured.capture());
+        assertEquals(null, captured.getAllValues().get(0).supervisorTraceId());
+        assertEquals(trace, captured.getAllValues().get(1).supervisorTraceId());
+        assertEquals(null, captured.getAllValues().get(2).supervisorTraceId());
+    }
+
+    @Test
     void pageBridgeIdentityComesFromTrustedExecutionContextNotBusinessInput() {
         var control = mock(RuntimeControlCatalogClient.class);
         when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(

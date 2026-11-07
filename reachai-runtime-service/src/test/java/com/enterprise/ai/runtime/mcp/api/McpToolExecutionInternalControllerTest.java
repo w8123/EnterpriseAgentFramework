@@ -164,7 +164,11 @@ class McpToolExecutionInternalControllerTest {
     void employeeConnectionRunsAsTheTrustedEmployeeNamedInTheSignature() throws Exception {
         when(service.execute(any(), any())).thenReturn(new ExecutionOutcome(
                 true, "OK", Map.of("data", Map.of("stock", 43)), "78", "mcp_trace_e", null));
-        byte[] payload = body(employeeRequest("1"));
+        var employee = employeeRequest("1");
+        employee.put("metadata", Map.of("tenantId", "tenant-a", "externalUserId", "1", "connectionId", 5,
+                "projectCode", "yudao-erp", "employeeRoles", java.util.List.of("sales")));
+        employee.put("arguments", Map.of("roles", java.util.List.of("Admin")));
+        byte[] payload = body(employee);
 
         mockMvc.perform(signed(payload, payload, InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
                 .andExpect(status().isOk())
@@ -178,6 +182,25 @@ class McpToolExecutionInternalControllerTest {
         assertEquals("yudao-erp", identity.getValue().projectCode());
         assertEquals("1", identity.getValue().userId());
         assertTrue(identity.getValue().userTrusted());
+        assertEquals(java.util.List.of("sales"), identity.getValue().roles());
+    }
+
+    @Test
+    void employeeRolesAreBoundByTheSignedBodyAndMustBeAStringList() throws Exception {
+        var request = employeeRequest("1");
+        request.put("metadata", Map.of("tenantId", "tenant-a", "externalUserId", "1", "connectionId", 5,
+                "projectCode", "yudao-erp", "employeeRoles", java.util.List.of("sales")));
+        byte[] signed = body(request);
+        request.put("metadata", Map.of("tenantId", "tenant-a", "externalUserId", "1", "connectionId", 5,
+                "projectCode", "yudao-erp", "employeeRoles", java.util.List.of("Admin")));
+        mockMvc.perform(signed(signed, body(request), InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
+                .andExpect(status().isUnauthorized());
+        request.put("metadata", Map.of("tenantId", "tenant-a", "externalUserId", "1", "connectionId", 5,
+                "projectCode", "yudao-erp", "employeeRoles", "Admin"));
+        byte[] invalid = body(request);
+        mockMvc.perform(signed(invalid, invalid, InternalServiceAuthHeaders.IDENTITY_SOURCE_MCP_EMPLOYEE, "1"))
+                .andExpect(status().isUnauthorized());
+        verify(service, never()).execute(any(), any());
     }
 
     @Test

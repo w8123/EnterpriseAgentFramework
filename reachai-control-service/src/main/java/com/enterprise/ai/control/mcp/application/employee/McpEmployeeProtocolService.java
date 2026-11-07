@@ -434,7 +434,8 @@ public class McpEmployeeProtocolService {
                     connection.tenantId(),
                     system.publication().id(),
                     system.revision().revisionNo(),
-                    tool.capabilityContractHash()));
+                    tool.capabilityContractHash(),
+                    system.account().roles()));
         } catch (RuntimeException boundaryFailure) {
             outcome = new McpRuntimeExecutionGateway.ExecutionOutcome(
                     false, "MCP_RUNTIME_EXECUTION_BOUNDARY_FAILED", Map.of(),

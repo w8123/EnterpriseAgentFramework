@@ -17,6 +17,14 @@ export interface PageActionDispatchRequest {
   metadata?: Record<string, unknown>
 }
 
+/** The server has acknowledged this exact page-action result. Contains no action arguments or tokens. */
+export interface PageActionResultDelivered {
+  requestId: string
+  actionKey: string
+  status: PageActionResult['status']
+  userConfirmed: boolean
+}
+
 interface ReachAiWindowPageBridge {
   execute?: (pageKey: string, actionKey: string, args?: Record<string, unknown>, options?: Record<string, unknown>) => Promise<unknown> | unknown
   list?: (pageKey?: string) => unknown[]
@@ -81,6 +89,8 @@ export async function dispatchPageActionExactlyOnce(options: {
   pendingPageActionResults?: Map<string, PageActionResult>
   responseMetadata?: Record<string, unknown>
   onRequested?: (request: PageActionDispatchRequest) => void
+  onClaimed?: (request: PageActionDispatchRequest, traceId: string) => void
+  onDelivered?: (result: PageActionResultDelivered) => void
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
@@ -108,8 +118,9 @@ export async function dispatchPageActionExactlyOnce(options: {
       options.pendingPageActionResults?.get(requestId)
     if (options.handledPageActions.has(requestId)) {
       if (!pendingResult) return
-      await deliverPageActionResult(options, pendingResult)
+      const acknowledged = await deliverPageActionResult(options, pendingResult)
       options.pendingPageActionResults?.delete(requestId)
+      notifyDelivered(options, pendingResult, acknowledged)
       return
     }
     // 先认领，防止并发第二进入 Bridge
@@ -123,7 +134,11 @@ export async function dispatchPageActionExactlyOnce(options: {
         if (options.isActive?.() === false) { executionRejected = true; return false }
         if (claimAttempted) return claimed
         claimAttempted = true
-        claimed = await claimPageActionWithRefresh(options, normalized)
+        const claim = await claimPageActionWithRefresh(options, normalized)
+        claimed = claim.claimed
+        if (claimed && claim.traceId && normalized.metadata?.traceId === claim.traceId) {
+          options.onClaimed?.(normalized, claim.traceId)
+        }
         executionRejected = !claimed || options.isActive?.() === false
         return !executionRejected
       }
@@ -148,14 +163,15 @@ export async function dispatchPageActionExactlyOnce(options: {
       }
       options.pendingPageActionResults?.set(requestId, result)
       try {
-        await deliverPageActionResult(options, result)
+        const acknowledged = await deliverPageActionResult(options, result)
+        options.pendingPageActionResults?.delete(requestId)
+        notifyDelivered(options, result, acknowledged)
       } catch (error) {
         if (hasStatus(error, 409)) {
           options.pendingPageActionResults?.delete(requestId)
         }
         throw error
       }
-      options.pendingPageActionResults?.delete(requestId)
     } catch (error) {
       // A failed claim may never have reached Control. Let a later delivery
       // retry; if Control did receive it, its atomic claim returns 409 and
@@ -185,10 +201,10 @@ async function claimPageActionWithRefresh(
     signal?: AbortSignal
   },
   request: PageActionDispatchRequest,
-): Promise<boolean> {
+): Promise<{ claimed: boolean; traceId?: string }> {
   let token = options.token
   try {
-    return await claimPageActionExecution(
+    return await claimPageActionExecutionDetails(
       options.apiBase,
       options.sessionId,
       token,
@@ -197,11 +213,11 @@ async function claimPageActionWithRefresh(
       options.signal,
     )
   } catch (error) {
-    if (hasStatus(error, 409)) return false
+    if (hasStatus(error, 409)) return { claimed: false }
     if (!isUnauthorized(error) || !options.refreshToken) throw error
     token = await options.refreshToken()
     try {
-      return await claimPageActionExecution(
+      return await claimPageActionExecutionDetails(
         options.apiBase,
         options.sessionId,
         token,
@@ -210,7 +226,7 @@ async function claimPageActionWithRefresh(
         options.signal,
       )
     } catch (retryError) {
-      if (hasStatus(retryError, 409)) return false
+      if (hasStatus(retryError, 409)) return { claimed: false }
       throw retryError
     }
   }
@@ -229,7 +245,7 @@ async function deliverPageActionResult(
 ) {
   let token = options.token
   try {
-    await postPageActionResult(
+    return await postPageActionResult(
       options.apiBase,
       options.sessionId,
       token,
@@ -240,7 +256,7 @@ async function deliverPageActionResult(
   } catch (error) {
     if (!isUnauthorized(error) || !options.refreshToken) throw error
     token = await options.refreshToken()
-    await postPageActionResult(
+    return await postPageActionResult(
       options.apiBase,
       options.sessionId,
       token,
@@ -248,6 +264,22 @@ async function deliverPageActionResult(
       options.fetchImpl,
       options.signal,
     )
+  }
+}
+
+function notifyDelivered(
+  options: { onDelivered?: (result: PageActionResultDelivered) => void; onError?: (error: unknown) => void; isActive?: () => boolean },
+  result: PageActionResult,
+  acknowledged: boolean,
+) {
+  if (!acknowledged || options.isActive?.() === false) return
+  try {
+    options.onDelivered?.({ requestId: result.requestId, actionKey: result.actionKey,
+      status: result.status, userConfirmed: result.userConfirmed === true })
+  } catch (error) {
+    // The result was already acknowledged: never replay the action or its result
+    // because a host event handler failed.
+    options.onError?.(error)
   }
 }
 
@@ -287,6 +319,8 @@ export async function processMessagePageActionQueue(options: {
   inFlightPageActions: Map<string, Promise<void>>
   pendingPageActionResults?: Map<string, PageActionResult>
   onRequested?: (request: PageActionDispatchRequest) => void
+  onClaimed?: (request: PageActionDispatchRequest, traceId: string) => void
+  onDelivered?: (result: PageActionResultDelivered) => void
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
@@ -307,6 +341,8 @@ export async function processMessagePageActionQueue(options: {
       pendingPageActionResults: options.pendingPageActionResults,
       responseMetadata: options.response.metadata,
       onRequested: options.onRequested,
+      onClaimed: options.onClaimed,
+      onDelivered: options.onDelivered,
       onError: options.onError,
       refreshToken: options.refreshToken,
       fetchImpl: options.fetchImpl,
@@ -420,13 +456,16 @@ export async function postPageActionResult(
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
 ) {
-  await postJson(
+  const accepted = await postJson<{ requestId?: string; actionKey?: string; status?: string }>(
     `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(result.requestId)}/result`,
     result,
     token,
     fetchImpl,
     signal,
   )
+  return accepted?.requestId === result.requestId
+    && accepted?.actionKey === result.actionKey
+    && accepted?.status === result.status
 }
 
 export async function claimPageActionExecution(
@@ -437,14 +476,28 @@ export async function claimPageActionExecution(
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
 ): Promise<boolean> {
-  const response = await postJson<{ claimed?: boolean }>(
+  return (await claimPageActionExecutionDetails(apiBase, sessionId, token, request, fetchImpl, signal)).claimed
+}
+
+async function claimPageActionExecutionDetails(
+  apiBase: string,
+  sessionId: string,
+  token: string,
+  request: Pick<PageActionDispatchRequest, 'requestId' | 'actionKey'>,
+  fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
+): Promise<{ claimed: boolean; traceId?: string }> {
+  const response = await postJson<{ claimed?: boolean; requestId?: string; actionKey?: string; traceId?: unknown }>(
     `${apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-actions/${encodeURIComponent(request.requestId)}/claim`,
     { requestId: request.requestId, actionKey: request.actionKey },
     token,
     fetchImpl,
     signal,
   )
-  return response.claimed === true
+  return { claimed: response.claimed === true,
+    traceId: response.requestId === request.requestId && response.actionKey === request.actionKey
+      && typeof response.traceId === 'string' && /^[a-f0-9]{32}$/i.test(response.traceId)
+      ? response.traceId : undefined }
 }
 
 export async function pollPendingPageActions(options: {
@@ -458,6 +511,7 @@ export async function pollPendingPageActions(options: {
   pendingPageActionResults?: Map<string, PageActionResult>
   context?: Record<string, unknown>
   onEvent?: (event: EafChatEvent) => void
+  onClaimed?: (request: PageActionDispatchRequest, traceId: string) => void
   onError?: (error: unknown) => void
   refreshToken?: () => Promise<string>
   fetchImpl?: typeof fetch
@@ -500,6 +554,8 @@ export async function pollPendingPageActions(options: {
       pendingPageActionResults: options.pendingPageActionResults,
       responseMetadata: options.context,
       onRequested: (req) => options.onEvent?.({ type: 'page.action.requested', data: req }),
+      onClaimed: options.onClaimed,
+      onDelivered: (result) => options.onEvent?.({ type: 'page.action.result.delivered', data: result }),
       onError: options.onError,
       refreshToken,
       fetchImpl,
@@ -528,6 +584,7 @@ export async function pollPendingPageActions(options: {
       inFlightPageActions: inFlight,
       pendingPageActionResults: options.pendingPageActionResults,
       responseMetadata: options.context,
+      onDelivered: (delivered) => options.onEvent?.({ type: 'page.action.result.delivered', data: delivered }),
       onError: options.onError,
       refreshToken,
       fetchImpl,

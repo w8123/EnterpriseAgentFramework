@@ -3268,7 +3268,7 @@ CREATE TABLE IF NOT EXISTS `capability_http_api_source_binding` (
     `project_id` BIGINT NOT NULL,
     `project_code` VARCHAR(96) NOT NULL,
     `environment` VARCHAR(32) NOT NULL,
-    `source_kind` ENUM('STARTER_MVC', 'OPENAPI_SCAN', 'API_MARKET_OPERATION') NOT NULL,
+    `source_kind` ENUM('STARTER_MVC', 'OPENAPI_SCAN', 'API_MARKET_OPERATION', 'MANUAL') NOT NULL,
     `source_key` VARCHAR(256) NOT NULL COMMENT '来源适配器内稳定键；同范围同类型唯一',
     `source_location` VARCHAR(1024) DEFAULT NULL COMMENT '来源代码/文档位置；不保存调用地址或凭据',
     `source_revision` VARCHAR(256) DEFAULT NULL COMMENT '来源修订事实，不参与 HTTP API identity',

@@ -1,17 +1,25 @@
 ---
 name: reachai-onboarding
-description: Integrate Java business systems with ReachAI SDK registration, instance heartbeat, gateway/embed access, and business capability source sync. Use when asked to connect a Spring Boot service to ReachAI, add reachai-capability-sdk or reachai-spring-boot2-starter, configure reachai.registry/reachai.project/reachai.capability, prepare @ReachCapability declarations, or verify SDK onboarding from a ReachAI manifest.
+description: Integrate Java Spring Boot, C# ASP.NET Core, Python FastAPI, Node.js Express or Go net/http business systems with ReachAI SDK registration, instance heartbeat, gateway/embed access, and business capability source sync. Use when asked to connect a business system to ReachAI, declare capabilities, or verify SDK onboarding from a ReachAI manifest.
 ---
 
 # ReachAI Onboarding
 
 ## Operating Rules
 
-Treat the current business repository as the source of truth. Inspect its Maven modules, Java version, Spring Boot version, configuration files, existing controller/service boundaries, and test commands before editing.
+Treat the current business repository as the source of truth. Inspect its language, project layout, runtime version, configuration, existing controller/service boundaries, and test commands before editing. For Java inspect Maven and Spring Boot; for C# inspect .NET/ASP.NET Core projects and their authentication setup.
+
+For a C# ASP.NET Core project, use `references/dotnet-sdk-access.md`; identify the `csharp` artifact by its `language`/`packageName`, and use `?language=csharp` when retrieving a project onboarding manifest. Follow the C# reference for backend installation, configuration, identity and capability declaration. Steps 3–6 and Spring-specific details in steps 7–8 below apply only to Java; follow the language-neutral gateway, browser, verification and reporting requirements for both languages. Do not add Maven dependencies or Spring configuration to a C# project.
+
+For a Python FastAPI project, read `references/python-sdk-access.md` and request the manifest with `?language=python`. Steps 3–6 and Spring-specific details in steps 7–8 apply only to Java; retain the shared browser, gateway, verification and reporting requirements. Do not add Maven or ASP.NET dependencies to a Python application.
+
+For a Node.js Express project, read `references/node-sdk-access.md` and request `?language=node`. Use the verified Node artifact and the business system’s authenticated session and authorization; do not add Spring or ASP.NET dependencies. Shared gateway, browser, verification and reporting requirements still apply.
+
+For a Go application, read `references/go-sdk-access.md` and request `?language=go`. Install the verified source archive by a local module replacement, not by guessing a public Go module proxy or requiring a ReachAI checkout. Use the business system's authenticated session and authorization. Shared gateway, browser, verification and reporting requirements still apply.
 
 凡是写入 ReachAI 或展示给业务用户的名称、标题、描述、说明、System Prompt、节点名称、审计原因、进度和结果，默认使用清晰的简体中文。不要仅因 API、Schema 或字段名为英文就生成英文业务文案。Token、MCP、AI、Agent、Supervisor、Workflow、Tool、API、SDK 等熟知专业术语，以及 keySlug、toolName、代码、路径、枚举值、协议字段和技术标识可保留英文；必要时使用“中文名称（英文术语）”。不要翻译或改写技术标识。
 
-Never paste, print, or commit the registry app secret. Use the environment variable named by the manifest, normally `REACHAI_REGISTRY_APP_SECRET`.
+Never paste, print, or commit the registry app secret. Use the environment variable named by the manifest: normally `REACHAI_REGISTRY_APP_SECRET` for Java, `ReachAI__AppSecret` for C# ASP.NET Core, and `REACHAI_APP_SECRET` for Python, Node or Go when directly injecting credentials. Enrollment may instead use the relevant SDK's protected credential store.
 
 ReachAI task handoffs use a one-time activation code. Activate it once, keep the returned short-lived task token only in the current process, and call `/api/ai-coding/tasks/{taskId}/**` with `Authorization: Bearer <taskToken>`. Never reuse a project-level `aiCodingKey` on task protocol routes.
 
@@ -115,6 +123,9 @@ Prefer minimal, reviewable changes:
 - For exact Java SDK signatures, read `references/java-sdk-api-reference.md`;
   then use `references/java-sdk-access.md` for placement, configuration and
   runtime boundaries.
+- For C# ASP.NET Core, use `references/dotnet-sdk-access.md` and the `csharp` artifact in the manifest.
+- For Python FastAPI, use `references/python-sdk-access.md` and the `python` artifact in the manifest.
+- For Node.js Express, use `references/node-sdk-access.md` and the `node` artifact in the manifest.
 - For platform API contracts, read `references/platform-apis.md`.
 - For browser SDK public types and the minimal integration, read `references/embed-chat-quick-reference.md`.
 - For Spring Cloud Gateway, Nginx and Kong authentication boundaries, read `references/gateway-examples.md` and reuse the copy-ready files under `examples/gateway/`.

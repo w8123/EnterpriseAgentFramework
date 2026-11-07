@@ -91,6 +91,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("schema", "reachai.ai-coding.project-onboarding-context.v1");
         root.set("project", safeProject(source, task));
+        root.put("sdkLanguage", sdkLanguage(task, Map.of()));
 
         ObjectNode scope = root.putObject("scope");
         scope.put("accessMode", "READ_WRITE");
@@ -114,8 +115,8 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         ArrayNode steps = root.putArray("canonicalSteps");
         addStep(steps, "PROJECT", "项目识别",
                 "Confirm repository modules, projectCode, environment and existing ReachAI integration.");
-        addStep(steps, "STARTER", "后端 Starter",
-                "Add the ReachAI starter/capability SDK and declare registration configuration.");
+        addStep(steps, "STARTER", "后端 SDK",
+                "Add the ReachAI SDK appropriate to the business language and declare registration configuration.");
         addStep(steps, "GATEWAY", "网关路由",
                 "Wire embed proxy and registry callback routes without mixing business JWT and embed auth.");
         addStep(steps, "BUSINESS_API", "业务服务校验",
@@ -138,12 +139,21 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
 
         ObjectNode implementation = root.putObject("implementationGuidance");
         implementation.put("objective", task.objective());
-        implementation.put("secretEnvironmentVariable", "REACHAI_REGISTRY_APP_SECRET");
-        implementation.put(
-                "secretSetupCommandTemplate",
-                "powershell -NoProfile -ExecutionPolicy Bypass -File "
-                        + "\"{skillExtractDir}/reachai-onboarding/scripts/"
-                        + "set-reachai-registry-secret.ps1\" -Target User");
+        String selectedLanguage = sdkLanguage(task, Map.of());
+        boolean csharp = "csharp".equals(selectedLanguage);
+        boolean python = "python".equals(selectedLanguage);
+        boolean node = "node".equals(selectedLanguage);
+        boolean go = "go".equals(selectedLanguage);
+        implementation.put("secretEnvironmentVariable", csharp ? "ReachAI__AppSecret"
+                : python || node || go ? "REACHAI_APP_SECRET" : "REACHAI_REGISTRY_APP_SECRET");
+        if (csharp || python || node || go) {
+            implementation.putNull("secretSetupCommandTemplate");
+        } else {
+            implementation.put("secretSetupCommandTemplate",
+                    "powershell -NoProfile -ExecutionPolicy Bypass -File "
+                            + "\"{skillExtractDir}/reachai-onboarding/scripts/"
+                            + "set-reachai-registry-secret.ps1\" -Target User");
+        }
         implementation.put(
                 "sdkSyncVerificationKey",
                 "SDK_SYNC");
@@ -151,7 +161,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         implementation.put("embedProxyPath", "/api/reachai/embed/**");
         implementation.put(
                 "embedTokenExchangeClient",
-                "Use the Starter bean com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient. "
+                "Use the business-language SDK's token broker/client (Java: com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient; C#: the ASP.NET Core ReachAI SDK; Python: the FastAPI ReachAI SDK; Node: the Express ReachAI SDK; Go: the net/http ReachAI SDK). "
                         + "The business broker only resolves its authenticated user and forwards the SDK-owned page identity; "
                         + "do not reimplement ReachAI signing or wrapped response parsing.");
         implementation.put(
@@ -421,14 +431,26 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                 embedE2eEvidenceService.latestSuccessfulConversation(
                         task.projectCode(),
                         observedAfter);
-        boolean artifactAvailable =
-                ControlEmbedChatArtifactSupport.integritySha256() != null
-                        && ControlJavaSdkArtifactSupport.integritySha256(
-                        ControlJavaSdkArtifactSupport.CAPABILITY_SDK,
-                        "jar") != null
-                        && ControlJavaSdkArtifactSupport.integritySha256(
-                        ControlJavaSdkArtifactSupport.SPRING_BOOT2_STARTER,
-                        "jar") != null;
+        String sdkLanguage = sdkLanguage(task, facts);
+        facts = factsForLanguage(sdkLanguage, facts);
+        if ("python".equals(sdkLanguage) || "node".equals(sdkLanguage) || "go".equals(sdkLanguage)) {
+            // The existing browser evidence is scoped to a project, not a specific SDK instance.
+            e2eEvidence = EmbedConversationEvidence.pending(
+                    "项目级 Embed 会话无法证明来自 " + sdkLanguage + " 实例，请另行完成真实浏览器验收。");
+        }
+        boolean backendArtifactAvailable = switch (sdkLanguage) {
+            case "csharp" -> ControlDotnetSdkArtifactSupport.integritySha256() != null;
+            case "python" -> ControlPythonSdkArtifactSupport.integritySha256() != null;
+            case "node" -> ControlNodeSdkArtifactSupport.integritySha256() != null;
+            case "go" -> ControlGoSdkArtifactSupport.integritySha256() != null;
+            case "java" -> ControlJavaSdkArtifactSupport.integritySha256(
+                    ControlJavaSdkArtifactSupport.CAPABILITY_SDK, "jar") != null
+                    && ControlJavaSdkArtifactSupport.integritySha256(
+                    ControlJavaSdkArtifactSupport.SPRING_BOOT2_STARTER, "jar") != null;
+            default -> false;
+        };
+        boolean artifactAvailable = ControlEmbedChatArtifactSupport.integritySha256() != null
+                && backendArtifactAvailable;
         return ControlSdkAccessReadinessCalculator.calculate(
                 project == null ? Map.of() : project,
                 facts == null ? Map.of() : facts,
@@ -437,6 +459,44 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                         ? ControlEmbedChatArtifactSupport.downloadUrl("")
                         : null,
                 e2eEvidence);
+    }
+
+    static Map<String, Object> factsForLanguage(String language, Map<String, Object> facts) {
+        if (!"python".equals(language) && !"node".equals(language) && !"go".equals(language)) return facts == null ? Map.of() : facts;
+        Map<String, Object> scoped = new java.util.LinkedHashMap<>(facts == null ? Map.of() : facts);
+        if (!language.equalsIgnoreCase(String.valueOf(scoped.get("sdkLanguage")))) {
+            scoped.put("instanceExists", false);
+            scoped.put("online", false);
+            scoped.remove("lastHeartbeatAt");
+        }
+        // Callback proof is currently project-scoped, with no language/instance provenance.
+        scoped.put("sdkCallbackStatus", "WARN");
+        scoped.put("sdkCallbackMessage", "项目级回调证据未关联 " + language + " 实例，请单独验证签名回调和能力快照。");
+        scoped.remove("sdkCallbackEvidence");
+        return scoped;
+    }
+
+    /** A user-selected target hint takes precedence over an SDK-reported instance hint. */
+    static String sdkLanguage(TaskDescriptor task, Map<String, Object> facts) {
+        if (task != null && task.targets() != null) {
+            for (var target : task.targets()) {
+                if (target != null && target.snapshot() != null && target.snapshot().path("sdkLanguage").isTextual()) {
+                    return normalizeSdkLanguage(target.snapshot().path("sdkLanguage").asText());
+                }
+            }
+        }
+        Object hint = facts == null ? null : facts.get("sdkLanguage");
+        // Older Java instances do not report a language; retain their existing readiness behavior.
+        return hint == null ? "java" : normalizeSdkLanguage(String.valueOf(hint));
+    }
+
+    private static String normalizeSdkLanguage(String language) {
+        if ("java".equalsIgnoreCase(language.trim())) return "java";
+        if ("csharp".equalsIgnoreCase(language.trim())) return "csharp";
+        if ("python".equalsIgnoreCase(language.trim())) return "python";
+        if ("node".equalsIgnoreCase(language.trim())) return "node";
+        if ("go".equalsIgnoreCase(language.trim())) return "go";
+        return "unknown";
     }
 
     private String dependencyMessage(FeignException ex) {

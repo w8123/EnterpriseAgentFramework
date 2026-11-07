@@ -125,7 +125,7 @@ describe('business method catalog scope ownership', () => {
     mocks.getBusinessMethods.mockResolvedValue(page())
     wrapper = mount(BusinessMethodCatalog, { global: { plugins: [ElementPlus], stubs: { BusinessMethodDetailDialog: true } } })
     await flushPromises()
-    const input = wrapper.get('input[aria-label="搜索 Java 业务方法"]')
+    const input = wrapper.get('input[aria-label="搜索业务方法"]')
     await input.setValue('尚未提交')
     filterSelect(wrapper, 'classification').vm.$emit('change', '4')
     await flushPromises()
@@ -145,11 +145,11 @@ describe('business method catalog scope ownership', () => {
     canLoadData.value = true; mocks.getBusinessMethods.mockResolvedValue(page())
     wrapper = mount(BusinessMethodCatalog, { global: { plugins: [ElementPlus], stubs: { BusinessMethodDetailDialog: true } } })
     await flushPromises()
-    await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('旧上下文草稿')
+    await wrapper.get('input[aria-label="搜索业务方法"]').setValue('旧上下文草稿')
     if (change === 'project') { projectId.value = 8; requestKey.value = 'account-a|project:8' }
     else { mocks.auth.sessionId = 'account-b'; requestKey.value = 'account-b|project:7' }
     await flushPromises()
-    expect((wrapper.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('')
   })
 
   it.each(['', undefined])('clears enabled filter immediately for clearable payload %s and retains keyword draft', async value => {
@@ -157,12 +157,12 @@ describe('business method catalog scope ownership', () => {
     mocks.getBusinessMethods.mockResolvedValue(page())
     wrapper = mount(BusinessMethodCatalog, { global: { plugins: [ElementPlus], stubs: { BusinessMethodDetailDialog: true } } })
     await flushPromises()
-    await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('尚未提交')
+    await wrapper.get('input[aria-label="搜索业务方法"]').setValue('尚未提交')
     const enabled = filterSelect(wrapper, 'status')
     enabled.vm.$emit('update:modelValue', value); enabled.vm.$emit('change', value); await flushPromises()
     expect(mocks.route.query.methodEnabled).toBeUndefined()
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: undefined, current: 1, keyword: undefined }))
-    expect((wrapper.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
+    expect((wrapper.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
   })
 
   it('keeps one flat table while classification, search and paging change', async () => {
@@ -702,7 +702,7 @@ describe('business method catalog scope ownership', () => {
     wrapper = mount(BusinessMethodCatalog, { global: { plugins: [ElementPlus], stubs: { BusinessMethodDetailDialog: true } } })
     await flushPromises()
     expect(wrapper.text()).toContain('订单查询')
-    await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('订单查询')
+    await wrapper.get('input[aria-label="搜索业务方法"]').setValue('订单查询')
     await wrapper.get('form').trigger('submit'); await flushPromises()
     expect(wrapper.text()).toContain('业务方法目录暂时不可用')
     await wrapper.get('.catalog-load-alert button').trigger('click'); await flushPromises()
@@ -766,7 +766,7 @@ describe('business method catalog scope ownership', () => {
     expect(project.findAllComponents({ name: 'ElOption' }).map(option => ({ value: option.props('value'), label: option.props('label') })))
       .toEqual(expect.arrayContaining([{ value: '', label: '全部项目' }, { value: '7', label: '订单系统' }, { value: '8', label: '库存系统' }]))
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: undefined, keyword: '查询' }))
-    await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('尚未提交')
+    await wrapper.get('input[aria-label="搜索业务方法"]').setValue('尚未提交')
     project.vm.$emit('change', '8'); await flushPromises()
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 8, keyword: '查询', current: 1 }))
     expect(wrapper.text()).toContain('库存查询')
@@ -774,7 +774,7 @@ describe('business method catalog scope ownership', () => {
     expect(filterSelect(wrapper, 'classification').props('disabled')).toBe(false)
     expect(mocks.route.query).toMatchObject({ scope: 'all', methodProjectId: '8', methodKeyword: '查询', apiKeyword: '/orders', apiPage: '3' })
     expect(mocks.route.query.projectId).toBeUndefined()
-    expect((wrapper.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
+    expect((wrapper.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
     expect((mocks.pageScope as any).requestParams.value).toBeUndefined()
     expect((mocks.pageScope as any).selectScope).not.toHaveBeenCalled()
     expect(mocks.projectStore.currentProjectId).toBeNull()
@@ -784,7 +784,7 @@ describe('business method catalog scope ownership', () => {
     expect(mocks.route.query.scope).toBe('all')
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: undefined, keyword: '查询' }))
     expect(project.props('modelValue')).toBe('')
-    expect((wrapper.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
+    expect((wrapper.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
   })
 
   it('resets local classification and paging on project-filter changes while keeping keyword drafts, enabled state and HTTP filters', async () => {
@@ -801,7 +801,7 @@ describe('business method catalog scope ownership', () => {
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 7, groupId: 4, current: 3 }))
     expect(wrapper.getComponent({ name: 'CatalogClassificationSections' }).props('canWrite')).toBe(false)
     expect(wrapper.find('.capability-table--adjusting').exists()).toBe(false)
-    await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('尚未提交')
+    await wrapper.get('input[aria-label="搜索业务方法"]').setValue('尚未提交')
     filterSelect(wrapper, 'project').vm.$emit('change', '8'); await flushPromises()
     expect(mocks.getBusinessMethods).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: 8, groupId: undefined, current: 1, keyword: '已提交', enabled: false }))
     expect(mocks.route.query).toMatchObject({ scope: 'all', methodProjectId: '8', methodKeyword: '已提交', methodEnabled: 'false',
@@ -809,7 +809,7 @@ describe('business method catalog scope ownership', () => {
     expect(mocks.route.query.methodGroupId).toBeUndefined()
     expect(mocks.route.query.classificationId).toBeUndefined()
     expect(mocks.route.query.classificationAction).toBeUndefined()
-    expect((wrapper.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
+    expect((wrapper.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
     expect(filterSelect(wrapper, 'status').props('modelValue')).toBe('false')
   })
 
@@ -892,13 +892,13 @@ describe('business method catalog scope ownership', () => {
     expect(filterSelect(wrapper, 'project').findAllComponents({ name: 'ElOption' }).map(option => option.props('label'))).not.toContain('不可见项目')
     const malformedQueryValue = Array.isArray(localProjectId) || localProjectId === null
     if (malformedQueryValue) {
-      await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('重新查询')
+      await wrapper.get('input[aria-label="搜索业务方法"]').setValue('重新查询')
       await wrapper.get('form').trigger('submit'); await flushPromises()
       expect(mocks.route.query.methodProjectId).toEqual(localProjectId)
       expect(mocks.route.query.methodKeyword).toBe('重新查询')
       expect(mocks.getBusinessMethods).not.toHaveBeenCalled()
       expect(wrapper.text()).toContain('所选项目不存在或已不可访问，请重新选择项目。')
-      await wrapper.get('input[aria-label="搜索 Java 业务方法"]').setValue('')
+      await wrapper.get('input[aria-label="搜索业务方法"]').setValue('')
       wrapper.getComponent({ name: 'ElInput' }).vm.$emit('clear'); await flushPromises()
       expect(mocks.route.query.methodProjectId).toEqual(localProjectId)
       expect(mocks.route.query.methodKeyword).toBeUndefined()
@@ -918,7 +918,7 @@ describe('business method catalog scope ownership', () => {
     wrapper = mount(BusinessMethodCatalog, { global: { plugins: [ElementPlus], stubs: { BusinessMethodDetailDialog: true } } })
     await flushPromises()
     expect(wrapper.text()).toContain('业务方法目录加载失败')
-    expect(wrapper.text()).not.toContain('Java 业务方法还是空的')
+    expect(wrapper.text()).not.toContain('业务方法还是空的')
   })
 
 })

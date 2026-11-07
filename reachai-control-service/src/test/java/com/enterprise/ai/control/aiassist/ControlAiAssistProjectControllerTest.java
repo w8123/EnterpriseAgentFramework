@@ -33,6 +33,67 @@ import static org.mockito.Mockito.when;
 class ControlAiAssistProjectControllerTest {
 
     @Test
+    void explicitCsharpManifestDoesNotExposeMavenDependenciesAsItsSdk() {
+        CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
+        when(client.getOnboardingProjectById(7L)).thenReturn(Map.of(
+                "id", 7L, "projectCode", "orders", "name", "Orders"));
+        var controller = new ControlAiAssistProjectController(client);
+        var request = new MockHttpServletRequest("GET", "/api/ai-assist/projects/7/onboarding-manifest");
+        request.setAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session("orders"));
+        var legacy = controller.onboardingManifest(7L, request).getBody();
+        assertNotNull(legacy);
+        assertEquals("1.0.0-SNAPSHOT", legacy.sdk().version());
+        assertEquals("maven", legacy.sdkArtifacts().get(0).type());
+        assertEquals("browser", legacy.sdkArtifacts().get(2).language());
+        assertEquals("csharp", legacy.sdkArtifacts().get(3).language());
+
+        request.setParameter("language", "csharp");
+        var selected = controller.onboardingManifest(7L, request).getBody();
+        assertNotNull(selected);
+        assertEquals("1.0.0", selected.sdk().version());
+        assertTrue(selected.sdk().dependencies().isEmpty());
+        assertEquals(List.of("browser", "csharp"), selected.sdkArtifacts().stream()
+                .map(ControlAiAssistProjectController.SdkArtifact::language).toList());
+        assertEquals("ReachAI.AspNetCore", selected.sdkArtifacts().get(1).packageName());
+        assertEquals("orders", selected.sdk().config().projectCode());
+        assertEquals("ReachAI__AppSecret", selected.sdk().config().appSecretEnv());
+        assertEquals("ReachAI__AppSecret", selected.security().appSecretEnv());
+        assertNull(selected.security().secretSetupCommandTemplate());
+        assertEquals(3, selected.gatewayChecklist().size());
+        request.setParameter("language", "python");
+        var python = controller.onboardingManifest(7L, request).getBody();
+        assertNotNull(python);
+        assertEquals(List.of("browser", "python"), python.sdkArtifacts().stream()
+                .map(ControlAiAssistProjectController.SdkArtifact::language).toList());
+        assertEquals("reachai-fastapi", python.sdkArtifacts().get(1).packageName());
+        assertEquals("1.0.0", python.sdk().version());
+        assertEquals("REACHAI_APP_SECRET", python.security().appSecretEnv());
+        assertTrue(python.sdk().dependencies().isEmpty());
+        assertEquals(3, python.gatewayChecklist().size());
+        request.setParameter("language", "node");
+        var node = controller.onboardingManifest(7L, request).getBody();
+        assertNotNull(node);
+        assertEquals(List.of("browser", "node"), node.sdkArtifacts().stream()
+                .map(ControlAiAssistProjectController.SdkArtifact::language).toList());
+        assertEquals("@reachai/node-sdk", node.sdkArtifacts().get(1).packageName());
+        assertEquals("1.0.0", node.sdk().version());
+        assertEquals("REACHAI_APP_SECRET", node.security().appSecretEnv());
+        assertTrue(node.sdk().dependencies().isEmpty());
+        request.setParameter("language", "go");
+        var go = controller.onboardingManifest(7L, request).getBody();
+        assertNotNull(go);
+        assertEquals(List.of("browser", "go"), go.sdkArtifacts().stream()
+                .map(ControlAiAssistProjectController.SdkArtifact::language).toList());
+        assertEquals(ControlGoSdkArtifactSupport.PACKAGE_NAME, go.sdkArtifacts().get(1).packageName());
+        assertEquals("1.0.0", go.sdk().version());
+        assertEquals("REACHAI_APP_SECRET", go.security().appSecretEnv());
+        assertTrue(go.sdkArtifacts().get(1).installCommandTemplate().contains("-replace="));
+        request.setParameter("language", "unknown");
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> controller.onboardingManifest(7L, request)).getStatusCode());
+    }
+
+    @Test
     void exposesProjectOnboardingManifestFromControlService() {
         CapabilityProjectOnboardingClient client = mock(CapabilityProjectOnboardingClient.class);
         ControlAiAssistProjectController controller = new ControlAiAssistProjectController(client);

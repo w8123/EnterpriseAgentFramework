@@ -1,5 +1,5 @@
 <template>
-  <section class="capability-catalog-page" aria-label="Java 业务方法目录">
+  <section class="capability-catalog-page" aria-label="业务方法目录">
     <LiquidGlassNotice
       v-if="listError"
       type="error"
@@ -44,8 +44,8 @@
           v-model="query.draft.keyword"
           class="filter-control is-keyword"
           :prefix-icon="Search"
-          placeholder="搜索 Java 业务方法名称、稳定标识或说明"
-          aria-label="搜索 Java 业务方法"
+          placeholder="搜索业务方法名称、稳定标识或说明"
+          aria-label="搜索业务方法"
           clearable
           @compositionstart="composing = true"
           @compositionend="composing = false"
@@ -240,7 +240,7 @@ const projectStore = useProjectStore()
 const pageProjectScope = usePageProjectScope()
 const query = useCatalogQuery('method', ['keyword', 'enabled', 'groupId', 'projectId'])
 type LoadState = 'loading' | 'ready' | 'error'
-const catalogCopy = { title: 'Java 业务方法' }
+const catalogCopy = { title: '业务方法' }
 const businessScopeReady = computed(() => Boolean(pageProjectScope?.canLoadData.value) && !localProjectPending.value)
 const businessScopeStatus = computed<ProjectScopeStateStatus>(() => (
   localProjectPending.value ? 'pending' : pageProjectScope?.status.value ?? 'pending'

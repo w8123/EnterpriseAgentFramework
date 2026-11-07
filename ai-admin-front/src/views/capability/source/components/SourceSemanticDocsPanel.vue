@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
   canWrite?: boolean
 }>(), { projectDoc: null, loading: false, projectGenerating: false, generatingKeys: () => [], canWrite: true })
 const emit = defineEmits<{ edit: [doc: SemanticDoc]; generate: [doc: SemanticDoc]; generateProject: [] }>()
-const labels: Record<SemanticSubjectType, string> = { PROJECT: '项目', GROUP: '业务分类', BUSINESS_METHOD: 'Java 业务方法',
+const labels: Record<SemanticSubjectType, string> = { PROJECT: '项目', GROUP: '业务分类', BUSINESS_METHOD: '业务方法',
   HTTP_API: 'HTTP API', SOURCE_OBSERVATION: '来源观察' }
 const subjectTypes = Object.keys(labels) as SemanticSubjectType[]
 const statusLabels = { draft: '语义草稿', generated: 'AI 补充', edited: '人工编辑' }

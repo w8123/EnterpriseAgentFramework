@@ -24,7 +24,7 @@
 
 ## 3. 挂载对话
 
-下面展示 SDK 调用结构。先用平台提供的包完成 `createEafChat` 导入，并准备容器元素；令牌响应的业务包装结构按你的 broker 适配。
+下面展示 SDK 调用结构。先用平台提供的包完成 `createEafChat` 导入，并准备容器元素；令牌响应的业务包装结构按你的 broker 适配。SDK 样式是独立文件，使用打包工具时还需引入 `@reachai/embed-chat/style.css`；直接加载浏览器资源时，须同时引入同一版本的 `style.css` 和 JavaScript，并保留样式引用的相对资源。否则组件可能出现无样式或布局错乱。
 
 ```javascript
 const chat = await createEafChat({

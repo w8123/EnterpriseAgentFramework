@@ -504,6 +504,9 @@ public final class RuntimeGraphSpecExecutionEngine {
         checkpoint.remove(TRUSTED_IDENTITY_CONTEXT_KEY);
         // Eval runs are intentionally not resumable through an untrusted serialized checkpoint.
         checkpoint.remove(TRUSTED_EVAL_CONTEXT_KEY);
+        // Correlation markers are only valid in this live Supervisor invocation.
+        // A serialized Workflow checkpoint must never restore one from input.
+        checkpoint.remove(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
         return result.withResumeCheckpoint(checkpoint);
     }
 

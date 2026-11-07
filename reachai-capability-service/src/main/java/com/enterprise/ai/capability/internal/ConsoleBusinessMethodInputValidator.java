@@ -89,9 +89,16 @@ final class ConsoleBusinessMethodInputValidator {
                                      boolean present,
                                      String path,
                                      Diagnostics diagnostics) {
-        if (!present || value == null) {
+        if (!present) {
             if (node.required()) fail(path, "REQUIRED");
             return;
+        }
+        if (value == null) {
+            Object nullable = metadata(node.metadata()).get("nullable");
+            if (Boolean.TRUE.equals(nullable)) return;
+            if (node.required()) fail(path, "REQUIRED");
+            if (Boolean.FALSE.equals(nullable)) fail(path, "NULL_NOT_ALLOWED");
+            return; // Legacy declarations did not distinguish optional from nullable.
         }
         String type = normalizedType(node.type());
         if (!recognized(type)) fail(path, "UNSUPPORTED_DECLARATION_TYPE");
@@ -138,6 +145,7 @@ final class ConsoleBusinessMethodInputValidator {
         if (!node.children().isEmpty()) {
             for (int index = 0; index < elements.size(); index++) {
                 Object element = elements.get(index);
+                if (element == null && Boolean.TRUE.equals(metadata(rawItemsMetadata).get("nullable"))) continue;
                 if (!(element instanceof Map<?, ?>)) fail(path + "[" + index + "]", "TYPE_OBJECT");
                 validateChildren(node, asMap(element), path + "[" + index + "]", diagnostics, false);
             }
@@ -152,6 +160,7 @@ final class ConsoleBusinessMethodInputValidator {
         for (int index = 0; index < elements.size(); index++) {
             String itemPath = path + "[" + index + "]";
             Object element = elements.get(index);
+            if (element == null && Boolean.TRUE.equals(metadata(rawItemsMetadata).get("nullable"))) continue;
             Object scalar = coerceScalar(itemsType, element);
             validateType(itemsType, scalar, itemPath);
             constraints(rawItemsMetadata, scalar, itemPath);

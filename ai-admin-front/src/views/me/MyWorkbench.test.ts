@@ -85,6 +85,10 @@ describe('personal AI workbench', () => {
     expect(cards[1].find('a').exists()).toBe(false)
     expect(cards[1].text()).toContain('入口未配置')
     expect(wrapper!.findComponent(assistantStub).exists()).toBe(false)
+    expect(wrapper!.get('.my-assistant-surface').isVisible()).toBe(false)
+    expect(wrapper!.get('.my-recent').isVisible()).toBe(false)
+    expect(wrapper!.get('.my-home-shortcuts').isVisible()).toBe(false)
+    expect(wrapper!.get('.my-systems').isVisible()).toBe(true)
   })
 
   it('verifies an explicit portal handoff and uses its business identity for activity', async () => {
@@ -120,8 +124,8 @@ describe('personal AI workbench', () => {
     expect(assistants).toHaveLength(2)
     expect(assistants[0].get('input').element.value).toBe('库存草稿')
     expect(assistants[1].get('input').element.value).toBe('')
-    expect(assistants[0].isVisible()).toBe(false)
-    expect(assistants[1].isVisible()).toBe(true)
+    expect(assistants[0].attributes('style')).toContain('display: none')
+    expect(assistants[1].attributes('style') || '').not.toContain('display: none')
   })
 
   it('removes expired business credentials while leaving the console signed in', async () => {

@@ -20,6 +20,54 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PlatformPageBridgeCommandServiceTest {
 
     @Test
+    void legacyRuntimeRequestWithoutTraceRemainsReadable() throws Exception {
+        var request = new ObjectMapper().readValue("""
+                {"sessionId":"s1","projectCode":"erp","agentId":"bot","targetPageKey":"orders",
+                 "actionKey":"orders.open","args":{},"confirmRequired":true,
+                 "confirmationTimeoutMs":2000,"executionTimeoutMs":2000,
+                 "identitySource":"EMBED_SESSION","identityTenantId":"tenant-a","identityUserId":"user-a"}
+                """, PlatformPageBridgeCommandService.PageBridgeExecutionRequest.class);
+        assertEquals(null, request.supervisorTraceId());
+        assertTrue(request.confirmRequired());
+    }
+
+    @Test
+    void traceCorrelationIsScopedToVerifiedSessionAndPreservesUniqueBridgeGroups() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+        when(events.insert(any())).thenAnswer(invocation -> {
+            PlatformPageActionEventEntity event = invocation.getArgument(0);
+            event.setId((long) created.size() + 1); event.setStatus("USER_CANCELLED");
+            created.add(event); return 1;
+        });
+        when(events.selectById(any())).thenAnswer(invocation ->
+                created.get(((Number) invocation.getArgument(0)).intValue() - 1));
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), activeCatalog());
+        String trace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        for (String id : List.of(trace, trace, "bad-trace")) {
+            service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                    "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                    false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a", id));
+        }
+        assertEquals(3, created.size());
+        assertTrue(created.get(0).getParentRequestId().matches("bridge-t1-" + trace + "-[0-9a-f]{32}"));
+        assertEquals(75, created.get(0).getParentRequestId().length());
+        assertTrue(!created.get(0).getParentRequestId().equals(created.get(1).getParentRequestId()));
+        assertTrue(created.get(2).getParentRequestId().matches("bridge-[0-9a-f-]{36}"));
+        var forbidden = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                false, 2_000, 2_000, "EMBED_SESSION", "tenant-b", "user-a", trace));
+        assertEquals("PAGE_BRIDGE_IDENTITY_MISMATCH", forbidden.code());
+        assertEquals(3, created.size());
+    }
+
+    @Test
     void catalogConfirmationIsTheMinimumForEveryRealBridgeCommand() {
         // The GraphSpec's missing and explicit false both arrive as false here.
         for (boolean catalogRequires : List.of(false, true)) {

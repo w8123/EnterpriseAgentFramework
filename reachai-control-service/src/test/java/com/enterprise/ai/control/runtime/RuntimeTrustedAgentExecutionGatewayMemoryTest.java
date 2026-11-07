@@ -25,6 +25,19 @@ import static org.mockito.Mockito.when;
 class RuntimeTrustedAgentExecutionGatewayMemoryTest {
 
     @Test
+    void embedEnvelopeSignsTheVerifiedSessionRolesBesideTheBusinessBody() throws Exception {
+        var mapper = new ObjectMapper();
+        var gateway = new RuntimeTrustedAgentExecutionGateway(mock(InternalServiceAuthSigner.class), mapper,
+                mock(RuntimeAgentStreamProxy.class), "http://localhost:18604");
+        var owner = PersonalMemoryPrincipal.business("tenant-a", "42", "erp-a");
+        var body = Map.<String, Object>of("roles", List.of("Customer"), "message", "hello");
+        var envelope = mapper.readTree(gateway.serializeEnvelope(body, "EMBED_SESSION", "tenant-a", "42", owner));
+        assertEquals("Customer", envelope.path("identity").path("roles").get(0).asText());
+        var platform = mapper.readTree(gateway.serializeEnvelope(body, "AGENT", "tenant-a", "42"));
+        assertFalse(platform.path("identity").has("roles"));
+    }
+
+    @Test
     void scopedClearSignsExactlyTheJsonBytesSentOverHttp() throws Exception {
         var received = new java.util.concurrent.atomic.AtomicReference<byte[]>();
         var signed = new java.util.concurrent.atomic.AtomicReference<byte[]>();

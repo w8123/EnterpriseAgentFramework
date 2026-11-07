@@ -59,6 +59,29 @@ class InternalServiceAuthFilterMockMvcTest {
     }
 
     @Test
+    void embedRoleIsOnlyTakenFromSignedIdentityEnvelopeNotBusinessBody() throws Exception {
+        AtomicReference<WorkflowExecutionIdentity> captured = new AtomicReference<>();
+        when(executionService.execute(any(), anyBoolean(), any(), any(), any(), any(), any(), any())).thenAnswer(inv -> {
+            captured.set(inv.getArgument(4));
+            return Map.of("success", true, "answer", "ok");
+        });
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("body", Map.of("agentId", "demo", "message", "hello", "roles", List.of("Admin")));
+        payload.put("identity", Map.of("source", "EMBED_SESSION", "tenantId", "tenant-a", "userId", "42",
+                "projectCode", "orders", "roles", List.of("Customer")));
+        byte[] body = objectMapper.writeValueAsBytes(payload);
+        var headers = signV2("POST", PATH, "EMBED_SESSION", "tenant-a", "42",
+                System.currentTimeMillis(), UUID.randomUUID().toString(), body);
+        mockMvc.perform(signed(headers, body).header(InternalServiceAuthHeaders.IDENTITY_TENANT_ID, "tenant-a"))
+                .andExpect(status().isOk());
+        assertEquals(List.of("Customer"), captured.get().roles());
+        payload.put("identity", Map.of("source", "EMBED_SESSION", "tenantId", "tenant-a", "userId", "42",
+                "projectCode", "orders", "roles", List.of("Admin")));
+        mockMvc.perform(signed(headers, objectMapper.writeValueAsBytes(payload))
+                .header(InternalServiceAuthHeaders.IDENTITY_TENANT_ID, "tenant-a")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void rejectsMissingSignatureWithoutCallingExecutionService() throws Exception {
         byte[] body = bodyBytes("AGENT", "42", "hi");
         mockMvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(body))

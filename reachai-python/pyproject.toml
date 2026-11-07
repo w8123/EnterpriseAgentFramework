@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reachai-fastapi"
+version = "1.0.0"
+description = "ReachAI business-system integration for FastAPI"
+requires-python = ">=3.10,<3.14"
+dependencies = ["fastapi>=0.115,<1", "pydantic>=2.8.2,<3", "httpx>=0.27,<1", "cryptography>=42,<47"]
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10", "pytest-asyncio>=0.24,<2", "uvicorn>=0.30,<1", "build>=1,<2"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]

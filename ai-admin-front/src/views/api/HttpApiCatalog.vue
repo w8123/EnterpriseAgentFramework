@@ -1,6 +1,17 @@
 <template>
   <section class="http-api-catalog" aria-label="HTTP API 目录">
-    <ProjectScopeState source="wallpaper" v-if="!scopeReady || !projectId" title="请选择一个项目查看 API"
+    <section v-if="!projectId && scope?.selection.value === 'all' && allProjects.length" class="api-project-picker" aria-label="选择项目">
+      <p class="api-project-picker-lead">HTTP API 按项目管理。选一个项目查看、添加接口或配置接口鉴权：</p>
+      <div class="api-project-grid">
+        <button v-for="item in allProjects" :key="item.id" type="button" class="api-project-card glass-surface-panel"
+          :aria-label="`打开项目${item.name}`" @click="scope?.selectScope(item.id)">
+          <strong>{{ item.name }}</strong>
+          <span>{{ item.projectCode || '未设置项目编码' }}<template v-if="item.environment"> · {{ item.environment }}</template></span>
+          <small>{{ item.projectKind === 'REGISTERED' ? 'SDK 自动同步' : item.projectKind === 'HYBRID' ? 'SDK + 文档' : '文档导入 / 手工添加' }}</small>
+        </button>
+      </div>
+    </section>
+    <ProjectScopeState source="wallpaper" v-else-if="!scopeReady || !projectId" title="请选择一个项目查看 API"
       :message="scope?.feedbackMessage.value || '请从左侧当前范围选择具体项目。'"
       :status="scope?.status.value === 'blocked' ? 'blocked' : 'pending'"
       :can-retry="scope?.recoveryAction.value === 'retry-catalog' || scope?.recoveryAction.value === 'retry-normalization'"
@@ -16,11 +27,16 @@
       <template #actions><el-button link type="primary" @click="load">重新加载</el-button></template>
     </LiquidGlassNotice>
 
+    <div v-if="scopeReady && projectId && currentProject" class="api-catalog-actions">
+      <span class="api-catalog-actions-label">{{ currentProject.name }}</span>
+      <el-button :disabled="!rows.length" @click="authDialog = true">接口鉴权</el-button>
+      <el-button v-if="canWriteProject" type="primary" @click="addDialog = true">添加 API</el-button>
+    </div>
     <BusinessCapabilityCatalogList v-if="scopeReady && projectId" :current-page="page" :page-size="size" :total="total"
       :loading="loading" :empty="!loading && !error && rows.length === 0"
       :composing="composing" :has-filters="hasFilters"
       :empty-description="hasFilters ? '没有符合当前条件的 API' : '当前项目还没有 API'"
-      empty-hint="请先在当前项目扫描或同步 HTTP API；发现的接口会自动出现在这里。"
+      empty-hint="可以导入 OpenAPI / Swagger 文档、粘贴 curl、手动填写，或者让你的智能体扫描代码后上传。"
       @query="applyFilters"
       @page-change="changePage" @size-change="changeSize">
       <template #filters>
@@ -123,7 +139,8 @@
       </template>
       </CatalogClassificationSections>
       <template #empty-actions>
-        <el-button type="primary" @click="router.push('/registry/projects')">接入业务项目</el-button>
+        <el-button v-if="canWriteProject" type="primary" @click="addDialog = true">添加 API</el-button>
+        <el-button v-else type="primary" @click="router.push('/registry/projects')">接入业务项目</el-button>
         <el-button v-if="currentProject" @click="openProject">查看项目接入与同步</el-button>
       </template>
     </BusinessCapabilityCatalogList>
@@ -131,6 +148,10 @@
       :project-code="currentProject?.projectCode || undefined" :groups="classification.index.value?.groups || []"
       :group="classificationEditorGroup" :mode="classificationEditorMode" :subject="classificationEditorSubject || undefined" :subjects="classificationEditorSubjects"
       @updated="refreshClassifiedCatalog" @close-auto-focus="restoreClassificationFocus" />
+    <HttpApiAddDialog v-if="currentProject" v-model="addDialog" :project="currentProject" :can-write="canWriteProject" @saved="apiAdded" />
+    <ProjectApiAuthDialog v-if="currentProject && currentProject.projectCode" v-model="authDialog" :project-id="currentProject.id"
+      :project-code="currentProject.projectCode" :base-url="currentProject.baseUrl" :sample-api-id="rows[0]?.id ?? null"
+      :can-write="canWriteProject" :can-manage-credential="canManageCredential" />
   </section>
 </template>
 
@@ -148,11 +169,13 @@ import { useCatalogClassificationMode } from '@/views/capability/composables/use
 import { classificationMemberships, classificationNavigationGroups } from '@/views/capability/components/catalogClassification'
 import type { CatalogClassificationGroup, CatalogClassificationSubjectType } from '@/types/semanticDoc'
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
+import HttpApiAddDialog from './components/HttpApiAddDialog.vue'
+import ProjectApiAuthDialog from './components/ProjectApiAuthDialog.vue'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { useCatalogQuery } from '@/composables/useCatalogQuery'
 import { BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS, HTTP_API_CATALOG_PATH, catalogQueryMatchesProject, httpApiDetailLocation, projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
 import { platformSessionId, platformSessionUser } from '@/auth/platformSession'
-import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE } from '@/auth/platformAccess'
+import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE, PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE } from '@/auth/platformAccess'
 import { listHttpApis } from '@/api/httpApi'
 import type { HttpApiSourceStatus, HttpApiSummary } from '@/types/httpApi'
 
@@ -191,6 +214,17 @@ const draft = query.draft
 const currentProject = computed(() => scope?.readableProjects.value.find(project => project.id === projectId.value))
 const canWriteClassification = computed(() => !!projectId.value && !!currentProject.value?.projectCode
   && hasPlatformResourcePermission(platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, currentProject.value.projectCode))
+const canWriteProject = computed(() => !!currentProject.value?.projectCode && hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, currentProject.value.projectCode))
+const canManageCredential = computed(() => !!currentProject.value?.projectCode && hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE, 'PROJECT', null, currentProject.value.projectCode))
+const allProjects = computed(() => scope?.readableProjects.value || [])
+const addDialog = ref(false)
+const authDialog = ref(false)
+function apiAdded(result: { apiId?: number; imported?: boolean }) {
+  if (result.apiId) void router.push(detailLocation(result.apiId))
+  else { void load(); void classification.refresh() }
+}
 const classificationMode = useCatalogClassificationMode()
 const adjustingClassification = computed(() => !!classificationMode?.active.value && canWriteClassification.value)
 const classificationFilterGroups = computed(() => classificationNavigationGroups(
@@ -328,7 +362,7 @@ function statusTone(status: HttpApiSourceStatus) {
 }
 function sourceKindLabel(kind: string) {
   return ({ OPENAPI_SCAN: 'OpenAPI', STARTER_MVC: 'Starter MVC',
-    API_MARKET_OPERATION: 'API 市场' } as Record<string, string>)[kind] || kind
+    API_MARKET_OPERATION: 'API 市场', MANUAL: '手工添加' } as Record<string, string>)[kind] || kind
 }
 watch([query.requestKey, () => scope?.requestKey.value, projectId, platformSessionId], () => {
   if (!isCatalogRoute.value) return
@@ -356,6 +390,17 @@ onBeforeUnmount(() => { unregisterClassificationMode?.(); sequence += 1 })
 </script>
 
 <style scoped lang="scss">
+.api-catalog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.api-catalog-actions-label { margin-right: auto; color: var(--text-secondary); font-size: 13px; }
+.api-catalog-actions :deep(.el-button + .el-button) { margin-left: 0; }
+.api-project-picker { display: grid; gap: 12px; }
+.api-project-picker-lead { margin: 0; color: var(--text-secondary); }
+.api-project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.api-project-card { display: grid; gap: 4px; padding: 16px; border: 1px solid var(--border-divider); border-radius: var(--radius-lg, 16px);
+  text-align: left; cursor: pointer; color: var(--text-primary); font: inherit; }
+.api-project-card:hover, .api-project-card:focus-visible { border-color: var(--brand-active); outline: none; }
+.api-project-card span { color: var(--text-secondary); font-size: 13px; overflow-wrap: anywhere; }
+.api-project-card small { color: var(--text-muted); font-size: 12px; }
 .http-api-catalog { display: flex; flex: 1; min-width: 0; min-height: 0; flex-direction: column; gap: var(--layout-page-gap); }
 .api-identity { display: flex; align-items: flex-start; gap: 10px; min-width: 0; color: var(--text-primary); text-decoration: none; }
 .api-identity:not(.api-identity--static):hover .api-route { color: var(--brand-active); text-decoration: underline; }

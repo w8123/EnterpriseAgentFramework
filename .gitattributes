@@ -1,2 +1,20 @@
 *.patch -whitespace
 .githooks/* text eol=lf
+reachai-dotnet/**/*.cs text eol=lf
+reachai-dotnet/**/*.csproj text eol=lf
+reachai-dotnet/**/*.props text eol=lf
+reachai-dotnet/**/*.targets text eol=lf
+reachai-dotnet/**/*.resx text eol=lf
+reachai-dotnet/**/*.json text eol=lf
+reachai-dotnet/global.json text eol=lf
+reachai-python/**/*.py text eol=lf
+reachai-python/pyproject.toml text eol=lf
+reachai-node/**/*.ts text eol=lf
+reachai-node/*.json text eol=lf
+reachai-node/README.md text eol=lf
+reachai-node/LICENSE text eol=lf
+reachai-go/**/*.go text eol=lf
+reachai-go/go.mod text eol=lf
+reachai-go/go.sum text eol=lf
+reachai-go/README.md text eol=lf
+reachai-go/LICENSE text eol=lf

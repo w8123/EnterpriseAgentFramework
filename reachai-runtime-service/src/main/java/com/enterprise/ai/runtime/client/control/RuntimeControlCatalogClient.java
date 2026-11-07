@@ -87,7 +87,17 @@ public interface RuntimeControlCatalogClient {
                                       int executionTimeoutMs,
                                       String identitySource,
                                       String identityTenantId,
-                                      String identityUserId) {
+                                      String identityUserId,
+                                      String supervisorTraceId) {
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, null);
+        }
     }
 
     record PageBridgeExecutionResponse(boolean success,

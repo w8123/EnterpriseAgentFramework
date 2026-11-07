@@ -58,3 +58,15 @@ export function getHttpApiInvocation(invocationId: string, projectCode: string) 
   return controlRequest.get<HttpApiInvocationOutcome>(
     `/api/api-invocations/${encodeURIComponent(invocationId)}`, { params: { projectCode }, errorFeedback: 'local' })
 }
+
+export interface ManualHttpApiSaveResult { apiId: number; sourceId: number; created: boolean; status: string }
+
+/** 手动填写或粘贴 curl 添加的 API；同一方法加路径再次保存会覆盖。 */
+export function saveManualHttpApi(projectId: number, body: import('@/views/api/manualHttpApi').ManualHttpApiPayload) {
+  return controlRequest.post<ManualHttpApiSaveResult>(`/api/scan-projects/${projectId}/manual-http-apis`, body, { errorFeedback: 'local' })
+}
+
+/** 只删除手工来源；SDK/OpenAPI 等其他来源保持不变。 */
+export function removeManualHttpApi(projectId: number, apiId: number) {
+  return controlRequest.delete<{ removed: boolean }>(`/api/scan-projects/${projectId}/manual-http-apis/${apiId}`, { errorFeedback: 'local' })
+}

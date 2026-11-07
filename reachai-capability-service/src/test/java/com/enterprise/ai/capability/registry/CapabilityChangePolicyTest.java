@@ -44,6 +44,21 @@ class CapabilityChangePolicyTest {
     }
 
     @Test
+    void csharpResultSchemaIsPartOfTheAcceptedContractWithoutChangingLegacyDeclarations() {
+        var legacy = normalized("query", "READ", List.of());
+        String before = policy.contractHash(legacy);
+        var schema = Map.<String, Object>of("type", "object", "properties", Map.of("orderId", Map.of("type", "string")));
+        var declared = new CapabilityRegistration("query", "查询", "订单查询", "POST", null, null,
+                "/query", "JSON", "JSON", "READ", true, List.of(),
+                Map.of("assetType", "BUSINESS_METHOD", "resultSchema", schema));
+        var withResult = policy.normalize(project(), List.of(declared)).get(0);
+        assertNotEquals(before, policy.contractHash(withResult));
+        assertEquals(before, policy.contractHash(normalized("query", "READ", List.of())));
+        assertFalse(policy.decide("CHANGED", withResult,
+                List.of(new FieldDiff("metadata", legacy.metadata(), withResult.metadata()))).automatic());
+    }
+
+    @Test
     void rejectsNameCollisionsBeforeAnyCatalogWrite() {
         assertThrows(IllegalArgumentException.class, () -> policy.normalize(project(), List.of(
                 registration("query.a", "READ", List.of()), registration("query-a", "READ", List.of()))));

@@ -19,7 +19,7 @@
         <p v-else-if="!loading && !loadError" class="my-home-muted">还没有连接业务系统。从业务系统的 AI 面板进入个人页，即可添加到这里。</p>
         <p v-if="connectionNotice" class="my-home-notice" role="status">{{ connectionNotice }}<LiquidGlassButton v-if="selected?.connection?.expired" link @click="connectionHelp = true">重新连接</LiquidGlassButton><LiquidGlassButton v-else link :disabled="busy || loading" @click="load">重新检查</LiquidGlassButton></p>
       </section>
-      <LiquidGlassCard source="wallpaper" class="my-assistant-surface" aria-label="AI 业务助手">
+      <LiquidGlassCard v-show="false" source="wallpaper" class="my-assistant-surface" aria-label="AI 业务助手">
         <div class="my-assistant-context">
           <span class="my-assistant-label"><ChatDotRound aria-hidden="true" /> AI 助手</span>
           <div v-if="systems.length" class="my-assistant-scope">
@@ -42,7 +42,7 @@
         </div>
         <p v-if="capabilitiesError" class="my-home-muted my-assistant-footnote">{{ capabilitiesError }}</p>
       </LiquidGlassCard>
-      <LiquidGlassCard source="wallpaper" class="my-recent" aria-labelledby="my-recent-title" :aria-busy="activityLoading">
+      <LiquidGlassCard v-show="false" source="wallpaper" class="my-recent" aria-labelledby="my-recent-title" :aria-busy="activityLoading">
         <div class="my-section-heading">
           <h2 id="my-recent-title">最近办的事</h2>
           <LiquidGlassButton v-if="calls.length || approvals.length" link @click="activityOpen = true">查看全部 <ArrowRight aria-hidden="true" /></LiquidGlassButton>
@@ -62,7 +62,7 @@
           <p v-else-if="!activityError && !pendingApprovals.length" class="my-home-muted">还没有办事记录。先从上方说说你想办的事。</p>
         </template>
       </LiquidGlassCard>
-      <nav class="my-home-shortcuts" aria-label="个人设置">
+      <nav v-show="false" class="my-home-shortcuts" aria-label="个人设置">
         <RouterLink v-if="hasPlatformRole" to="/me/ai-connections"><Monitor aria-hidden="true" />AI 工具接入<ArrowRight aria-hidden="true" /></RouterLink>
         <RouterLink to="/me/memories"><Collection aria-hidden="true" />我的记忆<ArrowRight aria-hidden="true" /></RouterLink>
       </nav>

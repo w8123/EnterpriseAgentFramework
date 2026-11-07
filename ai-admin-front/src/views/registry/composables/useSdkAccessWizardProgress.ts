@@ -10,6 +10,7 @@ import type {
   ScanProject,
   SdkAccessCheckResponse,
 } from '@/types/scanProject'
+import type { SdkAccessLanguage } from './useSdkAccessWizardUiState'
 
 export type SdkAccessWizardStepKey =
   | 'starter'
@@ -35,27 +36,49 @@ export interface UseSdkAccessWizardProgressDeps {
   gatewayBaseUrl: Ref<string>
   embedTokenPath: Ref<string>
   manualChecks: SdkAccessWizardManualChecks
+  /** Selected language; legacy callers without this retain Java behavior. */
+  sdkLanguage?: Readonly<Ref<SdkAccessLanguage>>
+  hasOtherLanguageInstances?: Readonly<Ref<boolean>>
+}
+
+/** Missing language identifies legacy Java; malformed metadata never proves a language. */
+export function instanceMatchesSdkLanguage(instance: ProjectInstance, language: SdkAccessLanguage) {
+  if (!instance.metadataJson) return language === 'java'
+  try {
+    const metadata: unknown = JSON.parse(instance.metadataJson)
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
+    const declared = (metadata as Record<string, unknown>).sdkLanguage
+    if (declared == null) return language === 'java'
+    return typeof declared === 'string' && declared.toLowerCase() === language
+  } catch {
+    return false
+  }
 }
 
 export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps) {
   const steps = computed(() => {
     const starterVerified = deps.instances.value.length > 0
-      || deps.checkResult.value?.readiness?.some(
+      || ((!deps.sdkLanguage || deps.sdkLanguage.value === 'java') && !deps.hasOtherLanguageInstances?.value && deps.checkResult.value?.readiness?.some(
         (item) => item.key === 'CODE_READY' && item.status === 'PASS',
-      )
+      ))
     const gatewayConfirmed = Boolean(
       deps.gatewayBaseUrl.value.trim() && deps.manualChecks.gateway,
     )
     const frontendConfirmed = Boolean(
       deps.embedTokenPath.value.trim() && deps.manualChecks.frontend,
     )
-    const selfCheckVerified = deps.checkResult.value?.overallStatus === 'PASS'
+    // The public project self-check has no callback/Embed instance provenance.
+    // Even with a Python heartbeat, another SDK could have supplied that evidence.
+    const selfCheckVerified = deps.sdkLanguage?.value !== 'python' && deps.sdkLanguage?.value !== 'node' && deps.sdkLanguage?.value !== 'go'
+      && deps.checkResult.value?.overallStatus === 'PASS'
+      && ((!deps.sdkLanguage || deps.sdkLanguage.value === 'java') || deps.onlineInstanceCount.value > 0)
+      && (!deps.hasOtherLanguageInstances?.value || deps.onlineInstanceCount.value > 0)
 
     return [
       {
         index: 1,
         key: 'starter' as const,
-        title: '后端 Starter',
+        title: '后端 SDK',
         desc: '复制并确认后端配置',
         status: starterVerified ? '已验证' : (deps.manualChecks.starter ? '已确认' : '待处理'),
         done: Boolean(starterVerified || deps.manualChecks.starter),

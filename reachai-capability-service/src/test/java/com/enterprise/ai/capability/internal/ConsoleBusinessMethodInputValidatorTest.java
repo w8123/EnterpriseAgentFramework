@@ -4,6 +4,8 @@ import com.enterprise.ai.agent.capability.catalog.tool.definition.ToolDefinition
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Arrays;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -13,6 +15,28 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ConsoleBusinessMethodInputValidatorTest {
+
+    @Test
+    void distinguishesMissingAndNullWhenSourceExplicitlyDeclaresNullability() {
+        ToolDefinitionEntity tool = tool("[{\"name\":\"requiredNullable\",\"type\":\"string\",\"required\":true,\"metadata\":{\"nullable\":true}},"
+                + "{\"name\":\"optionalNonNull\",\"type\":\"string\",\"required\":false,\"metadata\":{\"nullable\":false}},"
+                + "{\"name\":\"legacyOptional\",\"type\":\"string\",\"required\":false},"
+                + "{\"name\":\"items\",\"type\":\"array\",\"required\":false,\"metadata\":{\"itemsType\":\"string\",\"itemsMetadata\":{\"nullable\":true}}}]");
+        Map<String, Object> input = new LinkedHashMap<>();
+        input.put("requiredNullable", null);
+        input.put("legacyOptional", null);
+        input.put("items", Arrays.asList("value", null));
+        assertDoesNotThrow(() -> ConsoleBusinessMethodInputValidator.validate(tool, input));
+        input.put("optionalNonNull", null);
+        var nonNull = assertThrows(ConsoleBusinessMethodInputValidator.InvalidInputException.class,
+                () -> ConsoleBusinessMethodInputValidator.validate(tool, input));
+        assertEquals("NULL_NOT_ALLOWED", nonNull.diagnostics().get(0).reason());
+        input.remove("optionalNonNull");
+        input.remove("requiredNullable");
+        var missing = assertThrows(ConsoleBusinessMethodInputValidator.InvalidInputException.class,
+                () -> ConsoleBusinessMethodInputValidator.validate(tool, input));
+        assertEquals("REQUIRED", missing.diagnostics().get(0).reason());
+    }
 
     @Test
     void parallelSdkDtoDeclarationUsesTheSameLogicalShapeForFlatAndWrappedInput() {

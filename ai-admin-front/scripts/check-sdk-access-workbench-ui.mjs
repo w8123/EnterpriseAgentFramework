@@ -33,9 +33,19 @@ assert.match(wizardSource, /ai-coding-access-pane/, 'AI Coding access pane shoul
 assert.match(wizardSource, /import CodeSnippetBlock from '@\/components\/common\/CodeSnippetBlock\.vue'/, 'SdkAccessWizard should reuse the shared code snippet block')
 assert.equal(
   (wizardSource.match(/<CodeSnippetBlock/g) || []).length,
-  6,
-  'SdkAccessWizard should render Java artifact install, Starter, secret, gateway, and frontend snippets through the shared code snippet block',
+  19,
+  'SdkAccessWizard should render language-specific snippets through the shared code snippet block',
 )
+assert.match(wizardSource, /aria-label="业务系统语言"/, 'The SDK language selector must have an accessible name')
+assert.match(wizardSource, /v-if="sdkLanguage === 'csharp'"/, 'C# installation must be shown only for the selected language')
+assert.match(wizardSource, /csharpArtifactReady && csharpArtifact/, 'C# installation must require a verified platform artifact')
+assert.match(wizardSource, /:code="sdkLanguage !== 'java' \? csharpFrontendSnippet : frontendSnippet"/, 'Each SDK must use its own broker transport')
+assert.match(wizardSource, /sdkLanguage === 'python'/, 'Python installation must be shown only for the selected language')
+assert.match(wizardSource, /pythonArtifactReady && pythonArtifact/, 'Python installation must require a verified platform artifact')
+assert.match(wizardSource, /sdkLanguage === 'node'/, 'Node installation must be shown only for the selected language')
+assert.match(wizardSource, /nodeArtifactReady && nodeArtifact/, 'Node installation must require a verified platform artifact')
+assert.match(wizardSource, /sdkLanguage === 'go'/, 'Go installation must be shown only for the selected language')
+assert.match(wizardSource, /goArtifactReady && goArtifact/, 'Go installation must require a verified platform artifact')
 assert.match(wizardSource, /AI Coding 接入/, 'AI Coding should be visible as a primary access mode')
 assert.match(wizardSource, /手动接入/, 'Manual access should be visible as a primary access mode')
 assert.match(wizardSource, /ProjectWorkbenchLoadErrorState/, 'SdkAccessWizard should reuse the shared blocking load-error state')
@@ -66,7 +76,7 @@ assert.doesNotMatch(manualPane, /<h2>项目识别<\/h2>/, 'Manual access pane sh
 
 assert.doesNotMatch(progressSource, /key:\s*'overview'/, 'Manual step model should not include the project identification step')
 assert.doesNotMatch(progressSource, /title:\s*'项目识别'/, 'Manual step model should not include project identification as a step title')
-assert.match(progressSource, /index:\s*1,[\s\S]*?key:\s*'starter'[\s\S]*?title:\s*'后端 Starter'/, 'Manual steps should start with backend Starter')
+assert.match(progressSource, /index:\s*1,[\s\S]*?key:\s*'starter'[\s\S]*?title:\s*'后端 SDK'/, 'Manual steps should start with backend SDK')
 assert.match(progressSource, /index:\s*5,[\s\S]*?key:\s*'self-check'[\s\S]*?title:\s*'平台接入自检'/, 'Manual steps should end with the scoped platform SDK self-check')
 assert.match(progressSource, /SDK 注册、心跳与签名回调/, 'Manual self-check scope should stay within platform-observed SDK facts')
 assert.doesNotMatch(progressSource, /确认实例与旧接口资产/, 'SDK onboarding should not require legacy interface assets to complete backend service validation')
@@ -327,7 +337,7 @@ assert.match(
 )
 
 for (const retainedCopy of [
-  '后端 Starter',
+  '后端 SDK',
   '网关路由',
   '业务服务校验',
   '前端 Embed Token',

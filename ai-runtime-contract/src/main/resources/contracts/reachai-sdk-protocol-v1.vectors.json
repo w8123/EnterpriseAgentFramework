@@ -1,0 +1,65 @@
+{
+  "schema": "reachai-sdk-protocol-v1-test-vectors",
+  "registry": [
+    {
+      "id": "registry-basic",
+      "projectCode": "demo-project",
+      "appKey": "demo-key",
+      "appSecret": "secret",
+      "timestamp": "1700000000000",
+      "nonce": "nonce-1",
+      "signature": "2f2c051571df34fa32c04e07c7299d938bdae3fc9a10ae961c87d5b1d3b5043c"
+    }
+  ],
+  "projectRequest": [
+    {
+      "id": "embed-unicode",
+      "projectCode": "orders",
+      "appKey": "rak_orders",
+      "appSecret": "ras_secret",
+      "timestamp": "1700000000000",
+      "nonce": "nonce-1",
+      "method": "POST",
+      "path": "/api/embed/token/exchange",
+      "body": "{\"projectCode\":\"orders\",\"principal\":{\"externalUserId\":\"U001\",\"userName\":\"张三\"}}",
+      "bodySha256": "da99625a42cd385b77e80dc1ae9a4583afa7c609f358d1363c81241ab1e75318",
+      "signature": "824a3f54aa69cd96acafd72ddc712ab379995f7f24805ecc6b795a3cff7e7e67"
+    },
+    {
+      "id": "empty-body",
+      "projectCode": "orders",
+      "appKey": "rak_orders",
+      "appSecret": "ras_secret",
+      "timestamp": "1700000000001",
+      "nonce": "nonce-2",
+      "method": "POST",
+      "path": "/api/embed/token/business-session/revoke",
+      "body": "",
+      "bodySha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "f5d107eb57a001a5c577aad37decd2aed3b83c4abdd770202a80f48ac9146c35"
+    }
+  ],
+  "invocation": [
+    {
+      "id": "invocation-unicode",
+      "appSecret": "ras_secret",
+      "issuedAtMillis": 1700000000000,
+      "ttlSeconds": 60,
+      "claims": {
+        "projectCode": "orders",
+        "appKey": "rak_orders",
+        "capabilityName": "order.query",
+        "tenantId": "tenant-1",
+        "externalUserId": "U001",
+        "userName": "张三",
+        "roles": ["sales"],
+        "traceId": "trace-1",
+        "jti": "invocation-1",
+        "iat": 1700000000,
+        "exp": 1700000060,
+        "attributes": {}
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJwcm9qZWN0Q29kZSI6Im9yZGVycyIsImFwcEtleSI6InJha19vcmRlcnMiLCJjYXBhYmlsaXR5TmFtZSI6Im9yZGVyLnF1ZXJ5IiwidGVuYW50SWQiOiJ0ZW5hbnQtMSIsImV4dGVybmFsVXNlcklkIjoiVTAwMSIsInVzZXJOYW1lIjoi5byg5LiJIiwicm9sZXMiOlsic2FsZXMiXSwidHJhY2VJZCI6InRyYWNlLTEiLCJqdGkiOiJpbnZvY2F0aW9uLTEiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMDA2MCwiYXR0cmlidXRlcyI6e319.ZLSn37NnlD9RTZixj5wi8C7hkJ3DDsOXvzRlBEpEL8M"
+    }
+  ]
+}

@@ -224,7 +224,11 @@
                 {{ source.status === 'REMOVED' ? '来源已移除' : source.confirmedInLatestInventory ? '本次已确认' : '本次未确认' }}
               </el-tag></div>
             <p>{{ source.sourceLocation || source.sourceKey }}</p>
-            <template v-if="source.sourceKind === 'API_MARKET_OPERATION'">
+            <template v-if="source.sourceKind === 'MANUAL' && source.status !== 'REMOVED'">
+              <small>手工来源不会被 SDK 同步或文档重新导入删除；在「添加 API」里用同样的方法和路径再次保存即可修改。
+                <el-button v-if="canWrite" link type="danger" :loading="removingManual" @click="removeManualSource">删除这个手工来源</el-button></small>
+            </template>
+            <template v-else-if="source.sourceKind === 'API_MARKET_OPERATION'">
               <small>固定目录选择 · 最近观察：{{ displayTime(source.observedAt) }}；目录变化不会自动改选或验证。</small>
             </template>
             <template v-else>
@@ -392,7 +396,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowR
 import { onBeforeRouteLeave, useRoute, useRouter, type RouteLocationRaw } from 'vue-router'
 import { HTTP_API_CATALOG_PATH } from '@/views/capability/businessCapabilityRoutes'
 import { apiMarketLocation } from '@/views/api-market/apiMarketRoutes'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import { LiquidGlassButton, LiquidGlassCard, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
@@ -409,7 +413,7 @@ import { hasPlatformResourcePermission, PLATFORM_PERMISSION_WRITE, PLATFORM_PERM
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { listWorkflowCredentials } from '@/api/workflowCredential'
 import { acceptHttpApi, getHttpApi, getHttpApiConnection, getHttpApiInvocation,
-  getHttpApiReferences, invokeHttpApi, removeHttpApiConnectionOverride, saveHttpApiConnection,
+  getHttpApiReferences, invokeHttpApi, removeHttpApiConnectionOverride, removeManualHttpApi, saveHttpApiConnection,
   saveHttpApiProjectDefaultConnection } from '@/api/httpApi'
 import type { AssetReferences } from '@/types/assetReferences'
 import { referenceKindLabel, referenceStage, usageRoute } from '@/views/capability/referenceUsage'
@@ -664,7 +668,7 @@ function sourceLabel(value: HttpApiSourceStatus) {
     CONFLICT: '来源冲突', SOURCE_MISSING: '来源缺失', SOURCE_UNCONFIRMED: '来源待确认' } as Record<string, string>)[value] || value
 }
 function sourceTone(value: HttpApiSourceStatus) { return value === 'ACCEPTED' ? 'success' : value === 'DISCOVERED' ? 'warning' : 'danger' }
-function sourceKind(value: string) { return ({ OPENAPI_SCAN: 'OpenAPI 导入',
+function sourceKind(value: string) { return ({ OPENAPI_SCAN: 'OpenAPI 导入', MANUAL: '手工添加',
   STARTER_MVC: 'Starter MVC 同步', API_MARKET_OPERATION: 'API 市场固定 Operation' } as Record<string, string>)[value] || value }
 function authModeLabel(value: string) { return ({ NONE: '不使用凭据', API_KEY_HEADER: '请求头 API Key',
   BEARER: 'Bearer 令牌' } as Record<string, string>)[value] || value }
@@ -758,6 +762,22 @@ function loadActiveTabData(expectedEpoch = epoch) {
   if (tab.value === 'technical' && !credentialsLoaded.value && !credentialsError.value) void loadCredentials(expectedEpoch)
 }
 watch(tab, () => loadActiveTabData())
+const removingManual = ref(false)
+async function removeManualSource() {
+  const owner = detail.value?.summary
+  if (!owner || !canWrite.value || removingManual.value) return
+  try {
+    await ElMessageBox.confirm('删除后，如果这个 API 没有其他来源，会变成「来源已缺失」，不能再被调用。确定删除吗？', '删除手工来源',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' })
+  } catch { return }
+  removingManual.value = true
+  try {
+    await removeManualHttpApi(owner.projectId, owner.id)
+    ElMessage.success('手工来源已删除')
+    void load()
+  } catch { ElMessage.error('删除失败，请刷新后重试') }
+  finally { removingManual.value = false }
+}
 async function acceptCurrent() {
   if (!detail.value || !canAccept.value || accepting.value) return
   const current = epoch

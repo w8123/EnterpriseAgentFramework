@@ -16,7 +16,7 @@ import java.util.Set;
 public class CapabilityInternalAuthVerifier {
 
     private static final Set<String> FORBIDDEN_EXTRA_IDENTITY_FIELDS = Set.of(
-            "userId", "globalUserId", "userName", "deptId", "deptName", "roles", "attributes");
+            "userId", "globalUserId", "userName", "deptId", "deptName", "attributes");
     private static final Set<String> ALL_IDENTITY_FIELDS = Set.of(
             "tenantId", "userId", "externalUserId", "globalUserId", "userName",
             "deptId", "deptName", "roles", "attributes");
@@ -262,10 +262,20 @@ public class CapabilityInternalAuthVerifier {
                     || !userId.equals(normalized(context.get("externalUserId")))) {
                 return false;
             }
-            return FORBIDDEN_EXTRA_IDENTITY_FIELDS.stream().noneMatch(context::containsKey);
+            return FORBIDDEN_EXTRA_IDENTITY_FIELDS.stream().noneMatch(context::containsKey)
+                    && validSignedRoles(context.get("roles"));
         } catch (Exception invalidJson) {
             return false;
         }
+    }
+
+    private static boolean validSignedRoles(Object value) {
+        if (value == null) return true;
+        if (!(value instanceof java.util.List<?> roles) || roles.size() > 100) return false;
+        for (Object role : roles) {
+            if (!(role instanceof String text) || !StringUtils.hasText(text) || text.length() > 128) return false;
+        }
+        return true;
     }
 
     private boolean projectVerificationIdentityMatchesBody(String projectCode,

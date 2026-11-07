@@ -64,8 +64,10 @@ export function runSdkAccessCheck(id: number) {
   return controlRequest.post<SdkAccessCheckResponse>(`/api/scan-projects/${id}/sdk-access-check`, {})
 }
 
-export function getAiOnboardingManifest(id: number) {
-  return controlRequest.get<AiOnboardingManifest>(`/api/ai-assist/projects/${id}/onboarding-manifest`)
+export function getAiOnboardingManifest(id: number, language?: 'csharp' | 'python' | 'node' | 'go') {
+  return controlRequest.get<AiOnboardingManifest>(`/api/ai-assist/projects/${id}/onboarding-manifest`, {
+    params: language ? { language } : undefined,
+  })
 }
 
 export function provisionProjectAgent(id: number, requestedBy: string) {

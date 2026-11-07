@@ -20,7 +20,8 @@ import type {
   ScanProject,
   SdkAccessCheckResponse,
 } from '@/types/scanProject'
-import type { SdkAccessAiPromptTool } from './useSdkAccessWizardUiState'
+import type { SdkAccessAiPromptTool, SdkAccessLanguage } from './useSdkAccessWizardUiState'
+import { instanceMatchesSdkLanguage } from './useSdkAccessWizardProgress'
 import {
   aiCodingExecutionAcceptsClientAccess,
   aiCodingExecutionIsTerminal,
@@ -36,12 +37,13 @@ export interface AiOnboardingDisplayStep {
 
 export interface UseSdkAccessWizardDataDeps {
   aiPromptTool: Ref<SdkAccessAiPromptTool>
+  sdkLanguage?: Ref<SdkAccessLanguage>
   projectCode?: Ref<string>
 }
 
 const STEP_TITLES: Record<string, string> = {
   PROJECT: '项目识别',
-  STARTER: '后端 Starter',
+  STARTER: '后端 SDK',
   GATEWAY: '网关路由',
   BUSINESS_API: '业务服务校验',
   EMBED_TOKEN: '前端 Embed Token',
@@ -80,8 +82,15 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
   )
   const onboardingTaskDetail = taskKernel.selectedTaskDetail
   const handoffPackage = taskKernel.latestHandoff
+  const taskLanguageMatches = computed(() => {
+    const task = onboardingTask.value
+    if (!task) return true
+    const target = task.targets?.find((item) => item.targetRole === 'PRIMARY')
+    return String(asRecord(target?.snapshot).sdkLanguage || 'java').toLowerCase()
+      === (deps.sdkLanguage?.value || 'java')
+  })
   const taskPlatformReadiness = computed(
-    () => onboardingTaskDetail.value?.readiness || [],
+    () => taskLanguageMatches.value ? (onboardingTaskDetail.value?.readiness || []) : [],
   )
   const selfCheckReadiness = computed(() =>
     taskPlatformReadiness.value.length
@@ -95,8 +104,12 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
   })
   const selfCheckVerified = computed(
     () =>
-      selfCheckReadiness.value.length > 0
-      && selfCheckReadiness.value.every((item) => item.status === 'PASS'),
+      deps.sdkLanguage?.value !== 'python' && deps.sdkLanguage?.value !== 'node' && deps.sdkLanguage?.value !== 'go'
+      && selfCheckReadiness.value.length > 0
+      && selfCheckReadiness.value.every((item) => item.status === 'PASS')
+      && ((!deps.sdkLanguage || deps.sdkLanguage.value === 'java') || instances.value.some(
+        (instance) => instance.status === 'ONLINE' && instanceMatchesSdkLanguage(instance, deps.sdkLanguage!.value),
+      )),
   )
 
   const selectedExecutorProvider = computed<AiCodingExecutorProvider>(
@@ -109,6 +122,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     const handoff = handoffPackage.value
     return Boolean(
       handoff?.prompt
+        && taskLanguageMatches.value
         && onboardingTask.value?.connection.status === 'WAITING_CONNECT'
         && aiCodingExecutionAcceptsClientAccess(
           onboardingTask.value?.executionStatus,
@@ -130,6 +144,9 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     }
     if (!project.value?.id) {
       return '项目数据尚未加载，请刷新后重试。'
+    }
+    if (!taskLanguageMatches.value) {
+      return '当前接入任务属于另一种语言，请先完成或取消该任务。'
     }
     if (onboardingTask.value?.executionStatus === 'ACCEPTANCE_READY') {
       return '当前接入任务已通过平台验证，正在等待人工验收，无需再次交接。'
@@ -314,9 +331,11 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
       return
     }
     const currentActionSequence = ++onboardingActionSequence
+    const sdkLanguage = deps.sdkLanguage?.value || 'java'
     const actionIsCurrent = () =>
       currentActionSequence === onboardingActionSequence
       && project.value?.id === currentProject.id
+      && (deps.sdkLanguage?.value || 'java') === sdkLanguage
     aiPromptLoading.value = true
     try {
       const executorProvider = selectedExecutorProvider.value
@@ -335,6 +354,12 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
       }
       if (!actionIsCurrent()) return
       const existing = onboardingTask.value
+      if (existing && !aiCodingExecutionIsTerminal(existing.executionStatus)) {
+        if (!taskLanguageMatches.value) {
+          ElMessage.warning('当前项目已有另一种语言的接入任务，请先在任务详情中完成或取消该任务。')
+          return
+        }
+      }
       if (existing?.executionStatus === 'ACCEPTANCE_READY') {
         await taskKernel.refreshTask(existing.taskId)
         if (!actionIsCurrent()) return
@@ -378,7 +403,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
           executorProvider,
           title: `接入 ReachAI：${currentProject.name || projectCode.value}`,
           objective:
-            '在当前业务仓库完成 ReachAI Starter、网关、业务能力、Embed Token 和真实端到端验证。',
+            '在当前业务仓库完成 ReachAI SDK、网关、业务能力、Embed Token 和真实端到端验证。',
           targets: [
             {
               targetType: 'PROJECT',
@@ -389,6 +414,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
                 projectId: currentProject.id,
                 name: currentProject.name,
                 projectKind: currentProject.projectKind,
+                sdkLanguage,
               },
             },
           ],

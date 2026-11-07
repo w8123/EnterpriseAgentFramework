@@ -486,7 +486,7 @@ const props = withDefaults(
 const route = useRoute()
 function nodeSubjectLabel(node: ApiGraphNode) {
   const info = parseProps(node)
-  return info.subjectType === 'BUSINESS_METHOD' || info.assetType === 'BUSINESS_METHOD' ? 'Java 方法'
+  return info.subjectType === 'BUSINESS_METHOD' || info.assetType === 'BUSINESS_METHOD' ? '业务方法'
     : info.subjectType === 'HTTP_API' || info.assetType === 'HTTP_API' ? 'HTTP API' : '来源观察'
 }
 function assetLocation(node: ApiGraphNode) {

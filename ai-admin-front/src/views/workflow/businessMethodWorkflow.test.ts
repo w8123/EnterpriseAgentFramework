@@ -44,6 +44,29 @@ function businessMethod(overrides: Partial<BusinessMethodInfo> = {}): BusinessMe
 }
 
 describe('Workflow Studio business-method mapping helpers', () => {
+  it('projects declared C# result fields without fabricating array indices or ambiguous paths', () => {
+    const schema = { type: 'object', properties: {
+      success: { type: 'boolean', description: '处理结果' },
+      data: { type: ['object', 'null'], properties: {
+        orderId: { type: ['string', 'null'] },
+        items: { type: 'array', items: { type: 'object', properties: { amount: { type: 'number' } } } },
+        'unsafe.path': { type: 'string' },
+        ambiguous: { type: ['string', 'integer', 'null'] },
+      } },
+    } }
+    expect(businessMethodOutputFields([], schema)).toEqual([
+      { path: 'success', type: 'boolean', description: '处理结果' },
+      { path: 'data', type: 'object', description: '' },
+      { path: 'data.orderId', type: 'string', description: '' },
+      { path: 'data.items', type: 'array', description: '' },
+    ])
+    expect(businessMethodOutputPorts('result', [], 'OrderView', schema).map(port => port.id))
+      .toEqual(['result', 'result.success', 'result.data', 'result.data.orderId', 'result.data.items'])
+    expect(businessMethodOutputCandidates('query', 'result', [], 'OrderView', schema).map(candidate => candidate.value))
+      .toContain('nodeOutput.query.data.orderId')
+    expect(businessMethodOutputFields([], { type: 'array', items: schema })).toEqual([])
+  })
+
   it('uses the same scalar root for draft and published execution without inventing a data field', () => {
     const ports = businessMethodOutputPorts('scalar_result', [], 'java.lang.String')
     expect(ports).toEqual([{ id: 'scalar_result', name: 'scalar_result', type: 'any', required: false, source: '标量返回值' }])

@@ -71,10 +71,13 @@ class BuiltinAgentSkillSourceTest {
         for (var descriptor : source.descriptors()) {
             String identity = descriptor.name() + "@" + descriptor.version();
             JsonNode release = releases.path(identity);
-            assertTrue(release.isObject(), () -> "Record a new release before publishing " + identity);
             var inspection = inspector.inspect(source.packageBytes(descriptor.name()));
+            assertTrue(release.isObject(), () -> "Record a new release before publishing " + identity
+                    + " sourceSha256=" + inspection.sourceSha256()
+                    + " contentTreeSha256=" + inspection.contentTreeSha256());
             assertEquals(release.path("sourceSha256").asText(), inspection.sourceSha256(),
-                    () -> "Builtin package bytes changed without a version bump: " + identity);
+                    () -> "Builtin package bytes changed without a version bump: " + identity
+                            + " contentTreeSha256=" + inspection.contentTreeSha256());
             assertEquals(release.path("contentTreeSha256").asText(), inspection.contentTreeSha256(), identity);
         }
     }

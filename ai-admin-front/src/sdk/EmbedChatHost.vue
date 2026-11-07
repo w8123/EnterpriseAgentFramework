@@ -114,6 +114,7 @@ interface EmbedChatHostEvent {
   data: unknown
   sessionId?: string
   turnId?: string
+  terminal?: boolean
 }
 
 interface EmbedChatHostMessageResponse {
@@ -472,6 +473,9 @@ const controller = createConversationController({
   transport,
   onPublicEvent: forwardPublicEvent,
   onChange(state) {
+    if (state.turnStatus === 'sending' && snapshot.value.turnStatus !== 'sending') {
+      props.onEvent?.({ type: 'turn.preparing', data: {}, sessionId: sessionId || undefined })
+    }
     snapshot.value = state
     if (state.sessionId) updateSessionId(state.sessionId)
     settlePendingIfTerminal(state)
@@ -506,11 +510,15 @@ function forwardPublicEvent(event: ConversationEventEnvelope) {
     case 'turn.progress':
       props.onEvent?.({ type: 'turn.progress', data, ...extras })
       return
+    case 'turn.started':
+      props.onEvent?.({ type: 'turn.started', data, ...extras })
+      return
     case 'turn.completed':
     case 'turn.waiting':
       props.onEvent?.({
         type: 'message.completed',
         data: buildMessageResponseFromEvent(event),
+        terminal: event.type === 'turn.completed',
         ...extras,
       })
       return

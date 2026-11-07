@@ -298,13 +298,14 @@ final class RuntimeModelNodeHandlers {
             } else {
                 value = modelValues.get(name);
             }
-            if (value == null && field.containsKey("defaultValue")) {
-                value = field.get("defaultValue");
-            }
-            value = convertParameterValue(value, text(field.get("type")));
-            value = restrictToOptions(field, value, context);
             boolean required = Boolean.TRUE.equals(field.get("required"))
                     || "true".equalsIgnoreCase(text(field.get("required")));
+            Object defaultValue = field.get("defaultValue");
+            // Studio stores an unset optional default as ""; never turn an absent value into a supplied blank.
+            if (value == null && field.containsKey("defaultValue")
+                    && (required || !(defaultValue instanceof String string && string.isEmpty()))) value = defaultValue;
+            value = convertParameterValue(value, text(field.get("type")));
+            value = restrictToOptions(field, value, context);
             if (required && isEmptyValue(value)) {
                 throw new IllegalArgumentException("PARAMETER_EXTRACT required field is missing: " + name);
             }

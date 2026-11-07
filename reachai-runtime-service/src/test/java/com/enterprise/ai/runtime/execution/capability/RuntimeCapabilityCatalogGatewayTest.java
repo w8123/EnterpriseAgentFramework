@@ -358,6 +358,26 @@ class RuntimeCapabilityCatalogGatewayTest {
 
     @Test
     @SuppressWarnings({"rawtypes", "unchecked"})
+    void employeeRolesComeFromTrustedIdentityNotTheToolContext() throws Exception {
+        var transport = mock(RuntimeCapabilityCatalogFeignClient.class);
+        when(transport.invokeCapability(anyMap(), any(byte[].class)))
+                .thenAnswer(invocation -> successResponse(invocation.getArgument(1)));
+        var gateway = new RuntimeCapabilityCatalogGateway(transport, new RuntimeCapabilityInternalAuthSigner(SECRET), objectMapper);
+        var identity = WorkflowExecutionIdentity.fromMcpEmployee("tenant-a", 35L, "bzjs20", "user-7", java.util.List.of("sales"));
+        gateway.executeTool("bzjs20:team.memory.resolve", Map.of("input", Map.of("roles", java.util.List.of("ADMIN")),
+                "context", Map.of("roles", java.util.List.of("ADMIN")),
+                RuntimeCapabilityCatalogClient.TRUSTED_IDENTITY_ATTRIBUTE, identity));
+        var headers = ArgumentCaptor.forClass(Map.class);
+        var body = ArgumentCaptor.forClass(byte[].class);
+        verify(transport).invokeCapability(headers.capture(), body.capture());
+        var wire = objectMapper.readTree(body.getValue());
+        assertEquals("sales", wire.path("context").path("roles").get(0).asText());
+        assertEquals(1, wire.path("context").path("roles").size());
+        assertTrue(signatureValid(headers.getValue(), body.getValue(), "bzjs20:team.memory.resolve"));
+    }
+
+    @Test
+    @SuppressWarnings({"rawtypes", "unchecked"})
     void trustedMarkerOverwritesCallerIdentityAndSignsExactSerializedBytes() throws Exception {
         RuntimeCapabilityCatalogFeignClient transport = mock(RuntimeCapabilityCatalogFeignClient.class);
         when(transport.invokeCapability(anyMap(), any(byte[].class)))

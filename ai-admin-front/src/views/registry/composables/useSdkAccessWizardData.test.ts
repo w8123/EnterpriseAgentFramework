@@ -304,4 +304,78 @@ describe('useSdkAccessWizardData', () => {
     expect(mocks.createAiCodingTask).not.toHaveBeenCalled()
     expect(data.aiPromptDialogVisible.value).toBe(false)
   })
+
+  it('carries the selected language into the onboarding task target', async () => {
+    const data = useSdkAccessWizardData({
+      aiPromptTool: ref<SdkAccessAiPromptTool>('CODEX'),
+      sdkLanguage: ref('csharp' as const),
+      projectCode: ref('demo-project'),
+    })
+    await data.loadAll()
+    await data.prepareAiOnboardingTask()
+    expect(mocks.createAiCodingTask).toHaveBeenCalledWith(expect.objectContaining({
+      targets: [expect.objectContaining({ snapshot: expect.objectContaining({ sdkLanguage: 'csharp' }) })],
+    }))
+  })
+
+  it('does not treat a project-level passing check as Python acceptance even with a Python heartbeat', () => {
+    const data = useSdkAccessWizardData({
+      aiPromptTool: ref<SdkAccessAiPromptTool>('CODEX'),
+      sdkLanguage: ref('python' as const),
+      projectCode: ref('demo-project'),
+    })
+    data.instances.value = [{ id: 1, projectId: 27, projectCode: 'demo-project', instanceId: 'python',
+      status: 'ONLINE', metadataJson: '{"sdkLanguage":"python"}' }]
+    data.checkResult.value = { projectId: 27, projectCode: 'demo-project', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'SDK_CALLBACK_READY', label: '回调', status: 'PASS', message: '项目级证据' }] }
+    expect(data.selfCheckVerified.value).toBe(false)
+  })
+
+  it('does not treat a project-level passing check as Node acceptance even with a Node heartbeat', () => {
+    const data = useSdkAccessWizardData({
+      aiPromptTool: ref<SdkAccessAiPromptTool>('CODEX'),
+      sdkLanguage: ref('node' as const),
+      projectCode: ref('demo-project'),
+    })
+    data.instances.value = [{ id: 1, projectId: 27, projectCode: 'demo-project', instanceId: 'node',
+      status: 'ONLINE', metadataJson: '{"sdkLanguage":"node"}' }]
+    data.checkResult.value = { projectId: 27, projectCode: 'demo-project', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'SDK_CALLBACK_READY', label: '回调', status: 'PASS', message: '项目级证据' }] }
+    expect(data.selfCheckVerified.value).toBe(false)
+  })
+
+  it('does not treat a project-level passing check as Go acceptance even with a Go heartbeat', () => {
+    const data = useSdkAccessWizardData({
+      aiPromptTool: ref<SdkAccessAiPromptTool>('CODEX'), sdkLanguage: ref('go' as const), projectCode: ref('demo-project'),
+    })
+    data.instances.value = [{ id: 1, projectId: 27, projectCode: 'demo-project', instanceId: 'go',
+      status: 'ONLINE', metadataJson: '{"sdkLanguage":"go"}' }]
+    data.checkResult.value = { projectId: 27, projectCode: 'demo-project', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'SDK_CALLBACK_READY', label: '回调', status: 'PASS', message: '项目级证据' }] }
+    expect(data.selfCheckVerified.value).toBe(false)
+  })
+
+  it('does not reuse an active Java task for C# onboarding', async () => {
+    const task = {
+      taskId: 'java-task', executionStatus: 'RUNNING', executorProvider: 'CODEX',
+      connection: { status: 'WAITING_CONNECT' },
+      targets: [{ targetRole: 'PRIMARY', snapshot: { sdkLanguage: 'java' } }],
+    }
+    mocks.listAiCodingTasks.mockResolvedValueOnce({ data: [task] })
+    mocks.getAiCodingTask.mockResolvedValueOnce({ data: { task, readiness: [
+      { key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'Java task' },
+    ], events: [], questions: [], artifacts: [] } })
+    const data = useSdkAccessWizardData({
+      aiPromptTool: ref<SdkAccessAiPromptTool>('CODEX'),
+      sdkLanguage: ref('csharp' as const),
+      projectCode: ref('demo-project'),
+    })
+    await data.loadAll()
+    expect(data.selfCheckVerified.value).toBe(false)
+    expect(data.selfCheckSource.value).not.toBe('TASK')
+    await data.prepareAiOnboardingTask()
+    expect(mocks.createAiCodingTask).not.toHaveBeenCalled()
+    expect(mocks.issueAiCodingHandoff).not.toHaveBeenCalled()
+    expect(mocks.warning).toHaveBeenCalledWith(expect.stringContaining('另一种语言'))
+  })
 })

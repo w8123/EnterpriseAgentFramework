@@ -99,6 +99,29 @@ function businessMethod(overrides: Partial<BusinessMethodInfo> = {}): BusinessMe
 }
 
 describe('ToolConfigPanel business-method regression targets', () => {
+  it('offers C# source-declared response paths to downstream nodes', async () => {
+    const selected = businessMethod({
+      name: 'orders.query', qualifiedName: 'orders:query', responseType: 'OrderResponse',
+      metadata: { resultSchema: { type: 'object', properties: {
+        data: { type: ['object', 'null'], properties: { orderId: { type: 'string' } } },
+      } } },
+    })
+    const data = toolData({
+      outputAlias: 'order_result',
+      toolConfig: { ref: selected.name, qualifiedName: selected.qualifiedName, projectCode: 'orders', inputMapping: {} },
+    })
+    businessMethodApi.getBusinessMethod.mockReset()
+    businessMethodApi.getBusinessMethod.mockResolvedValue({ data: selected })
+    const wrapper = mount(ToolConfigPanel, {
+      props: { data, options: [], credentialOptions: [], projectId: 7, projectCode: 'orders', nodeId: 'query' },
+      global: { plugins: [ElementPlus] },
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('nodeOutput.query.data.orderId')
+    expect(data.outputs.map((port: { id: string }) => port.id)).toContain('order_result.data.orderId')
+    wrapper.unmount()
+  })
+
   it('does not describe a missing required query mapping as a path mapping', () => {
     const wrapper = mount(ToolConfigPanel, {
       props: { data: toolData(), options: [], credentialOptions: [], projectId: 7, projectCode: 'orders' },

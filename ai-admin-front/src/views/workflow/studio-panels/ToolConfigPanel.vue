@@ -647,7 +647,7 @@ const businessMethodInputTargets = computed(() => selectedBusinessMethod.value
   ? buildBusinessMethodInputTargets(selectedBusinessMethod.value.parameters)
   : [])
 const businessMethodOutputFields = computed(() => selectedBusinessMethod.value
-  ? buildBusinessMethodOutputFields(selectedBusinessMethod.value.parameters)
+  ? buildBusinessMethodOutputFields(selectedBusinessMethod.value.parameters, selectedBusinessMethod.value.metadata?.resultSchema)
   : [])
 const businessMethodOutputCandidates = computed(() => selectedBusinessMethod.value
   ? buildBusinessMethodOutputCandidates(
@@ -655,6 +655,7 @@ const businessMethodOutputCandidates = computed(() => selectedBusinessMethod.val
     props.data.outputAlias || 'tool_output',
     selectedBusinessMethod.value.parameters,
     selectedBusinessMethod.value.responseType,
+    selectedBusinessMethod.value.metadata?.resultSchema,
   )
   : [])
 const businessMethodVariableOptions = computed<StudioVariableOption[]>(() => {
@@ -892,7 +893,7 @@ function syncBusinessMethodCanvasContract(method: BusinessMethodInfo | null | un
     required: target.required,
     source: businessMappingDisplay(target.name),
   }))
-  const nextOutputs = businessMethodOutputPorts(props.data.outputAlias || 'tool_output', method.parameters, method.responseType)
+  const nextOutputs = businessMethodOutputPorts(props.data.outputAlias || 'tool_output', method.parameters, method.responseType, method.metadata?.resultSchema)
   if (!sameStudioPorts(props.data.inputs || [], nextInputs)) props.data.inputs = nextInputs
   if (!sameStudioPorts(props.data.outputs || [], nextOutputs)) props.data.outputs = nextOutputs
 }

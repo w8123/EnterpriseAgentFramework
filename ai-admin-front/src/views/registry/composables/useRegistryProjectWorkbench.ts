@@ -29,7 +29,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
         ...(deps.isSdkBackedProject.value
           ? [{
               title: '项目接入工作台',
-              desc: '从后端 Starter、网关路由、业务服务校验、前端 Embed Token 到平台自检与浏览器验收逐步完成接入。',
+              desc: '从后端 SDK、网关路由、业务服务校验、前端 Embed Token 到平台自检与浏览器验收逐步完成接入。',
               icon: Star,
               tone: 'green',
               disabled: !deps.project.value?.id,

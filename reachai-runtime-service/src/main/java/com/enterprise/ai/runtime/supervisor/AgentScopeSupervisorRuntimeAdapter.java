@@ -1364,6 +1364,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             safe.remove(protectedKey);
         }
         safe.remove(RuntimeGraphSpecExecutor.TRUSTED_IDENTITY_CONTEXT_KEY);
+        safe.remove(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
         return safe;
     }
 
@@ -2181,6 +2182,11 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 workflowInput.put("pageBridgeTimeoutMs", request.config().getPageBridgeTimeoutMs());
                 RuntimePublishedWorkflowSnapshot published = RuntimePublishedWorkflowSnapshot.read(target.version());
                 workflowInput = published.executionInput(workflowInput);
+                workflowInput.remove(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
+                var trustedTrace = com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.fromRuntime(trace.traceId());
+                if (trustedTrace != null) {
+                    workflowInput.put(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY, trustedTrace);
+                }
                 scope.throwIfCancelled();
                 // Agent/Embed 不公开 Workflow 内部 node delta；使用 NOOP sink。
                 // Cooperative cancellation：停止后续节点；不回滚当前节点已发生的外部副作用。

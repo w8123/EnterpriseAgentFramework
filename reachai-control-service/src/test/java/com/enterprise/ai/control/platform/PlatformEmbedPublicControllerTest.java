@@ -814,6 +814,7 @@ class PlatformEmbedPublicControllerTest {
         event.setSessionId("embed-1"); bindEvent(event);
         event.setNodeId("node-1");
         event.setActionKey("orders.open");
+        event.setParentRequestId("bridge-t1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         event.setTitle("打开订单");
         event.setArgsJson("{\"orderId\":12}");
         event.setTargetPageInstanceId("page-1");
@@ -832,6 +833,10 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("page-1", request.target().get("pageInstanceId"));
         assertEquals(12, request.args().get("orderId"));
         assertEquals("orders.list", request.metadata().get("pageKey"));
+        assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", request.metadata().get("traceId"));
+        event.setParentRequestId("bridge-00000000-0000-0000-0000-000000000000");
+        var legacy = controller.listPendingPageActions("embed-1", "Bearer " + token, 10).getBody().getData().get(0);
+        assertFalse(legacy.metadata().containsKey("traceId"));
     }
 
     @Test
@@ -932,6 +937,7 @@ class PlatformEmbedPublicControllerTest {
         event.setRequestId("req-claim");
         event.setSessionId("embed-1"); bindEvent(event);
         event.setActionKey("orders.enable");
+        event.setParentRequestId("bridge-t1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         event.setTargetPageKey("orders.list");
         event.setStatus("REQUESTED");
         var catalog = mock(PageCatalogApplicationService.class);
@@ -951,12 +957,18 @@ class PlatformEmbedPublicControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(true, response.getBody().getData().claimed());
         assertEquals("EXECUTING", response.getBody().getData().status());
+        assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", response.getBody().getData().traceId());
 
         // A request dispatched with the current confirmation floor remains claimable.
         event.setConfirmRequired(true);
         when(action.confirmRequired()).thenReturn(true);
         assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
                 new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
+        event.setParentRequestId("bridge-00000000-0000-0000-0000-000000000000");
+        var legacy = controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable"));
+        assertEquals(HttpStatus.OK, legacy.getStatusCode());
+        assertEquals(null, legacy.getBody().getData().traceId());
     }
 
     @Test

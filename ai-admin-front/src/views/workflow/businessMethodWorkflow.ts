@@ -114,12 +114,41 @@ function collectOutputFields(parameter: AssetParameter, parentPath: string, fiel
 /** Returns only source-declared return fields; responseType alone creates none. */
 export function businessMethodOutputFields(
   parameters: readonly AssetParameter[] | null | undefined,
+  resultSchema?: unknown,
 ): BusinessMethodOutputField[] {
   const fields: BusinessMethodOutputField[] = []
   const seen = new Set<string>()
   for (const root of logicalAssetParameters(outputDeclarations(parameters))) {
     collectOutputFields(root, '', fields, seen)
   }
+  // Schema is a source declaration. Only object properties with unambiguous
+  // path segments are offered; array item paths require an explicit index and
+  // cannot be inferred by the Studio.
+  const schemaType = (value: unknown) => {
+    if (typeof value === 'string') return value
+    if (!Array.isArray(value) || value.length !== 2 || !value.includes('null')) return ''
+    const nonNull = value.filter((item) => item !== 'null')
+    return nonNull.length === 1 && typeof nonNull[0] === 'string' ? nonNull[0] : ''
+  }
+  const visitSchema = (raw: unknown, parent: string, depth: number) => {
+    if (depth > 20 || !raw || typeof raw !== 'object' || Array.isArray(raw)) return
+    const schema = raw as Record<string, unknown>
+    if (schemaType(schema.type) !== 'object' || !schema.properties || typeof schema.properties !== 'object'
+      || Array.isArray(schema.properties)) return
+    for (const [name, value] of Object.entries(schema.properties)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) || !value || typeof value !== 'object' || Array.isArray(value)) continue
+      const child = value as Record<string, unknown>
+      const type = schemaType(child.type)
+      if (!['object', 'array', 'string', 'integer', 'number', 'boolean'].includes(type)) continue
+      const path = parent ? `${parent}.${name}` : name
+      if (!seen.has(path)) {
+        seen.add(path)
+        fields.push({ path, type, description: typeof child.description === 'string' ? child.description : '' })
+      }
+      if (type === 'object') visitSchema(child, path, depth + 1)
+    }
+  }
+  visitSchema(resultSchema, '', 0)
   return fields
 }
 
@@ -127,12 +156,13 @@ export function businessMethodOutputPorts(
   outputAlias: string,
   parameters: readonly AssetParameter[] | null | undefined,
   responseType?: string | null,
+  resultSchema?: unknown,
 ): StudioPort[] {
   const alias = outputAlias.trim() || 'tool_output'
   const ports: StudioPort[] = [{ id: alias, name: alias, type: 'any', required: false,
     ...(businessMethodHasScalarReturn(responseType) ? { source: BUSINESS_METHOD_SCALAR_OUTPUT } : {}),
   }]
-  for (const field of businessMethodOutputFields(parameters)) {
+  for (const field of businessMethodOutputFields(parameters, resultSchema)) {
     ports.push({
       id: `${alias}.${field.path}`,
       name: `${alias}.${field.path}`,
@@ -149,6 +179,7 @@ export function businessMethodOutputCandidates(
   outputAlias: string,
   parameters: readonly AssetParameter[] | null | undefined,
   responseType?: string | null,
+  resultSchema?: unknown,
 ): BusinessMethodOutputCandidate[] {
   const alias = outputAlias.trim() || 'tool_output'
   const variableAlias = alias.startsWith('var.') ? alias : `var.${alias}`
@@ -158,7 +189,7 @@ export function businessMethodOutputCandidates(
       ? `节点输出 · ${BUSINESS_METHOD_SCALAR_OUTPUT}` : '节点输出 · 根对象' },
     { value: variableAlias, label: `业务别名 · ${variableDisplayAlias}` },
   ]
-  for (const field of businessMethodOutputFields(parameters)) {
+  for (const field of businessMethodOutputFields(parameters, resultSchema)) {
     candidates.push(
       { value: `nodeOutput.${nodeId}.${field.path}`, label: `节点输出 · ${field.path}`, path: field.path },
       { value: `${variableAlias}.${field.path}`, label: `业务别名 · ${variableDisplayAlias}.${field.path}`, path: field.path },

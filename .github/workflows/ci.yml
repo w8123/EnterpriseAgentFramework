@@ -17,6 +17,47 @@ env:
   LC_ALL: C.UTF-8
 
 jobs:
+  go-sdk-compatibility:
+    name: Go SDK · Go ${{ matrix.go }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest and newest supported only: every push runs this matrix and Actions minutes are limited.
+        go: ['1.22.x', '1.25.x']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: reachai-go/go.mod
+      - run: go test -race ./...
+        working-directory: reachai-go
+      - run: python ai-admin-front/scripts/check-go-sdk-snippet.py
+
+  node-sdk-compatibility:
+    name: Node SDK · Node ${{ matrix.node }} / Express ${{ matrix.express }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Oldest/newest pairs only (was 3x2 = 6 jobs per push) to save Actions minutes.
+        include:
+          - node: '20'
+            express: '4'
+          - node: '24'
+            express: '5'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - run: npm ci --prefix reachai-node --no-audit --no-fund
+      - run: npm install --prefix reachai-node --no-save --package-lock=false --no-audit --no-fund express@${{ matrix.express }}
+      - run: npm test --prefix reachai-node
+      - run: node ai-admin-front/scripts/check-node-sdk-snippet.cjs
+      - run: node scripts/check-node-sdk-consumer.mjs ${{ matrix.express }}
+
   backend:
     name: 后端测试（Maven）
     runs-on: ubuntu-latest
@@ -31,12 +72,47 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.403'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: 打包 Java SDK 下载产物
         # Control 对外提供 SDK/starter 下载，jar 不入库，测试前先构建并放进 classpath 资源目录
         run: |
           mvn -B -q install -Dmaven.test.skip=true -pl reachai-capability-sdk,reachai-spring-boot2-starter -am
           node scripts/pack-java-sdk-artifacts.mjs
-      - name: 运行全部模块测试
+      - name: 从源码打包 C# SDK 下载产物
+        working-directory: reachai-dotnet
+        run: |
+          node ../scripts/pack-dotnet-sdk-artifacts.mjs --check
+          dotnet run --project ProtocolTests/ProtocolTests.csproj -c Release
+          dotnet build SampleOrders/SampleOrders.csproj -c Release
+          python ProtocolTests/http_fixture_test.py
+          node ../scripts/pack-dotnet-sdk-artifacts.mjs
+      - name: 验证 Python SDK 和下载制品
+        run: |
+          python -m pip install 'setuptools==80.9.0' wheel
+          python -m pip install -e 'reachai-python[test]'
+          python -m pytest reachai-python/tests
+          python ai-admin-front/scripts/check-python-sdk-snippet.py
+          python scripts/pack-python-sdk-artifacts.py --check
+          python scripts/pack-python-sdk-artifacts.py
+      - name: 验证 Node SDK 和下载制品
+        run: |
+          npm ci --prefix reachai-node --no-audit --no-fund
+          npm test --prefix reachai-node
+          node ai-admin-front/scripts/check-node-sdk-snippet.cjs
+          node scripts/pack-node-sdk-artifacts.mjs --check
+          node scripts/pack-node-sdk-artifacts.mjs
+          git diff --exit-code -- reachai-control-service/src/main/resources/ai-assist/artifacts/node-sdk
+      - name: 验证 Go SDK 下载制品
+        run: |
+          python scripts/pack-go-sdk-artifacts.py --check
+          python scripts/pack-go-sdk-artifacts.py
+          git diff --exit-code -- reachai-control-service/src/main/resources/ai-assist/artifacts/go-sdk
+      - name: 运行全部 Maven 模块测试
         run: mvn -B test -fae
       - name: 上传测试报告
         if: failure()

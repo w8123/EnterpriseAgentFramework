@@ -150,6 +150,35 @@ public class McpPlatformProtocolService {
             new Tool("reachai_business_system_tool_rescan_from_source", "按来源重新扫描业务系统中的单个接口；扫描结果已过期时返回 BUSINESS_SYSTEM_OPERATION_BLOCKED，先重新读取接口。",
                     PlatformPermissions.PLATFORM_WRITE, Map.of("projectId", integer("业务系统编号"), "scanToolId", integer("扫描接口编号")),
                     List.of("projectId", "scanToolId"), false),
+            new Tool("reachai_http_apis_upload", "把你在业务系统代码里找到的 HTTP 接口上传到 ReachAI 项目（一次最多 200 个）。"
+                    + "先用 reachai_projects_list 找到项目编号；只传结构，不要传域名、Token、密码或示例值。"
+                    + "同一方法加路径再次上传会覆盖，不会重复。上传后是「待接纳」，人在业务能力页面接纳后才能调用。返回每一项的成功或失败原因。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("projectId", integer("业务系统编号"),
+                    "apis", Map.of("type", "array", "minItems", 1, "maxItems", 200, "description", "要上传的接口",
+                            "items", Map.of("type", "object", "additionalProperties", false, "required", List.of("httpMethod", "path"),
+                                    "properties", Map.ofEntries(
+                                            Map.entry("httpMethod", Map.of("type", "string", "enum", List.of("GET", "POST", "PUT", "PATCH", "DELETE"))),
+                                            Map.entry("path", text("以 / 开头的路径，不含域名、项目 context-path 和查询串；路径参数写成 {id}")),
+                                            Map.entry("sideEffect", Map.of("type", "string", "enum", List.of("READ_ONLY", "IDEMPOTENT_WRITE", "WRITE", "IRREVERSIBLE"),
+                                                    "description", "操作性质；不传时 GET 视为只读，其他视为写入")),
+                                            Map.entry("parameters", Map.of("type", "array", "maxItems", 50, "description", "路径参数和查询参数",
+                                                    "items", Map.of("type", "object", "additionalProperties", false, "required", List.of("name", "location"),
+                                                            "properties", Map.of("name", text("参数名"),
+                                                                    "location", Map.of("type", "string", "enum", List.of("PATH", "QUERY")),
+                                                                    "type", Map.of("type", "string", "enum", List.of("string", "integer", "number", "boolean")),
+                                                                    "required", Map.of("type", "boolean"),
+                                                                    "description", text("参数说明"))))),
+                                            Map.entry("requestBody", Map.of("type", "object", "additionalProperties", false, "description", "请求体；GET 不传",
+                                                    "properties", Map.of("contentType", Map.of("type", "string", "enum", List.of("application/json", "text/plain")),
+                                                            "required", Map.of("type", "boolean"),
+                                                            "schema", Map.of("type", "object", "description", "请求体的 JSON Schema（type/properties/items/required/description）")))),
+                                            Map.entry("responseType", Map.of("type", "string", "enum", List.of("object", "array"), "description", "JSON 响应是对象还是数组，默认对象")),
+                                            Map.entry("authentication", Map.of("type", "object", "additionalProperties", false, "description", "接口鉴权方式，不传表示未知",
+                                                    "properties", Map.of("mode", Map.of("type", "string", "enum", List.of("UNKNOWN", "NONE", "BEARER", "API_KEY_HEADER")),
+                                                            "headerName", text("API_KEY_HEADER 时的请求头名称")))),
+                                            Map.entry("businessGroups", Map.of("type", "array", "maxItems", 30, "items", Map.of("type", "string", "maxLength", 64),
+                                                    "description", "业务分类，比如 Controller 所属模块")))))),
+                    List.of("projectId", "apis"), false),
             new Tool("reachai_business_system_sensitive_scan", "用指定模型启动业务系统的敏感数据扫描（会消耗模型调用）；已有扫描在运行时返回 BUSINESS_SYSTEM_OPERATION_BLOCKED。用 reachai_business_system_sensitive_status 查看进度。",
                     PlatformPermissions.PLATFORM_WRITE, Map.of("projectId", integer("业务系统编号"), "modelInstanceId", text("模型实例标识")),
                     List.of("projectId", "modelInstanceId"), false),
@@ -1712,6 +1741,25 @@ public class McpPlatformProtocolService {
                 case "reachai_business_system_tool_rescan_from_source" -> businessSystems.act(actor,
                         McpPlatformBusinessSystemReadPort.Action.TOOL_RESCAN_FROM_SOURCE, requiredLong(arguments, "projectId"),
                         requiredLong(arguments, "scanToolId"), Map.of());
+                case "reachai_http_apis_upload" -> {
+                    Object apis = arguments.get("apis");
+                    if (!(apis instanceof List<?> list) || list.isEmpty() || list.size() > 200) {
+                        throw new IllegalArgumentException("apis 需要 1 到 200 个接口");
+                    }
+                    List<Map<String, Object>> items = new ArrayList<>();
+                    for (Object raw : list) {
+                        if (!(raw instanceof Map<?, ?> item)) throw new IllegalArgumentException("apis 的每一项必须是对象");
+                        Map<String, Object> copy = new LinkedHashMap<>();
+                        for (String key : List.of("httpMethod", "path", "sideEffect", "parameters", "requestBody", "responseType",
+                                "authentication", "businessGroups")) {
+                            if (item.containsKey(key)) copy.put(key, item.get(key));
+                        }
+                        if (!item.keySet().stream().allMatch(copy::containsKey)) throw new IllegalArgumentException("apis 含有不支持的字段");
+                        copy.put("origin", "mcp");
+                        items.add(copy);
+                    }
+                    yield businessSystems.uploadHttpApis(actor, requiredLong(arguments, "projectId"), items);
+                }
                 case "reachai_business_system_sensitive_scan" -> businessSystems.act(actor,
                         McpPlatformBusinessSystemReadPort.Action.SENSITIVE_DATA_SCAN, requiredLong(arguments, "projectId"), null,
                         Map.of("modelInstanceId", requiredText(arguments, "modelInstanceId")));

@@ -116,6 +116,8 @@ public class TrustedMcpRuntimeExecutionGateway implements McpRuntimeExecutionGat
         putIfPresent(metadata, "projectId", command.projectId());
         metadata.put("projectCode", command.projectCode());
         metadata.put("tenantId", command.tenantId());
+        // Account roles are resolved from the employee directory by Control, not tool arguments.
+        metadata.put("employeeRoles", command.employeeRoles() == null ? java.util.List.of() : command.employeeRoles());
         requestBody.put("metadata", metadata);
         return send(requestBody, IDENTITY_SOURCE_MCP_EMPLOYEE, command.tenantId(), command.externalUserId());
     }

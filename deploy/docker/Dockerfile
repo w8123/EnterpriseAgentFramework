@@ -4,6 +4,44 @@
 #   docker build -f deploy/docker/Dockerfile --target web    -t reachai-web .
 # GitHub Actions（.github/workflows/images.yml）用它发布 ghcr.io/w8123/reachai-server 和 reachai-web。
 
+# C# SDK 作为业务系统的 NuGet 下载制品随 Control 发布。
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.403 AS dotnet-sdk
+WORKDIR /src/reachai-dotnet
+COPY reachai-dotnet/global.json ./global.json
+COPY reachai-dotnet/ReachAI.AspNetCore ReachAI.AspNetCore
+RUN dotnet pack ReachAI.AspNetCore/ReachAI.AspNetCore.csproj -c Release -o /out \
+    -p:Deterministic=true -p:DeterministicTimestamp=2026-01-01T00:00:00Z \
+    -p:SuppressImplicitGitSourceLink=true -p:EnableSourceControlManagerQueries=false \
+    -p:IncludeSourceRevisionInInformationalVersion=false -p:DebugType=none -p:DebugSymbols=false \
+    -p:PathMap=/src/reachai-dotnet/ReachAI.AspNetCore=/_/src
+
+FROM node:22-bookworm-slim AS dotnet-sdk-package
+WORKDIR /package
+COPY scripts/canonicalize-nuget.mjs ./canonicalize-nuget.mjs
+COPY --from=dotnet-sdk /out/ReachAI.AspNetCore.1.0.0.nupkg ./original.nupkg
+RUN node canonicalize-nuget.mjs original.nupkg ReachAI.AspNetCore.1.0.0.nupkg
+
+FROM --platform=$BUILDPLATFORM python:3.12-slim AS python-sdk-package
+WORKDIR /src
+COPY reachai-python/pyproject.toml reachai-python/pyproject.toml
+COPY reachai-python/src reachai-python/src
+COPY scripts/pack-python-sdk-artifacts.py scripts/pack-python-sdk-artifacts.py
+RUN python -m pip install 'setuptools==80.9.0' wheel \
+ && python scripts/pack-python-sdk-artifacts.py
+
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS node-sdk-package
+WORKDIR /src
+COPY reachai-node/package.json reachai-node/package-lock.json reachai-node/tsconfig.json reachai-node/README.md reachai-node/LICENSE reachai-node/
+COPY reachai-node/src reachai-node/src
+COPY scripts/pack-node-sdk-artifacts.mjs scripts/pack-node-sdk-artifacts.mjs
+RUN node scripts/pack-node-sdk-artifacts.mjs
+
+FROM --platform=$BUILDPLATFORM python:3.12-slim AS go-sdk-package
+WORKDIR /src
+COPY reachai-go/ reachai-go/
+COPY scripts/pack-go-sdk-artifacts.py scripts/pack-go-sdk-artifacts.py
+RUN python scripts/pack-go-sdk-artifacts.py
+
 # jar 和前端静态文件与 CPU 架构无关，在构建机本身的架构上编译，多架构镜像不用模拟编译
 FROM --platform=$BUILDPLATFORM maven:3.9-eclipse-temurin-17 AS backend
 WORKDIR /src
@@ -17,6 +55,12 @@ COPY reachai-knowledge-service reachai-knowledge-service
 COPY reachai-capability-service reachai-capability-service
 COPY reachai-runtime-service reachai-runtime-service
 COPY reachai-control-service reachai-control-service
+COPY --from=dotnet-sdk-package /package/ReachAI.AspNetCore.1.0.0.nupkg reachai-control-service/src/main/resources/ai-assist/artifacts/dotnet-sdk/ReachAI.AspNetCore.1.0.0.nupkg
+COPY --from=python-sdk-package /src/reachai-control-service/src/main/resources/ai-assist/artifacts/python-sdk/ reachai-control-service/src/main/resources/ai-assist/artifacts/python-sdk/
+COPY --from=node-sdk-package /src/reachai-control-service/src/main/resources/ai-assist/artifacts/node-sdk/ reachai-control-service/src/main/resources/ai-assist/artifacts/node-sdk/
+COPY --from=go-sdk-package /src/reachai-control-service/src/main/resources/ai-assist/artifacts/go-sdk/ reachai-control-service/src/main/resources/ai-assist/artifacts/go-sdk/
+RUN cd reachai-control-service/src/main/resources/ai-assist/artifacts/dotnet-sdk \
+ && sha256sum ReachAI.AspNetCore.1.0.0.nupkg | cut -d ' ' -f 1 > ReachAI.AspNetCore.1.0.0.nupkg.sha256
 # 空库首次启动自动建表用的 SQL，由 ai-common 打进 jar
 COPY sql/initV2.sql sql/initV2.sql
 RUN --mount=type=cache,target=/root/.m2 \

@@ -115,7 +115,13 @@ public class PlatformPageBridgeCommandService {
         }
         boolean confirmRequired = request.confirmRequired() || catalogAction.confirmRequired();
         List<PageBridgePhase> phases = new ArrayList<>();
-        String parentRequestId = "bridge-" + UUID.randomUUID();
+        String traceId = request.supervisorTraceId();
+        // Keep the existing opaque per-execution bridge group, while allowing
+        // the Embed SDK to correlate an acknowledged action with its own turn.
+        // Other entry types / legacy peers retain the historical parent format.
+        String parentRequestId = traceId != null && traceId.matches("[0-9a-f]{32}")
+                ? "bridge-t1-" + traceId + "-" + UUID.randomUUID().toString().replace("-", "")
+                : "bridge-" + UUID.randomUUID();
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));
         if (crossRoute) {
             long navigationDeadline = System.currentTimeMillis()
@@ -437,7 +443,17 @@ public class PlatformPageBridgeCommandService {
                                               int executionTimeoutMs,
                                               String identitySource,
                                               String identityTenantId,
-                                              String identityUserId) {
+                                              String identityUserId,
+                                              String supervisorTraceId) {
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, null);
+        }
     }
 
     public record PageBridgeContextResolutionRequest(String sessionId, String projectCode) {

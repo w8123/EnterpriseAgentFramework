@@ -154,9 +154,12 @@ class CapabilityScanProjectCatalogServiceTest {
         when(scanProjectMapper.selectById(7L)).thenReturn(project);
         when(registrySecurityService.findPrimaryActiveCredential(any())).thenReturn(java.util.Optional.of(activeCredential()));
 
-        when(projectInstanceMapper.selectOne(any())).thenReturn(instance("ONLINE", LocalDateTime.now().minusMinutes(1)));
+        ProjectInstanceEntity csharp = instance("ONLINE", LocalDateTime.now().minusMinutes(1));
+        csharp.setMetadataJson("{\"sdkLanguage\":\"csharp\"}");
+        when(projectInstanceMapper.selectOne(any())).thenReturn(csharp);
         Map<String, Object> onlineFacts = service.readinessFacts(7L);
         assertEquals(true, onlineFacts.get("online"));
+        assertEquals("csharp", onlineFacts.get("sdkLanguage"));
         assertEquals("PASS", runtimeReady(service.sdkAccessCheck(7L)));
 
         when(projectInstanceMapper.selectOne(any())).thenReturn(instance("ONLINE", LocalDateTime.now().minusMinutes(10)));

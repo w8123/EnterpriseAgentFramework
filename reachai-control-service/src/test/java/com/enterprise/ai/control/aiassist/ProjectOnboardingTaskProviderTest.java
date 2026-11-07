@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetView;
 import com.enterprise.ai.control.aicoding.provider.AiCodingContractResourceLoader;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService;
@@ -17,6 +18,70 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ProjectOnboardingTaskProviderTest {
+
+    @Test
+    void goReadinessRejectsOtherLanguagesAndUnscopedEvidence() {
+        for (String language : List.of("java", "csharp", "python", "node")) {
+            var other = ProjectOnboardingTaskProvider.factsForLanguage("go", Map.of(
+                    "sdkLanguage", language, "instanceExists", true, "online", true,
+                    "sdkCallbackStatus", "PASS", "sdkCallbackEvidence", "other-language callback"));
+            assertEquals(false, other.get("instanceExists"));
+            assertEquals(false, other.get("online"));
+            assertEquals("WARN", other.get("sdkCallbackStatus"));
+            assertEquals(null, other.get("sdkCallbackEvidence"));
+        }
+        var same = ProjectOnboardingTaskProvider.factsForLanguage("go", Map.of(
+                "sdkLanguage", "go", "instanceExists", true, "online", true));
+        assertEquals(true, same.get("online"));
+        assertEquals("WARN", same.get("sdkCallbackStatus"));
+    }
+
+    @Test
+    void nodeReadinessRejectsOtherLanguagesAndUnscopedCallbackEvidence() {
+        var other = ProjectOnboardingTaskProvider.factsForLanguage("node", Map.of(
+                "sdkLanguage", "python", "instanceExists", true, "online", true,
+                "sdkCallbackStatus", "PASS", "sdkCallbackEvidence", "old callback"));
+        assertEquals(false, other.get("instanceExists"));
+        assertEquals(false, other.get("online"));
+        assertEquals("WARN", other.get("sdkCallbackStatus"));
+        assertEquals(null, other.get("sdkCallbackEvidence"));
+        var same = ProjectOnboardingTaskProvider.factsForLanguage("node", Map.of(
+                "sdkLanguage", "node", "instanceExists", true, "online", true));
+        assertEquals(true, same.get("online"));
+        assertEquals("WARN", same.get("sdkCallbackStatus"));
+    }
+
+    @Test
+    void pythonReadinessRejectsUnscopedOrOtherLanguageEvidence() {
+        Map<String, Object> javaFacts = Map.of("sdkLanguage", "java", "instanceExists", true,
+                "online", true, "sdkCallbackStatus", "PASS", "sdkCallbackEvidence", "old callback");
+        var scoped = ProjectOnboardingTaskProvider.factsForLanguage("python", javaFacts);
+        assertEquals(false, scoped.get("instanceExists"));
+        assertEquals(false, scoped.get("online"));
+        assertEquals("WARN", scoped.get("sdkCallbackStatus"));
+        assertEquals(null, scoped.get("sdkCallbackEvidence"));
+        var pythonFacts = ProjectOnboardingTaskProvider.factsForLanguage("python", Map.of(
+                "sdkLanguage", "python", "instanceExists", true, "online", true));
+        assertEquals(true, pythonFacts.get("online"));
+        assertEquals("WARN", pythonFacts.get("sdkCallbackStatus"));
+        assertEquals(javaFacts, ProjectOnboardingTaskProvider.factsForLanguage("java", javaFacts));
+    }
+
+    @Test
+    void languageSelectionKeepsLegacyDefaultAndPrioritizesExplicitTarget() {
+        ObjectMapper json = new ObjectMapper();
+        TaskTargetView target = new TaskTargetView(1L, "PROJECT", "orders", "PRIMARY", "READ_WRITE",
+                json.createObjectNode().put("sdkLanguage", "csharp"));
+        TaskDescriptor task = new TaskDescriptor("id", 7L, "orders", "PROJECT_ONBOARDING",
+                "PROJECT_ONBOARDING", "v1", "CODEX", "title", "objective", "READ_WRITE", "READY",
+                json.createObjectNode(), List.of(target), null, null);
+        assertEquals("csharp", ProjectOnboardingTaskProvider.sdkLanguage(task, Map.of("sdkLanguage", "java")));
+        assertEquals("csharp", ProjectOnboardingTaskProvider.sdkLanguage(null, Map.of("sdkLanguage", "csharp")));
+        assertEquals("python", ProjectOnboardingTaskProvider.sdkLanguage(null, Map.of("sdkLanguage", "python")));
+        assertEquals("go", ProjectOnboardingTaskProvider.sdkLanguage(null, Map.of("sdkLanguage", "go")));
+        assertEquals("unknown", ProjectOnboardingTaskProvider.sdkLanguage(null, Map.of("sdkLanguage", "other")));
+        assertEquals("java", ProjectOnboardingTaskProvider.sdkLanguage(null, Map.of()));
+    }
 
     @Test
     void exposesSdkOwnedEmbedPageIdentityContract() {
@@ -53,6 +118,8 @@ class ProjectOnboardingTaskProviderTest {
                 null);
 
         JsonNode context = provider.buildContext(task);
+        assertEquals("STARTER", context.path("canonicalSteps").path(1).path("stepKey").asText());
+        assertEquals("后端 SDK", context.path("canonicalSteps").path(1).path("title").asText());
         JsonNode contract = context
                 .path("implementationGuidance")
                 .path("embedPageIdentityContract");

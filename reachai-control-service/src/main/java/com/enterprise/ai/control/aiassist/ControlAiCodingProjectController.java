@@ -88,7 +88,7 @@ public class ControlAiCodingProjectController {
             ControlAiAssistProjectController.ProjectManifest projectManifest = projectManifest(project);
             ControlAiAssistProjectController.AgentProvisioningManifest provisioning =
                     agentProvisioningManifest(projectManifest, root);
-            return ResponseEntity.ok(new ControlAiAssistProjectController.OnboardingManifestResponse(
+            var manifest = new ControlAiAssistProjectController.OnboardingManifestResponse(
                     "reachai.onboarding.v1",
                     projectManifest,
                     aiCodingAccess(project),
@@ -125,7 +125,8 @@ public class ControlAiCodingProjectController {
                             "powershell -NoProfile -ExecutionPolicy Bypass -File "
                                     + "\"{skillExtractDir}/reachai-onboarding/scripts/"
                                     + "set-reachai-registry-secret.ps1\" -Target User",
-                            "Do not paste or write the registry app secret into AI chat context.")));
+                            "Do not paste or write the registry app secret into AI chat context."));
+            return ResponseEntity.ok(ControlAiAssistProjectController.forRequestedLanguage(manifest, request));
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }

@@ -13,6 +13,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.LinkedHashMap;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 /** HMAC-authenticated Control-to-Runtime MCP execution entry. */
@@ -109,9 +111,24 @@ public class McpToolExecutionInternalController {
         if (connectionId == null || connectionId <= 0 || !StringUtils.hasText(projectCode)) {
             return null;
         }
+        // This field is produced by Control from its employee directory and protected by the
+        // internal exact-body HMAC. Never take roles from arguments or user-controlled context.
+        List<String> roles = employeeRoles(metadata.get("employeeRoles"));
+        if (roles == null) return null;
         return WorkflowExecutionIdentity.fromMcpEmployee(
                 verified.identityTenantId(), longValue(metadata.get("projectId")), projectCode,
-                verified.identityUserId());
+                verified.identityUserId(), roles);
+    }
+
+    private static List<String> employeeRoles(Object value) {
+        if (value == null) return List.of(); // older signed Control requests
+        if (!(value instanceof List<?> raw) || raw.size() > 100) return null;
+        List<String> result = new ArrayList<>();
+        for (Object item : raw) {
+            if (!(item instanceof String role) || !StringUtils.hasText(role) || role.length() > 128) return null;
+            result.add(role.trim());
+        }
+        return List.copyOf(result);
     }
 
     private static ResponseEntity<Map<String, Object>> unauthorized() {

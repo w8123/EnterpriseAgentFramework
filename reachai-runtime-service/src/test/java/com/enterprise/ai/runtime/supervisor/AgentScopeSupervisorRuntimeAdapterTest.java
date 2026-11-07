@@ -46,6 +46,31 @@ import static org.mockito.Mockito.when;
 class AgentScopeSupervisorRuntimeAdapterTest {
 
     @Test
+    void workflowTraceMarkerComesFromSupervisorNotRequestOrModelArguments() throws Exception {
+        var workflowTool = tool("wf-trace", "query_team");
+        stubWorkflow(workflowTool);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success("done"));
+        var runtime = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of("summary", "query", "steps", List.of("query"),
+                        "workflowToolNames", List.of("query_team")))),
+                calls(call("query", "query_team", Map.of("__trustedSupervisorTrace", "forged-model-value"))),
+                text("done"), text("done"))));
+        String trace = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var handle = new SupervisorExecutionTraceService.TraceHandle(trace, "span-1", 1L, LocalDateTime.now());
+        when(traceService.beginOrResume(any(), any(), any(), any(), any())).thenReturn(handle);
+        var input = new LinkedHashMap<String, Object>();
+        input.put("message", "query team"); input.put("sessionId", "s1");
+        input.put("__trustedSupervisorTrace", Map.of("traceId", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        assertTrue(runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(workflowTool), input)).success());
+        var captured = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(graphExecutor).execute(any(), captured.capture(), any(), any(), any());
+        Object marker = captured.getValue().get(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
+        assertTrue(marker instanceof com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace);
+        assertEquals(trace, ((com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace) marker).traceId());
+    }
+
+    @Test
     void downgradedBusinessMethodWorkflowNeverReachesExecutor() throws Exception {
         var tool = tool("wf-risk", "customer_create");
         stubWorkflow(tool);

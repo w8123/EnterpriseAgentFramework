@@ -25,6 +25,7 @@ export default defineConfig({
       'src/views/registry/composables/useSdkAccessWizardData.test.ts',
       'src/views/registry/composables/useSdkAccessWizardProgress.test.ts',
       'src/views/registry/composables/useSdkAccessWizardSnippets.test.ts',
+      'src/views/registry/composables/useSdkAccessWizardLanguage.test.ts',
     ],
     css: false,
   },

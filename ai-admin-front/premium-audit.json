@@ -1,15 +1,6 @@
 {
   "findings": [
     {
-      "category": "unresolved",
-      "file": "DESIGN.md",
-      "line": null,
-      "message": "The configured UX contract has no Canonical UI Map with the required columns.",
-      "remediation": "Add the exact Capability, Canonical owner, Source of truth, Allowed variants, and Verification columns.",
-      "ruleId": "canonical.map-missing",
-      "severity": "error"
-    },
-    {
       "category": "violation",
       "file": "src/views/KnowledgeList.vue",
       "line": 149,
@@ -21,7 +12,7 @@
     {
       "category": "violation",
       "file": "src/views/registry/RegistryProjectDetail.vue",
-      "line": 582,
+      "line": 593,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",
@@ -30,7 +21,7 @@
     {
       "category": "violation",
       "file": "src/views/registry/RegistryProjectDetail.vue",
-      "line": 600,
+      "line": 611,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",
@@ -113,9 +104,9 @@
   "projectRoot": "D:\\work\\EnterpriseAgentFramework-dev\\ai-admin-front",
   "schemaVersion": 1,
   "summary": {
-    "errors": 12,
-    "total": 12,
-    "unresolved": 1,
+    "errors": 11,
+    "total": 11,
+    "unresolved": 0,
     "violations": 11,
     "warnings": 0
   }

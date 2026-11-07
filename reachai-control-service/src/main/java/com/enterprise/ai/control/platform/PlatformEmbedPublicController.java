@@ -595,7 +595,8 @@ public class PlatformEmbedPublicController {
                                         + " (status=" + status + ")"));
             }
             return ResponseEntity.ok(ApiResult.ok(new PageActionClaimResponse(
-                    event.getRequestId(), event.getActionKey(), "EXECUTING", true)));
+                    event.getRequestId(), event.getActionKey(), "EXECUTING", true,
+                    trustedPageActionTrace(event.getParentRequestId()))));
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResult.fail(401, ex.getMessage()));
@@ -847,6 +848,7 @@ public class PlatformEmbedPublicController {
         putIfText(metadata, "agentId", session.getAgentId());
         putIfText(metadata, "commandType", event.getCommandType());
         putIfText(metadata, "parentRequestId", event.getParentRequestId());
+        putIfText(metadata, "traceId", trustedPageActionTrace(event.getParentRequestId()));
         putIfText(metadata, "pageKey", firstText(event.getTargetPageKey(), session.getPageKey()));
         putIfText(metadata, "route", firstText(event.getTargetRoute(), session.getRoute()));
         return new PageActionDispatchRequest(
@@ -860,6 +862,11 @@ public class PlatformEmbedPublicController {
                 Boolean.TRUE.equals(event.getConfirmRequired()),
                 parseJsonObject(event.getArgsJson()),
                 metadata);
+    }
+
+    private static String trustedPageActionTrace(String parentRequestId) {
+        return parentRequestId != null && parentRequestId.matches("bridge-t1-[0-9a-f]{32}-[0-9a-f]{32}")
+                ? parentRequestId.substring("bridge-t1-".length(), "bridge-t1-".length() + 32) : null;
     }
 
     private PlatformEmbedTokenClaims verifyBearer(String authorization) {
@@ -1230,7 +1237,8 @@ public class PlatformEmbedPublicController {
     public record PageActionClaimResponse(String requestId,
                                           String actionKey,
                                           String status,
-                                          boolean claimed) {
+                                          boolean claimed,
+                                          String traceId) {
     }
 
     public record PageActionResultResponse(

@@ -2,9 +2,9 @@ import { computed, reactive, ref } from 'vue'
 import { describe, expect, it } from 'vitest'
 import type { ProjectInstance } from '@/types/registry'
 import type { ScanProject, SdkAccessCheckResponse } from '@/types/scanProject'
-import { useSdkAccessWizardProgress } from './useSdkAccessWizardProgress'
+import { instanceMatchesSdkLanguage, useSdkAccessWizardProgress } from './useSdkAccessWizardProgress'
 
-function createProgress() {
+function createProgress(language: 'java' | 'csharp' | 'python' | 'node' | 'go' = 'java', hasOther = false) {
   const activeStep = ref<'starter' | 'gateway' | 'backend-check' | 'frontend' | 'self-check'>('starter')
   const project = ref<ScanProject | null>({
     id: 27,
@@ -35,6 +35,8 @@ function createProgress() {
     gatewayBaseUrl,
     embedTokenPath,
     manualChecks,
+    sdkLanguage: ref(language),
+    hasOtherLanguageInstances: ref(hasOther),
   })
   return {
     ...progress,
@@ -45,6 +47,84 @@ function createProgress() {
 }
 
 describe('useSdkAccessWizardProgress', () => {
+  it('keeps legacy Java instances separate from explicitly reported C# instances', () => {
+    const instance = { id: 1, projectId: 27, projectCode: 'demo', instanceId: 'x', status: 'ONLINE' } as ProjectInstance
+    expect(instanceMatchesSdkLanguage(instance, 'java')).toBe(true)
+    expect(instanceMatchesSdkLanguage(instance, 'csharp')).toBe(false)
+    const csharp = { ...instance, metadataJson: '{"sdkLanguage":"csharp"}' }
+    expect(instanceMatchesSdkLanguage(csharp, 'csharp')).toBe(true)
+    expect(instanceMatchesSdkLanguage(csharp, 'java')).toBe(false)
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{invalid' }, 'java')).toBe(false)
+  })
+
+  it('does not treat a project-level check as proof of C# without a matching instance', () => {
+    const progress = createProgress('csharp')
+    progress.checkResult.value = {
+      projectId: 27, projectCode: 'demo', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'existing project' }],
+    }
+    expect(progress.steps.value[0]?.done).toBe(false)
+    expect(progress.steps.value[4]?.done).toBe(false)
+  })
+
+  it('requires a Python instance and never treats Java or C# instances as Python', () => {
+    const progress = createProgress('python')
+    progress.checkResult.value = {
+      projectId: 27, projectCode: 'demo', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'other SDK' }],
+    }
+    expect(progress.steps.value[0]?.done).toBe(false)
+    expect(progress.steps.value[4]?.done).toBe(false)
+    const instance = { id: 1, projectId: 27, projectCode: 'demo', instanceId: 'x', status: 'ONLINE' } as ProjectInstance
+    expect(instanceMatchesSdkLanguage(instance, 'python')).toBe(false)
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{"sdkLanguage":"csharp"}' }, 'python')).toBe(false)
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{"sdkLanguage":"python"}' }, 'python')).toBe(true)
+    progress.instances.value = [{ ...instance, metadataJson: '{"sdkLanguage":"python"}' }]
+    expect(progress.steps.value[2]?.done).toBe(true)
+    expect(progress.steps.value[4]?.done).toBe(false)
+  })
+
+  it('requires Node instance identity and does not credit project-scoped callback evidence', () => {
+    const progress = createProgress('node')
+    progress.checkResult.value = {
+      projectId: 27, projectCode: 'demo', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'other SDK' }],
+    } as SdkAccessCheckResponse
+    const instance = { id: 1, projectId: 27, projectCode: 'demo', instanceId: 'x', status: 'ONLINE' } as ProjectInstance
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{"sdkLanguage":"python"}' }, 'node')).toBe(false)
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{"sdkLanguage":"node"}' }, 'node')).toBe(true)
+    expect(progress.steps.value[0]?.done).toBe(false)
+    progress.instances.value = [{ ...instance, metadataJson: '{"sdkLanguage":"node"}' }]
+    expect(progress.steps.value[2]?.done).toBe(true)
+    expect(progress.steps.value[4]?.done).toBe(false)
+  })
+
+  it('requires a Go instance and never credits project-scoped callback evidence', () => {
+    const progress = createProgress('go')
+    progress.checkResult.value = {
+      projectId: 27, projectCode: 'demo', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'other SDK' }],
+    } as SdkAccessCheckResponse
+    const instance = { id: 1, projectId: 27, projectCode: 'demo', instanceId: 'x', status: 'ONLINE' } as ProjectInstance
+    for (const language of ['java', 'csharp', 'python', 'node']) {
+      expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: JSON.stringify({ sdkLanguage: language }) }, 'go')).toBe(false)
+    }
+    expect(instanceMatchesSdkLanguage({ ...instance, metadataJson: '{invalid' }, 'go')).toBe(false)
+    expect(progress.steps.value[0]?.done).toBe(false)
+    progress.instances.value = [{ ...instance, metadataJson: '{"sdkLanguage":"go"}' }]
+    expect(progress.steps.value[2]?.done).toBe(true)
+    expect(progress.steps.value[4]?.done).toBe(false)
+  })
+
+  it('does not use a different language instance to verify the Java step', () => {
+    const progress = createProgress('java', true)
+    progress.checkResult.value = {
+      projectId: 27, projectCode: 'demo', overallStatus: 'PASS', checks: [],
+      readiness: [{ key: 'CODE_READY', label: '代码接入', status: 'PASS', message: 'other SDK' }],
+    }
+    expect(progress.steps.value[0]?.done).toBe(false)
+    expect(progress.steps.value[4]?.done).toBe(false)
+  })
   it('does not treat a stored credential alone as proof that Starter is integrated', () => {
     const progress = createProgress()
 

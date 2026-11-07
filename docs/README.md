@@ -15,7 +15,7 @@
 
 ## 学习路径
 
-- **Java 开发者**：[产品概念](product.md) → [系统接入](integration.md) → [页面对话](guides/embed-chat.md) → [业务能力与 Workflow](workflow.md)。
+- **业务系统开发者**：[产品概念](product.md) → [系统接入](integration.md) → [页面对话](guides/embed-chat.md) → [业务能力与 Workflow](workflow.md)。
 - **Agent / Workflow 实施人员**：[接入模型](guides/model-setup.md) → [第一个 Workflow](guides/first-workflow.md) → [发布 Agent](agent.md) → [知识问答](guides/knowledge-qa.md)。
 - **管理员与运维人员**：[安装](部署与运维手册.md) → [身份与安全](security.md) → [员工 AI 工具](guides/employee-ai-tools.md) → [运维与验收](operations.md)。
 
@@ -33,7 +33,7 @@
 | 了解 ReachAI、用户和核心对象 | [产品](product.md) |
 | 理解服务、数据归属和代码边界 | [架构](architecture.md) |
 | 构建、开发、测试与排错 | [开发](development.md) |
-| 接入 Java 系统和业务页面 | [系统接入](integration.md) |
+| 接入业务系统和业务页面 | [系统接入](integration.md) |
 | 使用业务方法/API、设计和调试流程 | [业务能力与 Workflow](workflow.md) |
 | 配置 Agent、记忆和标准 Skill | [Agent](agent.md) |
 | 使用知识、业务索引和模型 | [数据与模型](data.md) |
@@ -52,6 +52,7 @@
 - [表所有权](contracts/tables.md)：每张表的唯一 owning service。
 - [内部 API](contracts/internal-apis.md)：服务间接口、owner 与消费者。
 - [公共路由](contracts/public-routes.md)：浏览器和外部客户端的入口与凭证域。
+- [SDK 接入协议](contracts/sdk-protocol.md)：跨语言注册、同步、调用与身份协议。
 
 ## 文档与 AI 阅读
 

@@ -190,6 +190,7 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
                 context.put("tenantId", tenantId);
             }
             context.put("externalUserId", userId);
+            if (!identity.roles().isEmpty()) context.put("roles", identity.roles());
         } else if (identity != null && identity.canResolveProjectCredential()
                 && StringUtils.hasText(identity.tenantId())) {
             source = InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TENANT_TRUSTED;

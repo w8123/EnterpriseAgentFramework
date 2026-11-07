@@ -68,7 +68,7 @@ onBeforeRouteUpdate(requestLeave)
       </template>
       <el-form v-else-if="mode === 'create'" novalidate label-position="top" :disabled="!canWrite || busy" @submit.prevent="createGroup">
         <el-form-item label="分类名称"><el-input v-model="createName" aria-label="分类名称" maxlength="128" placeholder="例如：人员管理" /></el-form-item>
-        <p>分类由当前项目的 Java 业务方法和 HTTP API 共用。新增后可选择能力进行归类。</p>
+        <p>分类由当前项目的业务方法和 HTTP API 共用。新增后可选择能力进行归类。</p>
       </el-form>
       <el-form v-else-if="mode === 'rename'" novalidate label-position="top" :disabled="!canWrite || busy" @submit.prevent="saveName">
         <el-form-item label="分类名称"><el-input v-model="renameValue" aria-label="分类名称" maxlength="255" /></el-form-item>

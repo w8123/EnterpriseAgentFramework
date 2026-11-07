@@ -19,4 +19,12 @@ public interface McpPlatformBusinessSystemReadPort {
     boolean admits(PlatformAuthenticatedSession actor, Change change, Long projectId);
     /** Dispatches once; owner 409 becomes BUSINESS_SYSTEM_OPERATION_BLOCKED, other 4xx a bare status, a lost or 5xx result a bare 5xx. */
     ResponseEntity<?> change(PlatformAuthenticatedSession actor, Change change, Long projectId, Object body);
+
+    /**
+     * Adds or updates HTTP APIs the caller's AI tool found in code (manual source). They land as
+     * not-yet-accepted APIs; a person still accepts each one before it can be called.
+     */
+    default ResponseEntity<?> uploadHttpApis(PlatformAuthenticatedSession actor, long projectId, java.util.List<?> apis) {
+        throw new UnsupportedOperationException("HTTP API upload is not available");
+    }
 }

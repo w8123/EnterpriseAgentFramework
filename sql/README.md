@@ -38,6 +38,7 @@ mysql --default-character-set=utf8mb4 -h localhost -u root -p < sql/initV2.sql
 - [upgrade-20261102-skill-version-display-name.sql](upgrade-20261102-skill-version-display-name.sql)
 - [upgrade-20261104-model-internal-auth-nonce.sql](upgrade-20261104-model-internal-auth-nonce.sql)：模型服务签名鉴权上线前新增防重放表，并同时升级三个调用服务。
 - [upgrade-20261104-project-business-page-url.sql](upgrade-20261104-project-business-page-url.sql)：为项目增加可选的业务系统页面地址。
+- [upgrade-20261105-http-api-manual-source.sql](upgrade-20261105-http-api-manual-source.sql)：HTTP API 来源增加 MANUAL（页面手动填写、粘贴 curl、智能体通过 MCP 上传），只追加枚举值。
 
 MySQL DDL 可能隐式提交。执行前核对目标与恢复路径；执行后回读表、列、索引、必要种子及中文，确认业务配置保留。升级完成不自动更新发布 pin、重启进程或证明业务验收通过。
 

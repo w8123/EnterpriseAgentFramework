@@ -45,6 +45,9 @@ public class CapabilityScanProjectReadinessService {
         body.put("instanceExists", instanceExists);
         body.put("latestInstanceId", latest == null ? null : latest.getInstanceId());
         body.put("latestInstanceStatus", CapabilityProjectInstanceOnlineSupport.statusOrNull(latest));
+        // Instance metadata is supplied by the SDK; this is only a presentation hint,
+        // never evidence of authorization or platform approval of an SDK.
+        body.put("sdkLanguage", sdkLanguageHint(latest));
         body.put("lastHeartbeatAt", latest == null || latest.getLastHeartbeatAt() == null
                 ? null
                 : latest.getLastHeartbeatAt().toString());
@@ -55,6 +58,16 @@ public class CapabilityScanProjectReadinessService {
         body.put("sdkCallbackMessage", callbackCheck.message());
         body.put("sdkCallbackEvidence", callbackCheck.evidence());
         return body;
+    }
+
+    private String sdkLanguageHint(ProjectInstanceEntity latest) {
+        if (latest == null || !StringUtils.hasText(latest.getMetadataJson())) return null;
+        try {
+            JsonNode language = objectMapper.readTree(latest.getMetadataJson()).path("sdkLanguage");
+            return language.isTextual() ? language.asText() : null;
+        } catch (JsonProcessingException invalidMetadata) {
+            return null;
+        }
     }
 
     public SdkAccessCheckResponse sdkAccessCheck(ScanProjectEntity entity) {

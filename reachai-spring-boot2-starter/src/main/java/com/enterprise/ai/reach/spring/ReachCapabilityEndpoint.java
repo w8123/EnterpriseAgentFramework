@@ -44,7 +44,7 @@ public class ReachCapabilityEndpoint {
         ReachAiInvocationContext context = verifyInvocation(capabilityName, invocationToken);
         try {
             return invokeWithContext(context, capabilityName, arguments);
-        } catch (RuntimeException executionFailure) {
+        } catch (BusinessExecutionFailure executionFailure) {
             // Host applications often translate all exceptions into HTTP 200 responses using
             // their own envelope. Keep failures at this signed endpoint unambiguous without
             // exposing exception messages or changing the host application's other routes.
@@ -75,7 +75,7 @@ public class ReachCapabilityEndpoint {
                                      String capabilityName,
                                      Map<String, Object> arguments) {
         if (context == null) {
-            return invoker.invoke(capabilityName, arguments);
+            return business(() -> invoker.invoke(capabilityName, arguments));
         }
         ReachAiInvocationContextHolder.set(context);
         try {
@@ -84,7 +84,9 @@ public class ReachCapabilityEndpoint {
                 memoryScope = ReachBusinessIndexResolverGuard.requireInvocation(
                         context, capabilityName, arguments);
             }
-            Object result = invokeBridge(0, context, capabilityName, arguments);
+            // Only the business call itself becomes the opaque 500 envelope; guard refusals
+            // before and after it (tenant, signed user, row proof, input) keep their own exceptions.
+            Object result = business(() -> invokeBridge(0, context, capabilityName, arguments));
             if (memoryScope != null) {
                 return ReachBusinessIndexResolverGuard.validateResult(memoryScope, result);
             }
@@ -112,5 +114,26 @@ public class ReachCapabilityEndpoint {
                 return invokeBridge(index + 1, context, capabilityName, arguments);
             }
         });
+    }
+
+    private interface BusinessCall {
+        Object call() throws Exception;
+    }
+
+    private static Object business(BusinessCall call) {
+        try {
+            return call.call();
+        } catch (RuntimeException failure) {
+            throw new BusinessExecutionFailure(failure);
+        } catch (Exception failure) {
+            throw new IllegalStateException("ReachAI capability security bridge failed", failure);
+        }
+    }
+
+    /** Marks a failure raised by the business method, as opposed to a ReachAI guard refusal. */
+    private static final class BusinessExecutionFailure extends RuntimeException {
+        BusinessExecutionFailure(RuntimeException cause) {
+            super(cause);
+        }
     }
 }

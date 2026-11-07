@@ -167,6 +167,7 @@ class McpEmployeeProtocolServiceTest {
         ArgumentCaptor<EmployeeToolExecutionCommand> command = ArgumentCaptor.forClass(EmployeeToolExecutionCommand.class);
         verify(gateway).executeAsEmployee(command.capture());
         assertEquals("zs", command.getValue().externalUserId());
+        assertEquals(List.of("sales"), command.getValue().employeeRoles());
         assertEquals("crm", command.getValue().projectCode());
         assertEquals(3L, command.getValue().projectId());
         assertEquals("crm.search", command.getValue().sourceRef());

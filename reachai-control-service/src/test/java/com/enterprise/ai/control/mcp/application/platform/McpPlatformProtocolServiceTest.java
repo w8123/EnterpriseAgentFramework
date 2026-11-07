@@ -658,7 +658,7 @@ class McpPlatformProtocolServiceTest {
     void businessSystemScanActionsRequirePlatformWrite() {
         Fixture fixture = fixture();
         var actions = List.of("reachai_business_system_rescan", "reachai_business_system_reconcile_tools", "reachai_business_system_sdk_access_check",
-                "reachai_business_system_sdk_sync_scan", "reachai_business_system_tool_rescan_from_source", "reachai_business_system_sensitive_scan",
+                "reachai_business_system_sdk_sync_scan", "reachai_business_system_tool_rescan_from_source", "reachai_business_system_sensitive_scan", "reachai_http_apis_upload",
                 "reachai_business_system_request_change", "reachai_business_system_request_credential", "reachai_business_system_execute_approved_change");
         var readable = fixture.service.visibleTools(identity("platform:read")).stream().map(tool -> tool.get("name")).toList();
         assertTrue(readable.contains("reachai_business_system_get"));

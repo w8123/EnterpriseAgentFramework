@@ -45,6 +45,10 @@ public class ControlAiAssistProjectController {
         var artifacts = new java.util.ArrayList<SdkArtifact>(
                 ControlJavaSdkArtifactSupport.mavenArtifacts(baseUrl));
         artifacts.add(ControlEmbedChatArtifactSupport.npmArtifact(baseUrl));
+        artifacts.add(ControlDotnetSdkArtifactSupport.nugetArtifact(baseUrl));
+        artifacts.add(ControlPythonSdkArtifactSupport.wheelArtifact(baseUrl));
+        artifacts.add(ControlNodeSdkArtifactSupport.npmArtifact(baseUrl));
+        artifacts.add(ControlGoSdkArtifactSupport.sourceArtifact(baseUrl));
         return List.copyOf(artifacts);
     }
 
@@ -180,6 +184,7 @@ public class ControlAiAssistProjectController {
             String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
             String projectApiRoot = baseUrl + "/api/ai-assist/projects/" + projectId;
             OnboardingManifestResponse manifest = buildManifest(project, baseUrl, projectApiRoot);
+            manifest = forRequestedLanguage(manifest, request);
             if (!canWriteProject(request, project.get("projectCode"))) {
                 // The AI Coding key acts on the project without a login; only its maintainers may see it.
                 manifest = manifest.withAiCodingAccess(
@@ -189,6 +194,46 @@ public class ControlAiAssistProjectController {
         } catch (FeignException.NotFound ex) {
             return ResponseEntity.notFound().build();
         }
+    }
+
+    /** Existing Java manifest fields remain the default; other SDKs opt in explicitly. */
+    static OnboardingManifestResponse forRequestedLanguage(OnboardingManifestResponse manifest,
+                                                            HttpServletRequest request) {
+        String language = request == null ? null : request.getParameter("language");
+        if (!StringUtils.hasText(language) || "java".equalsIgnoreCase(language.trim())) return manifest;
+        boolean csharp = "csharp".equalsIgnoreCase(language.trim());
+        boolean python = "python".equalsIgnoreCase(language.trim());
+        boolean node = "node".equalsIgnoreCase(language.trim());
+        boolean go = "go".equalsIgnoreCase(language.trim());
+        if (!csharp && !python && !node && !go) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported SDK language");
+        }
+        String selectedLanguage = csharp ? "csharp" : python ? "python" : node ? "node" : "go";
+        List<SdkArtifact> artifacts = manifest.sdkArtifacts().stream()
+                .filter(item -> selectedLanguage.equals(item.language()) || "browser".equals(item.language()))
+                .toList();
+        List<GatewayChecklistItem> checklist = manifest.gatewayChecklist().stream()
+                .filter(item -> List.of("embed-route-forwarding", "registry-callback-route", "cors-options")
+                        .contains(item.id())).toList();
+        PlatformEndpoints endpoints = manifest.endpoints();
+        String manifestUrl = endpoints.manifestUrl();
+        String languageManifestUrl = manifestUrl + (manifestUrl.contains("?") ? "&" : "?") + "language=" + selectedLanguage;
+        ReachAiConfigManifest config = manifest.sdk().config();
+        String secretName = csharp ? "ReachAI__AppSecret" : "REACHAI_APP_SECRET";
+        ReachAiConfigManifest selectedConfig = new ReachAiConfigManifest(config.registryUrl(), config.appKey(),
+                secretName, config.projectCode(), config.projectName(), config.projectBaseUrl(),
+                config.projectContextPath(), config.environment());
+        return new OnboardingManifestResponse(manifest.schema(), manifest.project(), manifest.aiCodingAccess(),
+                new SdkManifest(csharp ? ControlDotnetSdkArtifactSupport.VERSION : python
+                        ? ControlPythonSdkArtifactSupport.VERSION : node ? ControlNodeSdkArtifactSupport.VERSION : ControlGoSdkArtifactSupport.VERSION,
+                        List.of(), selectedConfig),
+                artifacts, manifest.responseShapes(), checklist,
+                new PlatformEndpoints(endpoints.skillPackageUrl(), languageManifestUrl,
+                        endpoints.sdkAccessCheckUrl(), endpoints.reconcileToolsUrl()), manifest.embed(),
+                manifest.agentProvisioning(), manifest.agentSupervisor(),
+                new SecurityGuidance(secretName, null, null,
+                        csharp ? "Store ReachAI__AppSecret or ReachAI__EnrollmentToken in the business server's secret store; never expose them to browser code or logs."
+                                : "Store project credentials or the enrollment token in the business server's protected secret store; never expose them to browser code or logs."));
     }
 
     @PatchMapping("/ai-coding-access")

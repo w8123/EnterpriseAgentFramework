@@ -130,13 +130,28 @@ class CapabilityInternalAuthVerifierTest {
     }
 
     @Test
-    void trustedCallRejectsAdditionalCallerControlledIdentityClaims() {
+    void trustedCallAcceptsRolesOnlyWhenCoveredByTheExactSignedBody() {
         byte[] body = json("tenant-a", "user-7", true);
         Signed signed = signTool(body,
                 InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED,
                 "tenant-a", "user-7");
 
-        assertTrue(verifyTool(signed, body).isEmpty());
+        assertTrue(verifyTool(signed, body).isPresent());
+        byte[] modified = json("tenant-a", "user-7", false);
+        Signed original = signTool(modified, InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED,
+                "tenant-a", "user-7");
+        assertTrue(verifyTool(original, body).isEmpty());
+    }
+
+    @Test
+    void trustedCallRejectsMalformedSignedRoles() throws Exception {
+        for (Object roles : java.util.List.of("ADMIN", java.util.List.of(12), java.util.List.of(""))) {
+            byte[] body = new ObjectMapper().writeValueAsBytes(Map.of("context", Map.of(
+                    "tenantId", "tenant-a", "externalUserId", "user-7", "roles", roles)));
+            Signed signed = signTool(body, InternalServiceAuthHeaders.IDENTITY_SOURCE_RUNTIME_TRUSTED,
+                    "tenant-a", "user-7");
+            assertTrue(verifyTool(signed, body).isEmpty());
+        }
     }
 
     @Test

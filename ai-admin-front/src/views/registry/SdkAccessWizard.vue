@@ -4,6 +4,13 @@
     <PageHeader variant="workbench" domain="project" presentation="plain" title="项目接入工作台" description="完成 SDK 接入配置，检查注册与同步状态。">
       <template #meta>
         <span>{{ project?.name || projectCode }} · {{ project?.projectCode || projectCode }} · SDK 接入</span>
+        <LiquidGlassSelect v-model="sdkLanguage" class="sdk-language-picker" aria-label="业务系统语言" dropdown-title="业务系统语言">
+          <el-option label="Java / Spring" value="java" />
+          <el-option label="C# / ASP.NET Core" value="csharp" />
+          <el-option label="Python / FastAPI" value="python" />
+          <el-option label="Node.js / Express" value="node" />
+          <el-option label="Go / net/http" value="go" />
+        </LiquidGlassSelect>
       </template>
       <template #mode>
         <HeaderModeSwitch
@@ -78,12 +85,109 @@
             <div class="panel-head">
               <div>
                 <span class="step-kicker">步骤 1 / 5</span>
-                <h2>后端 Starter</h2>
-                <p>将 SDK Starter 引入到你的业务服务中，并完成基础配置。</p>
+                <h2>后端 SDK</h2>
+                <p>将 SDK 引入到业务服务中，并完成基础配置。</p>
               </div>
               <el-tag type="danger" effect="light">必填</el-tag>
             </div>
 
+            <template v-if="sdkLanguage === 'csharp'">
+            <section class="config-section">
+              <h3>1. 获取 C# SDK</h3>
+              <p>下载平台提供的 NuGet 制品，核对 SHA-256 后放入持久的本地 feed，并将该 feed 配置到业务项目。当前支持 ASP.NET Core 10。</p>
+              <p v-if="csharpLoading" role="status">正在读取 C# SDK 制品信息…</p>
+              <LiquidGlassNotice v-else-if="csharpError" type="error" source="backdrop" :title="csharpError">
+                <template #actions><LiquidGlassButton size="small" @click="loadCsharpManifest">重试</LiquidGlassButton></template>
+              </LiquidGlassNotice>
+              <template v-else-if="csharpArtifactReady && csharpArtifact">
+                <p><a :href="csharpArtifact.downloadUrl || undefined" download>下载 {{ csharpArtifact.packageName }} {{ csharpArtifact.version }}</a></p>
+                <CodeSnippetBlock title="SHA-256 · 安装前核对" :code="csharpArtifact.integritySha256 || ''" @copy="copyText" />
+                <CodeSnippetBlock title="dotnet · 从已验证的本地 feed 安装" :code="csharpArtifact.installCommandTemplate || ''" @copy="copyText" />
+                <p>命令中的项目路径和本地 feed 路径需要替换为你的实际路径；平台下载地址不是 NuGet 源。</p>
+              </template>
+              <LiquidGlassNotice v-else type="warning" source="backdrop" title="C# SDK 制品尚未就绪" description="平台尚未提供可验证的制品及摘要，请检查平台构建产物后刷新。" />
+            </section>
+            <section class="config-section">
+              <h3>2. 配置业务服务</h3>
+              <p>把以下配置加入业务项目的 appsettings.json。Enrollment Token 或已有项目凭据通过受保护的环境变量或密钥管理器提供，文件中不要保存密钥。</p>
+              <CodeSnippetBlock title="appsettings.json" :code="csharpApplicationSnippet" @copy="copyText" />
+              <p>使用一次性令牌时，须将 <code>CredentialFilePath</code> 替换为应用包外受保护的持久文件路径，也可通过 <code>ReachAI__CredentialFilePath</code> 提供。持久保存 ASP.NET Core Data Protection 密钥，并为运行账号限制文件和目录权限。</p>
+              <p>令牌使用 <code>ReachAI__EnrollmentToken</code>，已有项目凭据使用 <code>ReachAI__AppKey</code> 和 <code>ReachAI__AppSecret</code>；注册地址必须从 ReachAI 服务端可达。</p>
+            </section>
+            <section class="config-section">
+              <h3>3. 注册能力与身份桥</h3>
+              <p>替换示例类型并实现从已登录业务会话解析员工，以及将受验证身份带入业务授权的适配器。业务系统继续执行数据权限与事务校验。</p>
+              <CodeSnippetBlock title="Program.cs" :code="csharpStartupSnippet" @copy="copyText" />
+            </section>
+            </template>
+            <template v-else-if="sdkLanguage === 'go'">
+            <section class="config-section">
+              <h3>1. 获取 Go SDK</h3>
+              <p>下载平台提供的 Go 源码包并核对 SHA-256，再解压到业务项目的受控目录。首版提供标准库 net/http 适配。</p>
+              <p v-if="goLoading" role="status">正在读取 Go SDK 制品信息…</p>
+              <LiquidGlassNotice v-else-if="goError" type="error" source="backdrop" :title="goError">
+                <template #actions><LiquidGlassButton size="small" @click="loadGoManifest">重试</LiquidGlassButton></template>
+              </LiquidGlassNotice>
+              <template v-else-if="goArtifactReady && goArtifact">
+                <p><a :href="goArtifact.downloadUrl || undefined" download>下载 {{ goArtifact.packageName }} {{ goArtifact.version }}</a></p>
+                <CodeSnippetBlock title="SHA-256 · 安装前核对" :code="goArtifact.integritySha256 || ''" @copy="copyText" />
+                <CodeSnippetBlock title="Go · 使用已验证源码包" :code="goArtifact.installCommandTemplate || ''" @copy="copyText" />
+                <p>先将 ZIP 中的 reachai-go 目录解压到业务项目的 third_party/ 下，再执行命令；如使用其他位置，请相应修改相对路径。平台制品下载地址不是 Go 模块代理。</p>
+              </template>
+              <LiquidGlassNotice v-else type="warning" source="backdrop" title="Go SDK 制品暂不可用，请联系平台管理员检查分发包。" />
+            </section>
+            <section class="config-section">
+              <h3>2. 配置业务服务和身份桥</h3>
+              <p>项目凭据由后端安全保存，业务身份从可信登录态还原；业务系统继续校验角色、租户和数据权限。具体 API 和示例见源码包内 README。</p>
+              <p>以下是初始化片段，请接入已有业务服务：监听后调用 sdk.Start(ctx)，退出时调用 sdk.Stop(ctx)，并实现身份桥与业务处理函数。</p>
+              <CodeSnippetBlock title="Go net/http 接入示例" :code="goStartupSnippet" @copy="copyText" />
+            </section>
+            </template>
+            <template v-else-if="sdkLanguage === 'python'">
+            <section class="config-section">
+              <h3>1. 获取 Python SDK</h3>
+              <p>下载平台提供的 wheel 并核对 SHA-256，再将它安装到业务项目的 Python 环境；首次支持 FastAPI。</p>
+              <p v-if="pythonLoading" role="status">正在读取 Python SDK 制品信息…</p>
+              <LiquidGlassNotice v-else-if="pythonError" type="error" source="backdrop" :title="pythonError">
+                <template #actions><LiquidGlassButton size="small" @click="loadPythonManifest">重试</LiquidGlassButton></template>
+              </LiquidGlassNotice>
+              <template v-else-if="pythonArtifactReady && pythonArtifact">
+                <p><a :href="pythonArtifact.downloadUrl || undefined" download>下载 {{ pythonArtifact.packageName }} {{ pythonArtifact.version }}</a></p>
+                <CodeSnippetBlock title="SHA-256 · 安装前核对" :code="pythonArtifact.integritySha256 || ''" @copy="copyText" />
+                <CodeSnippetBlock title="pip · 安装已验证的 wheel" :code="pythonArtifact.installCommandTemplate || ''" @copy="copyText" />
+                <p>命令中的 wheel 路径需要替换为下载并验证后的实际路径；依赖须从可信的软件包来源安装。</p>
+              </template>
+              <LiquidGlassNotice v-else type="warning" source="backdrop" title="Python SDK 制品尚未就绪" description="平台尚未提供可验证的制品及摘要，请检查平台构建产物后刷新。" />
+            </section>
+            <section class="config-section">
+              <h3>2. 配置业务服务和身份桥</h3>
+              <p>将业务登录态与项目凭据交由服务端处理；注册能力时保留业务系统自己的权限、租户与事务校验。不要将项目密钥放入浏览器或代码仓库。</p>
+              <CodeSnippetBlock title="FastAPI 接入示例" :code="pythonStartupSnippet" @copy="copyText" />
+            </section>
+            </template>
+            <template v-else-if="sdkLanguage === 'node'">
+            <section class="config-section">
+              <h3>1. 获取 Node.js SDK</h3>
+              <p>下载平台提供的 npm 安装包并核对 SHA-256，再安装到业务项目。首版支持 Node.js 20 及以上和 Express 4 / 5。</p>
+              <p v-if="nodeLoading" role="status">正在读取 Node.js SDK 制品信息…</p>
+              <LiquidGlassNotice v-else-if="nodeError" type="error" source="backdrop" :title="nodeError">
+                <template #actions><LiquidGlassButton size="small" @click="loadNodeManifest">重试</LiquidGlassButton></template>
+              </LiquidGlassNotice>
+              <template v-else-if="nodeArtifactReady && nodeArtifact">
+                <p><a :href="nodeArtifact.downloadUrl || undefined" download>下载 {{ nodeArtifact.packageName }} {{ nodeArtifact.version }}</a></p>
+                <CodeSnippetBlock title="SHA-256 · 安装前核对" :code="nodeArtifact.integritySha256 || ''" @copy="copyText" />
+                <CodeSnippetBlock title="npm · 安装已验证的包" :code="nodeArtifact.installCommandTemplate || ''" @copy="copyText" />
+                <p>替换命令中的安装包路径；依赖须从可信的软件包来源安装。平台制品下载地址不是 npm 仓库。</p>
+              </template>
+              <LiquidGlassNotice v-else type="warning" source="backdrop" title="Node.js SDK 制品尚未就绪" description="平台尚未提供可验证的制品及摘要，请检查平台构建产物后刷新。" />
+            </section>
+            <section class="config-section">
+              <h3>2. 配置业务服务和身份桥</h3>
+              <p>从业务服务的可信登录态取得用户，并在服务端校验权限、租户和数据范围。不要将项目密钥放入浏览器或代码仓库。</p>
+              <CodeSnippetBlock title="Express 接入示例" :code="nodeStartupSnippet" @copy="copyText" />
+            </section>
+            </template>
+            <template v-else>
             <section class="config-section">
               <h3>1. 下载并安装 Java SDK 制品</h3>
               <p>无需 ReachAI 源码仓库。平台给出固定版本的 JAR、独立 POM 和双 SHA-256；先安装 capability-sdk，再安装 Starter。</p>
@@ -130,9 +234,10 @@
               />
             </section>
 
+            </template>
             <section class="config-section config-check">
               <h3>4. 完成后请勾选</h3>
-              <el-checkbox v-model="manualChecks.starter">我已完成 Starter 引入与配置</el-checkbox>
+              <el-checkbox v-model="manualChecks.starter">我已完成 SDK 引入与配置</el-checkbox>
             </section>
           </div>
 
@@ -148,7 +253,12 @@
                 <el-input v-model="gatewayBaseUrl" placeholder="例如 http://localhost:8080" />
               </el-form-item>
             </el-form>
+            <div v-if="sdkLanguage !== 'java'" class="config-section">
+              <p>将 <code>/reachai/capabilities/**</code> 和 <code>/reachai/registry/**</code> 转发到业务服务，保留 SDK 验签所需的请求头。<code>/reachai/embed/token</code> 保留业务登录认证与 CSRF 防护。</p>
+              <p>将 <code>/api/reachai/embed/**</code> 转发到平台的 <code>/api/embed/**</code>，完整透传 Embed Token 的 Authorization 头。按实际使用的网关实现这些规则。</p>
+            </div>
             <CodeSnippetBlock
+              v-else
               title="application.yml"
               :code="gatewaySnippet"
               :highlighted-code="highlightedGatewaySnippet"
@@ -185,13 +295,13 @@
             </div>
             <el-form label-width="120px" class="inline-form">
               <el-form-item label="Token Broker">
-                <el-input v-model="embedTokenPath" placeholder="/api/reachai/embed-token" />
+                <el-input v-model="embedTokenPath" :placeholder="sdkLanguage !== 'java' ? '/reachai/embed/token' : '/api/reachai/embed-token'" />
               </el-form-item>
             </el-form>
             <CodeSnippetBlock
               title="frontend embed token"
-              :code="frontendSnippet"
-              :highlighted-code="highlightedFrontendSnippet"
+              :code="sdkLanguage !== 'java' ? csharpFrontendSnippet : frontendSnippet"
+              :highlighted-code="sdkLanguage !== 'java' ? undefined : highlightedFrontendSnippet"
               @copy="copyText"
             />
             <el-checkbox v-model="manualChecks.frontend">我已在业务前端接入短期 embed token，不在浏览器保存项目 secret</el-checkbox>
@@ -207,7 +317,7 @@
             </div>
             <LiquidGlassNotice
               title="自检范围：项目配置、实例心跳与 SDK 签名回调"
-              description="真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收，不会由本自检代替。"
+              :description="sdkLanguage === 'python' || sdkLanguage === 'node' || sdkLanguage === 'go' ? '结果按项目汇总，无法确认回调和会话来自所选语言的实例；请单独验证业务流程，平台自检步骤暂不标记为已验证。' : '结果按项目汇总，并非所选语言的独立验收；真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收。'"
               type="info"
               source="backdrop"
             />
@@ -552,7 +662,7 @@ import AppDialog from '@/components/common/AppDialog.vue'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import AiCodingProviderSelector from '@/components/ai-coding/AiCodingProviderSelector.vue'
 import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   ArrowRight,
@@ -564,7 +674,7 @@ import {
 } from '@element-plus/icons-vue'
 import { useTheme } from '@/composables/useTheme'
 import CodeSnippetBlock from '@/components/common/CodeSnippetBlock.vue'
-import { LiquidGlassButton, LiquidGlassNotice } from '@/components/common/liquid-glass'
+import { LiquidGlassButton, LiquidGlassNotice, LiquidGlassSelect } from '@/components/common/liquid-glass'
 import HeaderModeSwitch, { type HeaderModeOption } from '@/components/common/HeaderModeSwitch.vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import ProjectRouteMissingState from '@/views/registry/components/ProjectRouteMissingState.vue'
@@ -572,8 +682,13 @@ import ProjectWorkbenchLoadErrorState from '@/views/registry/components/ProjectW
 import { useSdkAccessWizardActions } from '@/views/registry/composables/useSdkAccessWizardActions'
 import { useSdkAccessWizardData } from '@/views/registry/composables/useSdkAccessWizardData'
 import { useSdkAccessWizardNavigation } from '@/views/registry/composables/useSdkAccessWizardNavigation'
-import { useSdkAccessWizardProgress } from '@/views/registry/composables/useSdkAccessWizardProgress'
+import { instanceMatchesSdkLanguage, useSdkAccessWizardProgress } from '@/views/registry/composables/useSdkAccessWizardProgress'
 import { useSdkAccessWizardSnippets } from '@/views/registry/composables/useSdkAccessWizardSnippets'
+import { useSdkAccessWizardCsharpSnippets } from '@/views/registry/composables/useSdkAccessWizardCsharpSnippets'
+import { useSdkAccessWizardPythonSnippets } from '@/views/registry/composables/useSdkAccessWizardPythonSnippets'
+import { useSdkAccessWizardNodeSnippets } from '@/views/registry/composables/useSdkAccessWizardNodeSnippets'
+import { useSdkAccessWizardGoSnippets } from '@/views/registry/composables/useSdkAccessWizardGoSnippets'
+import { useSdkAccessWizardLanguage } from '@/views/registry/composables/useSdkAccessWizardLanguage'
 import { useSdkAccessWizardUiState } from '@/views/registry/composables/useSdkAccessWizardUiState'
 import {
   aiAccessStepStatusLabel,
@@ -594,6 +709,7 @@ const accessModeOptions: HeaderModeOption[] = [
 const {
   aiPromptTool,
   accessMode,
+  sdkLanguage,
   activeStep,
   gatewayBaseUrl,
   embedTokenPath,
@@ -626,7 +742,6 @@ const {
   aiOnboardingPromptUnavailableReason,
   checkResult,
   isSdkBackedProject,
-  onlineInstanceCount,
   loadAll,
   prepareAiOnboardingTask,
   runCheck,
@@ -639,6 +754,24 @@ const {
   cancelOnboardingTask,
 } = useSdkAccessWizardData({
   aiPromptTool,
+  sdkLanguage,
+})
+
+const { csharpManifest, csharpLoading, csharpError, csharpArtifact, csharpArtifactReady, loadCsharpManifest,
+  pythonManifest, pythonLoading, pythonError, pythonArtifact, pythonArtifactReady, loadPythonManifest,
+  nodeManifest, nodeLoading, nodeError, nodeArtifact, nodeArtifactReady, loadNodeManifest,
+  goManifest, goLoading, goError, goArtifact, goArtifactReady, loadGoManifest } =
+  useSdkAccessWizardLanguage(sdkLanguage, project)
+
+watch(sdkLanguage, (language) => {
+  manualChecks.starter = false
+  manualChecks.gateway = false
+  manualChecks.frontend = false
+  if (language !== 'java' && embedTokenPath.value === '/api/reachai/embed-token') {
+    embedTokenPath.value = '/reachai/embed/token'
+  } else if (language === 'java' && embedTokenPath.value === '/reachai/embed/token') {
+    embedTokenPath.value = '/api/reachai/embed-token'
+  }
 })
 
 const javaSdkInstallSnippet = computed(() =>
@@ -654,6 +787,10 @@ const registrySecretSetupSnippet = computed(
     ?.secretSetupCommandTemplate || '',
 )
 
+const languageInstances = computed(() => instances.value.filter((item) => instanceMatchesSdkLanguage(item, sdkLanguage.value)))
+const onlineInstanceCount = computed(() => languageInstances.value.filter((item) => item.status === 'ONLINE').length)
+const hasOtherLanguageInstances = computed(() => instances.value.length > languageInstances.value.length)
+
 const {
   steps,
   activeStepIndex,
@@ -664,7 +801,7 @@ const {
 } = useSdkAccessWizardProgress({
   activeStep,
   project,
-  instances,
+  instances: languageInstances,
   onboardingTask,
   checkResult,
   isSdkBackedProject,
@@ -672,6 +809,8 @@ const {
   gatewayBaseUrl,
   embedTokenPath,
   manualChecks,
+  sdkLanguage,
+  hasOtherLanguageInstances,
 })
 
 const {
@@ -690,6 +829,15 @@ const {
   gatewayBaseUrl,
   embedTokenPath,
 })
+
+const {
+  application: csharpApplicationSnippet,
+  startup: csharpStartupSnippet,
+  frontend: csharpFrontendSnippet,
+} = useSdkAccessWizardCsharpSnippets(project, csharpManifest, frontendSnippet)
+const { startup: pythonStartupSnippet } = useSdkAccessWizardPythonSnippets(project, pythonManifest)
+const { startup: nodeStartupSnippet } = useSdkAccessWizardNodeSnippets(project, nodeManifest)
+const { startup: goStartupSnippet } = useSdkAccessWizardGoSnippets(project, goManifest)
 
 const {
   goPrev,

@@ -4,5 +4,7 @@ package com.enterprise.ai.capability.catalog.httpapi;
 public enum HttpApiSourceKind {
     STARTER_MVC,
     OPENAPI_SCAN,
-    API_MARKET_OPERATION
+    API_MARKET_OPERATION,
+    /** Entered by a person (form / pasted curl) or uploaded by their AI tool over MCP. */
+    MANUAL
 }

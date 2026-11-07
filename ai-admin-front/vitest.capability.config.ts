@@ -39,6 +39,8 @@ export default defineConfig({
     'src/views/api/CatalogScopeNavigation.test.ts',
     'src/views/api/HttpApiDetail.write.test.ts',
     'src/views/api/HttpApiDetail.connection.test.ts',
+    'src/views/api/manualHttpApi.test.ts',
+    'src/views/api/components/HttpApiAddDialog.test.ts',
     'src/utils/businessPageUrl.test.ts',
     'src/utils/a2aHub.test.ts',
     'src/views/api-market/ApiMarket.test.ts',

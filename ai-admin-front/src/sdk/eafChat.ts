@@ -12,7 +12,9 @@ import {
   pageActionQueueFromResponse,
   pollPendingPageActions,
   processMessagePageActionQueue,
+  type PageActionResultDelivered,
 } from './embedPageActions'
+import { createPageActionTurnCompletion } from './pageActionTurnCompletion'
 import {
   buildEafChatSessionPayload,
   type EafChatPageSessionPayload,
@@ -166,6 +168,8 @@ export interface EafChatEvent {
     | 'message.delta'
     | 'ui.requested'
     | 'page.action.requested'
+    | 'page.action.result.delivered'
+    | 'page.action.result.settled'
     | 'turn.progress'
     | 'message.completed'
     | 'interaction.submitted'
@@ -176,6 +180,8 @@ export interface EafChatEvent {
   /** 可选：envelope / Host 透传的会话身份，旧业务可忽略 */
   sessionId?: string
   turnId?: string
+  /** Internal host marker: waiting interactions are not completed turns. */
+  terminal?: boolean
 }
 
 export interface EafChatError {
@@ -269,6 +275,21 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     route?: string
   } | null = null
   let unregisterPageCatalogChange: () => void = () => undefined
+  const pageActionTurnCompletion = createPageActionTurnCompletion((result) => {
+    // Let the synchronous conversation reducer finish processing its terminal
+    // event before a host callback is allowed to navigate away.
+    queueMicrotask(() => {
+      if (!destroyed && pageActionTurnCompletion.isCurrent(result.sessionId, result.turnId)) {
+        const { sessionId, turnId, ...data } = result
+        options.onEvent?.({ type: 'page.action.result.settled', data, sessionId, turnId })
+      }
+    })
+  })
+
+  function publishPageActionDelivered(result: PageActionResultDelivered, sessionId: string) {
+    options.onEvent?.({ type: 'page.action.result.delivered', data: result, sessionId })
+    if (!destroyed) pageActionTurnCompletion.delivered(sessionId, result)
+  }
 
   /**
    * 公开事件发布幂等（按 requestId）：只调用 onEvent，不执行 Bridge。
@@ -335,6 +356,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (req) => publishPageActionRequested(req, { sessionId }),
+      onClaimed: (req, traceId) => pageActionTurnCompletion.claimed(sessionId, req.requestId, req.actionKey, traceId),
+      onDelivered: (result) => publishPageActionDelivered(result, sessionId),
       onError: reportError,
       refreshToken: async () => {
         await refreshTokenForCurrentSession()
@@ -360,6 +383,17 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
    * Bridge/result 可晚于 completed；pending poll 属迟到补偿。
    */
   function emitPublicEvent(event: EafChatEvent) {
+    // This event is generated only after the SDK validates the result POST ACK.
+    // Never forward a similarly named event from the upstream conversation stream.
+    if (event.type === 'page.action.result.delivered' || event.type === 'page.action.result.settled') return
+    if (event.type === 'turn.preparing') {
+      pageActionTurnCompletion.preparing(event.sessionId)
+      return
+    }
+    if (event.type === 'turn.started') {
+      pageActionTurnCompletion.started(event.sessionId, event.turnId)
+      return
+    }
     if (event.type === 'page.action.requested') {
       // 独立 SSE：先 publish，再统一 dispatch（不依赖 completion metadata）
       const published = publishPageActionRequested(event.data, {
@@ -378,6 +412,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     }
     if (event.type === 'message.completed') {
       const response = event.data as EafChatMessageResponse
+      if (event.terminal === true && response?.metadata?.code === 'SUPERVISOR_COMPLETED') {
+        pageActionTurnCompletion.completed(event.sessionId || response.sessionId, response.metadata.traceId, event.turnId)
+      }
       if (shell && !shell.isOpen()) {
         unread = true
         syncLauncherVisualState()
@@ -422,6 +459,8 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (request) => publishPageActionRequested(request, { sessionId }),
+      onClaimed: (request, traceId) => pageActionTurnCompletion.claimed(sessionId, request.requestId, request.actionKey, traceId),
+      onDelivered: (result) => publishPageActionDelivered(result, sessionId),
       onError: reportError,
       refreshToken: async () => {
         await refreshTokenForCurrentSession()
@@ -454,10 +493,13 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isActive: () => !destroyed,
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
+      onClaimed: (request, traceId) => pageActionTurnCompletion.claimed(existingSessionId, request.requestId, request.actionKey, traceId),
       // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
       onEvent: (event) => {
         if (event.type === 'page.action.requested') {
           publishPageActionRequested(event.data, { sessionId: existingSessionId })
+        } else if (event.type === 'page.action.result.delivered') {
+          publishPageActionDelivered(event.data as PageActionResultDelivered, existingSessionId)
         }
       },
       onError: reportError,
@@ -702,6 +744,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     },
     destroy() {
       destroyed = true
+      pageActionTurnCompletion.clear()
       lifetime.abort()
       token = ''
       context = {}

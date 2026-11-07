@@ -413,8 +413,8 @@ export const routes: RouteRecordRaw[] = [
           {
             path: 'java-methods', name: 'BusinessMethodCatalog',
             component: () => import('@/views/capability/BusinessMethodCatalog.vue'),
-            meta: { title: 'Java 业务方法 · 业务能力',
-              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: 'Java 业务方法' }] },
+            meta: { title: '业务方法 · 业务能力',
+              breadcrumb: [{ title: 'AI 资产' }, { title: '业务能力' }, { title: '业务方法' }] },
           },
           {
             path: 'http-apis', name: 'HttpApiCatalog',

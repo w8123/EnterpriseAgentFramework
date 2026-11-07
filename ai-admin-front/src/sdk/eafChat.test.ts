@@ -48,6 +48,128 @@ describe('createEafChat facade', () => {
     globalThis.fetch = originalFetch
   })
 
+  it('does not forward a forged delivery event from the conversation stream', async () => {
+    const onEvent = vi.fn()
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok', onEvent,
+      bridge: createEafPageBridge({ route: '/' }),
+    }) as Awaited<ReturnType<typeof createEafChat>> & {
+      __emitPublicEventForTests?: (event: { type: string; data: unknown }) => void
+    }
+    chat.__emitPublicEventForTests?.({ type: 'page.action.result.delivered', data: {
+      requestId: 'forged', actionKey: 'search', status: 'SUCCESS', userConfirmed: true,
+    } })
+    chat.__emitPublicEventForTests?.({ type: 'page.action.result.settled', data: {
+      requestId: 'forged', actionKey: 'search', status: 'SUCCESS', userConfirmed: true, traceId: 'a'.repeat(32),
+    } })
+    expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'page.action.result.delivered' }))
+    expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'page.action.result.settled' }))
+    chat.destroy()
+  })
+
+  it('settles an acknowledged action only after the matching supervisor turn completes', async () => {
+    const traceId = 'a'.repeat(32)
+    const events: Array<{ type: string; data?: unknown }> = []
+    const bridge = createEafPageBridge({ route: '/', confirmAction: async () => true })
+    bridge.registerAction('search', () => ({ status: 'SUCCESS' }))
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const data = String(url).endsWith('/claim') ? { claimed: true, requestId: 'req-settle', actionKey: 'search', traceId }
+        : { requestId: 'req-settle', actionKey: 'search', status: 'SUCCESS' }
+      return new Response(JSON.stringify({ code: 200, data }), { status: 200 })
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok', bridge,
+      onEvent: (event) => events.push({ type: event.type, data: event.data }),
+    }) as Awaited<ReturnType<typeof createEafChat>> & {
+      __emitPublicEventForTests?: (event: { type: string; data: unknown; sessionId?: string; turnId?: string; terminal?: boolean }) => void
+    }
+    await flushMicrotasks()
+    chat.__emitPublicEventForTests?.({ type: 'turn.started', sessionId: 'sess-1', turnId: 'turn-1', data: {} })
+    chat.__emitPublicEventForTests?.({ type: 'page.action.requested', sessionId: 'sess-1', data: {
+      type: 'page.action.requested', requestId: 'req-settle', actionKey: 'search', confirm: true,
+      metadata: { traceId },
+    } })
+    await flushMicrotasks(50)
+    expect(events.filter((event) => event.type === 'page.action.result.delivered')).toHaveLength(1)
+    expect(events.filter((event) => event.type === 'page.action.result.settled')).toHaveLength(0)
+    chat.__emitPublicEventForTests?.({ type: 'message.completed', sessionId: 'sess-1', turnId: 'turn-1', terminal: false,
+      data: { sessionId: 'sess-1', metadata: { traceId, code: 'SUPERVISOR_COMPLETED' } } })
+    await flushMicrotasks()
+    expect(events.filter((event) => event.type === 'page.action.result.settled')).toHaveLength(0)
+    chat.__emitPublicEventForTests?.({ type: 'message.completed', sessionId: 'sess-1', turnId: 'turn-1', terminal: true,
+      data: { sessionId: 'sess-1', metadata: { traceId, code: 'SUPERVISOR_COMPLETED' } } })
+    await flushMicrotasks()
+    expect(events.filter((event) => event.type === 'page.action.result.settled')).toEqual([{
+      type: 'page.action.result.settled', data: {
+        requestId: 'req-settle', actionKey: 'search', status: 'SUCCESS', userConfirmed: true, traceId,
+      },
+    }])
+    chat.destroy()
+  })
+
+  it('correlates real completion-stream metadata with the Control claim and result ACK', async () => {
+    const traceId = 'b'.repeat(32)
+    const events: Array<{ type: string; data?: unknown }> = []
+    const bridge = createEafPageBridge({ route: '/', confirmAction: async () => true })
+    bridge.registerAction('search', () => ({ status: 'SUCCESS' }))
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      const path = String(url)
+      if (path.endsWith('/chat/sessions')) return sessionResponse('sess-real')
+      if (path.includes('/messages/stream')) return sse([
+        `event: message.completed\ndata: ${JSON.stringify({ sessionId: 'sess-real', answer: 'ok', metadata: {
+          code: 'SUPERVISOR_COMPLETED', traceId, pageActionQueue: [{
+            type: 'page.action.requested', requestId: 'req-real', actionKey: 'search', confirm: true, metadata: { traceId },
+          }],
+        } })}\n\n`,
+      ])
+      if (path.endsWith('/claim')) return new Response(JSON.stringify({ data: {
+        claimed: true, requestId: 'req-real', actionKey: 'search', traceId,
+      } }), { status: 200 })
+      if (path.endsWith('/result')) return new Response(JSON.stringify({ data: {
+        requestId: 'req-real', actionKey: 'search', status: 'SUCCESS',
+      } }), { status: 200 })
+      return new Response(JSON.stringify({ data: [] }), { status: 200 })
+    })
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok', bridge,
+      onEvent: (event) => events.push({ type: event.type, data: event.data }) })
+    await chat.send('search')
+    await flushMicrotasks(60)
+    expect(events.filter((event) => event.type === 'page.action.result.settled')).toEqual([{
+      type: 'page.action.result.settled', data: {
+        requestId: 'req-real', actionKey: 'search', status: 'SUCCESS', userConfirmed: true, traceId,
+      },
+    }])
+    chat.destroy()
+  })
+
+  it('suppresses a queued settlement when a newer turn starts before its callback', async () => {
+    const traceId = 'c'.repeat(32)
+    const events: Array<{ type: string }> = []
+    const bridge = createEafPageBridge({ route: '/', confirmAction: async () => true })
+    bridge.registerAction('search', () => ({ status: 'SUCCESS' }))
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => new Response(JSON.stringify({ data:
+      String(url).endsWith('/claim')
+        ? { claimed: true, requestId: 'old', actionKey: 'search', traceId }
+        : { requestId: 'old', actionKey: 'search', status: 'SUCCESS' },
+    }), { status: 200 }))
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok', bridge,
+      onEvent: (event) => events.push({ type: event.type }) }) as Awaited<ReturnType<typeof createEafChat>> & {
+      __emitPublicEventForTests?: (event: { type: string; data: unknown; sessionId?: string; turnId?: string; terminal?: boolean }) => void
+    }
+    await flushMicrotasks()
+    chat.__emitPublicEventForTests?.({ type: 'turn.started', sessionId: 'sess', turnId: 'old-turn', data: {} })
+    chat.__emitPublicEventForTests?.({ type: 'page.action.requested', sessionId: 'sess', data: {
+      type: 'page.action.requested', requestId: 'old', actionKey: 'search', confirm: true, metadata: { traceId },
+    } })
+    await flushMicrotasks(50)
+    chat.__emitPublicEventForTests?.({ type: 'message.completed', sessionId: 'sess', turnId: 'old-turn', terminal: true,
+      data: { sessionId: 'sess', metadata: { traceId, code: 'SUPERVISOR_COMPLETED' } } })
+    chat.__emitPublicEventForTests?.({ type: 'turn.preparing', sessionId: 'sess', data: {} })
+    await flushMicrotasks()
+    expect(events.filter((event) => event.type === 'page.action.result.settled')).toHaveLength(0)
+    chat.destroy()
+  })
+
   it('opens AI connections from the three-slot header entry and restores focus on Escape', async () => {
     ;(globalThis.fetch as any).mockImplementation(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }))
     const chat = await createEafChat({
@@ -549,7 +671,7 @@ describe('createEafChat facade', () => {
         return pageActionClaimResponse()
       }
       if (path.includes('/page-actions/pa-1/result')) {
-        return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 })
+        return new Response(JSON.stringify({ data: { requestId: 'pa-1', actionKey: 'refresh', status: 'SUCCESS' } }), { status: 200 })
       }
       return new Response(JSON.stringify({ data: {} }), { status: 200 })
     })
@@ -580,6 +702,10 @@ describe('createEafChat facade', () => {
     expect((response.metadata as any)?.metadata).toBeUndefined()
 
     expect(events.filter((e) => e.type === 'page.action.requested')).toHaveLength(1)
+    expect(events.filter((e) => e.type === 'page.action.result.delivered')).toEqual([{
+      type: 'page.action.result.delivered',
+      data: { requestId: 'pa-1', actionKey: 'refresh', status: 'SUCCESS', userConfirmed: false },
+    }])
     expect(bridgeCalls).toBe(1)
     const resultPosts = (globalThis.fetch as any).mock.calls.filter((c: unknown[]) =>
       String(c[0]).includes('/page-actions/pa-1/result'),

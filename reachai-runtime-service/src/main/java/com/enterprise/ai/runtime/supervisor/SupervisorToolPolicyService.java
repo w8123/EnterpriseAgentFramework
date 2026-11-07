@@ -38,7 +38,7 @@ public class SupervisorToolPolicyService {
     };
     private static final Pattern EXPLICIT_PAGE_INTENT = Pattern.compile(
             "(?i)(打开|跳转|进入|切换到|导航到|操作.{0,20}(页面|界面)|"
-                    + "(?:在.{0,20}(?:页面|界面)|页面上|界面上).{0,20}(?:查看|查询|检索|搜索|填写|填入|输入|清空|清除|筛选|操作|设置|选择|显示|展示|读取)|"
+                    + "(?:在.{0,20}(?:页面|界面)|页面上|界面上).{0,20}(?:查看|查询|检索|搜索|填写|填入|输入|清空|清除|筛选|操作|设置|选择|显示|展示|读取|停用|启用|禁用|新增|创建|修改|更新|删除|保存|提交|点击)|"
                     + "(读取|查看|查询|获取).{0,20}(当前)?(页面|界面).{0,20}(状态|筛选|内容|数据|表格|行)|"
                     + "open\\s+(the\\s+)?page|navigate\\s+to|go\\s+to|on\\s+the\\s+page.{0,30}(?:read|inspect|query|get|fill|enter|type|clear|reset)|"
                     + "(read|inspect|query|get).{0,30}(current\\s+)?(page|screen).{0,30}(state|filter|content|data|table|row))");

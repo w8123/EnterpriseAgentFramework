@@ -83,8 +83,8 @@ Important fields:
 - `project.registryCredentialConfigured`: whether ReachAI has a saved credential.
 - `aiCodingAccess.enabled`: whether external AI coding access is enabled.
 - `aiCodingAccess.accessKey`: the project-level key used only to fetch this manifest; it is not the registry app secret. It is `null` for header-auth manifests.
-- `sdk.dependencies`: Maven coordinates to add.
-- `sdkArtifacts`: machine-readable Java and browser SDK coordinates, source policies, exact versioned download URLs, integrity hashes, and local install commands. Java entries expose both JAR and standalone consumer POM URLs/hashes.
+- `sdk.dependencies`: Maven coordinates for the default Java manifest; empty when `?language=csharp` is selected.
+- `sdkArtifacts`: machine-readable SDK coordinates, source policies, versioned download URLs, integrity hashes, and local install commands. Select by `language` and `packageName`, not list position. Java entries expose JAR and consumer POM URLs/hashes; the C# entry is an nupkg and the browser entry is a tarball.
 - `responseShapes`: machine-readable map that tells tools whether each API family is `ApiResult` wrapped or bare JSON.
 - `sdk.config.appSecretEnv`: environment variable name for the app secret.
 - `security.secretSetupScriptWithinSkill` / `security.secretSetupCommandTemplate`: prompt-only Windows helper that stores the secret without printing it. User-scoped setup is inherited only by newly started terminals/processes.
@@ -109,7 +109,7 @@ Important fields:
 
 The manifest does not include `appSecret`.
 
-Read `sdkArtifacts` from the manifest for Java and browser package coordinates, source policy, declared download URLs/hashes, and local install commands. Java SDK links are versioned platform artifact APIs and are intentionally usable without a ReachAI source checkout; they are not Maven repository roots. Do not derive other artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If a declared artifact URL/hash is unavailable, report the platform contract defect instead of guessing a replacement.
+Read `sdkArtifacts` from the manifest for the selected business language and browser package coordinates, source policy, declared download URLs/hashes, and local install commands. The C# package is a local NuGet feed artifact, not a public package or a NuGet feed endpoint. Java SDK links are versioned platform artifact APIs and are intentionally usable without a ReachAI source checkout; they are not Maven repository roots. Do not derive other artifact URLs from the platform base URL. In particular, do not request `/repository/**`, `/maven/**`, `/repository/maven/**`, `/api/embed/sdk`, or `/npm/**`. If a declared artifact URL/hash is unavailable, report the platform contract defect instead of guessing a replacement.
 
 Before front-end embed work, call `agentProvisioning.provisionAgentUrl` when present. Use the response `agent.keySlug` as the business front-end `agentId`. The call is idempotent, so it is safe for Cursor or another AI coding tool to retry. Do not ask the business user to choose an Agent id. If provisioning is unavailable, fall back to `agentProvisioning.defaultKeySlug`, `agentSupervisor.globalAgentKeySlug`, `embed.defaultAgentKeySlug`, or `embed.defaultAgentId`.
 

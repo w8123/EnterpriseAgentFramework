@@ -155,7 +155,7 @@ if (/\b(?:diffRegistryCapabilities|syncRegistryCapabilities|CapabilitySyncReques
 
 const capabilityWorkbench = readFileSync(resolve(root, 'src/views/capability/BusinessCapabilityWorkbench.vue'), 'utf8')
 const httpApiCatalog = readFileSync(resolve(root, 'src/views/api/HttpApiCatalog.vue'), 'utf8')
-if (!capabilityWorkbench.includes('<LiquidGlassTabs') || !capabilityWorkbench.includes('Java 业务方法')
+if (!capabilityWorkbench.includes('<LiquidGlassTabs') || !capabilityWorkbench.includes('业务方法')
   || !capabilityWorkbench.includes('HTTP API') || !capabilityWorkbench.includes('<router-view')
   || !capabilityWorkbench.includes('query: route.query') || !capabilityWorkbench.includes('activeTab === tab.value')
   || !httpApiCatalog.includes("useCatalogQuery('api'") || httpApiCatalog.includes('<PageHeader')) {

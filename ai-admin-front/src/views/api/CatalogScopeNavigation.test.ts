@@ -104,7 +104,7 @@ describe('catalog navigation with the real shared project scope', () => {
     expect(scope.currentScopeLabel.value).toBe('全部项目')
     expect(mocks.store.currentProjectId).toBeNull()
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: undefined }))
-    await view.get('input[aria-label="搜索 Java 业务方法"]').setValue('尚未提交')
+    await view.get('input[aria-label="搜索业务方法"]').setValue('尚未提交')
     const storeChanges = mocks.store.selectCurrentProject.mock.calls.length
     const project = view.findAllComponents(ElSelect).find(item => item.props('ariaLabel') === '项目筛选')!
     project.vm.$emit('change', '37'); await flushPromises()
@@ -117,7 +117,7 @@ describe('catalog navigation with the real shared project scope', () => {
     expect(scope.requestParams.value).toBeUndefined()
     expect(mocks.store.currentProjectId).toBeNull()
     expect(mocks.store.selectCurrentProject.mock.calls.slice(storeChanges).every(([id]: [number | null]) => id === null)).toBe(true)
-    expect((view.get('input[aria-label="搜索 Java 业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
+    expect((view.get('input[aria-label="搜索业务方法"]').element as HTMLInputElement).value).toBe('尚未提交')
     expect(view.find('.catalog-method-meta').exists()).toBe(false)
     project.vm.$emit('change', ''); await flushPromises()
     expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ projectId: undefined }))

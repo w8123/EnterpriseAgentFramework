@@ -106,7 +106,7 @@ public class RuntimeInteractionResumeService {
         session.setIdempotencyKey(idempotencyKey);
         session.setSubmittedPayloadJson(sessionService.writeJson(submission));
         try {
-            return resumeClaimed(session, action, values, idempotencyKey, operatorId);
+            return resumeClaimed(session, action, values, idempotencyKey, operatorId, ownership);
         } catch (RuntimeWorkflowInteractionSessionService.ResumeConflictException conflict) {
             RuntimeInteractionSessionEntity latest = reconcileOverdueResume(sessionService.requireById(session.getId()));
             if (isUnknownOutcome(latest)) return replayResult(latest);
@@ -116,7 +116,7 @@ public class RuntimeInteractionResumeService {
 
     private Map<String, Object> resumeClaimed(RuntimeInteractionSessionEntity session,
                                               String action, Map<String, Object> values, String idempotencyKey,
-                                              String operatorId) {
+                                              String operatorId, Ownership ownership) {
         if ("cancel".equals(action)) {
             Map<String, Object> response = failure("RUNTIME_GRAPH_CANCELLED", "Interaction cancelled", session.getId());
             response.put("success", true);
@@ -152,8 +152,10 @@ public class RuntimeInteractionResumeService {
                 "nodeId", session.getNodeId(), "action", action, "values", values,
                 "idempotencyKey", idempotencyKey == null ? "" : idempotencyKey));
         checkpoint.remove("submittedPayload");
-        WorkflowExecutionIdentity identity = requiresOwnership(session)
-                ? WorkflowExecutionIdentity.fromAgent(session.getTenantId(), null, session.getAppId(), session.getUserId())
+        // Ownership was checked above against the freshly authenticated caller. Never restore
+        // authority (including roles) from checkpoint data or from a stale session snapshot.
+        WorkflowExecutionIdentity identity = requiresOwnership(session) && ownership != null
+                ? WorkflowExecutionIdentity.forAgentExecution(null, session.getAppId(), ownership.trustedIdentity())
                 : WorkflowExecutionIdentity.untrustedDebug();
         RuntimeGraphSpecExecutionResult result;
         try {
@@ -363,6 +365,12 @@ public class RuntimeInteractionResumeService {
                     || !StringUtils.hasText(session.getUserId())) {
                 return false;
             }
+            var identity = ownership.trustedIdentity();
+            boolean business = identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION
+                    || identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE;
+            boolean scoped = identity.projectId() != null || StringUtils.hasText(identity.projectCode());
+            if (business && ((identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE && !scoped)
+                    || (scoped && !identity.authorizeProjectCredential(null, session.getAppId())))) return false;
             return eq(session.getSessionId(), ownership.sessionId())
                     && eq(session.getAppId(), ownership.appId())
                     && eq(session.getUserId(), ownership.userId())
