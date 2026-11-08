@@ -12,10 +12,6 @@
   <strong>ReachAI · 面向企业业务系统的智能体开发与运行底座</strong>
 </p>
 
-<p align="center">
-  <a href="https://reachai.w8123.com/">官网</a> · <a href="https://reachaiconsole.w8123.com/">在线体验工作台</a>
-</p>
-
 > **Codex for Open Source application verification:** I am the owner and core maintainer of this repository. The OpenAI/ChatGPT account used for the application is associated with the masked email address `jonellmednick****@outlook.jp`. This notice is published solely to help OpenAI reviewers verify that the applicant controls this repository.
 
 <p align="center">
@@ -25,6 +21,23 @@
     <img src="docs/images/readme-v2/ReachAI学习交流群.png" alt="ReachAI 学习交流群二维码" width="240" />
   </a>
 </p>
+
+## 官网与在线体验
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <h3>了解 ReachAI</h3>
+      <p>了解产品功能、应用场景和接入方式。</p>
+      <p><a href="https://reachai.w8123.com:9443/" target="_blank" rel="noopener noreferrer"><strong>访问 ReachAI 官网 →</strong></a></p>
+    </td>
+    <td width="50%" align="center">
+      <h3>体验 ReachAI 工作台</h3>
+      <p>进入工作台，探索平台功能。</p>
+      <p><a href="https://reachaiconsole.w8123.com:9443/" target="_blank" rel="noopener noreferrer"><strong>打开在线体验工作台 →</strong></a></p>
+    </td>
+  </tr>
+</table>
 
 ## 改造完成后，业务系统能做什么
 
