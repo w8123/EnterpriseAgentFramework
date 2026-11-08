@@ -64,6 +64,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(wrapper.get('.el-scrollbar__wrap').attributes('tabindex')).toBe('-1')
     entry()!.focus()
     await key(focus(), 'ArrowDown')
+    expect(focus()).toBe(leaf('/me/ai-connections'))
+    await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/getting-started'))
     await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/registry/projects'))
@@ -80,7 +82,7 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(push).not.toHaveBeenCalled()
   })
 
-  it.each(['/business-capabilities', '/workflows'])('activates %s once via the existing click route', async target => {
+  it.each(['/me/ai-connections', '/business-capabilities', '/workflows'])('activates %s once via the existing click route', async target => {
     const { leaf, entry, push, router } = await setup()
     entry()!.focus()
     for (let step = 0; step < 8 && focus() !== leaf(target); step++) await key(focus(), 'ArrowDown')
@@ -124,6 +126,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
   it('uses real teleported collapsed children and leaves Tab untrapped in both directions', async () => {
     const { wrapper, leaf, group, entry, push } = await setup(true)
     entry()!.focus()
+    await key(focus(), 'ArrowDown')
+    expect(focus()).toBe(leaf('/me/ai-connections'))
     await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/getting-started'))
     const parent = group('/integration-group')
@@ -240,6 +244,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     expect(focus().textContent).toContain('概览')
     // Project and business-capability entries need platform:read.
     await key(focus(), 'ArrowDown')
+    expect(focus()).toBe(leaf('/me/ai-connections'))
+    await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/workflows'))
     expect(push).not.toHaveBeenCalled()
     const outside = document.createElement('input')
@@ -280,6 +286,8 @@ describe('AppSidebar real Element Plus vertical keyboard navigation', () => {
     disabled.setAttribute('aria-disabled', 'true')
     leaf('/getting-started').setAttribute('aria-disabled', 'true')
     entry()!.focus()
+    await key(focus(), 'ArrowDown')
+    expect(focus()).toBe(leaf('/me/ai-connections'))
     await key(focus(), 'ArrowDown')
     expect(focus()).toBe(leaf('/business-capabilities'))
     disabled.focus()

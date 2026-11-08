@@ -95,4 +95,3 @@ export function matchCatalogTool(
     && (!tool.projectCode || tool.projectCode === projectCode)
     && (names.has(tool.name) || names.has(tool.qualifiedName || '') || names.has(tail(tool.qualifiedName))))
 }
-

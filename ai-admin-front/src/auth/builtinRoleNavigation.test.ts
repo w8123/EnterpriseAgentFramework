@@ -87,16 +87,18 @@ describe('role workspaces', () => {
 
   it('shows each role only its own work and platform admins the full menu', () => {
     expect(workspaceLabels('developer', roles.DEVELOPER)).toEqual([
-      '概览', '项目管理', '业务能力', 'Agent', 'Workflow', 'Skill', '知识库', 'API 市场', 'MCP 开放', 'A2A 互联中心', '模型中心',
+      '概览', 'AI 工具接入', '项目管理', '业务能力', 'Agent', 'Workflow', 'Skill', '知识库', 'API 市场', 'MCP 开放', 'A2A 互联中心', '模型中心',
     ])
     expect(workspaceLabels('manager', roles.MANAGER)).toEqual([
-      '概览', 'AI 使用情况', '员工连接与审批', '运行中心', '自动化中心', 'Agent', 'Workflow', '知识库', '业务用户', '调用权限',
+      '概览', 'AI 工具接入', 'AI 使用情况', '员工连接与审批', '运行中心', '自动化中心', 'Agent', 'Workflow', '知识库', '业务用户', '调用权限',
     ])
-    expect(workspaceLabels('admin', roles.PLATFORM_ADMIN)).toEqual(visibleLabels(filterSidebarMenu(sidebarMenu, ['*'])))
+    const fullLabels = visibleLabels(filterSidebarMenu(sidebarMenu, ['*']))
+    fullLabels.splice(fullLabels.indexOf('概览') + 1, 0, 'AI 工具接入')
+    expect(workspaceLabels('admin', roles.PLATFORM_ADMIN)).toEqual(fullLabels)
   })
 
   it('keeps every workspace entry reachable from the full menu', () => {
-    const fullMenu = new Set(sidebarMenu.flatMap(entry => (
+    const fullMenu = new Set(findSidebarWorkspace('admin')!.menu.flatMap(entry => (
       entry.kind === 'item' ? [entry.index, ...(entry.children ?? []).map(child => child.index)] : []
     )))
     for (const workspace of sidebarWorkspaces) {
