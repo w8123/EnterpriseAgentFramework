@@ -17,27 +17,30 @@ describe('useSdkAccessWizardSnippets', () => {
       } as ScanProject),
       aiOnboardingManifest: ref<AiOnboardingManifest | null>(null),
       gatewayBaseUrl: ref('http://localhost:8080'),
-      embedTokenPath: ref('/api/reachai/embed-token'),
+      embedTokenPath: ref('/reachai/embed/token'),
     })
 
     const snippet = snippets.frontendSnippet.value
     expect(snippets.gatewaySnippet.value)
       .toContain('Path=/api/reachai/embed/**')
     expect(snippets.gatewaySnippet.value)
-      .toContain('Path=/api/reachai/embed-token')
+      .toContain('Path=/reachai/embed/token')
     expect(snippets.gatewaySnippet.value)
-      .toContain('/api/embed/${segment}')
+      .toContain('/api/embed/$\\{segment}')
     expect(snippets.gatewaySnippet.value)
       .toContain('must bypass ordinary business')
     expect(snippets.gatewaySnippet.value)
-      .toContain('embed-token intentionally remains on the normal business login chain')
-    expect(snippet).toContain("apiBase: 'http://localhost:8080'")
+      .toContain('/reachai/embed/token remains on the normal business login and CSRF chain')
+    expect(snippet).toContain('apiBase: "http://localhost:8080"')
     expect(snippet).toContain("embedPathPrefix: '/api/reachai/embed'")
     expect(snippet)
-      .toContain("fetch('http://localhost:8080/api/reachai/embed-token?'")
+      .toContain('fetch("http://localhost:8080/reachai/embed/token",')
+    expect(snippet).toContain("method: 'POST'")
+    expect(snippet).toContain("headers: { 'Content-Type': 'application/json' }")
+    expect(snippet).toContain('body: JSON.stringify({')
     expect(snippet).toContain("credentials: 'include'")
     expect(snippet).toContain('const pageBridge = createEafPageBridge({ route })')
-    expect(snippet).toContain('pageKey: tokenContext.pageKey || pageKey')
+    expect(snippet).toContain('pageKey: tokenContext.pageKey')
     expect(snippet).toContain('pageInstanceId: tokenContext.pageInstanceId')
     expect(snippet).toContain('route: tokenContext.route')
     expect(snippet).toContain('origin: tokenContext.origin')
@@ -52,7 +55,7 @@ describe('useSdkAccessWizardSnippets', () => {
       project: ref<ScanProject | null>(null),
       aiOnboardingManifest: ref<AiOnboardingManifest | null>(null),
       gatewayBaseUrl: ref('http://localhost:8080'),
-      embedTokenPath: ref('/api/reachai/embed-token'),
+      embedTokenPath: ref('/reachai/embed/token'),
     })
 
     expect(snippets.starterApplicationSnippet.value)

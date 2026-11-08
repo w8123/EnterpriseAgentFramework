@@ -79,6 +79,9 @@
             <el-dropdown-item command="fit" :icon="Aim">聚焦画布</el-dropdown-item>
             <el-dropdown-item command="layout" :icon="Rank">自动整理</el-dropdown-item>
             <el-dropdown-item command="versions" :icon="Tickets">版本记录</el-dropdown-item>
+            <el-dropdown-item command="export" :icon="Download">导出工作流文件</el-dropdown-item>
+            <el-dropdown-item command="env" :icon="Setting" divided>环境变量</el-dropdown-item>
+            <el-dropdown-item command="shortcuts" :icon="Help">快捷键</el-dropdown-item>
           </el-dropdown-menu>
         </template>
       </el-dropdown>
@@ -93,10 +96,13 @@ import {
   CircleCheck,
   DocumentChecked,
   Finished,
+  Help,
   MoreFilled,
   Promotion,
   Rank,
+  Setting,
   Tickets,
+  Download,
   VideoPlay,
 } from '@element-plus/icons-vue'
 

@@ -1,12 +1,17 @@
 <template>
-  <div class="code-shell">
+  <div class="code-shell" :class="{ 'code-shell--guide': variant === 'guide' }">
     <div class="code-toolbar">
       <span>{{ title }}</span>
       <el-button size="small" text :icon="DocumentCopy" @click="emit('copy', code)">
         {{ copyLabel }}
       </el-button>
     </div>
-    <pre class="code-panel"><code v-html="renderedCode" /></pre>
+    <pre
+      class="code-panel"
+      :tabindex="variant === 'guide' ? 0 : undefined"
+      :aria-label="variant === 'guide' ? title : undefined"
+      :role="variant === 'guide' ? 'region' : undefined"
+    ><code v-html="renderedCode" /></pre>
   </div>
 </template>
 
@@ -19,6 +24,7 @@ const props = withDefaults(defineProps<{
   code: string
   highlightedCode?: string
   copyLabel?: string
+  variant?: 'guide'
 }>(), {
   highlightedCode: '',
   copyLabel: '复制',
@@ -130,6 +136,47 @@ function escapeHtml(value: string) {
 
   :deep(.code-punctuation) {
     color: #94a3b8;
+  }
+}
+
+.code-shell--guide {
+  min-inline-size: 0;
+  box-shadow: none;
+
+  .code-toolbar {
+    height: auto;
+    min-height: 44px;
+    padding: var(--layout-control-gap) var(--layout-panel-padding);
+    line-height: 1.45;
+
+    > span {
+      overflow-wrap: anywhere;
+    }
+
+    :deep(.el-button) {
+      flex: none;
+    }
+  }
+
+  .code-panel {
+    max-height: min(26rem, 60vh);
+    padding: 14px var(--layout-panel-padding);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 1.7;
+
+    code {
+      white-space: inherit;
+    }
+
+    :deep(.code-comment) {
+      color: #94a3b8;
+    }
+
+    &:focus-visible {
+      outline: 2px solid currentColor;
+      outline-offset: -2px;
+    }
   }
 }
 </style>

@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aicoding.application;
 
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CreateTaskCommand;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskContract;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDescriptor;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskTargetCommand;
@@ -27,6 +28,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -48,6 +51,7 @@ public class AiCodingTaskCreationService {
     private final ObjectMapper objectMapper;
     private final AiCodingTaskJsonSupport json;
     private final AiCodingTaskStateChanges stateChanges;
+    private final ProjectOnboardingCreationLock onboardingLock;
 
     @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
     public AiCodingTaskEntity create(CreateTaskCommand command) {
@@ -59,6 +63,16 @@ public class AiCodingTaskCreationService {
                 "projectCode",
                 AiCodingTaskValues.PROJECT_CODE_MAX_CHARACTERS);
         String taskKind = AiCodingTaskValues.requiredKey(command.taskKind(), "taskKind");
+        if ("PROJECT_ONBOARDING".equals(taskKind)) {
+            onboardingLock.acquire(projectCode);
+            Long pending = taskMapper.selectCount(Wrappers.<AiCodingTaskEntity>lambdaQuery()
+                    .eq(AiCodingTaskEntity::getProjectCode, projectCode)
+                    .eq(AiCodingTaskEntity::getTaskKind, taskKind)
+                    .notIn(AiCodingTaskEntity::getExecutionStatus, "COMPLETED", "FAILED", "CANCELLED"));
+            if (pending != null && pending > 0) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "项目已有未完成的接入任务，请先继续或处理该任务");
+            }
+        }
         String executorProvider = AiCodingTaskValues.requiredEnum(
                 ExecutorProvider.class,
                 command.executorProvider(),

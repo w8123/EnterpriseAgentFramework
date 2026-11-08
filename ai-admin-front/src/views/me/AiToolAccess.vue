@@ -6,24 +6,23 @@
       action-presentation="inline"
       domain="agent"
       title="AI 工具接入"
-      description="连接你习惯的 AI 工具，以你的平台身份查询和配置 ReachAI。"
+      :description="workspaceDescription"
     />
 
-    <AiAccessStatusBar :items="statusItems" />
-
     <LiquidGlassTabs v-model="tab" source="wallpaper">
-      <el-tab-pane label="接入与体验" name="setup" class="ai-tool-access__setup-pane">
+      <el-tab-pane label="接入与体验" name="setup">
         <template #label><el-icon aria-hidden="true"><Connection /></el-icon>接入与体验</template>
         <AiAccessSetup
           v-model:tool-kind="toolKind"
           v-model:client-id="clientId"
           :tools="PLATFORM_AI_TOOL_OPTIONS"
-          scope-title="设置访问凭据"
+          scope-title="凭据设置"
+          :scope-summary="`有效期 ${form.ttlDays} 天`"
           scope-hint="按你当前的账号权限授权，权限减少时自动收紧。"
           :prompt="installPrompt"
           :creating="creating"
           :can-create="!!form.label.trim()"
-          disabled-reason="请先填写凭据名称"
+          disabled-reason="请在「凭据设置」中填写凭据名称。"
           :error="createError"
           :try-phrases="tryPhrases"
           @create="createConnection"
@@ -33,11 +32,11 @@
             <div class="scope-form">
               <label>
                 <span>凭据名称</span>
-                <LiquidGlassInput v-model="form.label" class="credential-name-input" source="backdrop" maxlength="128" :placeholder="`例如：我的 ${selectedClient.label}`" aria-label="凭据名称" :disabled="!!created || creating" />
+                <LiquidGlassInput v-model="form.label" class="credential-name-input" source="backdrop" maxlength="128" :placeholder="`例如：我的 ${selectedClient.label}`" aria-label="凭据名称" :aria-invalid="!form.label.trim()" :disabled="creating" />
               </label>
               <label>
                 <span>有效期</span>
-                <LiquidGlassSelect v-model="form.ttlDays" aria-label="凭据有效期" dropdown-title="凭据有效期" :disabled="!!created || creating">
+                <LiquidGlassSelect v-model="form.ttlDays" aria-label="凭据有效期" dropdown-title="凭据有效期" :disabled="creating">
                   <el-option label="1 天" :value="1" />
                   <el-option label="7 天" :value="7" />
                   <el-option label="30 天" :value="30" />
@@ -45,13 +44,24 @@
               </label>
             </div>
           </template>
+          <template #footer>
+            <AiAccessStatusBar :items="statusItems" class="ai-tool-access__setup-status" />
+          </template>
         </AiAccessSetup>
+      </el-tab-pane>
+
+      <el-tab-pane label="提示词库" name="prompts">
+        <template #label><el-icon aria-hidden="true"><Document /></el-icon>提示词库</template>
+        <LiquidGlassCard source="wallpaper">
+          <AiPromptLibrary connection="platform" />
+        </LiquidGlassCard>
       </el-tab-pane>
 
       <el-tab-pane label="我能办的事" name="capabilities">
         <template #label><el-icon aria-hidden="true"><Grid /></el-icon>我能办的事</template>
         <LiquidGlassCard source="wallpaper">
           <AiCapabilityList
+            :key="ownerId ?? 'signed-out'"
             :groups="capabilityGroups"
             :loading="capabilitiesLoading"
             :error="capabilitiesError"
@@ -80,13 +90,15 @@
         </LiquidGlassCard>
       </el-tab-pane>
     </LiquidGlassTabs>
+    <AiAccessStatusBar v-if="tab !== 'setup'" :items="statusItems" />
   </WorkbenchPage>
 </template>
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Clock, Connection, Grid, Key } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
+import { Clock, Connection, Document, Grid, Key } from '@element-plus/icons-vue'
 import {
   createPlatformAiConnection,
   listPlatformAiCalls,
@@ -100,6 +112,7 @@ import {
 } from '@/api/platformAiConnections'
 import { listPlatformAiApprovals } from '@/api/platformAiApprovals'
 import { platformSessionUser } from '@/auth/platformSession'
+import { useSidebarWorkspace } from '@/composables/useSidebarWorkspace'
 import PageHeader from '@/components/common/PageHeader.vue'
 import WorkbenchPage from '@/components/common/WorkbenchPage.vue'
 import {
@@ -110,6 +123,7 @@ import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
 import AiCapabilityList from '@/components/ai-access/AiCapabilityList.vue'
 import AiCredentialTable from '@/components/ai-access/AiCredentialTable.vue'
 import AiCallRecords from '@/components/ai-access/AiCallRecords.vue'
+import AiPromptLibrary from '@/components/ai-access/AiPromptLibrary.vue'
 import {
   buildInstallPrompt, isToday, PLATFORM_AI_TOOL_OPTIONS,
   type AiCallRecord, type AiCapabilityGroup, type AiClientId, type AiCredentialRow, type AiToolKind,
@@ -117,7 +131,16 @@ import {
 import { platformAiSetup } from './platformAiSetup'
 
 // 管理端的「AI 工具接入」：和员工门户同一套界面，授权范围是 ReachAI 平台本身。
-const tab = ref<'setup' | 'capabilities' | 'credentials' | 'records'>('setup')
+const route = useRoute()
+const { currentWorkspace } = useSidebarWorkspace()
+const workspaceDescription = computed(() => ({
+  developer: '用你习惯的 AI 工具，协助接入业务系统、改造项目和开发智能体。',
+  manager: '用你习惯的 AI 工具，协助了解使用情况、运营智能体和处理管理工作。',
+  admin: '用你习惯的 AI 工具，协助检查和管理 ReachAI 平台。',
+  my: '用你习惯的 AI 工具，连接 ReachAI，让 AI 协助你完成工作。',
+  all: '用你习惯的 AI 工具，连接 ReachAI，让 AI 协助你完成工作。',
+})[currentWorkspace.value.key])
+const tab = ref<'setup' | 'prompts' | 'capabilities' | 'credentials' | 'records'>(route?.query?.tab === 'prompts' ? 'prompts' : 'setup')
 const connections = ref<PlatformAiConnection[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -170,7 +193,7 @@ const toolDescriptions = computed(() => new Map(capabilities.value.map(item => [
 const capabilityGroups = computed<AiCapabilityGroup[]>(() => capabilities.value.length ? [{
   key: 'platform',
   title: 'ReachAI 平台',
-  subtitle: '按你当前账号的权限计算；新建凭据时按这些权限授权。',
+  subtitle: '按当前账号的权限展示。新建凭据将按这些权限授权。',
   items: capabilities.value.map(item => ({
     name: item.name,
     description: item.description,
@@ -202,13 +225,43 @@ const callRecords = computed<AiCallRecord[]>(() => calls.value.map(call => ({
 })))
 
 const statusItems = computed(() => [
-  { label: 'AI 接入服务', value: loading.value ? '检查中' : error.value ? '无法连接' : '连接可用', tone: error.value ? 'danger' as const : loading.value ? undefined : 'ok' as const, dot: true },
-  { label: '使用中的凭据', value: connections.value.filter(item => item.status === 'ACTIVE').length },
+  {
+    label: '使用中的凭据',
+    value: loading.value ? '加载中' : error.value ? '加载失败' : connections.value.filter(item => item.status === 'ACTIVE').length,
+    tone: error.value ? 'danger' as const : undefined,
+  },
   { label: '今日调用', value: `${calls.value.filter(call => isToday(call.createdAt)).length} 次` },
   { label: '待我审核', value: pendingApprovals.value, tone: pendingApprovals.value ? 'warn' as const : undefined },
 ])
 
-const tryPhrases = ['列出我能管理的项目', '查看我的项目接入了哪些业务方法', '帮我新建一个查询库存的 Workflow 草稿']
+const exampleOptions = {
+  developer: [
+    { tool: 'reachai_project_onboarding_start', phrase: '帮我接入 ReachAI' },
+    { tool: 'reachai_doctor', phrase: '查看我的项目接入情况' },
+    { tool: 'reachai_integration_guide', phrase: '协助我接入业务系统' },
+    { tool: 'reachai_workflow_create_draft', phrase: '帮我创建一个 Workflow 草稿' },
+  ],
+  manager: [
+    { tool: 'reachai_mcp_usage', phrase: '查看 AI 使用情况' },
+    { tool: 'reachai_mcp_employee_write_approvals', phrase: '查看员工 AI 写操作审批' },
+    { tool: 'reachai_agents_list', phrase: '查看智能体列表' },
+  ],
+  admin: [
+    { tool: 'reachai_doctor', phrase: '帮我检查一个项目的接入配置' },
+    { tool: 'reachai_models_list', phrase: '查看可用的模型资源' },
+    { tool: 'reachai_projects_list', phrase: '查看我能访问的项目' },
+  ],
+  my: [
+    { tool: 'reachai_projects_list', phrase: '查看我能访问的项目' },
+    { tool: 'reachai_agents_list', phrase: '查看我能访问的智能体' },
+    { tool: 'reachai_platform_approvals_list', phrase: '查看这个连接的审批记录' },
+  ],
+} as const
+const tryPhrases = computed(() => {
+  const names = new Set(capabilities.value.map(capability => capability.name))
+  const key = currentWorkspace.value.key === 'all' ? 'my' : currentWorkspace.value.key
+  return exampleOptions[key].filter(example => names.has(example.tool)).map(example => example.phrase)
+})
 
 watch(ownerId, (owner) => {
   requestGeneration += 1
@@ -221,6 +274,8 @@ watch(ownerId, (owner) => {
   error.value = ''
   createError.value = ''
   capabilities.value = []
+  capabilitiesLoading.value = false
+  capabilitiesError.value = ''
   calls.value = []
   pendingApprovals.value = 0
   if (owner !== null) {
@@ -259,11 +314,12 @@ async function forOwner<T>(load: () => Promise<{ data: T }>, apply: (data: T) =>
 }
 
 async function loadCapabilities() {
+  const generation = ownerGeneration
   capabilitiesLoading.value = true
   capabilitiesError.value = ''
   await forOwner(listPlatformAiCapabilities, (data) => { capabilities.value = data },
-    () => { capabilitiesError.value = '加载失败，请刷新重试。' })
-  capabilitiesLoading.value = false
+    () => { capabilitiesError.value = '能力列表加载失败，请刷新重试。' })
+  if (generation === ownerGeneration) capabilitiesLoading.value = false
 }
 
 async function loadCalls() {
@@ -331,34 +387,19 @@ async function disconnect(row: AiCredentialRow) {
 </script>
 
 <style scoped lang="scss">
-.ai-tool-access { height: 100%; max-height: 100%; min-height: 0; overflow: hidden; }
-.ai-tool-access > :deep(.app-page-header), .ai-tool-access > :deep(.ai-status-bar) { flex-shrink: 0; }
-.ai-tool-access > :deep(.liquid-glass-tabs) { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-.ai-tool-access :deep(.el-tabs__header) { flex-shrink: 0; margin-bottom: 16px; }
+.ai-tool-access :deep(.el-tabs__header) { margin-bottom: 16px; }
 .ai-tool-access :deep(.el-tabs__item) { gap: 7px; }
-.ai-tool-access :deep(.el-tabs__content) { flex: 1; min-height: 0; overflow: auto; }
-.ai-tool-access :deep(.el-tab-pane) { min-height: 100%; }
-.ai-tool-access :deep(.ai-tool-access__setup-pane) { height: 100%; min-height: 0; }
-.ai-tool-access :deep(.ai-setup) { height: 100%; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
-.ai-tool-access :deep(.ai-setup__aside) { height: 100%; min-height: 0; }
-.ai-tool-access :deep(.ai-setup__guide) { display: flex; flex: 1; min-height: 0; flex-direction: column; overflow: auto; }
-.ai-tool-access :deep(.ai-setup__guide > *) { flex-shrink: 0; }
-.ai-tool-access :deep(.ai-setup__examples) { margin-top: auto; padding-top: 20px; }
-.ai-tool-access :deep(.ai-setup__workspace) { display: flex; min-height: 0; flex-direction: column; overflow: auto; }
-.ai-tool-access :deep(.ai-setup__scope) { margin-top: 24px; padding-top: 24px; }
-.ai-tool-access :deep(.liquid-glass-card) { box-sizing: border-box; }
+.ai-tool-access__setup-status {
+  gap: 4px 16px;
 
-@media (max-width: 960px) {
-  .ai-tool-access :deep(.ai-tool-access__setup-pane) { height: auto; }
-  .ai-tool-access :deep(.ai-setup) { height: auto; grid-template-rows: auto; align-items: start; }
-  .ai-tool-access :deep(.ai-setup__aside) { display: flex; height: auto; }
-  .ai-tool-access :deep(.ai-setup__guide), .ai-tool-access :deep(.ai-setup__workspace) { overflow: visible; }
-  .ai-tool-access :deep(.ai-setup__scope) { margin-top: 24px; }
+  :deep(.ai-status-bar__item) { flex: 0 0 auto; gap: 5px; padding: 0; border: 0; }
+  :deep(.ai-status-bar__label) { color: var(--text-secondary); font-size: 12px; }
+  :deep(.ai-status-bar__value) { font-size: 12px; }
 }
 
 .scope-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 150px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
   gap: 16px;
 
   label { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
@@ -371,7 +412,4 @@ async function disconnect(row: AiCredentialRow) {
   background: var(--surface-solid-opaque);
 }
 
-@media (max-width: 640px) {
-  .scope-form { grid-template-columns: 1fr; }
-}
 </style>

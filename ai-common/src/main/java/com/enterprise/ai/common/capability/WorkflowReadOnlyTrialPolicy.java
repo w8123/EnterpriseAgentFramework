@@ -56,12 +56,13 @@ public final class WorkflowReadOnlyTrialPolicy {
     /** Nodes that never reach an external side effect on their own (model, retrieval, flow and variable nodes). */
     public static final Set<String> PURE_NODE_TYPES = Set.of("USER_INPUT", "LLM", "INTENT_CLASSIFIER",
             "PARAMETER_EXTRACT", "IF_ELSE", "VARIABLE_ASSIGN", "TEMPLATE", "VARIABLE_AGGREGATOR", "ANSWER",
-            "KNOWLEDGE_RETRIEVAL", "LOOP");
+            "KNOWLEDGE_RETRIEVAL", "LOOP", "PARALLEL", "CODE", "LIST_OPERATOR");
     private static final Map<String, String> TYPE_LABELS = Map.ofEntries(
             Map.entry("PAGE_ACTION", "页面动作"), Map.entry("INTERACTION", "人工交互"),
             Map.entry("HUMAN_APPROVAL", "人工审批"), Map.entry("MCP_CALL", "MCP 调用"),
             Map.entry("KNOWLEDGE_WRITE", "知识写入"), Map.entry("HTTP_REQUEST", "HTTP 请求"),
-            Map.entry("TOOL", "业务方法/API"), Map.entry("CODE", "代码"), Map.entry("DOCUMENT_EXTRACT", "文档提取"));
+            Map.entry("TOOL", "业务方法/API"), Map.entry("CODE", "代码"), Map.entry("DOCUMENT_EXTRACT", "文档提取"),
+            Map.entry("SUB_WORKFLOW", "子流程"));
 
     private WorkflowReadOnlyTrialPolicy() { }
 

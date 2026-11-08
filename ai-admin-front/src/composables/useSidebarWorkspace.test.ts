@@ -66,7 +66,25 @@ describe('useSidebarWorkspace', () => {
     session.user.value = { userId: 5, username: 'custom', roles: ['CUSTOM'], permissions: ['knowledge:read'] }
     const workspace = useSidebarWorkspace()
     expect(workspace.currentWorkspace.value.key).toBe('all')
-    expect(labels(workspace.visibleMenu.value)).toEqual(['概览', '知识库'])
+    expect(labels(workspace.visibleMenu.value)).toEqual(['概览', 'AI 工具接入', '知识库'])
+  })
+
+  it('shows the same AI connection in every workspace without changing the current workspace', () => {
+    session.user.value = { userId: 9, username: 'admin', roles: ['PLATFORM_ADMIN'], permissions: ['*'] }
+    const workspace = useSidebarWorkspace()
+    for (const key of ['developer', 'manager', 'admin', 'my'] as const) {
+      workspace.setWorkspace(key)
+      expect(labels(workspace.visibleMenu.value).filter(label => label === 'AI 工具接入')).toHaveLength(1)
+      workspace.followActiveMenu('/me/ai-connections')
+      expect(workspace.currentWorkspace.value.key).toBe(key)
+    }
+  })
+
+  it('hides AI connection in role workspaces when there are no platform permissions', () => {
+    session.user.value = { userId: 10, username: 'developer', roles: ['DEVELOPER'], permissions: [] }
+    const workspace = useSidebarWorkspace()
+    expect(workspace.currentWorkspace.value.key).toBe('developer')
+    expect(labels(workspace.visibleMenu.value)).not.toContain('AI 工具接入')
   })
 
   it('puts accounts without any role in 我的 and hides the platform AI connection there', () => {

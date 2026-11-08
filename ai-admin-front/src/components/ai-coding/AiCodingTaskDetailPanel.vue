@@ -24,8 +24,10 @@ const props = withDefaults(defineProps<{
   loading?: boolean
   busy?: boolean
   variant?: 'drawer' | 'inline'
+  handoffEnabled?: boolean
 }>(), {
   variant: 'drawer',
+  handoffEnabled: true,
 })
 
 const emit = defineEmits<{
@@ -53,6 +55,10 @@ watch(
 
 const task = computed(() => props.detail?.task || null)
 const readiness = computed(() => props.detail?.readiness || [])
+const connectionDescription = computed(() => {
+  const description = aiCodingConnectionStatusDescription(task.value?.connection)
+  return props.handoffEnabled ? description : description.replace('交接码已过期', '连接已过期')
+})
 const acceptanceActionsAvailable = computed(() =>
   Boolean(
     task.value?.executionStatus === 'ACCEPTANCE_READY'
@@ -64,17 +70,14 @@ const acceptanceActionsAvailable = computed(() =>
 )
 const needsAcceptanceVerification = computed(() =>
   Boolean(
-    task.value
-      && ['RESULT_APPLIED', 'ACCEPTANCE_READY'].includes(
-        task.value.executionStatus,
-      )
-      && readiness.value.length
-      && readiness.value.some((item) => item.status !== 'PASS'),
+    task.value?.executionStatus === 'RESULT_APPLIED'
+      || (task.value?.executionStatus === 'ACCEPTANCE_READY'
+        && readiness.value.some((item) => item.status !== 'PASS')),
   ),
 )
 const canReissue = computed(() =>
   Boolean(
-    task.value
+    props.handoffEnabled && task.value
       && task.value.executionMode !== 'MANAGED_SANDBOX'
       && aiCodingExecutionAcceptsClientAccess(task.value.executionStatus)
       && ['WAITING_CONNECT', 'ACTIVE', 'TIMED_OUT', 'CLOSED'].includes(
@@ -84,7 +87,7 @@ const canReissue = computed(() =>
 )
 const canRestore = computed(() =>
   Boolean(
-    task.value
+    props.handoffEnabled && task.value
       && task.value.executionMode !== 'MANAGED_SANDBOX'
       && aiCodingExecutionAcceptsClientAccess(task.value.executionStatus)
       && aiCodingConnectionCanRestore(task.value.connection),
@@ -164,7 +167,9 @@ async function requestCancel() {
   await ElMessageBox.confirm(
     task.value.executionMode === 'MANAGED_SANDBOX'
       ? '取消后 Runtime 会终止 Worker 并清理一次性沙箱；已校验的证据仍会保留。'
-      : '取消后当前交接凭据会立即失效，且该任务不能继续执行。',
+      : props.handoffEnabled
+        ? '取消后当前交接凭据会立即失效，且该任务不能继续执行。'
+        : '取消后当前 AI 连接的任务权限会失效，且该任务不能继续执行。',
     '取消 AI 编程任务',
     {
       confirmButtonText: '确认取消',
@@ -198,7 +203,7 @@ function primaryTarget(current: AiCodingTask) {
 function eventLabel(type: string) {
   return {
     CREATED: '任务已创建',
-    HANDOFF_ISSUED: '交接包已签发',
+    HANDOFF_ISSUED: props.handoffEnabled ? '交接包已签发' : '任务连接已准备',
     CONNECTION_ACTIVATED: '客户端已对接',
     STARTED: '开始执行',
     PROGRESS: '执行进度',
@@ -356,7 +361,7 @@ function formatDateTime(value?: string) {
             <dd>
               {{ task.executionMode === 'MANAGED_SANDBOX'
                 ? 'ReachAI 隔离执行'
-                : aiCodingConnectionStatusDescription(task.connection) }}
+                : connectionDescription }}
             </dd>
           </div>
         </dl>
@@ -396,7 +401,7 @@ function formatDateTime(value?: string) {
             type="warning"
             effect="plain"
           >
-            尚未达到验收条件
+            {{ readiness.some((item) => item.status !== 'PASS') ? '尚未达到验收条件' : '等待验收验证' }}
           </el-tag>
         </div>
         <div class="ai-readiness-grid">
@@ -479,7 +484,7 @@ function formatDateTime(value?: string) {
               <strong>{{ eventLabel(event.eventType) }}</strong>
               <p>
                 {{
-                  event.message
+                  (handoffEnabled || event.eventType !== 'HANDOFF_ISSUED' ? event.message : '任务连接已准备')
                     || aiCodingExecutionStatusLabel(event.executionStatusAfter)
                 }}
               </p>

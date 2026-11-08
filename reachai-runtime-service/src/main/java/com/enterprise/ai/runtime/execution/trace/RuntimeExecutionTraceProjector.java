@@ -48,6 +48,11 @@ public final class RuntimeExecutionTraceProjector implements RuntimeGraphSpecExe
     }
 
     @Override
+    public void onNodeInputSnapshot(String nodeId, Map<String, Object> state) {
+        delegate.onNodeInputSnapshot(nodeId, state);
+    }
+
+    @Override
     public void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
         delegate.onNodeStarted(nodeId, nodeType, nodeName, safePayload);
     }

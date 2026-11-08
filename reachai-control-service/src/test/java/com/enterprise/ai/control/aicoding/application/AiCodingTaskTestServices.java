@@ -10,6 +10,7 @@ import com.enterprise.ai.control.aicoding.provider.AiCodingTaskProviderRegistry;
 import com.enterprise.ai.control.aicoding.security.AiCodingSensitiveJsonSanitizer;
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.mockito.Mockito.mock;
 
 /** 为现有门面测试组装真实的内部职责组件，共用测试提供的持久化和外部依赖。 */
 final class AiCodingTaskTestServices {
@@ -33,7 +34,8 @@ final class AiCodingTaskTestServices {
         var readModels = new AiCodingTaskDescriptorReader(targets, json);
         var delivery = new AiCodingTaskDeliveryService(artifacts, providers, providerExecutor, handoffs,
                 sanitizer, objectMapper, json, stateChanges, readModels);
-        var creation = new AiCodingTaskCreationService(tasks, targets, providers, capabilityClient, sanitizer, objectMapper, json, stateChanges);
+        var creation = new AiCodingTaskCreationService(tasks, targets, providers, capabilityClient, sanitizer, objectMapper, json, stateChanges,
+                mock(ProjectOnboardingCreationLock.class));
         var queries = new AiCodingTaskQueryService(tasks, events, questions, artifacts,
                 providers, handoffs, sanitizer, objectMapper, contracts,
                 json, stateChanges, readModels, delivery);

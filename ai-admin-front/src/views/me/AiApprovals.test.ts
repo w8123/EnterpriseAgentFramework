@@ -73,6 +73,33 @@ afterEach(() => {
 })
 
 describe('AI 操作审核', () => {
+  it('shows the project and receiving connection for first registration approval', async () => {
+    const enrollment = { ...approval, action: 'REGISTRY_ENROLLMENT', subject: 'REGISTRY_ENROLLMENT:orders' }
+    mocks.list.mockResolvedValue({ data: [connection] })
+    mocks.listApprovals.mockResolvedValue({ data: [enrollment] })
+    mocks.review.mockResolvedValue({ data: { ...enrollment, arguments: { contractVersion: 1, projectCode: 'orders',
+      ttlHours: 72, invocationId: approval.invocationId } } })
+    wrapper = mount(AiApprovals, { attachTo: document.body, global: { plugins: [ElementPlus] } })
+    await flushPromises(); button('审核').click(); await flushPromises()
+    expect(document.body.textContent).toContain('审核首次注册授权')
+    expect(document.body.textContent).toContain('orders')
+    expect(document.body.textContent).toContain('我的 Codex')
+    expect(document.body.textContent).toContain('有效 72 小时，仅可成功使用一次')
+    button('批准一次执行').click(); await flushPromises()
+    expect(mocks.decide).toHaveBeenCalledWith('approval-1', 'review-digest', true)
+  })
+
+  it('does not approve first registration when the project differs from the subject', async () => {
+    const enrollment = { ...approval, action: 'REGISTRY_ENROLLMENT', subject: 'REGISTRY_ENROLLMENT:orders' }
+    mocks.listApprovals.mockResolvedValue({ data: [enrollment] })
+    mocks.review.mockResolvedValue({ data: { ...enrollment, arguments: { contractVersion: 1, projectCode: 'other',
+      ttlHours: 72, invocationId: approval.invocationId } } })
+    wrapper = mount(AiApprovals, { attachTo: document.body, global: { plugins: [ElementPlus] } })
+    await flushPromises(); button('审核').click(); await flushPromises()
+    expect(document.body.textContent).toContain('审核内容不完整')
+    expect([...document.querySelectorAll('button')].some(item => item.textContent?.trim() === '批准一次执行')).toBe(false)
+  })
+
   it('shows the complete knowledge settings difference and explicitly warns about expanded retrieval access', async () => {
     const settings = { ...approval, action: 'KNOWLEDGE_SETTINGS_WRITE', subject: 'KNOWLEDGE:kb' }
     mocks.listApprovals.mockResolvedValue({ data: [settings] })

@@ -22,6 +22,7 @@ export function useAiCodingTask() {
   const selectedTaskDetail = ref<AiCodingTaskDetail | null>(null)
   const latestHandoff = ref<AiCodingHandoffPackage | null>(null)
   const loading = ref(false)
+  const detailLoading = ref(false)
   let taskListLoadSequence = 0
   let taskDetailLoadSequence = 0
   let handoffIssueSequence = 0
@@ -56,6 +57,32 @@ export function useAiCodingTask() {
         loading.value = false
       }
     }
+  }
+
+  async function refreshTasksInBackground(
+    params: Parameters<typeof listAiCodingTasks>[0],
+    select: (tasks: AiCodingTask[]) => AiCodingTask | null,
+    canApply: () => boolean,
+  ) {
+    const listSequence = taskListLoadSequence
+    const detailSequence = taskDetailLoadSequence
+    const mutationSequence = taskMutationSequence
+    const generation = stateGeneration
+    const rows = (await listAiCodingTasks(params)).data || []
+    const selected = select(rows)
+    const detail = selected ? (await getAiCodingTask(selected.taskId)).data : null
+    if (
+      generation !== stateGeneration
+      || listSequence !== taskListLoadSequence
+      || detailSequence !== taskDetailLoadSequence
+      || mutationSequence !== taskMutationSequence
+      || !canApply()
+    ) return false
+    tasks.value = detail
+      ? rows.map((task) => task.taskId === detail.task.taskId ? detail.task : task)
+      : rows
+    selectedTaskDetail.value = detail
+    return true
   }
 
   async function createTask(data: AiCodingTaskCreateRequest, issuedBy?: string) {
@@ -131,16 +158,21 @@ export function useAiCodingTask() {
     expectedStateGeneration = stateGeneration,
   ) {
     const currentLoadSequence = ++taskDetailLoadSequence
-    const detail = (await getAiCodingTask(taskId)).data
-    if (
-      expectedStateGeneration !== stateGeneration
-      || currentLoadSequence !== taskDetailLoadSequence
-    ) {
+    detailLoading.value = true
+    try {
+      const detail = (await getAiCodingTask(taskId)).data
+      if (
+        expectedStateGeneration !== stateGeneration
+        || currentLoadSequence !== taskDetailLoadSequence
+      ) {
+        return detail
+      }
+      selectedTaskDetail.value = detail
+      upsertTask(detail.task)
       return detail
+    } finally {
+      if (currentLoadSequence === taskDetailLoadSequence) detailLoading.value = false
     }
-    selectedTaskDetail.value = detail
-    upsertTask(detail.task)
-    return detail
   }
 
   async function answerQuestion(
@@ -217,6 +249,7 @@ export function useAiCodingTask() {
     selectedTaskDetail.value = null
     latestHandoff.value = null
     loading.value = false
+    detailLoading.value = false
   }
 
   return {
@@ -224,7 +257,9 @@ export function useAiCodingTask() {
     selectedTaskDetail,
     latestHandoff,
     loading,
+    detailLoading,
     loadTasks,
+    refreshTasksInBackground,
     createTask,
     createManagedTask,
     reissueHandoff,

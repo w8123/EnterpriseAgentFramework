@@ -2,6 +2,7 @@ import { computed, type Ref } from 'vue'
 import {
   Collection,
   Grid,
+  MagicStick,
   Operation,
   Star,
   User,
@@ -19,6 +20,7 @@ export interface UseRegistryProjectWorkbenchDeps {
   goPageActionGovernance: () => void
   goPageAssistantWizard: () => void
   goSdkAccessWizard: () => void
+  goCapabilityRetrofit?: () => void
 }
 
 export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDeps) {
@@ -29,7 +31,7 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
         ...(deps.isSdkBackedProject.value
           ? [{
               title: '项目接入工作台',
-              desc: '从后端 SDK、网关路由、业务服务校验、前端 Embed Token 到平台自检与浏览器验收逐步完成接入。',
+              desc: '配置 SDK 和网关，声明并同步业务方法，接通登录态与页面对话后查看平台自检。',
               icon: Star,
               tone: 'green',
               disabled: !deps.project.value?.id,
@@ -44,6 +46,16 @@ export function useRegistryProjectWorkbench(deps: UseRegistryProjectWorkbenchDep
           disabled: !deps.project.value?.id,
           action: deps.goPageAssistantWizard,
         },
+        ...(deps.isSdkBackedProject.value && deps.goCapabilityRetrofit
+          ? [{
+              title: '用 AI 改造业务能力',
+              desc: '写一句目标，让 Codex / Claude Code 扫描代码、列出候选能力给你勾选，改好后评审并发布给员工 AI 工具。',
+              icon: MagicStick,
+              tone: 'blue',
+              disabled: !deps.project.value?.id,
+              action: deps.goCapabilityRetrofit,
+            }]
+          : []),
       ],
     },
     {

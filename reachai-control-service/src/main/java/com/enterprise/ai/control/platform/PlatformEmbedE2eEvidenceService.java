@@ -42,7 +42,7 @@ public class PlatformEmbedE2eEvidenceService {
             LocalDateTime observedAfter) {
         if (!StringUtils.hasText(projectCode) || observedAfter == null) {
             return EmbedConversationEvidence.pending(
-                    "当前任务缺少可用的浏览器 Embed 观测窗口。");
+                    "当前任务缺少可用的 Embed 对话观测窗口。");
         }
 
         String expectedPageKey = normalizeOptional(pageKey);
@@ -53,8 +53,8 @@ public class PlatformEmbedE2eEvidenceService {
         if (sessions.isEmpty()) {
             return EmbedConversationEvidence.pending(
                     expectedPageKey == null
-                            ? "AI Coding 任务启动后，尚未观察到当前项目创建 Embed 会话。"
-                            : "AI Coding 任务启动后，尚未观察到当前页面创建 Embed 会话。");
+                            ? "在当前任务的观测窗口内，尚未观察到当前项目创建 Embed 会话。"
+                            : "在当前任务的观测窗口内，尚未观察到当前页面创建 Embed 会话。");
         }
 
         List<String> sessionIds = sessions.stream()
@@ -89,7 +89,7 @@ public class PlatformEmbedE2eEvidenceService {
                     && counts.userMessages > 0
                     && counts.assistantMessages > 0) {
                 return EmbedConversationEvidence.passed(
-                        "ReachAI 已观察到任务启动后的授权 SDK/doctor 会话、用户消息和助手回复。",
+                        "ReachAI 已在当前任务的观测窗口内观察到授权 SDK/doctor 会话、用户消息和助手回复。",
                         safeEvidence(session, counts));
             }
         }

@@ -244,7 +244,9 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                         item.label(),
                         item.status(),
                         item.message(),
-                        null))
+                        "E2E_READY".equals(item.key())
+                                ? objectMapper.valueToTree(Map.of("scope", "TASK_WINDOW"))
+                                : objectMapper.valueToTree(item.evidence())))
                 .toList();
     }
 
@@ -293,7 +295,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                 new VerificationGuideItem(
                         "SDK_CALLBACK_READY",
                         "READINESS_GATE",
-                        "SDK 回调闭环",
+                        "SDK 同步回调",
                         "只有签名回调成功且平台收到本次 capability snapshot 才会通过；推导出的 URL 不构成通过。",
                         null,
                         null,

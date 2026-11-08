@@ -33,6 +33,7 @@
               </el-button>
             </span>
           </el-tooltip>
+          <AiHandoffButton v-if="project?.projectCode" scenario="doctor-project" label="让 AI 体检接入" :context="{ projectCode: project.projectCode }" />
           <div class="project-header-actions__tools">
         <el-tooltip v-if="canWriteProject" content="AI Coding 接入" placement="top">
           <LiquidGlassButton
@@ -670,6 +671,7 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassInfoItem from '@/components/common/GlassInfoItem.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
@@ -837,6 +839,7 @@ const {
   goPageActionGovernance,
   goPageAssistantWizard,
   goSdkAccessWizard,
+  goCapabilityRetrofit,
 } = useRegistryProjectDetailNavigation({
   project,
   projectCode,
@@ -876,6 +879,7 @@ const { workbenchGroups } = useRegistryProjectWorkbench({
   goPageActionGovernance,
   goPageAssistantWizard,
   goSdkAccessWizard,
+  goCapabilityRetrofit,
 })
 
 const headerMetaItems = computed<HeaderMetaItem[]>(() => {

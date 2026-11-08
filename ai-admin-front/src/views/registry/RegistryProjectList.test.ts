@@ -7,6 +7,7 @@ import type { RegistryEnrollmentToken, RegistryProjectRegisterRequest } from '@/
 const mocks = vi.hoisted(() => ({
   getScanProjects: vi.fn(),
   createScanProject: vi.fn(),
+  getSdkArtifactManifest: vi.fn(),
   issueRegistryEnrollment: vi.fn(),
   push: vi.fn(),
   copy: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock('vue-router', () => ({
 vi.mock('@/api/scanProject', () => ({
   getScanProjects: mocks.getScanProjects,
   createScanProject: mocks.createScanProject,
+  getSdkArtifactManifest: mocks.getSdkArtifactManifest,
 }))
 
 vi.mock('@/api/registry', () => ({
@@ -87,6 +89,7 @@ function mountProjectList() {
         ElForm: true,
         ElFormItem: true,
         ElInput: true,
+        ElLink: true,
         ElOption: true,
         ElPagination: true,
         ElRadio: true,
@@ -175,10 +178,10 @@ interface EnrollmentState {
   issuedProject: RegistryProjectRegisterRequest | null
   enrollmentTokenVisible: boolean
   enrollmentSnippet: string
-  visibleEnrollmentSnippet: string
   enrollmentError: string
   saveSdkProject: () => Promise<void>
   copyEnrollmentSnippet: () => Promise<void>
+  copyEnrollmentToken: () => Promise<void>
 }
 
 describe('RegistryProjectList SDK enrollment handoff', () => {
@@ -193,6 +196,9 @@ describe('RegistryProjectList SDK enrollment handoff', () => {
     vi.clearAllMocks()
     mocks.getScanProjects.mockResolvedValue({ data: [] })
     mocks.issueRegistryEnrollment.mockResolvedValue({ data: enrollment })
+    mocks.getSdkArtifactManifest.mockResolvedValue({
+      data: { sdkArtifacts: [], skillPackageUrl: '/api/ai-assist/skills/reachai-onboarding/latest.zip' },
+    })
     mocks.copy.mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', {
       configurable: true,
@@ -263,19 +269,20 @@ describe('RegistryProjectList SDK enrollment handoff', () => {
     wrapper.unmount()
   })
 
-  it('masks the token until requested and copies the complete unmasked handoff only on action', async () => {
+  it('loads installers before registration and copies the token separately from the configuration', async () => {
     const { wrapper, state } = prepareForm()
     await state.saveSdkProject()
 
     expect(mocks.copy).not.toHaveBeenCalled()
-    expect(state.visibleEnrollmentSnippet).toContain('enrollment-token: "******"')
-    expect(state.visibleEnrollmentSnippet).not.toContain(enrollment.enrollmentToken)
-    state.enrollmentTokenVisible = true
-    expect(state.visibleEnrollmentSnippet).toContain(enrollment.enrollmentToken)
-    state.enrollmentTokenVisible = false
+    await flushPromises()
+    expect(mocks.getSdkArtifactManifest).toHaveBeenCalledOnce()
+    expect(state.enrollmentTokenVisible).toBe(false)
+    expect(state.enrollmentSnippet).toContain('enrollment-token: ${REACHAI_REGISTRY_ENROLLMENT_TOKEN}')
+    expect(state.enrollmentSnippet).not.toContain(enrollment.enrollmentToken)
     await state.copyEnrollmentSnippet()
-    expect(mocks.copy).toHaveBeenCalledWith(state.enrollmentSnippet)
-    expect(state.visibleEnrollmentSnippet).not.toContain(enrollment.enrollmentToken)
+    expect(mocks.copy).toHaveBeenNthCalledWith(1, state.enrollmentSnippet)
+    await state.copyEnrollmentToken()
+    expect(mocks.copy).toHaveBeenNthCalledWith(2, enrollment.enrollmentToken)
     wrapper.unmount()
   })
 
@@ -326,7 +333,7 @@ describe('RegistryProjectList SDK enrollment handoff', () => {
 
     const enrollmentDialog = wrapper.findAllComponents({ name: 'AppDialog' })[1]
     const enrollmentButtons = enrollmentDialog.findAllComponents({ name: 'LiquidGlassButton' })
-    expect(enrollmentButtons.length).toBe(3)
+    expect(enrollmentButtons.length).toBe(4)
     wrapper.unmount()
   })
 })

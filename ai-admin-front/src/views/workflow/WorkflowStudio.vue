@@ -196,6 +196,8 @@
         @delete-node="deleteSelectedNode"
         @load-model-options="loadModelOptions"
         @run-node-debug="handleRunNodeDebug"
+        @rerun-from-node="selectedNode && handleRerunFromNode(selectedNode.id)"
+        @use-last-run-state="applyLastRunStateToNodeTest()"
         @open-published-runs="openPublishedRuns"
       >
         <template #node-config="{ node }">
@@ -403,6 +405,7 @@
       @run-working-copy="handleRunWorkingCopyDebug"
       @clear-session-view="clearDebugSessionView"
       @select-step="selectDebugStep"
+      @rerun-from="handleRerunFromNode"
     />
 
     <WorkflowStudioEvalTargetDialog
@@ -438,6 +441,10 @@
       :form="publishForm"
       :before-close="handlePublishDialogBeforeClose"
       :release-validation-key="releaseValidationKey"
+      :exposure="employeeAiExposure.form"
+      :exposure-publications="employeeAiExposure.publications.value"
+      :exposure-loading="employeeAiExposure.loading.value"
+      :exposure-suggested-risk="employeeAiExposure.suggestedRisk.value"
       @publish="handlePublishWorkflow"
     />
 
@@ -449,6 +456,14 @@
       :base-revision="studio?.updatedAt"
       @rollback-success="handleRollbackSuccess"
     />
+
+    <WorkflowStudioEnvDialog
+      v-model="envDialogOpen"
+      :env="workflowEnv"
+      :read-only="!canWriteWorkflow"
+      @apply="applyWorkflowEnv"
+    />
+    <WorkflowStudioShortcutsDialog v-model="shortcutsDialogOpen" />
   </div>
 </template>
 <script setup lang="ts">
@@ -540,6 +555,11 @@ import WorkflowStudioEvalTargetDialog from '@/views/workflow/studio-overlays/Wor
 import WorkflowStudioPublishDialog from '@/views/workflow/studio-overlays/WorkflowStudioPublishDialog.vue'
 import WorkflowStudioSourceDrawer from '@/views/workflow/studio-overlays/WorkflowStudioSourceDrawer.vue'
 import WorkflowStudioVersionsDialog from '@/views/workflow/studio-overlays/WorkflowStudioVersionsDialog.vue'
+import WorkflowStudioEnvDialog from '@/views/workflow/studio-overlays/WorkflowStudioEnvDialog.vue'
+import WorkflowStudioShortcutsDialog from '@/views/workflow/studio-overlays/WorkflowStudioShortcutsDialog.vue'
+import { upstreamNodeIds } from '@/utils/studioUpstream'
+import { buildWorkflowFile, downloadWorkflowFile } from '@/utils/workflowExchange'
+import { useWorkflowEmployeeAiExposure } from '@/views/workflow/composables/useWorkflowEmployeeAiExposure'
 import { useWorkflowStudioPalette } from '@/views/workflow/composables/useWorkflowStudioPalette'
 import { useWorkflowStudioDebugSession } from '@/views/workflow/composables/useWorkflowStudioDebugSession'
 import { isPlatformAuthenticated, platformSessionId, platformSessionUser } from '@/auth/platformSession'
@@ -607,7 +627,8 @@ const debugNodeId = ref('')
 const debugMessage = ref('这是一条测试消息')
 const nodeDebugMessage = ref('这是一条节点测试消息')
 const nodeDebugStateJson = ref('{}')
-const nodeDebugStateText = ref('{\n  "input": "这是一条节点测试消息"\n}')
+const DEFAULT_NODE_DEBUG_STATE_TEXT = '{\n  "input": "这是一条节点测试消息"\n}'
+const nodeDebugStateText = ref(DEFAULT_NODE_DEBUG_STATE_TEXT)
 const nodeDebugLoading = ref(false)
 const debugLoading = ref(false)
 const nodeDebugResult = ref<WorkflowNodeDebugResult | null>(null)
@@ -877,7 +898,7 @@ const {
 const studioCanvasNodeKinds: CanvasNodeKind[] = [
   'start', 'end', 'userInput', 'interaction', 'pageAction', 'llm', 'tool', 'knowledge', 'condition',
   'variable', 'template', 'parameter', 'http', 'answer', 'code', 'classifier', 'aggregate', 'approval',
-  'loop', 'knowledgeWrite', 'documentExtract', 'mcp',
+  'loop', 'parallel', 'listOperator', 'subWorkflow', 'knowledgeWrite', 'documentExtract', 'mcp',
 ]
 const nodeCardContext = computed<StudioNodeCardContext>(() => ({
   defaultModelInstanceId: workflowMeta.defaultModelInstanceId,
@@ -1379,6 +1400,8 @@ const {
   recentRunLabel,
   handleRunPublishedDebug,
   handleRunNodeDebug,
+  handleRerunFromNode,
+  applyLastRunStateToNodeTest,
   isDebugStepRunning,
   debugConversationSnapshot,
   workflowInitialUiRequest,
@@ -1439,6 +1462,13 @@ const {
     return node ? node.position : null
   },
   parseOptionalObject,
+})
+
+// After a full debug run, the node test box starts from that run's data unless the author already edited it.
+watch(() => debugRunResult.value?.stateSnapshot, (snapshot) => {
+  if (snapshot && nodeDebugStateText.value === DEFAULT_NODE_DEBUG_STATE_TEXT) {
+    applyLastRunStateToNodeTest({ silent: true })
+  }
 })
 
 const {
@@ -1532,6 +1562,14 @@ async function syncPublishedPageAssistant(options: { silent?: boolean } = {}) {
   }
 }
 
+const employeeAiExposure = useWorkflowEmployeeAiExposure({
+  workflowId,
+  workflowName: () => workflowMeta.name || studio.value?.name || '',
+  workflowDescription: () => workflowMeta.description || studio.value?.description,
+  nodes,
+  publishDialogOpen,
+})
+
 const {
   publishWarnings,
   publishWorkflow,
@@ -1557,10 +1595,13 @@ const {
   loadStudio,
   ensurePanelValidationClear,
   syncPublishedPageAssistant: () => syncPublishedPageAssistant({ silent: true }),
-  afterPublished: (publishedWorkflowId) => notifyStaleAgentReferences(
-    publishedWorkflowId,
-    () => { versionsDialogOpen.value = true },
-  ),
+  afterPublished: async (publishedWorkflowId) => {
+    await employeeAiExposure.exposeAfterPublish(publishedWorkflowId)
+    await notifyStaleAgentReferences(
+      publishedWorkflowId,
+      () => { versionsDialogOpen.value = true },
+    )
+  },
 })
 
 function handlePublishDialogBeforeClose(done: () => void) {
@@ -1607,19 +1648,35 @@ function nodeRunLabel(nodeId: string) {
   return resolveNodeRunLabel(nodeId, nodeTraceStates.value)
 }
 
+const envVariableOptions = computed<StudioVariableOption[]>(() => Object.keys(workflowEnv.value || {}).map((name) => ({
+  value: `env.${name}`,
+  label: `环境变量 · ${name}`,
+  group: '环境变量',
+  description: '工作流级常量',
+})))
+
 const variableOptions = computed<StudioVariableOption[]>(() => {
   const options: StudioVariableOption[] = [
     { value: 'params', label: '用户输入 · 全部参数', group: '用户输入', description: '用户输入节点写入的 params 对象' },
     { value: 'sys.userId', label: '系统变量 · 当前用户 ID', group: '系统变量', description: '运行上下文用户标识' },
     { value: 'sys.tenantId', label: '系统变量 · 租户 ID', group: '系统变量', description: '运行上下文租户标识' },
     { value: 'sys.roles', label: '系统变量 · 用户角色', group: '系统变量', description: '当前用户角色列表' },
+    { value: 'sys.projectCode', label: '系统变量 · 所属项目', group: '系统变量', description: '工作流所属项目编码' },
+    { value: 'sys.runId', label: '系统变量 · 运行编号', group: '系统变量', description: '本次运行的编号' },
+    { value: 'sys.channel', label: '系统变量 · 调用渠道', group: '系统变量', description: 'MCP / AGENT / AUTOMATION / DEBUG 等' },
+    { value: 'sys.now', label: '系统变量 · 当前时间', group: '系统变量', description: '运行开始时间，ISO 格式' },
+    { value: 'sys.today', label: '系统变量 · 今天日期', group: '系统变量', description: '运行开始日期 yyyy-MM-dd' },
+    ...envVariableOptions.value,
     { value: 'input', label: '运行态 · 原始输入消息', group: '运行态变量', description: '本次运行的原始消息' },
     { value: 'answer', label: '运行态 · 最终回答', group: '运行态变量', description: '当前已生成的 answer' },
     { value: 'lastOutput', label: '运行态 · 上一步输出', group: '运行态变量', description: '便捷变量，适合快速串联原型' },
     { value: 'lastRoute', label: '运行态 · 命中分支', group: '运行态变量', description: '条件或意图分类节点最近一次路由' },
   ]
+  const upstream = selectedNodeId.value ? upstreamNodeIds(selectedNodeId.value, nodes.value, edges.value) : null
   for (const item of graphVariables.value) {
     if (!item.name || item.name === selectedNodeId.value) continue
+    // Only outputs of nodes that run before the selected node can be read there.
+    if (upstream && item.nodeId && !upstream.has(item.nodeId)) continue
     options.push({
       value: item.name,
       label: item.label || `${item.source} · ${item.name}`,
@@ -2152,6 +2209,9 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
   if (upper === 'VARIABLE_AGGREGATOR') return 'aggregate'
   if (upper === 'HUMAN_APPROVAL') return 'approval'
   if (upper === 'LOOP') return 'loop'
+  if (upper === 'PARALLEL') return 'parallel'
+  if (upper === 'LIST_OPERATOR') return 'listOperator'
+  if (upper === 'SUB_WORKFLOW') return 'subWorkflow'
   if (upper === 'KNOWLEDGE_WRITE') return 'knowledgeWrite'
   if (upper === 'DOCUMENT_EXTRACT') return 'documentExtract'
   if (upper === 'MCP_CALL') return 'mcp'
@@ -2175,6 +2235,9 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
     'aggregate',
     'approval',
     'loop',
+    'parallel',
+    'listOperator',
+    'subWorkflow',
     'knowledgeWrite',
     'documentExtract',
     'mcp',
@@ -2215,6 +2278,62 @@ function handleHeaderCommand(command: string | number | object) {
     versionsDialogOpen.value = true
     return
   }
+  if (command === 'env') {
+    envDialogOpen.value = true
+    return
+  }
+  if (command === 'shortcuts') {
+    shortcutsDialogOpen.value = true
+    return
+  }
+  if (command === 'export') {
+    exportWorkflowFile()
+  }
+}
+
+function exportWorkflowFile() {
+  try {
+    if (nodes.value.length) syncJsonFromCanvas()
+    downloadWorkflowFile(buildWorkflowFile({
+      name: workflowMeta.name || studio.value?.name || '',
+      keySlug: workflowMeta.keySlug || studio.value?.keySlug || 'workflow',
+      description: workflowMeta.description || studio.value?.description,
+      workflowKind: workflowMeta.workflowKind || studio.value?.workflowKind,
+      graphSpecJson: graphSpecJson.value,
+      canvasJson: canvasJson.value,
+    }))
+    ElMessage.success('已导出当前画布（含未保存的改动）')
+  } catch (error) {
+    ElMessage.error('导出失败：' + (error as Error).message)
+  }
+}
+
+const envDialogOpen = ref(false)
+const shortcutsDialogOpen = ref(false)
+
+/** Workflow-level constants live in GraphSpec.env, so they are versioned and published with the graph. */
+const workflowEnv = computed<Record<string, string>>(() => {
+  try {
+    const parsed = JSON.parse(graphSpecJson.value || '{}')
+    return parsed && typeof parsed.env === 'object' && !Array.isArray(parsed.env) ? parsed.env : {}
+  } catch {
+    return {}
+  }
+})
+
+function applyWorkflowEnv(env: Record<string, string>) {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = JSON.parse(graphSpecJson.value || '{}')
+  } catch {
+    ElMessage.error('Workflow 源码格式不正确，无法保存环境变量')
+    return
+  }
+  if (Object.keys(env).length) parsed.env = env
+  else delete parsed.env
+  graphSpecJson.value = formatJson(JSON.stringify(parsed))
+  visualDirty.value = true
+  ElMessage.success('环境变量已更新，保存后生效')
 }
 
 async function handleRollbackSuccess() {

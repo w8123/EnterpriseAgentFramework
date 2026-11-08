@@ -40,4 +40,14 @@ public class McpPlatformAiCodingService {
         return PlatformAiDirectWrites.once(() -> tasks.answer(actor.session(), taskId, questionId, answer),
                 "回答结果未确认，请重新读取任务里的问题；不要直接重试。");
     }
+
+    /** A person issued the one-time code on the console, so handing the task over stays a human step. */
+    public ResponseEntity<?> claim(ConnectionIdentity actor, String taskId, String claimCode) {
+        return tasks.claim(actor, taskId, claimCode);
+    }
+
+    /** The coding agent's own protocol steps on a task this connection has claimed. */
+    public ResponseEntity<?> agent(ConnectionIdentity actor, String taskId, McpPlatformAiCodingPort.Agent step, Map<String, Object> body) {
+        return tasks.agent(actor, taskId, step, body);
+    }
 }

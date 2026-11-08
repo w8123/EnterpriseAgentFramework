@@ -5,6 +5,7 @@ import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
 import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
 import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeRetrievalClient;
+import com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeWriteClient;
 import com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient;
 import com.enterprise.ai.runtime.execution.context.WorkflowOutputAliasWriter;
 import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
@@ -17,6 +18,7 @@ import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.http.WorkflowHttpClient;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.execution.RuntimeHttpApiToolExecutionPort;
+import com.enterprise.ai.runtime.execution.RuntimeSubWorkflowPort;
 import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEventBridgeSink;
 import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -65,7 +67,14 @@ public final class RuntimeGraphSpecExecutionEngine {
             "VARIABLE_AGGREGATOR",
             "KNOWLEDGE_RETRIEVAL",
             "HTTP_REQUEST",
-            "LOOP");
+            "LOOP",
+            "PARALLEL",
+            "CODE",
+            "LIST_OPERATOR",
+            "SUB_WORKFLOW",
+            "KNOWLEDGE_WRITE",
+            "HUMAN_APPROVAL");
+    static final int MAX_SUB_WORKFLOW_DEPTH = RuntimeIntegrationNodeHandlers.MAX_SUB_WORKFLOW_DEPTH;
 
     private final ObjectMapper objectMapper;
     private final RuntimeBusinessIndexResolutionPort businessIndexResolutionPort;
@@ -73,8 +82,14 @@ public final class RuntimeGraphSpecExecutionEngine {
     private final RuntimeDeterministicNodeHandlers deterministicNodeHandlers;
     private final RuntimeIoNodeHandlers ioNodeHandlers;
     private final RuntimeModelNodeHandlers modelNodeHandlers;
+    private final RuntimeModelUsageTap modelUsage;
     private final RuntimeActionNodeHandlers actionNodeHandlers;
     private final RuntimeLoopNodeHandler loopNodeHandler;
+    private final RuntimeParallelNodeHandler parallelNodeHandler;
+    private final RuntimeConcurrentNodeRunner concurrentRunner;
+    private final RuntimeComputeNodeHandlers computeNodeHandlers;
+    private final RuntimeIntegrationNodeHandlers integrationNodeHandlers;
+    private final RuntimeNodeRetryPolicy retryPolicy;
     private final RuntimeNodeHandlerRegistry nodeHandlerRegistry;
     private final GraphSpecCompiler graphSpecCompiler;
 
@@ -119,9 +134,18 @@ public final class RuntimeGraphSpecExecutionEngine {
         this.nodeValueResolver = new RuntimeNodeValueResolver();
         this.deterministicNodeHandlers = new RuntimeDeterministicNodeHandlers(objectMapper, nodeValueResolver);
         this.ioNodeHandlers = new RuntimeIoNodeHandlers(objectMapper, knowledgeClient, httpClient, nodeValueResolver);
-        this.modelNodeHandlers = new RuntimeModelNodeHandlers(objectMapper, modelServiceClient, nodeValueResolver);
+        this.modelUsage = new RuntimeModelUsageTap(modelServiceClient);
+        this.modelNodeHandlers = new RuntimeModelNodeHandlers(objectMapper, modelUsage, nodeValueResolver);
         this.actionNodeHandlers = new RuntimeActionNodeHandlers(capabilityClient, controlClient, nodeValueResolver, httpApis);
-        this.loopNodeHandler = new RuntimeLoopNodeHandler(nodeValueResolver, this::executeLoopBody);
+        this.concurrentRunner = new RuntimeConcurrentNodeRunner(scopeCarriers(capabilityClient, httpApis));
+        this.loopNodeHandler = new RuntimeLoopNodeHandler(
+                nodeValueResolver, this::executeLoopBody, concurrentRunner, deterministicNodeHandlers);
+        this.parallelNodeHandler = new RuntimeParallelNodeHandler(this::executeParallelBranch, concurrentRunner);
+        this.computeNodeHandlers = new RuntimeComputeNodeHandlers(objectMapper, nodeValueResolver, deterministicNodeHandlers);
+        this.retryPolicy = new RuntimeNodeRetryPolicy(ioNodeHandlers);
+        this.integrationNodeHandlers = new RuntimeIntegrationNodeHandlers(nodeValueResolver, objectMapper,
+                (childGraph, childRequest, childCancel, childIdentity, childEval) -> executeInternal(childGraph, childRequest,
+                        null, RuntimeGraphSpecExecutionEventSink.NOOP, childCancel, childIdentity, childEval, false));
         this.graphSpecCompiler = new GraphSpecCompiler(objectMapper);
         this.nodeHandlerRegistry = buildNodeHandlerRegistry();
     }
@@ -143,7 +167,34 @@ public final class RuntimeGraphSpecExecutionEngine {
                 .register("KNOWLEDGE_RETRIEVAL", ioNodeHandlers::executeKnowledgeRetrieval)
                 .register("HTTP_REQUEST", ioNodeHandlers::executeHttpRequest)
                 .register("LOOP", loopNodeHandler::executeLoop)
+                .register("PARALLEL", parallelNodeHandler::executeParallel)
+                .register("CODE", computeNodeHandlers::executeCode)
+                .register("LIST_OPERATOR", computeNodeHandlers::executeListOperator)
+                .register("SUB_WORKFLOW", integrationNodeHandlers::executeSubWorkflow)
+                .register("KNOWLEDGE_WRITE", integrationNodeHandlers::executeKnowledgeWrite)
+                .register("HUMAN_APPROVAL", actionNodeHandlers::executeHumanApproval)
                 .build(EXECUTABLE_NODE_TYPES);
+    }
+
+    private static List<RuntimeConcurrentNodeRunner.ScopeCarrier> scopeCarriers(
+            RuntimeCapabilityCatalogClient capabilityClient,
+            RuntimeHttpApiToolExecutionPort httpApis) {
+        List<RuntimeConcurrentNodeRunner.ScopeCarrier> carriers = new ArrayList<>();
+        if (capabilityClient != null) {
+            carriers.add(new RuntimeConcurrentNodeRunner.ScopeCarrier() {
+                @Override public Object capture() { return capabilityClient.captureThreadScope(); }
+                @Override public void install(Object captured) { capabilityClient.installThreadScope(captured); }
+                @Override public void clear() { capabilityClient.clearThreadScope(); }
+            });
+        }
+        if (httpApis != null) {
+            carriers.add(new RuntimeConcurrentNodeRunner.ScopeCarrier() {
+                @Override public Object capture() { return httpApis.captureThreadScope(); }
+                @Override public void install(Object captured) { httpApis.installThreadScope(captured); }
+                @Override public void clear() { httpApis.clearThreadScope(); }
+            });
+        }
+        return carriers;
     }
 
     /**
@@ -252,6 +303,19 @@ public final class RuntimeGraphSpecExecutionEngine {
         return execute(graphSpecJson, request, entryNodeId, sink, cancellation, identity, evalContext);
     }
 
+    /**
+     * Studio "test this node": runs only {@code nodeId} with the given state and stops, instead of
+     * continuing to every downstream node.
+     */
+    public RuntimeGraphSpecExecutionResult executeSingleNode(String graphSpecJson,
+                                                             Map<String, Object> request,
+                                                             String nodeId,
+                                                             WorkflowExecutionIdentity identity,
+                                                             RuntimeEvalExecutionContext evalContext) {
+        return execute(graphSpecJson, request, nodeId, RuntimeGraphSpecExecutionEventSink.NOOP,
+                RuntimeGraphSpecExecutionCancellation.none(), identity, evalContext, true);
+    }
+
     private RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
                                                     Map<String, Object> request,
                                                     String entryOverride,
@@ -259,6 +323,17 @@ public final class RuntimeGraphSpecExecutionEngine {
                                                     RuntimeGraphSpecExecutionCancellation cancellation,
                                                     WorkflowExecutionIdentity identity,
                                                     RuntimeEvalExecutionContext evalContext) {
+        return execute(graphSpecJson, request, entryOverride, sink, cancellation, identity, evalContext, false);
+    }
+
+    private RuntimeGraphSpecExecutionResult execute(String graphSpecJson,
+                                                    Map<String, Object> request,
+                                                    String entryOverride,
+                                                    RuntimeGraphSpecExecutionEventSink sink,
+                                                    RuntimeGraphSpecExecutionCancellation cancellation,
+                                                    WorkflowExecutionIdentity identity,
+                                                    RuntimeEvalExecutionContext evalContext,
+                                                    boolean singleNodeOnly) {
         RuntimeExecutionEventBridgeSink eventBridge = new RuntimeExecutionEventBridgeSink(
                 sink, request == null ? Map.of() : request);
         eventBridge.onRunStarted();
@@ -270,7 +345,8 @@ public final class RuntimeGraphSpecExecutionEngine {
                     eventBridge,
                     cancellation,
                     identity,
-                    evalContext);
+                    evalContext,
+                    singleNodeOnly);
             eventBridge.onRunTerminal(result);
             return result;
         } catch (RuntimeException ex) {
@@ -285,7 +361,8 @@ public final class RuntimeGraphSpecExecutionEngine {
                                                             RuntimeGraphSpecExecutionEventSink sink,
                                                             RuntimeGraphSpecExecutionCancellation cancellation,
                                                             WorkflowExecutionIdentity identity,
-                                                            RuntimeEvalExecutionContext evalContext) {
+                                                            RuntimeEvalExecutionContext evalContext,
+                                                            boolean singleNodeOnly) {
         RuntimeGraphSpecExecutionEventSink eventSink = sink == null
                 ? RuntimeGraphSpecExecutionEventSink.NOOP : sink;
         RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
@@ -301,7 +378,8 @@ public final class RuntimeGraphSpecExecutionEngine {
         Set<String> exitNodeIds = executableGraph.exitNodeIds();
         String entry = executableGraph.executionEntryNodeId();
 
-        Map<String, Object> context = initialContext(request == null ? Map.of() : request);
+        Map<String, Object> context = RuntimeInitialContext.initialContext(request == null ? Map.of() : request, nodeValueResolver);
+        context.put(RuntimeInvocationScope.KEY, RuntimeInvocationScope.from(context));
         // Trusted identity is never taken from business maps / model args.
         context.remove(TRUSTED_IDENTITY_CONTEXT_KEY);
         context.put(TRUSTED_IDENTITY_CONTEXT_KEY,
@@ -310,6 +388,7 @@ public final class RuntimeGraphSpecExecutionEngine {
         context.remove(TRUSTED_EVAL_CONTEXT_KEY);
         context.put(TRUSTED_EVAL_CONTEXT_KEY,
                 evalContext == null ? RuntimeEvalExecutionContext.none() : evalContext);
+        RuntimeInitialContext.applyWorkflowEnvAndSystemValues(context, graph, identity);
         if (eventSink instanceof RuntimeExecutionEventBridgeSink bridge) {
             bridge.bindExecutionContext(context);
         }
@@ -333,13 +412,15 @@ public final class RuntimeGraphSpecExecutionEngine {
             String nodeType = node.getType();
             String nodeName = firstText(node.getName(), node.getId());
             long nodeStartedAt = System.currentTimeMillis();
+            eventSink.onNodeInputSnapshot(node.getId(), context);
             eventSink.onNodeStarted(node.getId(), nodeType, nodeName, safeNodePayload(node, nodeType, null));
             RuntimeGraphSpecExecutionResult nodeResult = executeNodeWithPolicies(
                     node, context, graph, eventSink, cancel, nodesById);
             long nodeEndedAt = System.currentTimeMillis();
             long elapsedMs = Math.max(0L, nodeEndedAt - nodeStartedAt);
             steps.addAll(nodeResult.steps());
-            nodeTraces.add(buildInternalNodeTrace(node, nodeType, nodeResult, nodeStartedAt, nodeEndedAt, elapsedMs));
+            nodeTraces.add(RuntimeNodeObservability.buildInternalNodeTrace(node, nodeType, nodeResult, nodeStartedAt, nodeEndedAt, elapsedMs));
+            appendParallelBranchTraces(nodeTraces, nodeResult);
             // Cooperative cancellation：停止后续节点与可取消资源；不回滚当前节点已发生的外部副作用。
             // 节点内同步调用返回后也会把取消映射为 RUNTIME_GRAPH_CANCELLED，禁止落入 onNodeFailed。
             if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
@@ -365,7 +446,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                         if (validationErrors != null) {
                             waitingPayload.put("validationErrors", validationErrors);
                         }
-                        putAttemptObservability(waitingPayload, nodeResult);
+                        RuntimeNodeObservability.putAttemptObservability(waitingPayload, nodeResult);
                     }
                     eventSink.onNodeWaiting(node.getId(), nodeType, nodeName, waitingPayload);
                 } else {
@@ -373,7 +454,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                     failedPayload.put("status", "FAILED");
                     failedPayload.put("code", nodeResult.code());
                     failedPayload.put("summary", safeSummary(nodeResult.answer()));
-                    putAttemptObservability(failedPayload, nodeResult);
+                    RuntimeNodeObservability.putAttemptObservability(failedPayload, nodeResult);
                     eventSink.onNodeFailed(node.getId(), nodeType, nodeName, failedPayload);
                 }
                 // Persist the live executor context (TOOL/PARAMETER_EXTRACT outputs, vars, pending ids).
@@ -384,7 +465,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                     ? "BUSINESS_TERMINAL"
                     : "SUCCESS");
             completedPayload.put("summary", safeSummary(nodeResult.answer()));
-            putAttemptObservability(completedPayload, nodeResult);
+            RuntimeNodeObservability.putAttemptObservability(completedPayload, nodeResult);
             if (nodeResult.uiRequest() != null) {
                 completedPayload.put("uiRequest", nodeResult.uiRequest());
             }
@@ -398,7 +479,8 @@ public final class RuntimeGraphSpecExecutionEngine {
             } else if (!"ANSWER".equals(nodeResult.nodeType())) {
                 next = resolveNextNode(graph, node.getId(), nodeResult);
                 // Strict business routes must never fall through an unconditional edge.
-                boolean strictInteractionRoute = "INTERACTION".equals(nodeResult.nodeType())
+                boolean strictInteractionRoute = ("INTERACTION".equals(nodeResult.nodeType())
+                        || "HUMAN_APPROVAL".equals(nodeResult.nodeType()))
                         && isStrictInteractionRoute(resultRoute(nodeResult));
                 if ((strictInteractionRoute || isStrictKnowledgeEvidenceRoute(nodeResult))
                         && !hasExactRouteEdge(graph, node.getId(), resultRoute(nodeResult))) {
@@ -419,6 +501,9 @@ public final class RuntimeGraphSpecExecutionEngine {
             eventSink.onNodeCompleted(node.getId(), nodeType, nodeName, completedPayload);
             lastResult = withSteps(nodeResult, steps, nodeTraces);
             rememberNodeOutput(context, node, nodeResult);
+            if (singleNodeOnly) {
+                return withLiveContext(lastResult, context);
+            }
             if (nodeResult.uiRequest() != null
                     && nodeResult.metadata() != null
                     && Boolean.TRUE.equals(nodeResult.metadata().get("displayOnly"))) {
@@ -439,8 +524,9 @@ public final class RuntimeGraphSpecExecutionEngine {
                         nodeResult.nodeType()), steps, nodeTraces), context);
             }
             if (!StringUtils.hasText(forcedNext) && StringUtils.hasText(route) && next != null && !next.matched()) {
-                if ("INTERACTION".equals(nodeResult.nodeType())
-                        && ("reject".equalsIgnoreCase(route) || "cancel".equalsIgnoreCase(route))) {
+                if (("INTERACTION".equals(nodeResult.nodeType()) || "HUMAN_APPROVAL".equals(nodeResult.nodeType()))
+                        && ("reject".equalsIgnoreCase(route) || "rejected".equalsIgnoreCase(route)
+                        || "cancel".equalsIgnoreCase(route))) {
                     // 拒绝/取消且无显式 route 边：安全停止，不继续下游
                     return withLiveContext(lastResult, context);
                 }
@@ -500,6 +586,7 @@ public final class RuntimeGraphSpecExecutionEngine {
             return result.withResumeCheckpoint(Map.of());
         }
         Map<String, Object> checkpoint = new LinkedHashMap<>(context);
+        checkpoint.put(RuntimeInvocationScope.KEY, RuntimeInvocationScope.from(context).snapshot());
         // Trusted identity is reconstructed from the authenticated resume path, never serialized.
         checkpoint.remove(TRUSTED_IDENTITY_CONTEXT_KEY);
         // Eval runs are intentionally not resumable through an untrusted serialized checkpoint.
@@ -508,6 +595,13 @@ public final class RuntimeGraphSpecExecutionEngine {
         // A serialized Workflow checkpoint must never restore one from input.
         checkpoint.remove(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
         return result.withResumeCheckpoint(checkpoint);
+    }
+
+    /** Convert a verified persisted checkpoint to the server-owned invocation scope. */
+    public static Map<String, Object> restoreCheckpointScope(Map<String, Object> state) {
+        Map<String, Object> restored = new LinkedHashMap<>(state == null ? Map.of() : state);
+        restored.put(RuntimeInvocationScope.KEY, RuntimeInvocationScope.restore(restored.get(RuntimeInvocationScope.KEY)));
+        return restored;
     }
 
     private Map<String, Object> safeNodePayload(GraphSpec.Node node, String nodeType, Long elapsedMs) {
@@ -552,7 +646,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                 return cancelled(node.getId(), nodeType);
             }
             if (attempt > 1) {
-                if (!allowsRetry(node, nodeType, last)) {
+                if (!retryPolicy.allowsRetry(node, nodeType, last)) {
                     break;
                 }
                 if (backoffMs > 0) {
@@ -567,7 +661,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                     return cancelled(node.getId(), nodeType);
                 }
             }
-            last = executeNode(node, context, graph, eventSink, cancel);
+            last = executeNodeWithTimeout(node, context, graph, eventSink, cancel);
             last = withAttemptMetadata(last, attempt, maxAttempts, attempt > 1 ? "retry" : "initial");
             if (last.success()) {
                 last = resolveBusinessIndexReferences(last, context);
@@ -578,7 +672,7 @@ public final class RuntimeGraphSpecExecutionEngine {
                     || "RUNTIME_GRAPH_CANCELLED".equals(last.code())) {
                 return last;
             }
-            if (attempt < maxAttempts && !allowsRetry(node, nodeType, last)) {
+            if (attempt < maxAttempts && !retryPolicy.allowsRetry(node, nodeType, last)) {
                 break;
             }
         }
@@ -635,92 +729,6 @@ public final class RuntimeGraphSpecExecutionEngine {
         return new RuntimeGraphSpecExecutionResult(
                 result.success(), result.code(), safeAnswer, result.nodeId(), result.nodeType(),
                 result.steps(), metadata, result.resumeCheckpoint());
-    }
-
-    private boolean allowsRetry(GraphSpec.Node node, String nodeType) {
-        return allowsRetry(node, nodeType, null);
-    }
-
-    private boolean allowsRetry(GraphSpec.Node node, String nodeType, RuntimeGraphSpecExecutionResult failure) {
-        GraphSpec.RetryPolicy retry = node.getRetry();
-        if (retry == null || !Boolean.TRUE.equals(retry.getEnabled())) {
-            return false;
-        }
-        if (failure != null) {
-            if (failure.success()
-                    || failure.isWaitingUser()
-                    || WorkflowInteractionCodes.WAITING.equals(failure.code())
-                    || "RUNTIME_GRAPH_CANCELLED".equals(failure.code())) {
-                return false;
-            }
-            if (!isRetryableFailure(nodeType, failure)) {
-                return false;
-            }
-        }
-        Optional<AgentGraphNodeType> type = AgentGraphNodeType.find(nodeType);
-        if (type.isEmpty() || !type.get().retryable()) {
-            return false;
-        }
-        if ("HTTP_REQUEST".equals(nodeType)) {
-            if (!ioNodeHandlers.allowsAutomaticHttpRetry(node)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private boolean isRetryableFailure(String nodeType, RuntimeGraphSpecExecutionResult failure) {
-        if (failure == null || !StringUtils.hasText(failure.code())) {
-            return false;
-        }
-        String code = failure.code();
-        if (code.startsWith("RUNTIME_HTTP_EGRESS_")
-                || "RUNTIME_HTTP_CREDENTIAL_DENIED".equals(code)
-                || "RUNTIME_HTTP_CREDENTIAL_INVALID".equals(code)
-                || "RUNTIME_HTTP_CREDENTIAL_TYPE_UNSUPPORTED".equals(code)
-                || "RUNTIME_HTTP_URL_REQUIRED".equals(code)
-                || "RUNTIME_HTTP_URL_INVALID".equals(code)
-                || "RUNTIME_HTTP_METHOD_UNSUPPORTED".equals(code)
-                || "RUNTIME_HTTP_REDIRECT_CREDENTIAL_DENIED".equals(code)
-                || "RUNTIME_HTTP_REDIRECT_DOWNGRADE_DENIED".equals(code)
-                || "RUNTIME_GRAPH_NODE_UNSUPPORTED".equals(code)
-                || code.contains("CONFIG")
-                || code.contains("VALIDATION")) {
-            return false;
-        }
-        // Explicit non-retryable configuration / identity / dependency failures.
-        if (code.contains("REQUIRED")
-                || code.contains("DENIED")
-                || code.contains("UNSUPPORTED")
-                || code.contains("UNAVAILABLE")
-                || code.contains("INVALID")
-                || code.contains("PROTECTED")
-                || "RUNTIME_KNOWLEDGE_USER_IDENTITY_REQUIRED".equals(code)
-                || "RUNTIME_MODEL_REQUIRED".equals(code)
-                || "RUNTIME_TOOL_REF_REQUIRED".equals(code)
-                || code.startsWith("RUNTIME_KNOWLEDGE_") && code.endsWith("_REQUIRED")
-                || code.endsWith("_CLIENT_UNAVAILABLE")
-                || code.contains("PERMISSION")
-                || code.contains("ACL")) {
-            return false;
-        }
-        Object retryableFlag = failure.metadata() == null ? null : failure.metadata().get("retryableFailure");
-        if (Boolean.TRUE.equals(retryableFlag)) {
-            return true;
-        }
-        if ("HTTP_REQUEST".equals(nodeType)) {
-            if (code.startsWith("RUNTIME_HTTP_STATUS_")) {
-                try {
-                    int status = Integer.parseInt(code.substring("RUNTIME_HTTP_STATUS_".length()));
-                    return ioNodeHandlers.isRetryableHttpStatus(status);
-                } catch (NumberFormatException ignored) {
-                    return false;
-                }
-            }
-            return "RUNTIME_HTTP_TIMEOUT".equals(code) || "RUNTIME_HTTP_CONNECT_FAILED".equals(code);
-        }
-        // Default fail-closed: only explicitly marked transient failures are retryable.
-        return false;
     }
 
     private RuntimeGraphSpecExecutionResult applyErrorPolicy(GraphSpec.Node node,
@@ -909,29 +917,6 @@ public final class RuntimeGraphSpecExecutionEngine {
         return result.withMetadata(metadata);
     }
 
-    private void putAttemptObservability(Map<String, Object> payload, RuntimeGraphSpecExecutionResult result) {
-        if (result == null || result.metadata() == null || payload == null) {
-            return;
-        }
-        putIfPresent(payload, "attempt", result.metadata().get("attempt"));
-        putIfPresent(payload, "attemptCount", result.metadata().get("attemptCount"));
-        putIfPresent(payload, "maxAttempts", result.metadata().get("maxAttempts"));
-        putIfPresent(payload, "errorPolicyDecision", result.metadata().get("errorPolicyDecision"));
-        putIfPresent(payload, "fallbackNodeId", result.metadata().get("fallbackNodeId"));
-        putIfPresent(payload, "traceSummary", result.metadata().get("traceSummary"));
-        putIfPresent(payload, "outcomeClass", result.metadata().get("outcomeClass"));
-        putIfPresent(payload, "businessOutcome", result.metadata().get("businessOutcome"));
-        putIfPresent(payload, "qualifiedName", result.metadata().get("qualifiedName"));
-        putIfPresent(payload, "failureCategory", result.metadata().get("failureCategory"));
-        putIfPresent(payload, "retryableFailure", result.metadata().get("retryableFailure"));
-        putIfPresent(payload, "sideEffect", result.metadata().get("sideEffect"));
-        putIfPresent(payload, "dispatchStage", result.metadata().get("dispatchStage"));
-        putIfPresent(payload, "nonRecoverableWrite", result.metadata().get("nonRecoverableWrite"));
-        putIfPresent(payload, "httpStatus", result.metadata().get("httpStatus"));
-        putIfPresent(payload, "inputField", result.metadata().get("inputField"));
-        putIfPresent(payload, "interactionType", result.metadata().get("interactionType"));
-    }
-
     private String forcedNextNodeId(RuntimeGraphSpecExecutionResult result) {
         if (result == null || result.metadata() == null) {
             return null;
@@ -956,6 +941,174 @@ public final class RuntimeGraphSpecExecutionEngine {
                         "Runtime GraphSpec node type is not executable yet: " + nodeType,
                         node.getId(),
                         nodeType));
+    }
+
+    /** Node types whose attempt may run under a timeout; pausing and page nodes keep their own lifecycle. */
+    private static final Set<String> TIMEOUT_EXCLUDED_TYPES = Set.of(
+            "USER_INPUT", "INTERACTION", "HUMAN_APPROVAL", "PAGE_ACTION", "ANSWER");
+    /** Business calls whose outcome is unknown after a timeout: never continue, retry or fall back. */
+    private static final Set<String> TIMEOUT_UNKNOWN_OUTCOME_TYPES = Set.of("TOOL", "HTTP_REQUEST", "MCP_CALL", "KNOWLEDGE_WRITE", "SUB_WORKFLOW");
+    static final long MIN_NODE_TIMEOUT_MS = 1_000L;
+    static final long MAX_NODE_TIMEOUT_MS = 600_000L;
+
+    static Long nodeTimeoutMs(GraphSpec.Node node) {
+        GraphSpec.ErrorPolicy policy = node == null ? null : node.getErrorPolicy();
+        Long timeout = policy == null ? null : policy.getTimeoutMs();
+        if (timeout == null || timeout <= 0) return null;
+        return Math.max(MIN_NODE_TIMEOUT_MS, Math.min(MAX_NODE_TIMEOUT_MS, timeout));
+    }
+
+    private RuntimeGraphSpecExecutionResult executeNodeWithTimeout(GraphSpec.Node node,
+                                                                   Map<String, Object> context,
+                                                                   GraphSpec graph,
+                                                                   RuntimeGraphSpecExecutionEventSink eventSink,
+                                                                   RuntimeGraphSpecExecutionCancellation cancel) {
+        String nodeType = AgentGraphNodeType.normalize(node.getType());
+        Long timeoutMs = nodeTimeoutMs(node);
+        if (timeoutMs == null || TIMEOUT_EXCLUDED_TYPES.contains(nodeType)) {
+            return executeNode(node, context, graph, eventSink, cancel);
+        }
+        // The attempt works on its own copy; an abandoned (timed-out) worker can never touch live variables.
+        Map<String, Object> attemptContext = RuntimeContextCopies.copy(context);
+        RuntimeConcurrentNodeRunner.GuardedEventSink guarded =
+                new RuntimeConcurrentNodeRunner.GuardedEventSink(eventSink, Map.of(), new Object());
+        RuntimeGraphSpecExecutionResult result = concurrentRunner.runWithTimeout(
+                () -> executeNode(node, attemptContext, graph, guarded, cancel),
+                timeoutMs,
+                () -> null);
+        guarded.close();
+        if (result == null) {
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("nodeId", node.getId());
+            metadata.put("nodeType", nodeType);
+            metadata.put("timeoutMs", timeoutMs);
+            metadata.put("retryableFailure", false);
+            metadata.put("failureCategory", "TIMEOUT");
+            if (TIMEOUT_UNKNOWN_OUTCOME_TYPES.contains(nodeType)
+                    || RuntimeNodeTimeoutSafety.containerMayWrite(node, graph)) {
+                // The call may still complete remotely; treat it like an unknown write and stop here.
+                metadata.put("nonRecoverableWrite", true);
+                metadata.put("dispatchStage", "UNKNOWN");
+            }
+            return new RuntimeGraphSpecExecutionResult(false, "RUNTIME_GRAPH_NODE_TIMEOUT",
+                    "Node did not finish within " + timeoutMs + " ms", node.getId(), nodeType, List.of(), metadata);
+        }
+        context.clear();
+        context.putAll(attemptContext);
+        return result;
+    }
+
+    private void appendParallelBranchTraces(List<Map<String, Object>> nodeTraces,
+                                            RuntimeGraphSpecExecutionResult nodeResult) {
+        if (nodeResult == null || nodeResult.metadata() == null
+                || !(nodeResult.metadata().get("parallelBranchTraces") instanceof List<?> traces)) {
+            return;
+        }
+        for (Object trace : traces) {
+            if (trace instanceof Map<?, ?> map) {
+                Map<String, Object> copy = new LinkedHashMap<>();
+                map.forEach((key, value) -> copy.put(String.valueOf(key), value));
+                nodeTraces.add(copy);
+            }
+        }
+    }
+
+    /** Optional: without it SUB_WORKFLOW fails closed. Set once while wiring the executor bean. */
+    public void setSubWorkflowPort(RuntimeSubWorkflowPort subWorkflowPort) {
+        integrationNodeHandlers.setSubWorkflowPort(subWorkflowPort);
+    }
+
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder recorder) {
+        modelUsage.setRecorder(recorder);
+    }
+
+    public void setKnowledgeWriteClient(RuntimeKnowledgeWriteClient knowledgeWriteClient) {
+        integrationNodeHandlers.setKnowledgeWriteClient(knowledgeWriteClient);
+    }
+
+    /**
+     * Drives one PARALLEL branch on its own variables until it reaches the join node. Every branch node emits the
+     * normal node events (tagged with the branch) so Debug and RunOps show what ran.
+     */
+    private RuntimeGraphSpecExecutionResult executeParallelBranch(GraphSpec graph,
+                                                                  Map<String, GraphSpec.Node> nodesById,
+                                                                  Set<String> branchNodeIds,
+                                                                  String branchEntry,
+                                                                  String joinNodeId,
+                                                                  Map<String, Object> context,
+                                                                  RuntimeGraphSpecExecutionEventSink eventSink,
+                                                                  RuntimeGraphSpecExecutionCancellation cancel) {
+        List<Map<String, Object>> steps = new ArrayList<>();
+        List<Map<String, Object>> traces = new ArrayList<>();
+        String current = branchEntry;
+        RuntimeGraphSpecExecutionResult last = null;
+        for (int guard = 0; guard < MAX_LINEAR_STEPS; guard++) {
+            if (!StringUtils.hasText(current) || current.equals(joinNodeId)) {
+                RuntimeGraphSpecExecutionResult done = last == null
+                        ? new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED", "",
+                                null, "PARALLEL", List.of(), new LinkedHashMap<>())
+                        : last;
+                return withSteps(done, steps, traces);
+            }
+            if (cancel.isCancelled()) {
+                return withSteps(cancelled(current, null), steps, traces);
+            }
+            if (!branchNodeIds.contains(current)) {
+                return withSteps(failure("RUNTIME_GRAPH_PARALLEL_BRANCH_ESCAPE",
+                        "PARALLEL branch left its nodes at " + current, current, null), steps, traces);
+            }
+            GraphSpec.Node branchNode = nodesById.get(current);
+            if (branchNode == null) {
+                return withSteps(failure("RUNTIME_GRAPH_NEXT_NODE_INVALID",
+                        "PARALLEL branch node missing: " + current, current, null), steps, traces);
+            }
+            String nodeType = AgentGraphNodeType.normalize(branchNode.getType());
+            String nodeName = firstText(branchNode.getName(), branchNode.getId());
+            long startedAt = System.currentTimeMillis();
+            eventSink.onNodeStarted(branchNode.getId(), nodeType, nodeName, safeNodePayload(branchNode, nodeType, null));
+            RuntimeGraphSpecExecutionResult nodeResult = executeNodeWithPolicies(
+                    branchNode, context, graph, eventSink, cancel, nodesById);
+            long endedAt = System.currentTimeMillis();
+            long elapsed = Math.max(0L, endedAt - startedAt);
+            steps.addAll(nodeResult.steps());
+            Map<String, Object> trace = RuntimeNodeObservability.buildInternalNodeTrace(branchNode, nodeType, nodeResult, startedAt, endedAt, elapsed);
+            trace.put("parallelBranch", true);
+            traces.add(trace);
+            if (cancel.isCancelled() || "RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
+                return withSteps(cancelled(branchNode.getId(), nodeType), steps, traces);
+            }
+            if (!nodeResult.success()) {
+                Map<String, Object> failedPayload = safeNodePayload(branchNode, nodeType, elapsed);
+                failedPayload.put("status", "FAILED");
+                failedPayload.put("code", nodeResult.code());
+                failedPayload.put("summary", safeSummary(nodeResult.answer()));
+                RuntimeNodeObservability.putAttemptObservability(failedPayload, nodeResult);
+                eventSink.onNodeFailed(branchNode.getId(), nodeType, nodeName, failedPayload);
+                return withSteps(nodeResult, steps, traces);
+            }
+            rememberNodeOutput(context, branchNode, nodeResult);
+            String forced = forcedNextNodeId(nodeResult);
+            NextNodeResolution next = StringUtils.hasText(forced)
+                    ? NextNodeResolution.node(forced)
+                    : resolveNextNode(graph, branchNode.getId(), nodeResult);
+            Map<String, Object> completedPayload = safeNodePayload(branchNode, nodeType, elapsed);
+            completedPayload.put("status", "SUCCESS");
+            completedPayload.put("summary", safeSummary(nodeResult.answer()));
+            RuntimeNodeObservability.putAttemptObservability(completedPayload, nodeResult);
+            if (next != null && StringUtils.hasText(next.nodeId())) {
+                completedPayload.put("nextNodeId", next.nodeId());
+            }
+            eventSink.onNodeCompleted(branchNode.getId(), nodeType, nodeName, completedPayload);
+            last = nodeResult;
+            if (next == null || !StringUtils.hasText(next.nodeId())) {
+                return withSteps(failure("RUNTIME_GRAPH_PARALLEL_BRANCH_DEAD_END",
+                        "PARALLEL branch ended before reaching the join: " + branchNode.getId(),
+                        branchNode.getId(), nodeType), steps, traces);
+            }
+            current = next.nodeId();
+        }
+        return withSteps(failure("RUNTIME_GRAPH_STEP_LIMIT_EXCEEDED",
+                "PARALLEL branch exceeded step limit: " + MAX_LINEAR_STEPS, current, null), steps, traces);
     }
 
     private RuntimeGraphSpecExecutionResult executeLoopBody(GraphSpec graph,
@@ -1021,28 +1174,6 @@ public final class RuntimeGraphSpecExecutionEngine {
 
     private RuntimeGraphSpecExecutionResult cancelled(String nodeId, String nodeType) {
         return failure("RUNTIME_GRAPH_CANCELLED", "Workflow execution cancelled", nodeId, nodeType);
-    }
-
-    private Map<String, Object> initialContext(Map<String, Object> request) {
-        Map<String, Object> context = new LinkedHashMap<>(request);
-        String input = nodeValueResolver.userInputText(request);
-        context.putIfAbsent("input", input);
-        context.putIfAbsent("userInput", input);
-        context.putIfAbsent("message", input);
-        context.putIfAbsent("lastOutput", input);
-        context.putIfAbsent("previousOutput", input);
-        context.putIfAbsent(WorkflowVariableNamespaces.VAR_ROOT, new LinkedHashMap<String, Object>());
-        if (!(context.get(WorkflowVariableNamespaces.SYS_ROOT) instanceof Map<?, ?>)) {
-            Map<String, Object> sys = new LinkedHashMap<>();
-            putIfPresent(sys, "userId", firstPresent(request.get("userId"), request.get("externalUserId")));
-            putIfPresent(sys, "tenantId", request.get("tenantId"));
-            putIfPresent(sys, "roles", request.get("roles"));
-            putIfPresent(sys, "projectCode", request.get("projectCode"));
-            putIfPresent(sys, "projectId", request.get("projectId"));
-            putIfPresent(sys, "sessionId", request.get("sessionId"));
-            context.put(WorkflowVariableNamespaces.SYS_ROOT, sys);
-        }
-        return context;
     }
 
     private void rememberNodeOutput(Map<String, Object> context,
@@ -1171,6 +1302,8 @@ public final class RuntimeGraphSpecExecutionEngine {
         String normalized = route.trim().toLowerCase(Locale.ROOT);
         return "confirm".equals(normalized)
                 || "reject".equals(normalized)
+                || "approved".equals(normalized)
+                || "rejected".equals(normalized)
                 || "cancel".equals(normalized)
                 || "approve".equals(normalized)
                 || "deny".equals(normalized);
@@ -1280,77 +1413,8 @@ public final class RuntimeGraphSpecExecutionEngine {
                 result.resumeCheckpoint());
     }
 
-    private Map<String, Object> buildInternalNodeTrace(GraphSpec.Node node,
-                                                       String nodeType,
-                                                       RuntimeGraphSpecExecutionResult nodeResult,
-                                                       long startedAtMs,
-                                                       long endedAtMs,
-                                                       long latencyMs) {
-        Map<String, Object> trace = new LinkedHashMap<>();
-        trace.put("nodeId", node.getId());
-        trace.put("nodeType", nodeType);
-        String status;
-        if (nodeResult.isWaitingUser() || WorkflowInteractionCodes.WAITING.equals(nodeResult.code())) {
-            status = "WAITING_USER";
-        } else if ("RUNTIME_GRAPH_CANCELLED".equals(nodeResult.code())) {
-            status = "CANCELLED";
-        } else if (isBusinessTerminalResult(nodeResult)) {
-            status = "BUSINESS_TERMINAL";
-        } else if (nodeResult.success()) {
-            status = "SUCCESS";
-        } else {
-            status = "FAILED";
-        }
-        trace.put("status", status);
-        trace.put("startedAt", startedAtMs);
-        if (!"WAITING_USER".equals(status)) {
-            trace.put("endedAt", endedAtMs);
-        }
-        trace.put("latencyMs", latencyMs);
-        if (nodeResult.metadata() != null) {
-            putIfPresent(trace, "attempt", nodeResult.metadata().get("attempt"));
-            putIfPresent(trace, "maxAttempts", nodeResult.metadata().get("maxAttempts"));
-            putIfPresent(trace, "errorPolicy", nodeResult.metadata().get("errorPolicyDecision"));
-            putIfPresent(trace, "fallbackNodeId", nodeResult.metadata().get("fallbackNodeId"));
-            putIfPresent(trace, "outcomeClass", nodeResult.metadata().get("outcomeClass"));
-            putIfPresent(trace, "businessOutcome", nodeResult.metadata().get("businessOutcome"));
-            putIfPresent(trace, "qualifiedName", nodeResult.metadata().get("qualifiedName"));
-            putIfPresent(trace, "failureCategory", nodeResult.metadata().get("failureCategory"));
-            putIfPresent(trace, "retryableFailure", nodeResult.metadata().get("retryableFailure"));
-            putIfPresent(trace, "sideEffect", nodeResult.metadata().get("sideEffect"));
-            putIfPresent(trace, "dispatchStage", nodeResult.metadata().get("dispatchStage"));
-            putIfPresent(trace, "nonRecoverableWrite", nodeResult.metadata().get("nonRecoverableWrite"));
-            putIfPresent(trace, "httpStatus", nodeResult.metadata().get("httpStatus"));
-            putIfPresent(trace, "inputField", nodeResult.metadata().get("inputField"));
-            putIfPresent(trace, "interactionType", nodeResult.metadata().get("interactionType"));
-            Object summary = nodeResult.metadata().get("traceSummary");
-            if (summary instanceof Map<?, ?> map) {
-                trace.put("traceSummary", new LinkedHashMap<>((Map<String, Object>) map));
-            } else if (summary != null) {
-                trace.put("traceSummary", summary);
-            }
-        }
-        if (!nodeResult.success()) {
-            putIfPresent(trace, "failureCode", nodeResult.code());
-            putIfPresent(trace, "failureReason",
-                    RuntimeNodeFailureReasons.safeReason(nodeResult.code(), nodeResult.answer()));
-        }
-        if (nodeResult.interactionId() != null) {
-            trace.put("interactionId", nodeResult.interactionId());
-        }
-        if (nodeResult.uiRequest() != null) {
-            trace.put("uiRequest", nodeResult.uiRequest());
-        }
-        return trace;
-    }
-
-    private boolean isBusinessTerminalResult(
-            RuntimeGraphSpecExecutionResult result) {
-        return result != null
-                && result.success()
-                && result.metadata() != null
-                && "BUSINESS_TERMINAL".equalsIgnoreCase(
-                text(result.metadata().get("outcomeClass")));
+    private boolean isBusinessTerminalResult(RuntimeGraphSpecExecutionResult result) {
+        return RuntimeNodeObservability.isBusinessTerminalResult(result);
     }
 
     private void putIfPresent(Map<String, Object> metadata, String key, Object value) {

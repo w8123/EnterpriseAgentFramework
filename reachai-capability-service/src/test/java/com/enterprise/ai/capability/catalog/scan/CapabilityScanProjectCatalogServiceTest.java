@@ -767,6 +767,7 @@ class CapabilityScanProjectCatalogServiceTest {
                 .label());
         Map<String, Object> readinessFacts = service.readinessFacts(7L);
         assertEquals("PASS", readinessFacts.get("sdkCallbackStatus"));
+        assertEquals("2026-07-27T09:30", readinessFacts.get("sdkCallbackVerifiedAt"));
         assertTrue(String.valueOf(readinessFacts.get("sdkCallbackMessage"))
                 .contains("2026-07-27T09:30"));
         assertEquals("PASS", response.overallStatus());

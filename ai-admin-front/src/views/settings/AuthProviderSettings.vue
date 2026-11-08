@@ -6,7 +6,7 @@
       action-presentation="inline"
       domain="platform"
       title="认证源配置"
-      description="配置平台登录方式及身份认证来源。"
+      description="配置 ReachAI 的登录方式：平台账号密码，以及用业务系统账号一键登录。"
     >
       <template v-if="loaded" #tags>
         <el-tag type="info" effect="light">共 {{ providers.length }} 个认证源</el-tag>
@@ -19,6 +19,9 @@
       </template>
     </PageHeader>
 
+    <BusinessSsoProviderPanel class="auth-provider-page__sso" />
+
+    <h2 class="auth-provider-page__section-title">管理端账号密码登录</h2>
     <LiquidGlassTable
       class="workbench-list-surface"
       :loading="loading"
@@ -65,7 +68,7 @@
     <AppDialog v-model="dialogOpen" title="认证源配置" width="680px">
       <LiquidGlassNotice
         type="info"
-        title="当前版本只支持且固定启用 LOCAL 登录。OIDC、SAML 和 HEADER 保持禁用，且认证源密钥不会在浏览器中编辑或返回。"
+        title="账号密码登录（LOCAL）固定启用。OIDC、SAML 和 HEADER 这几项是占位，企业统一登录请用上方的「用业务系统账号登录」配置。"
         style="margin-bottom: 12px"
         source="backdrop"
       />
@@ -114,6 +117,7 @@ import { Refresh } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { LiquidGlassButton, LiquidGlassPage, LiquidGlassTable, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import CommonStatusTag from '@/components/CommonStatusTag.vue'
+import BusinessSsoProviderPanel from './components/BusinessSsoProviderPanel.vue'
 import {
   AUTH_PROVIDER_TYPE_SELECT_OPTIONS,
   COMMON_STATUS_SELECT_OPTIONS,
@@ -183,6 +187,11 @@ onMounted(reload)
 </script>
 
 <style scoped lang="scss">
+.auth-provider-page__section-title {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 650;
+}
 code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color: var(--text-secondary);

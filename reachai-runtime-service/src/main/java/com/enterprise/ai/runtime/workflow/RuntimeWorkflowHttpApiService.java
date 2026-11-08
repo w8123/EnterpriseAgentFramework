@@ -39,6 +39,21 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
     private final ObjectMapper json;
     private final ThreadLocal<DraftScope> draftScope = new ThreadLocal<>();
 
+    @Override
+    public Object captureThreadScope() {
+        return draftScope.get();
+    }
+
+    @Override
+    public void installThreadScope(Object captured) {
+        if (captured instanceof DraftScope scope) draftScope.set(scope);
+    }
+
+    @Override
+    public void clearThreadScope() {
+        draftScope.remove();
+    }
+
     public record ReleasePin(long id, String acceptedContractHash) { }
     /** Request-only immutable facts; neither origin nor credential value is included. */
     public record DraftPin(String workflowId, String revision, String nodeId, long apiId,

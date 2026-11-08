@@ -23,7 +23,13 @@ const handlers = [
   ['TOOL', 'actionNodeHandlers', 'executeTool', 'RuntimeActionNodeHandlers.java'],
   ['PAGE_ACTION', 'actionNodeHandlers', 'executePageAction', 'RuntimeActionNodeHandlers.java'],
   ['INTERACTION', 'actionNodeHandlers', 'executeInteraction', 'RuntimeActionNodeHandlers.java'],
-  ['LOOP', 'loopNodeHandler', 'executeLoop', 'RuntimeLoopNodeHandler.java']
+  ['LOOP', 'loopNodeHandler', 'executeLoop', 'RuntimeLoopNodeHandler.java'],
+  ['PARALLEL', 'parallelNodeHandler', 'executeParallel', 'RuntimeParallelNodeHandler.java'],
+  ['CODE', 'computeNodeHandlers', 'executeCode', 'RuntimeComputeNodeHandlers.java'],
+  ['LIST_OPERATOR', 'computeNodeHandlers', 'executeListOperator', 'RuntimeComputeNodeHandlers.java'],
+  ['SUB_WORKFLOW', 'integrationNodeHandlers', 'executeSubWorkflow', 'RuntimeIntegrationNodeHandlers.java'],
+  ['KNOWLEDGE_WRITE', 'integrationNodeHandlers', 'executeKnowledgeWrite', 'RuntimeIntegrationNodeHandlers.java'],
+  ['HUMAN_APPROVAL', 'actionNodeHandlers', 'executeHumanApproval', 'RuntimeActionNodeHandlers.java']
 ]
 
 const failures = []

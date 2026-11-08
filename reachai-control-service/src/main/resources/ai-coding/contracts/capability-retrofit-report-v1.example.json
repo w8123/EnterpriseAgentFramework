@@ -1,0 +1,43 @@
+{
+  "schema": "reachai.capability-retrofit-report.v1",
+  "summary": "已为选中的 2 个业务方法加上能力声明，编译与单元测试通过，SDK 同步成功，等待能力评审。",
+  "selectionQuestionId": "retrofit-select-1",
+  "mode": "SDK_DECLARATION",
+  "capabilities": [
+    {
+      "candidateKey": "erp.receivable.page",
+      "name": "erpReceivablePage",
+      "title": "查询应收款",
+      "sideEffect": "READ",
+      "sourceFile": "yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/service/finance/ErpFinanceReceiptServiceImpl.java",
+      "status": "DECLARED",
+      "note": null
+    },
+    {
+      "candidateKey": "erp.sale.return.create",
+      "name": "erpSaleReturnCreate",
+      "title": "新建销售退货单",
+      "sideEffect": "WRITE",
+      "sourceFile": "yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/service/sale/ErpSaleReturnServiceImpl.java",
+      "status": "DECLARED",
+      "note": "写操作，员工调用时需要审批。"
+    }
+  ],
+  "changedFiles": [
+    "yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/service/finance/ErpFinanceReceiptServiceImpl.java",
+    "yudao-module-erp/src/main/java/cn/iocoder/yudao/module/erp/service/sale/ErpSaleReturnServiceImpl.java"
+  ],
+  "tests": [
+    {
+      "name": "编译 ERP 模块",
+      "status": "PASS",
+      "command": "mvn -pl yudao-module-erp -am -DskipTests package",
+      "evidence": "BUILD SUCCESS"
+    }
+  ],
+  "sdkSync": {
+    "status": "PASS",
+    "message": "SDK_SYNC 返回 2 个新增能力，进入待评审。"
+  },
+  "remainingQuestions": []
+}

@@ -79,6 +79,8 @@ public class PlatformIdentityController {
         PlatformAuthenticatedSession authenticatedSession = authorizationService.authenticatedSession(
                 user,
                 issuedSession.session());
+        authAuditService.record(authenticatedSession, "PLATFORM_LOGIN_SUCCEEDED", "PLATFORM_USER",
+                String.valueOf(user.getId()), Map.of("provider", "LOCAL"));
         return ResponseEntity.ok()
                 .header("Set-Cookie",
                         sessionCookieService.issueCookie(httpRequest, issuedSession.accessToken()),
@@ -116,7 +118,9 @@ public class PlatformIdentityController {
     @GetMapping("/api/platform/auth-providers")
     public ResponseEntity<List<PlatformAuthProviderView>> listAuthProviders(HttpServletRequest request) {
         requirePlatformAdmin(request);
+        // Business-system login entries have their own page (/api/platform/sso-providers).
         return ResponseEntity.ok(authProviderMapper.selectList(new LambdaQueryWrapper<PlatformAuthProviderEntity>()
+                        .ne(PlatformAuthProviderEntity::getProviderType, "BUSINESS_OAUTH")
                         .orderByAsc(PlatformAuthProviderEntity::getId))
                 .stream()
                 .map(this::toAuthProviderView)

@@ -484,7 +484,7 @@ public class RuntimeWorkflowAiCodingService {
         if (graph.getNodes() == null) return null;
         Set<String> safeTypes = Set.of("USER_INPUT", "ANSWER", "IF_ELSE", "VARIABLE_ASSIGN", "TEMPLATE",
                 "VARIABLE_AGGREGATOR", "INTENT_CLASSIFIER", "PARAMETER_EXTRACT", "LLM", "KNOWLEDGE_RETRIEVAL",
-                "LOOP", "INTERACTION", "PAGE_ACTION");
+                "LOOP", "PARALLEL", "CODE", "LIST_OPERATOR", "INTERACTION", "PAGE_ACTION");
         for (GraphSpec.Node node : graph.getNodes()) {
             if (node == null || !safeTypes.contains(node.getType())) return null;
             if ("PAGE_ACTION".equals(node.getType())) {

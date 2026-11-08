@@ -724,6 +724,12 @@ public class McpPlatformProtocolService {
                     PlatformPermissions.PLATFORM_ADMIN, Map.of(), List.of()),
             new Tool("reachai_platform_auth_providers", "管理员查看已配置的登录方式（不含密钥）；修改登录方式仍在控制台由管理员操作。",
                     PlatformPermissions.PLATFORM_ADMIN, Map.of(), List.of()),
+            new Tool("reachai_onboarding_resources", "读取首次注册前所需的 SDK 制品下载地址、摘要和接入工具包。按技术栈选择并校验制品后安装。",
+                    PlatformPermissions.PLATFORM_READ, Map.of(), List.of()),
+            new Tool("reachai_onboarding_enrollment_request", "为新的业务系统申请一次首次 SDK 注册授权。请先确认项目编码，再让本人在 ReachAI 审核；批准后由当前连接调用 reachai_onboarding_enrollment_execute。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("projectCode", text("用户确认的项目编码"), "invocationId", text("本次申请的小写 UUID")), List.of("projectCode", "invocationId"), false),
+            new Tool("reachai_onboarding_enrollment_execute", "由原连接执行本人批准的首次注册授权，返回一次性 SDK 接入令牌。只放入业务服务的受保护环境，勿写入代码、日志或报告；结果未知时先检查项目注册状态。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("approvalId", text("本人批准的授权编号")), List.of("approvalId"), false),
             new Tool("reachai_ai_coding_tasks", "列出 AI 编码控制台的任务（只含你有权限的项目），可按项目、类型、执行状态筛选。",
                     PlatformPermissions.PLATFORM_READ, Map.of("projectId", integer("项目编号"), "projectCode", text("项目编码"), "taskKind", text("任务类型"),
                     "executionStatus", text("执行状态"), "limit", integer("数量，1–200")), List.of()),
@@ -744,6 +750,60 @@ public class McpPlatformProtocolService {
             new Tool("reachai_ai_coding_question_answer", "回答编码智能体在任务里提出的问题，回答人记为当前账号。结果未知时先重新读取任务。",
                     PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "questionId", text("问题标识"), "answer", text("回答")),
                     List.of("taskId", "questionId", "answer"), false),
+            new Tool("reachai_ai_coding_task_claim", "用页面上「交给我的 AI」给出的一次性领取码领取 AI 编码任务；领取后任务只属于这条连接，换会话也不用重新领取。领取码只能用一次，失败时让用户在页面上重新生成。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "claimCode", text("一次性领取码")), List.of("taskId", "claimCode"), false),
+            new Tool("reachai_ai_coding_task_context", "读取已领取任务的上下文：目标、范围、必读资源（requiredResources）、协议说明和结果格式。开始改代码前必须先读。",
+                    PlatformPermissions.PLATFORM_READ, Map.of("taskId", text("任务标识")), List.of("taskId")),
+            new Tool("reachai_ai_coding_task_heartbeat", "已领取任务的心跳：长时间构建或测试前后、以及至少每 2 分钟调用一次，让 ReachAI 显示连接仍在线。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识")), List.of("taskId"), false),
+            new Tool("reachai_ai_coding_task_events", "读取已领取任务的事件记录，可只取某个事件之后的。",
+                    PlatformPermissions.PLATFORM_READ, Map.of("taskId", text("任务标识"), "afterEventId", integer("只返回这个事件之后的")), List.of("taskId")),
+            new Tool("reachai_ai_coding_task_event", "给已领取的任务写回进度：STARTED、PROGRESS、RESUMED 等。message 用简体中文写真实进展；同一事件重试时 clientEventId 保持不变。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "clientEventId", text("本次事件的唯一标识，重试时不变"),
+                    "eventType", text("STARTED、PROGRESS、RESUMED 等"), "message", text("简体中文的进展说明"),
+                    "payload", Map.of("type", "object", "description", "可选的结构化附加信息")),
+                    List.of("taskId", "clientEventId", "eventType", "message"), false),
+            new Tool("reachai_ai_coding_task_questions", "读取已领取任务里的问题和用户的回答；还有 OPEN 的问题时不要写 STARTED 或 RESUMED。",
+                    PlatformPermissions.PLATFORM_READ, Map.of("taskId", text("任务标识"), "updatedAfter", text("只返回此时间（ISO 本地时间）之后更新的")), List.of("taskId")),
+            new Tool("reachai_ai_coding_task_ask", "遇到业务歧义时向用户提问，任务会进入等待用户；问题用简体中文，能给选项就给选项。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "clientEventId", text("本次提问的唯一标识，重试时不变"),
+                    "questionId", text("问题标识，可自定"), "title", text("问题标题"), "body", text("问题说明"),
+                    "options", Map.of("type", "array", "maxItems", 10, "items", Map.of("type", "string"), "description", "可选答案")),
+                    List.of("taskId", "clientEventId", "title", "body"), false),
+            new Tool("reachai_ai_coding_task_artifact", "提交已领取任务的结果（Artifact），按上下文里的结果格式和 artifactIdempotencyPolicy 填写。返回 ACCEPTANCE_READY 或 COMPLETED 才能告诉用户去验收。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "clientEventId", text("本次提交的唯一标识，重试时不变"),
+                    "artifactKey", text("结果标识；同一内容重试保持不变，修正内容时换新的"),
+                    "contract", Map.of("type", "object", "description", "结果契约：key、version，取自任务上下文"),
+                    "content", Map.of("type", "object", "description", "按结果契约填写的内容")),
+                    List.of("taskId", "clientEventId", "artifactKey", "contract", "content"), false),
+            new Tool("reachai_ai_coding_task_verify", "请 ReachAI 对已领取任务做一项平台校验（例如 SDK_SYNC），verificationKey 取自任务上下文。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "verificationKey", text("校验项")), List.of("taskId", "verificationKey"), false),
+            new Tool("reachai_integration_guide", "读取按框架写的接入教程（Markdown），里面的 ReachAI 地址和项目编码已填成真实值。topic 可选：embed-vue、embed-react、embed-angular、embed-script、sdk-java、sdk-csharp、sdk-python、sdk-node、sdk-go。",
+                    null, Map.of("topic", Map.of("type", "string", "enum", List.of("embed-vue", "embed-react", "embed-angular", "embed-script",
+                            "sdk-java", "sdk-csharp", "sdk-python", "sdk-node", "sdk-go"), "description", "教程"),
+                    "projectCode", text("项目编码，可选")), List.of("topic")),
+            new Tool("reachai_doctor", "一键体检一个业务系统的 ReachAI 接入：项目权限、SDK 实例是否在线、业务页面、嵌入接入策略、可用模型、MCP 发布和各服务状态；每项给出结果和修法，并附上需要在业务仓库本地检查的清单（localChecks）。只读。",
+                    PlatformPermissions.PLATFORM_READ, Map.of("projectCode", text("项目编码")), List.of("projectCode")),
+            new Tool("reachai_project_onboarding_start", "接入当前业务仓库：先识别技术栈，用 reachai_projects_list 确认目标项目，然后为已有项目创建或续接项目接入任务并绑定当前连接。全新项目先读取 reachai_integration_guide 和 reachai_onboarding_resources，通过 reachai_onboarding_enrollment_request 申请本人审核，批准后用 reachai_onboarding_enrollment_execute 获取一次性令牌，完成 SDK 首次注册后再启动任务。新建任务时返回 projectAgentProvisioning；状态不是 READY 时告知用户，UNKNOWN 时先核查页面助手，不自动重试。返回任务后读取任务上下文并回报进度。结果未知时先查询任务。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("projectCode", text("已有项目编码"),
+                            "sdkLanguage", Map.of("type", "string", "enum", List.of("java", "csharp", "python", "node", "go"), "description", "业务后端 SDK 技术栈"),
+                            "executorProvider", Map.of("type", "string", "enum", List.of("CODEX", "CLAUDE_CODE", "CURSOR", "TRAE", "OTHER"), "description", "当前 AI 编程工具，其他 MCP 编程工具用 OTHER")),
+                    List.of("projectCode", "sdkLanguage", "executorProvider"), false),
+            new Tool("reachai_retrofit_start", "业务能力改造：为当前账号在一个已接入的项目里新建改造任务，并直接领取到当前连接。之后按任务上下文和 reachai-capability-retrofit Skill 扫描仓库。结果未知时先列出任务，不要直接重试。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("projectCode", text("项目编码"), "objective", text("改造目标，例如：让 AI 能查应收款、能新建销售退货单"),
+                    "executorProvider", Map.of("type", "string", "enum", List.of("CODEX", "CLAUDE_CODE", "CURSOR", "TRAE"), "description", "你是哪种编码工具，默认 CODEX")),
+                    List.of("projectCode", "objective"), false),
+            new Tool("reachai_retrofit_propose", "业务能力改造：把扫描出的候选能力（最多 20 个）提交给开发者勾选。只能用于当前连接领取的、本人建的改造任务。不要替开发者勾选。",
+                    PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("改造任务标识"), "summary", text("一句话说明找到了什么"),
+                    "candidates", Map.of("type", "array", "minItems", 1, "maxItems", 20, "description", "候选能力",
+                            "items", Map.of("type", "object", "additionalProperties", false,
+                                    "required", List.of("candidateKey", "title", "sideEffect", "sourceFile"),
+                                    "properties", Map.ofEntries(Map.entry("candidateKey", text("稳定标识，如 erp.receivable.page")), Map.entry("title", text("中文名称")),
+                                            Map.entry("description", text("中文说明")), Map.entry("sideEffect", Map.of("type", "string", "enum", List.of("READ", "WRITE", "IRREVERSIBLE"), "description", "读写级别")),
+                                            Map.entry("sourceFile", text("源文件路径")), Map.entry("symbol", text("类#方法")), Map.entry("httpMethod", text("HTTP 方法")),
+                                            Map.entry("path", text("HTTP 路径")), Map.entry("reason", text("为什么适合开放")), Map.entry("risk", text("风险提示")),
+                                            Map.entry("recommended", Map.of("type", "boolean", "description", "是否推荐开放")))))),
+                    List.of("taskId", "candidates"), false),
             new Tool("reachai_memory_erasure_get", "合规管理员读取一个跨域记忆删除请求的状态和各数据域进度。",
                     PlatformPermissions.MEMORY_ERASURE_MANAGE, Map.of("requestId", text("删除请求标识")), List.of("requestId")),
             new Tool("reachai_memory_erasure_retry", "重新处理一个删除请求里未完成的数据域。结果未知时先读取请求，不要直接重试。",
@@ -1071,6 +1131,7 @@ public class McpPlatformProtocolService {
             "reachai_agent_request_lifecycle_change", "reachai_agent_execute_approved_lifecycle_change",
             "reachai_http_api_connection_request_change", "reachai_http_api_connection_execute_approved_change",
             "reachai_business_system_request_change", "reachai_business_system_request_credential", "reachai_business_system_execute_approved_change",
+            "reachai_onboarding_enrollment_request", "reachai_onboarding_enrollment_execute",
             "reachai_knowledge_chunk_request_change", "reachai_knowledge_chunk_execute_approved_change",
             "reachai_model_request_change", "reachai_model_execute_approved_change",
             "reachai_model_provider_account_request_change", "reachai_model_provider_account_execute_approved_change",
@@ -1095,6 +1156,15 @@ public class McpPlatformProtocolService {
     private static final Set<String> OPEN_WORLD_TOOLS = Set.of("reachai_workflow_trial_read_only",
             "reachai_business_method_invoke_read_only", "reachai_business_method_execute_approved",
             "reachai_http_api_invoke_read_only", "reachai_http_api_execute_approved");
+    private static final Map<String, McpPlatformAiCodingPort.Agent> AI_CODING_AGENT_STEPS = Map.of(
+            "reachai_ai_coding_task_context", McpPlatformAiCodingPort.Agent.CONTEXT,
+            "reachai_ai_coding_task_heartbeat", McpPlatformAiCodingPort.Agent.HEARTBEAT,
+            "reachai_ai_coding_task_events", McpPlatformAiCodingPort.Agent.EVENTS,
+            "reachai_ai_coding_task_event", McpPlatformAiCodingPort.Agent.EVENT,
+            "reachai_ai_coding_task_questions", McpPlatformAiCodingPort.Agent.QUESTIONS,
+            "reachai_ai_coding_task_ask", McpPlatformAiCodingPort.Agent.ASK,
+            "reachai_ai_coding_task_artifact", McpPlatformAiCodingPort.Agent.ARTIFACT,
+            "reachai_ai_coding_task_verify", McpPlatformAiCodingPort.Agent.VERIFY);
     private static final Set<String> SAFE_OWNER_ERROR_CODES = Set.of("CONSOLE_CAPABILITY_CONFIRMATION_REQUIRED",
             "CONSOLE_CAPABILITY_ACL_DENIED", "CONSOLE_CAPABILITY_NOT_EXECUTABLE",
             "CAPABILITY_PUBLISHED_CONTRACT_CHANGED", "BUSINESS_METHOD_EXECUTION_BINDING_CHANGED",
@@ -1180,6 +1250,42 @@ public class McpPlatformProtocolService {
     private final McpPlatformAgentWorkflowService agentWorkflows;
     private final McpPlatformPageWorkflowDeliveryService pageWorkflowDeliveries;
     private final McpPlatformRunCandidateService runCandidates;
+    private final McpPlatformIntegrationService integration;
+    /** Field-injected so existing positional test construction stays valid; present in every real context. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private McpPlatformCapabilityRetrofitService capabilityRetrofit;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private McpPlatformOnboardingEnrollmentService onboardingEnrollment;
+
+    private McpPlatformOnboardingEnrollmentService requireOnboardingEnrollment() {
+        if (onboardingEnrollment == null) throw new IllegalStateException("首次注册授权不可用");
+        return onboardingEnrollment;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ProjectOnboardingMcpService projectOnboarding;
+
+    private ProjectOnboardingMcpService requireProjectOnboarding() {
+        if (projectOnboarding == null) throw new IllegalStateException("项目接入工具不可用");
+        return projectOnboarding;
+    }
+
+    private McpPlatformCapabilityRetrofitService requireRetrofit() {
+        if (capabilityRetrofit == null) throw new IllegalStateException("业务能力改造工具不可用");
+        return capabilityRetrofit;
+    }
+
+    private static List<Map<String, Object>> retrofitCandidates(Object raw) {
+        if (!(raw instanceof List<?> rows) || rows.isEmpty() || rows.size() > 20) throw new IllegalArgumentException("candidates 需要 1–20 项");
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?> item)) throw new IllegalArgumentException("candidates[] 必须是对象");
+            Map<String, Object> candidate = new LinkedHashMap<>();
+            item.forEach((key, value) -> candidate.put(String.valueOf(key), value));
+            candidates.add(candidate);
+        }
+        return candidates;
+    }
 
     public ConnectionIdentity authenticate(String token) {
         return connections.authenticate(token).orElseThrow(() ->
@@ -1578,6 +1684,10 @@ public class McpPlatformProtocolService {
                 case "reachai_platform_services_health" -> systemStatus.read(identity, McpPlatformSystemStatusPort.Read.SERVICES_HEALTH);
                 case "reachai_platform_system_check" -> systemStatus.read(identity, McpPlatformSystemStatusPort.Read.SYSTEM_CHECK);
                 case "reachai_platform_auth_providers" -> systemStatus.read(identity, McpPlatformSystemStatusPort.Read.AUTH_PROVIDERS);
+                case "reachai_onboarding_resources" -> requireOnboardingEnrollment().resources();
+                case "reachai_onboarding_enrollment_request" -> requireOnboardingEnrollment().request(identity,
+                        requiredText(arguments, "projectCode"), invocationId(arguments));
+                case "reachai_onboarding_enrollment_execute" -> requireOnboardingEnrollment().execute(identity, requiredText(arguments, "approvalId"));
                 case "reachai_ai_coding_tasks" -> aiCoding.list(identity, optionalLong(arguments, "projectId"), optionalText(arguments, "projectCode"),
                         optionalText(arguments, "taskKind"), optionalText(arguments, "executionStatus"), boundedInt(arguments, "limit", 100, 200));
                 case "reachai_ai_coding_task_get" -> aiCoding.read(identity, requiredText(arguments, "taskId"), arguments.containsKey("view")
@@ -1608,9 +1718,25 @@ public class McpPlatformProtocolService {
                     command.put("targets", targets);
                     yield aiCoding.create(identity, command);
                 }
+                case "reachai_ai_coding_task_claim" -> aiCoding.claim(identity, requiredText(arguments, "taskId"), requiredText(arguments, "claimCode"));
+                case "reachai_ai_coding_task_context", "reachai_ai_coding_task_heartbeat", "reachai_ai_coding_task_events",
+                     "reachai_ai_coding_task_event", "reachai_ai_coding_task_questions", "reachai_ai_coding_task_ask",
+                     "reachai_ai_coding_task_artifact", "reachai_ai_coding_task_verify" -> {
+                    Map<String, Object> body = new LinkedHashMap<>(arguments);
+                    body.remove("taskId");
+                    yield aiCoding.agent(identity, requiredText(arguments, "taskId"), AI_CODING_AGENT_STEPS.get(name), body);
+                }
+                case "reachai_integration_guide" -> integration.guide(requiredText(arguments, "topic"), optionalText(arguments, "projectCode"));
+                case "reachai_doctor" -> integration.doctor(identity, projectCode(arguments));
                 case "reachai_ai_coding_task_cancel" -> aiCoding.cancel(identity, requiredText(arguments, "taskId"));
                 case "reachai_ai_coding_question_answer" -> aiCoding.answer(identity, requiredText(arguments, "taskId"),
                         requiredText(arguments, "questionId"), requiredText(arguments, "answer"));
+                case "reachai_project_onboarding_start" -> requireProjectOnboarding().start(identity, requiredText(arguments, "projectCode"),
+                        requiredText(arguments, "sdkLanguage"), requiredText(arguments, "executorProvider"));
+                case "reachai_retrofit_start" -> requireRetrofit().start(identity, requiredText(arguments, "projectCode"),
+                        requiredText(arguments, "objective"), optionalText(arguments, "executorProvider"));
+                case "reachai_retrofit_propose" -> requireRetrofit().propose(identity, requiredText(arguments, "taskId"),
+                        optionalText(arguments, "summary"), retrofitCandidates(arguments.get("candidates")));
                 case "reachai_memory_erasure_get" -> memoryErasures.get(identity, requiredText(arguments, "requestId"));
                 case "reachai_memory_erasure_retry" -> memoryErasures.retry(identity, requiredText(arguments, "requestId"));
                 case "reachai_memory_erasure_request_create" -> {
@@ -2471,6 +2597,13 @@ public class McpPlatformProtocolService {
     private McpToolCallResult fromResponse(ResponseEntity<?> response) {
         if (response == null) return failed(502);
         if (!response.getStatusCode().is2xxSuccessful()) {
+            if (response.getBody() instanceof Map<?, ?> body && body.get("code") instanceof String code
+                    && code.startsWith("MCP_AI_CODING_")) {
+                // Written by ReachAI for the coding agent (wrong code, expired claim, artifact checks).
+                Map<String, Object> output = new LinkedHashMap<>();
+                if (body.get("message") instanceof String message) output.put("message", message);
+                return new McpToolCallResult(false, output, null, null, code);
+            }
             if (response.getBody() instanceof Map<?, ?> body && body.get("code") instanceof String code
                     && SAFE_OWNER_ERROR_CODES.contains(code)) {
                 return new McpToolCallResult(false, Map.of(), null, null, code);

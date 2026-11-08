@@ -47,11 +47,11 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="身份来源" width="116">
+        <el-table-column label="身份来源" min-width="140">
           <template #default="{ row }">
             <span class="source-label">
               <el-icon><Key v-if="row.sourceProvider === 'LOCAL'" /><Connection v-else /></el-icon>
-              {{ row.sourceProvider === 'LOCAL' ? '本地密码' : row.sourceProvider }}
+              {{ row.sourceProvider === 'LOCAL' ? '本地密码' : ssoSourceLabel(row) }}
             </span>
           </template>
         </el-table-column>
@@ -136,7 +136,24 @@
           <el-form-item label="手机号">
             <el-input v-model="accountForm.mobile" maxlength="64" />
           </el-form-item>
-          <el-form-item v-if="accountDialogMode === 'create'" label="初始密码" required>
+          <el-form-item v-if="accountDialogMode === 'create' && ssoOptions.length" label="登录方式">
+            <el-radio-group v-model="accountForm.loginMode">
+              <el-radio-button value="LOCAL">平台密码</el-radio-button>
+              <el-radio-button value="SSO">用业务系统账号</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <template v-if="accountDialogMode === 'create' && accountForm.loginMode === 'SSO'">
+            <el-form-item label="业务系统登录" required>
+              <el-select v-model="accountForm.loginProvider" placeholder="选择">
+                <el-option v-for="item in ssoOptions" :key="item.code" :label="item.label" :value="item.code" />
+              </el-select>
+            </el-form-item>
+            <el-form-item label="业务系统账号 ID" required>
+              <el-input v-model="accountForm.loginSubject" maxlength="128" placeholder="例如芋道用户编号 1" />
+              <div class="field-help">这个人用业务系统账号登录后直接进管理端，不需要平台密码。</div>
+            </el-form-item>
+          </template>
+          <el-form-item v-if="accountDialogMode === 'create' && accountForm.loginMode === 'LOCAL'" label="初始密码" required>
             <el-input v-model="accountForm.password" type="password" show-password autocomplete="new-password" />
             <div class="field-help" :class="{ 'has-error': accountForm.password && passwordIssues.length }">
               12–128 位，至少包含大写、小写、数字、符号中的三类
@@ -215,7 +232,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Connection,
@@ -230,6 +247,8 @@ import AppDialog from '@/components/common/AppDialog.vue'
 import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import {
   createPlatformAccount,
+  listBusinessSsoProviders,
+  type BusinessSsoProviderView,
   resetPlatformAccountPassword,
   revokePlatformAccountSessions,
   savePlatformUserRoleGrants,
@@ -280,6 +299,9 @@ interface AccountFormState {
   mobile: string
   password: string
   status: 'ACTIVE' | 'INACTIVE'
+  loginMode: 'LOCAL' | 'SSO'
+  loginProvider: string
+  loginSubject: string
 }
 
 const accountForm = reactive<AccountFormState>({
@@ -289,7 +311,28 @@ const accountForm = reactive<AccountFormState>({
   mobile: '',
   password: '',
   status: 'ACTIVE',
+  loginMode: 'LOCAL',
+  loginProvider: '',
+  loginSubject: '',
 })
+const ssoOptions = ref<BusinessSsoProviderView[]>([])
+
+async function loadSsoOptions() {
+  try {
+    const { data } = await listBusinessSsoProviders()
+    ssoOptions.value = data?.providers ?? []
+  } catch {
+    ssoOptions.value = []
+  }
+}
+
+function ssoSourceLabel(account: PlatformAccountUserView) {
+  const provider = ssoOptions.value.find((item) => item.code === account.sourceProvider)
+  const name = provider?.label ?? account.sourceProvider
+  return account.loginSubject ? `${name}（${account.loginSubject}）` : name
+}
+
+onMounted(loadSsoOptions)
 
 const currentUserId = computed(() => platformSessionUser.value?.userId ?? null)
 const passwordIssues = computed(() => passwordPolicyIssues(accountForm.password))
@@ -317,6 +360,7 @@ watch([keyword, statusFilter, sourceFilter], () => { currentPage.value = 1 })
 function resetAccountForm() {
   Object.assign(accountForm, {
     username: '', displayName: '', email: '', mobile: '', password: '', status: 'ACTIVE',
+    loginMode: 'LOCAL', loginProvider: '', loginSubject: '',
   })
   accountGrants.value = []
   editingAccountId.value = null
@@ -379,7 +423,12 @@ async function submitAccount() {
   if (!accountForm.displayName.trim()) return ElMessage.warning('请输入姓名或显示名')
   if (accountDialogMode.value === 'create') {
     if (!accountForm.username.trim()) return ElMessage.warning('请输入用户名')
-    if (passwordIssues.value.length) return ElMessage.warning(passwordIssues.value[0])
+    if (accountForm.loginMode === 'SSO') {
+      if (!accountForm.loginProvider) return ElMessage.warning('请选择业务系统登录')
+      if (!accountForm.loginSubject.trim()) return ElMessage.warning('请输入业务系统账号 ID')
+    } else if (passwordIssues.value.length) {
+      return ElMessage.warning(passwordIssues.value[0])
+    }
     if (!validateGrants(accountGrants.value)) return
   }
 
@@ -391,9 +440,11 @@ async function submitAccount() {
         displayName: accountForm.displayName,
         email: accountForm.email || undefined,
         mobile: accountForm.mobile || undefined,
-        password: accountForm.password,
+        password: accountForm.loginMode === 'SSO' ? undefined : accountForm.password,
         status: accountForm.status,
         grants: editorRowsToCommands(accountGrants.value, projectStore.projects),
+        loginProvider: accountForm.loginMode === 'SSO' ? accountForm.loginProvider : undefined,
+        loginSubject: accountForm.loginMode === 'SSO' ? accountForm.loginSubject.trim() : undefined,
       })
       ElMessage.success('平台账号已创建')
     } else if (editingAccountId.value != null) {

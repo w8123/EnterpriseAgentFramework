@@ -113,18 +113,28 @@ export function knowledgeEvidenceRouteRows(): StudioNodeRouteRow[] {
 }
 
 export function loopNodeSummary(loopConfig?: {
+  mode?: string
   collection?: string
   outputAlias?: string
   maxIterations?: number
   bodyNodeIds?: string[]
+  parallelism?: number
+  breakConditions?: unknown[]
 } | null) {
+  if (loopConfig?.mode === 'WHILE') {
+    const rounds = loopConfig.maxIterations && loopConfig.maxIterations > 0 ? loopConfig.maxIterations : 10
+    const conditions = Array.isArray(loopConfig.breakConditions) ? loopConfig.breakConditions.length : 0
+    const bodyCount = Array.isArray(loopConfig.bodyNodeIds) ? loopConfig.bodyNodeIds.length : 0
+    return `条件循环 · ${conditions} 个退出条件 · 最多 ${rounds} 轮 · 循环体 ${bodyCount} 个节点`
+  }
+  const parallel = loopConfig?.parallelism && loopConfig.parallelism > 1 ? ` · 并行 ${loopConfig.parallelism}` : ''
   const collection = loopConfig?.collection?.trim() || '未配置集合'
   const outputAlias = loopConfig?.outputAlias?.trim() || 'loop_results'
   const maxIterations = loopConfig?.maxIterations && loopConfig.maxIterations > 0
     ? loopConfig.maxIterations
     : 100
   const bodyCount = Array.isArray(loopConfig?.bodyNodeIds) ? loopConfig.bodyNodeIds.length : 0
-  return `${collection} → var.${outputAlias} · 最多 ${maxIterations} 次 · 循环体 ${bodyCount} 个节点`
+  return `${collection} → var.${outputAlias} · 最多 ${maxIterations} 次${parallel} · 循环体 ${bodyCount} 个节点`
 }
 
 export function classifierRouteRows(data: NodeData): StudioNodeRouteRow[] {
@@ -321,8 +331,22 @@ export function studioNodeCardModel(
       return {
         ...base('code-node', 'Document', data, id),
         kind: '代码',
-        state: '表达式',
+        state: data.codeConfig?.language === 'javascript' ? 'JavaScript' : '表达式',
         description: `${Object.keys(data.codeConfig?.outputs || {}).length} 个输出字段`,
+      }
+    case 'listOperator':
+      return {
+        ...base('list-operator-node', 'Filter', data, id),
+        kind: '列表',
+        state: `${data.listConfig?.operations?.length || 0} 步`,
+        description: data.listConfig?.source ? `处理 ${data.listConfig.source}` : '未选择列表',
+      }
+    case 'subWorkflow':
+      return {
+        ...base('sub-workflow-node', 'Operation', data, id),
+        kind: '子流程',
+        state: data.subWorkflowConfig?.versionLabel || (data.subWorkflowConfig?.versionId ? `版本 ${data.subWorkflowConfig.versionId}` : '未选择'),
+        description: data.subWorkflowConfig?.workflowName || data.subWorkflowConfig?.workflowId || '选择要调用的工作流',
       }
     case 'aggregate':
       return {
@@ -346,8 +370,21 @@ export function studioNodeCardModel(
       return {
         ...base('loop-node', 'RefreshRight', data, id),
         kind: '循环',
-        state: `${data.loopConfig?.maxIterations || 100} 次`,
+        state: data.loopConfig?.mode === 'WHILE'
+          ? `≤${data.loopConfig?.maxIterations || 10} 轮`
+          : `${data.loopConfig?.maxIterations || 100} 次`,
         description: loopNodeSummary(data.loopConfig),
+        ports: portSummary(data.outputs, '输出'),
+        showAlias: false,
+      }
+    case 'parallel':
+      return {
+        ...base('parallel-node', 'Share', data, id),
+        kind: '并行',
+        state: `同时 ${data.parallelConfig?.maxConcurrency || 4} 路`,
+        description: data.parallelConfig?.failureMode === 'CONTINUE'
+          ? '分支失败时继续汇合'
+          : '任一分支失败即整体失败',
         ports: portSummary(data.outputs, '输出'),
         showAlias: false,
       }

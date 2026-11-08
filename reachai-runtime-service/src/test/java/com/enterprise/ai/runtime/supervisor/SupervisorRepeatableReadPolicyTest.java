@@ -33,7 +33,7 @@ class SupervisorRepeatableReadPolicyTest {
     @Test
     void rejectsSideEffectsUnknownNodesRawHttpAndInteractionsEvenWhenLabeledRead() {
         when(pins.businessMethodRiskFloor(anyString())).thenReturn("READ");
-        for (String type : new String[]{"PAGE_ACTION", "INTERACTION", "HUMAN_APPROVAL", "MCP_CALL", "CODE", "HTTP_REQUEST", "UNKNOWN"}) {
+        for (String type : new String[]{"PAGE_ACTION", "INTERACTION", "HUMAN_APPROVAL", "MCP_CALL", "KNOWLEDGE_WRITE", "HTTP_REQUEST", "UNKNOWN"}) {
             String unsafe = READ_GRAPH.replace("{\"id\":\"end\",\"type\":\"ANSWER\"}",
                     "{\"id\":\"end\",\"type\":\"" + type + "\"}");
             assertFalse(policy.isRepeatable(read, target(unsafe)), type);

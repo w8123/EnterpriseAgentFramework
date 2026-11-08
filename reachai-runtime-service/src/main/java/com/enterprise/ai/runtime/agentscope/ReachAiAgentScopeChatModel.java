@@ -67,6 +67,7 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
     private final AtomicReference<Long> reportedTokenTotal = new AtomicReference<>();
     private final AtomicReference<Long> firstPublicDeltaAtMs = new AtomicReference<>();
     private final long createdAtMs = System.currentTimeMillis();
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.Listener usageListener;
 
     public ReachAiAgentScopeChatModel(String modelInstanceId,
                               RuntimeModelServiceClient modelClient,
@@ -94,6 +95,13 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         this.objectMapper = objectMapper;
         this.contentDeltaSink = contentDeltaSink;
         this.answerPhase = answerPhase == null ? new AgentScopeAnswerPhase() : answerPhase;
+    }
+
+    /** Reports each finished round's tokens (for cost statistics); listener failures never break the round. */
+    public ReachAiAgentScopeChatModel onUsage(
+            com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.Listener listener) {
+        this.usageListener = listener;
+        return this;
     }
 
     public boolean didStreamContent() {
@@ -590,6 +598,14 @@ public final class ReachAiAgentScopeChatModel extends ChatModelBase {
         if (promptTokens != null || completionTokens != null) {
             long roundTokens = (promptTokens == null ? 0L : promptTokens) + (completionTokens == null ? 0L : completionTokens);
             reportedTokenTotal.accumulateAndGet(roundTokens, (current, add) -> current == null ? add : current + add);
+            var listener = usageListener;
+            if (listener != null) {
+                try {
+                    listener.onUsage(modelInstanceId, promptTokens, completionTokens);
+                } catch (RuntimeException ignored) {
+                    // Cost statistics must never break a model round.
+                }
+            }
         }
         modelRounds.add(round);
     }

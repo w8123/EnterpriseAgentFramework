@@ -11,7 +11,7 @@ Do not assume every ReachAI endpoint uses the same JSON wrapper.
 | Embed 对外 API：`POST /api/embed/token/exchange`、`/api/embed/chat/sessions`、messages、page-actions、page-bridge rebind | **Yes** | `data.token`, `data.sessionId`, `data.answer`, ... |
 | `POST /api/ai-coding/projects/{projectId}/agents/provision` | **No** | `agent.keySlug` (not `data.agent.keySlug`) |
 | Agent AI Coding：`/api/ai-coding/projects/{projectId}/agents/**`、`agent-skills/bindable` | **No** | top-level `agent`, `configVersions`, `mutableBase`, `bindings`, ... |
-| AI Coding handoff activation and task protocol | **No** | top-level `taskToken`, `taskRoot`, task/event/question/artifact fields |
+| Platform MCP task tools | **No** | task/event/question/artifact fields returned by the MCP tool |
 | `POST /api/scan-projects/{projectId}/sdk-access-check` | **No** | top-level `overallStatus`, `checks` |
 | `GET /api/ai-coding/projects/{projectId}/onboarding-manifest` | **No** | top-level `project`, `embed`, `agentProvisioning`, ... |
 
@@ -316,41 +316,15 @@ The response summarizes platform-observed `CODE_READY`, `RUNTIME_READY`, and `SD
 
 ## AI Coding Task Protocol
 
-A ReachAI task prompt contains a one-time activation URL and activation code. Activate it once:
+Use `reachai_project_onboarding_start` to create or resume the project onboarding task on the authenticated platform MCP connection. Read `reachai_ai_coding_task_context` before scanning or editing. The response freezes task targets, scope and domain context, while readiness can reflect current ReachAI facts.
 
-```http
-POST /api/ai-coding/handoffs/{handoffId}/activate
-Content-Type: application/json
-```
+- Use `reachai_ai_coding_task_event` for STARTED, real PROGRESS, RESUMED, or FAILED events, with a stable caller-generated clientEventId per event.
+- Use `reachai_ai_coding_task_ask` for blocking ambiguity and `reachai_ai_coding_task_questions` to read answers.
+- Use `reachai_ai_coding_task_heartbeat` before and after long operations and at least every two minutes while active.
+- Call `reachai_ai_coding_task_verify` with taskId and `verificationKey=SDK_SYNC` after registration and heartbeat pass, subject to the task context's readiness requirements.
+- Use `reachai_ai_coding_task_artifact` for the final result, with the contract, artifact key and content required by the context. Reuse the same key and content for a retry.
 
-```json
-{
-  "schema": "reachai.ai-coding.activation.v1",
-  "activationCode": "<one-time-code>",
-  "client": {
-    "provider": "CURSOR",
-    "sessionRef": "optional-current-session-reference"
-  }
-}
-```
-
-The bare JSON response contains a short-lived `taskToken` and `taskRoot`. Keep the token only in the current process and send it on every task request:
-
-```http
-Authorization: Bearer <taskToken>
-```
-
-Read `GET <taskRoot>/context` before scanning or editing. The response freezes task targets, scope and domain context, while readiness can reflect current ReachAI facts. Use:
-
-- `POST <taskRoot>/events` for `STARTED`, real `PROGRESS`, `RESUMED`, or `FAILED`.
-- `POST <taskRoot>/questions` for blocking ambiguity; poll `GET <taskRoot>/questions` for the answer.
-- `POST <taskRoot>/heartbeat` while the current AI coding session remains active.
-- `POST <taskRoot>/verifications/SDK_SYNC` once, after Starter registration and heartbeat pass, to request the task's project-scoped signed SDK callback. No request body is required.
-- `POST <taskRoot>/artifacts` exactly once per logical result, following the contract key, version and JSON Schema returned by context.
-
-Follow the machine-readable `protocolGuide.eventStateRules` returned by context. `PROGRESS` is valid in both `RUNNING` and `WAITING_USER`; in `WAITING_USER` it records independent progress while preserving the status and every open question. Only `RESUMED`, after all answers have been read, returns the task to `RUNNING`.
-
-Every event and artifact uses a caller-generated idempotency key. Retrying the same key with different content is a conflict. Verification operations are explicit, task-token scoped, valid only while the onboarding task is `RUNNING`, and generate a server-side task event. Client completion first means `RESULT_SUBMITTED`; only ReachAI validation and domain application can produce `RESULT_APPLIED`, `ACCEPTANCE_READY`, or `COMPLETED`.
+Follow the machine-readable `protocolGuide.eventStateRules`. PROGRESS in WAITING_USER preserves the status and open questions. Send RESUMED only after all answers have been read. Verification is explicit and scoped to the bound task. Client submission first means RESULT_SUBMITTED; ReachAI validation and domain application determine RESULT_APPLIED, ACCEPTANCE_READY, or COMPLETED.
 
 ReachAI cannot wake an inactive local Cursor/Codex session without installing a local component. Do not claim otherwise and do not install a Runner, resident process, global package, or system software.
 

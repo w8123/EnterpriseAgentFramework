@@ -18,7 +18,8 @@ import java.util.Map;
         AiCodingCredentialPolicyConsoleController.class,
         AiCodingTaskConsoleController.class,
         AiCodingHandoffController.class,
-        AiCodingTaskProtocolController.class
+        AiCodingTaskProtocolController.class,
+        com.enterprise.ai.control.aicoding.retrofit.CapabilityRetrofitConsoleController.class
 })
 public class AiCodingTaskExceptionHandler {
 

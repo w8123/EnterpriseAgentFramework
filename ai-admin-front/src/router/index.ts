@@ -545,6 +545,23 @@ export const routes: RouteRecordRaw[] = [
         },
       },
       {
+        path: 'registry/projects/:projectCode/capability-retrofit',
+        name: 'CapabilityRetrofitWorkbench',
+        component: () => import('@/views/registry/CapabilityRetrofitWorkbench.vue'),
+        meta: {
+          requiredPermissions: [PLATFORM_PERMISSION_READ],
+          title: '用 AI 改造业务能力',
+          layoutMode: 'project-workbench',
+          activeMenu: '/registry/projects',
+          breadcrumb: [
+            { title: '智能化改造' },
+            { title: '项目管理', to: { path: '/registry/projects' } },
+            { title: '项目详情', to: toProjectDetail },
+            { title: '用 AI 改造业务能力' },
+          ],
+        },
+      },
+      {
         path: 'registry/projects/:projectCode/page-actions/sessions',
         name: 'EmbedSessionAudit',
         component: () => import('@/views/settings/EmbedSessionAudit.vue'),

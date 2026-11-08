@@ -1040,6 +1040,28 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
+    void humanApprovalRequiresExplicitDecisionRoute() {
+        String graph = """
+                {"entryNodeId":"approval","exitNodeIds":["done"],
+                 "nodes":[{"id":"approval","type":"HUMAN_APPROVAL","config":{}},
+                          {"id":"done","type":"ANSWER","config":{"template":"downstream"}}],
+                 "edges":[{"from":"approval","to":"done","condition":"always"}]}
+                """;
+        RuntimeGraphSpecExecutionResult waiting = executor.execute(graph, Map.of());
+        assertTrue(waiting.isWaitingUser());
+        Map<String, Object> resume = Map.of("__pendingInteractionId", waiting.interactionId(),
+                "__pendingInteractionNodeId", "approval", "__interactionResume", Map.of(
+                        "interactionId", waiting.interactionId(), "nodeId", "approval", "action", "reject"));
+        RuntimeGraphSpecExecutionResult rejected = executor.executeFromNode(graph, resume, "approval");
+        assertTrue(rejected.success());
+        assertFalse("downstream".equals(rejected.answer()));
+
+        String explicit = graph.replace("\"condition\":\"always\"", "\"condition\":\"route:rejected\"");
+        RuntimeGraphSpecExecutionResult routed = executor.executeFromNode(explicit, resume, "approval");
+        assertEquals("downstream", routed.answer());
+    }
+
+    @Test
     void presentOutputIsNonBlocking() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
                 {
@@ -1839,14 +1861,14 @@ class RuntimeGraphSpecExecutorTest {
     @Test
     void reportsUnsupportedEntryNodeTypeWithoutFallingBackToLegacyAgent() {
         RuntimeGraphSpecExecutionResult result = executor.execute("""
-                {"entryNodeId":"code","exitNodeIds":["code"],"nodes":[{"id":"code","type":"CODE","config":{"code":"input"}}]}
+                {"entryNodeId":"code","exitNodeIds":["code"],"nodes":[{"id":"code","type":"DOCUMENT_EXTRACT","config":{"code":"input"}}]}
                 """, Map.of("message", "hello"));
 
         assertEquals(false, result.success());
         assertEquals("RUNTIME_GRAPH_NODE_UNSUPPORTED", result.code());
-        assertEquals("Runtime GraphSpec node type is not executable yet: CODE", result.answer());
+        assertEquals("Runtime GraphSpec node type is not executable yet: DOCUMENT_EXTRACT", result.answer());
         assertEquals("code", result.nodeId());
-        assertEquals("CODE", result.nodeType());
+        assertEquals("DOCUMENT_EXTRACT", result.nodeType());
     }
 
     @Test

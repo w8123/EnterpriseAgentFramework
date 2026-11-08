@@ -35,7 +35,8 @@ public class CapabilityScanProjectReadinessService {
     }
 
     private Map<String, Object> readinessFacts(ScanProjectEntity project, ProjectInstanceEntity latest,
-                                              SdkAccessCheckItem callbackCheck) {
+                                              CallbackCheck callback) {
+        SdkAccessCheckItem callbackCheck = callback.item();
         boolean instanceExists = latest != null;
         boolean online = CapabilityProjectInstanceOnlineSupport.isOnline(latest);
         Map<String, Object> body = new LinkedHashMap<>();
@@ -57,6 +58,7 @@ public class CapabilityScanProjectReadinessService {
         body.put("sdkCallbackStatus", callbackCheck.status());
         body.put("sdkCallbackMessage", callbackCheck.message());
         body.put("sdkCallbackEvidence", callbackCheck.evidence());
+        body.put("sdkCallbackVerifiedAt", callback.verifiedAt());
         return body;
     }
 
@@ -75,8 +77,9 @@ public class CapabilityScanProjectReadinessService {
         boolean credentialConfigured = credential != null;
         boolean aiCodingEnabled = Boolean.TRUE.equals(entity.getAiCodingAccessEnabled())
                 && StringUtils.hasText(entity.getAiCodingAccessKey());
-        SdkAccessCheckItem sdkSyncCallbackCheck = sdkSyncCallbackCheck(entity);
-        Map<String, Object> facts = readinessFacts(entity, latestInstance(entity.getId()), sdkSyncCallbackCheck);
+        CallbackCheck callback = sdkSyncCallbackCheck(entity);
+        SdkAccessCheckItem sdkSyncCallbackCheck = callback.item();
+        Map<String, Object> facts = readinessFacts(entity, latestInstance(entity.getId()), callback);
         boolean instanceExists = Boolean.TRUE.equals(facts.get("instanceExists"));
         boolean online = Boolean.TRUE.equals(facts.get("online"));
         String lastHeartbeatAt = facts.get("lastHeartbeatAt") == null ? null : String.valueOf(facts.get("lastHeartbeatAt"));
@@ -157,15 +160,17 @@ public class CapabilityScanProjectReadinessService {
         return StringUtils.hasText(project.getBaseUrl()) ? project.getBaseUrl().trim() : null;
     }
 
-    private SdkAccessCheckItem sdkSyncCallbackCheck(ScanProjectEntity project) {
+    private record CallbackCheck(SdkAccessCheckItem item, String verifiedAt) { }
+
+    private CallbackCheck sdkSyncCallbackCheck(ScanProjectEntity project) {
         String baseUrl = resolveManifestBaseUrl(project);
         if (!StringUtils.hasText(baseUrl)) {
-            return new SdkAccessCheckItem(
+            return new CallbackCheck(new SdkAccessCheckItem(
                     "SDK_SYNC_CALLBACK",
                     "SDK 同步回调",
                     "WARN",
                     "尚未配置 ReachAI 服务端可访问的 reachai.project.base-url",
-                    null);
+                    null), null);
         }
         String targetUrl = baseUrl.replaceAll("/+$", "")
                 + normalizeContextPath(project.getContextPath())
@@ -178,40 +183,39 @@ public class CapabilityScanProjectReadinessService {
                         .orderByDesc(CapabilitySnapshotEntity::getId)
                         .last("LIMIT 1"));
         if (callbackSnapshot != null) {
+            String verifiedAt = callbackSnapshot.getCreatedAt() == null
+                    ? null : callbackSnapshot.getCreatedAt().toString();
             if (project.getUpdateTime() != null
                     && (callbackSnapshot.getCreatedAt() == null
                     || callbackSnapshot.getCreatedAt().isBefore(project.getUpdateTime()))
                     && !callbackSnapshotMatchesCurrentEndpoint(callbackSnapshot, project)) {
-                return new SdkAccessCheckItem(
+                return new CallbackCheck(new SdkAccessCheckItem(
                         "SDK_SYNC_CALLBACK",
                         "SDK 同步回调",
                         "WARN",
                         "STALE_EVIDENCE: 项目接入配置已在上次签名回调后更新，请重新执行 SDK 同步验证",
-                        targetUrl);
+                        targetUrl), verifiedAt);
             }
-            String verifiedAt = callbackSnapshot.getCreatedAt() == null
-                    ? null
-                    : callbackSnapshot.getCreatedAt().toString();
-            return new SdkAccessCheckItem(
+            return new CallbackCheck(new SdkAccessCheckItem(
                     "SDK_SYNC_CALLBACK",
                     "SDK 同步回调",
                     "PASS",
                     verifiedAt == null
                             ? "ReachAI 已完成签名回调并收到能力快照"
                             : "ReachAI 已完成签名回调并收到能力快照，验证时间：" + verifiedAt,
-                    targetUrl);
+                    targetUrl), verifiedAt);
         }
         boolean loopback = isLoopbackUrl(targetUrl);
         String message = "CONFIGURED_NOT_PROBED: "
                 + (loopback
                 ? "已推导同步回调目标（回环地址），未主动探测可达性"
                 : "已推导同步回调目标，未主动探测可达性/鉴权");
-        return new SdkAccessCheckItem(
+        return new CallbackCheck(new SdkAccessCheckItem(
                 "SDK_SYNC_CALLBACK",
                 "SDK 同步回调",
                 "WARN",
                 message,
-                targetUrl);
+                targetUrl), null);
     }
 
     private boolean callbackSnapshotMatchesCurrentEndpoint(CapabilitySnapshotEntity snapshot,

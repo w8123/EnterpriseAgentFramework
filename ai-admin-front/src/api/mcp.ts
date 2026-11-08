@@ -1,5 +1,6 @@
 import { controlRequest } from './request'
 import type {
+  AiCostReport,
   AiUsageReport,
   McpWriteApproval,
   McpWriteApprovalPage,
@@ -169,6 +170,28 @@ export function revokeMcpEmployeeConnection(id: number) {
 /** 管理人员看员工的 AI 使用情况：按人、按 AI 工具、办了哪些事、写操作审批。 */
 export function getAiUsageReport(params?: { days?: number; projectCode?: string }, signal?: AbortSignal) {
   return controlRequest.get<AiUsageReport>(`${ROOT}/usage`, { params, signal, errorFeedback: 'local' })
+}
+
+export function getAiCostReport(params?: { days?: number; projectCode?: string }, signal?: AbortSignal) {
+  return controlRequest.get<AiCostReport>(`${ROOT}/usage/cost`, { params, signal, errorFeedback: 'local' })
+}
+
+/** 审计记录 CSV；文件名和行数在响应头里。 */
+export async function downloadAiAuditExport(params: { days?: number; projectCode?: string }) {
+  const response = await controlRequest.get(`${ROOT}/usage/audit-export`, {
+    params,
+    responseType: 'blob',
+    errorFeedback: 'local',
+  })
+  const headers = (response.headers ?? {}) as Record<string, string>
+  const disposition = headers['content-disposition'] ?? ''
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition)?.[1]
+  return {
+    blob: response.data as Blob,
+    fileName: encoded ? decodeURIComponent(encoded) : 'ai-audit.csv',
+    rows: Number(headers['x-audit-rows'] ?? 0),
+    truncated: headers['x-audit-truncated'] === 'true',
+  }
 }
 
 // ===== 写操作审批（员工 AI 工具发起的写操作） =====

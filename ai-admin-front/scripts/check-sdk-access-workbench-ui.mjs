@@ -3,6 +3,8 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const wizardSource = readFileSync(join(process.cwd(), 'src/views/registry/SdkAccessWizard.vue'), 'utf8')
+const enrollmentSource = readFileSync(join(process.cwd(), 'src/views/registry/RegistryProjectList.vue'), 'utf8')
+const installSource = readFileSync(join(process.cwd(), 'src/views/registry/components/SdkArtifactInstall.vue'), 'utf8')
 const wizardStyle = readFileSync(join(process.cwd(), 'src/views/registry/styles/SdkAccessWizard.scss'), 'utf8')
 const aiCodingFigmaStyle = readFileSync(join(process.cwd(), 'src/views/registry/styles/SdkAccessWizard.ai-coding.figma.scss'), 'utf8')
 const mainLayoutSource = readFileSync(join(process.cwd(), 'src/views/layout/MainLayout.vue'), 'utf8')
@@ -31,21 +33,15 @@ assert.match(wizardSource, /accessMode/, 'SdkAccessWizard should expose a manual
 assert.match(wizardSource, /manual-access-pane/, 'Manual SDK access pane should remain addressable')
 assert.match(wizardSource, /ai-coding-access-pane/, 'AI Coding access pane should be a first-class page pane')
 assert.match(wizardSource, /import CodeSnippetBlock from '@\/components\/common\/CodeSnippetBlock\.vue'/, 'SdkAccessWizard should reuse the shared code snippet block')
-assert.equal(
-  (wizardSource.match(/<CodeSnippetBlock/g) || []).length,
-  19,
-  'SdkAccessWizard should render language-specific snippets through the shared code snippet block',
-)
+assert.match(installSource, /<CodeSnippetBlock/, 'SDK installation should use the shared snippet block')
+assert.match(wizardSource, /<SdkArtifactInstall[\s\S]*?:language="sdkLanguage"/, 'The workbench should install the selected SDK')
+assert.match(enrollmentSource, /<SdkArtifactInstall[\s\S]*?:language="enrollmentLanguage"/, 'The same SDK instructions must be available before registration')
+assert.match(installSource, /javaReady[\s\S]*?integritySha256[\s\S]*?pomIntegritySha256/, 'Java installers must require both artifact digests')
+assert.match(installSource, /packageArtifact[\s\S]*?item.downloadUrl[\s\S]*?sha256.test\(item.integritySha256/, 'Other language installers must require a verified platform artifact')
 assert.match(wizardSource, /aria-label="业务系统语言"/, 'The SDK language selector must have an accessible name')
-assert.match(wizardSource, /v-if="sdkLanguage === 'csharp'"/, 'C# installation must be shown only for the selected language')
-assert.match(wizardSource, /csharpArtifactReady && csharpArtifact/, 'C# installation must require a verified platform artifact')
-assert.match(wizardSource, /:code="sdkLanguage !== 'java' \? csharpFrontendSnippet : frontendSnippet"/, 'Each SDK must use its own broker transport')
-assert.match(wizardSource, /sdkLanguage === 'python'/, 'Python installation must be shown only for the selected language')
-assert.match(wizardSource, /pythonArtifactReady && pythonArtifact/, 'Python installation must require a verified platform artifact')
-assert.match(wizardSource, /sdkLanguage === 'node'/, 'Node installation must be shown only for the selected language')
-assert.match(wizardSource, /nodeArtifactReady && nodeArtifact/, 'Node installation must require a verified platform artifact')
-assert.match(wizardSource, /sdkLanguage === 'go'/, 'Go installation must be shown only for the selected language')
-assert.match(wizardSource, /goArtifactReady && goArtifact/, 'Go installation must require a verified platform artifact')
+assert.match(wizardSource, /v-if="accessMode === 'manual'" v-model="sdkLanguage"/, 'Only manual access should show the language selector')
+assert.match(wizardSource, /sdk-detected-language[\s\S]*?等待 AI 识别技术栈/, 'AI access should display its detected language or a pending state')
+assert.match(snippetSource, /method: 'POST',[\s\S]*?body: JSON.stringify/, 'The browser example must use the SDK Token Broker POST contract')
 assert.match(wizardSource, /AI Coding 接入/, 'AI Coding should be visible as a primary access mode')
 assert.match(wizardSource, /手动接入/, 'Manual access should be visible as a primary access mode')
 assert.match(wizardSource, /ProjectWorkbenchLoadErrorState/, 'SdkAccessWizard should reuse the shared blocking load-error state')
@@ -76,12 +72,13 @@ assert.doesNotMatch(manualPane, /<h2>项目识别<\/h2>/, 'Manual access pane sh
 
 assert.doesNotMatch(progressSource, /key:\s*'overview'/, 'Manual step model should not include the project identification step')
 assert.doesNotMatch(progressSource, /title:\s*'项目识别'/, 'Manual step model should not include project identification as a step title')
-assert.match(progressSource, /index:\s*1,[\s\S]*?key:\s*'starter'[\s\S]*?title:\s*'后端 SDK'/, 'Manual steps should start with backend SDK')
-assert.match(progressSource, /index:\s*5,[\s\S]*?key:\s*'self-check'[\s\S]*?title:\s*'平台接入自检'/, 'Manual steps should end with the scoped platform SDK self-check')
-assert.match(progressSource, /SDK 注册、心跳与签名回调/, 'Manual self-check scope should stay within platform-observed SDK facts')
+assert.match(progressSource, /key:\s*'starter'[\s\S]*?title:\s*'后端 SDK'/, 'Manual steps should start with backend SDK')
+assert.match(progressSource, /key:\s*'capabilities'[\s\S]*?key:\s*'identity'[\s\S]*?key:\s*'gateway'[\s\S]*?key:\s*'backend-check'[\s\S]*?key:\s*'frontend'[\s\S]*?key:\s*'acceptance'/,
+  'The workbench must guide capability declaration, identity, routing, sync, embedding and real acceptance in order')
+assert.match(manualPane, /注册凭据、心跳与签名回调证据/, 'Manual self-check scope should stay within platform-observed SDK facts')
 assert.doesNotMatch(progressSource, /确认实例与旧接口资产/, 'SDK onboarding should not require legacy interface assets to complete backend service validation')
-assert.doesNotMatch(progressSource, /legacyAssetSelectionRequired/, 'Backend service validation should complete on SDK heartbeat without legacy interface sync')
-assert.match(progressSource, /确认 SDK 实例心跳/, 'Backend service validation should be framed around SDK instance heartbeat')
+assert.match(progressSource, /done: canConfirmSync.value && checks.sync/, 'A heartbeat alone must not complete capability sync')
+assert.match(manualPane, /同步与发现 → 扫描并同步接口/, 'Manual access should name the actual SDK sync action')
 assert.match(uiStateSource, /activeStep\s*=\s*ref<SdkAccessWizardStepKey>\('starter'\)/, 'Manual wizard should default to the first actionable step')
 
 const aiCodingPane = wizardSource.match(/<section v-show="accessMode === 'ai-coding'" class="ai-coding-access-pane">([\s\S]*?)<\/main>/)?.[1] || ''
@@ -89,21 +86,20 @@ assert.ok(aiCodingPane, 'AI Coding access pane should be present')
 assert.doesNotMatch(aiCodingPane, /<span class="step-kicker">AI Coding 接入<\/span>/, 'AI Coding pane should not repeat the mode name above the main heading')
 assert.doesNotMatch(aiCodingPane, /ai-coding-key-panel/, 'AI Coding pane should not render the access key card inline')
 assert.doesNotMatch(aiCodingPane, /AI Coding 接入秘钥/, 'AI Coding pane should not render the access key card title inline')
-assert.match(aiCodingPane, /将接入任务交给AI 编程工具/, 'AI Coding pane should use the shorter main heading')
+assert.match(aiCodingPane, /当前接入状态[\s\S]*?taskGuidance\.title[\s\S]*?taskGuidance\.description/, 'AI Coding pane should explain the current task state and next action')
+assert.match(aiCodingPane, /scenario="project-workbench-onboarding"[\s\S]*?:context="\{ projectCode:/, 'Project onboarding should use the current project and the MCP scenario')
+assert.doesNotMatch(wizardSource, /sdk-windows-handoff|Windows 备用接入|ai-onboarding-dialog/, 'Project onboarding should not expose the legacy Windows handoff')
+assert.doesNotMatch(dataSource, /prepareAiOnboardingTask|reissueOnboardingHandoff|backupSdkLanguage/, 'Project onboarding should not generate or reissue handoffs')
 assert.match(aiCodingPane, /class="ai-progress-steps" role="list"/, 'AI Coding progress should be a status list')
 assert.match(aiCodingPane, /class="progress-step ai-progress-step"[\s\S]*?role="listitem"/, 'AI Coding progress rows should not masquerade as buttons')
-assert.match(wizardSource, /真实浏览器 Embed 会话由 AI Coding 任务的“浏览器 Embed 闭环”单独验收/, 'SDK self-check must not claim browser acceptance')
-assert.match(wizardSource, /SDK 回调与平台自检/, 'AI Coding pane should name the SDK callback self-check precisely')
+assert.match(manualPane, /activeStep === 'acceptance'[\s\S]*?在真实业务系统中验证/, 'Manual access must separate browser and business acceptance from platform self-check')
+assert.match(aiCodingPane, /接入报告[\s\S]*?aiReportAvailable[\s\S]*?平台接入检查/, 'AI reports and platform observations should be presented separately')
+assert.match(aiCodingPane, /readinessSource\(item\)/, 'Platform observations should expose their evidence scope and available time')
 assert.doesNotMatch(wizardSource, /可选 API 调用|参数 JSON/, 'SDK self-check must not render request fields ignored by the backend')
 assert.doesNotMatch(aiCodingPane, /把 SDK 接入任务交给外部 AI 编程工具/, 'AI Coding pane should not use the old verbose heading')
 assert.doesNotMatch(aiCodingPane, /切换工具后复制同一套接入任务，AI 会按步骤向平台回传进度。/, 'AI Coding prompt card should not render the explanatory sentence')
 assert.doesNotMatch(aiCodingPane, /打开完整提示词/, 'AI Coding pane should not render the full prompt dialog button')
-assert.match(wizardSource, /import AiCodingProviderSelector from '@\/components\/ai-coding\/AiCodingProviderSelector\.vue'/, 'SdkAccessWizard should reuse the shared icon provider selector')
-assert.equal(
-  (wizardSource.match(/<AiCodingProviderSelector/g) || []).length,
-  2,
-  'SDK access main pane and handoff dialog should share the icon provider selector',
-)
+assert.doesNotMatch(wizardSource, /AiCodingProviderSelector/, 'Project onboarding should use the connected MCP tool')
 assert.doesNotMatch(aiCodingPane, /\{\{\s*option\.label\s*\}\}/, 'AI Coding provider selector should not render text tabs')
 assert.doesNotMatch(wizardSource, /ai-tool-tabs-track/, 'SDK access should remove the legacy text-tab underline')
 assert.match(providerSelectorSource, /<el-tooltip[\s\S]*?:content="option\.label"/, 'Each AI Coding provider icon should expose its software name on hover')
@@ -116,42 +112,13 @@ for (const iconName of ['codex', 'cursor', 'trae', 'claude-code']) {
   )
 }
 assert.match(
-  aiCodingPane,
-  /:disabled="aiOnboardingPromptLoading \|\| Boolean\(aiTaskLoadError\)"[\s\S]*?: prepareAiOnboardingTask\(\)/,
-  'AI Coding prompt action should generate a handoff when absent and disable while loading or task state is unknown',
-)
-assert.match(
-  aiCodingPane,
-  /:model-value="aiOnboardingPromptPreview"/,
-  'AI Coding prompt preview must not expose a partially populated prompt while loading',
-)
-assert.match(
-  wizardSource,
-  /function copyAiOnboardingPrompt\(\)[\s\S]*?if \(!aiOnboardingPromptReady\.value\) return/,
-  'AI Coding prompt copy handler must guard against readiness races',
-)
-assert.match(
-  dataSource,
-  /handoff\?\.prompt[\s\S]*?onboardingTask\.value\?\.executorProvider === selectedExecutorProvider\.value[\s\S]*?new Date\(handoff\.activationExpiresAt\)\.getTime\(\) > Date\.now\(\)/,
-  'AI Coding prompt readiness must require a live handoff for the selected executor',
-)
-assert.match(
   dataSource,
   /loadOnboardingTask\(detail\.id\)\.catch\(\(\) => undefined\)/,
   'AI Coding task-state failure must not make the manual SDK workbench unavailable',
 )
-assert.match(
-  dataSource,
-  /if \(aiTaskLoadError\.value\)[\s\S]*?请先重新加载当前项目的 AI Coding 任务状态/,
-  'Unknown AI Coding task state must block duplicate task creation',
-)
-assert.match(
-  dataSource,
-  /taskKind:\s*'PROJECT_ONBOARDING'[\s\S]*?targetType:\s*'PROJECT'[\s\S]*?accessMode:\s*'READ_WRITE'/,
-  'Project onboarding must create a shared-kernel task with an explicit project write target',
-)
-assert.match(dataSource, /taskKernel\.reissueHandoff\(existing\.taskId\)/, 'A live onboarding task should reissue its one-time handoff')
 assert.match(wizardSource, /AiCodingTaskDetailPanel/, 'SdkAccessWizard should reuse the common task detail panel')
+assert.match(wizardSource, /<AiCodingTaskDetailPanel[\s\S]*?:handoff-enabled="false"/, 'Project task details should not expose legacy handoff actions')
+assert.doesNotMatch(wizardSource, /@reissue=/, 'Project task details should not reissue handoffs')
 
 assert.match(
   wizardSource,
@@ -288,12 +255,12 @@ assert.match(
 )
 assert.match(
   snippetSource,
-  /Path=\/api\/reachai\/embed\/\*\*[\s\S]*?RewritePath=\/api\/reachai\/embed\/\(\?<segment>\.\*\), \/api\/embed\/\\\$\{segment\}/,
+  /Path=\/api\/reachai\/embed\/\*\*[\s\S]*?RewritePath=\/api\/reachai\/embed\/\?\(\?<segment>\.\*\), \/api\/embed\/\$\\\\\{segment\}/,
   'Gateway example should proxy the browser Embed API to ReachAI without changing its token',
 )
 assert.match(
   snippetSource,
-  /Path=\/api\/reachai\/embed-token/,
+  /Path=\/reachai\/embed\/token[\s\S]*?Method=POST/,
   'Gateway example should keep the authenticated business Token Broker separately addressable',
 )
 assert.match(
@@ -303,7 +270,7 @@ assert.match(
 )
 assert.match(
   snippetSource,
-  /embed-token intentionally remains on the normal business login chain/,
+  /\/reachai\/embed\/token remains on the normal business login and CSRF chain/,
   'Gateway example should not whitelist the business-authenticated Token Broker',
 )
 assert.match(
@@ -337,15 +304,9 @@ assert.match(
 )
 
 for (const retainedCopy of [
-  '后端 SDK',
-  '网关路由',
-  '业务服务校验',
-  '前端 Embed Token',
-  '平台接入自检',
-  'aiPromptDialogVisible',
   'onboardingTask',
   'AiCodingTaskDetailPanel',
-  'readiness-list',
+  'selfCheckReadiness',
 ]) {
   assert.match(wizardSource, new RegExp(retainedCopy), `SdkAccessWizard lost existing content: ${retainedCopy}`)
 }

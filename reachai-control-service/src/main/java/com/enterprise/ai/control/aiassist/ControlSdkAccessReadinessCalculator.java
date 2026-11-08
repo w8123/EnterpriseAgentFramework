@@ -4,6 +4,7 @@ import com.enterprise.ai.control.platform.PlatformEmbedE2eEvidenceService.EmbedC
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -26,7 +27,7 @@ public final class ControlSdkAccessReadinessCalculator {
                 embedArtifactAvailable,
                 embedArtifactEvidence,
                 EmbedConversationEvidence.pending(
-                        "尚未观察到当前任务启动后的真实浏览器 Embed 会话。"));
+                        "尚未观察到授权的 Embed 对话会话。"));
     }
 
     public static ControlAiAssistProjectController.SdkAccessCheckResponse calculate(
@@ -37,7 +38,7 @@ public final class ControlSdkAccessReadinessCalculator {
             EmbedConversationEvidence embedE2eEvidence) {
         EmbedConversationEvidence e2eEvidence = embedE2eEvidence == null
                 ? EmbedConversationEvidence.pending(
-                        "尚未观察到当前任务启动后的真实浏览器 Embed 会话。")
+                        "尚未观察到授权的 Embed 对话会话。")
                 : embedE2eEvidence;
         boolean credentialConfigured = booleanValue(project.get("registryCredentialConfigured"));
         boolean aiCodingEnabled = booleanValue(mapValue(project.get("aiCodingAccess")).get("enabled"))
@@ -89,7 +90,7 @@ public final class ControlSdkAccessReadinessCalculator {
                 lastHeartbeatAt));
         checks.add(new ControlAiAssistProjectController.SdkAccessCheckItem(
                 "EMBED_CONVERSATION_E2E",
-                "Embed 真实会话",
+                "授权 Embed 对话",
                 e2eEvidence.passed() ? "PASS" : "PENDING",
                 e2eEvidence.message(),
                 e2eEvidence.evidence()));
@@ -110,7 +111,9 @@ public final class ControlSdkAccessReadinessCalculator {
                 ? "PASS"
                 : "PENDING";
         String e2eReady = e2eEvidence.passed() ? "PASS" : "PENDING";
-        String e2eMessage = e2eEvidence.message();
+        String e2eMessage = e2eEvidence.passed()
+                ? e2eEvidence.message() + " 业务页面入口和交互仍需真实页面验收。"
+                : e2eEvidence.message();
 
         String overall = worst(
                 codeReady,
@@ -124,29 +127,33 @@ public final class ControlSdkAccessReadinessCalculator {
                 List.of(
                         new ControlAiAssistProjectController.SdkAccessReadiness(
                                 "CODE_READY",
-                                "代码接入",
+                                "SDK 注册与配置",
                                 codeReady,
                                 codeReadyMessage(
                                         codeReady,
                                         embedArtifactAvailable,
                                         aiCodingEnabled,
                                         credentialConfigured,
-                                        instanceExists)),
+                                        instanceExists),
+                                projectEvidence(null, null)),
                         new ControlAiAssistProjectController.SdkAccessReadiness(
                                 "RUNTIME_READY",
-                                "Runtime 就绪",
+                                "业务服务在线",
                                 runtimeReady,
-                                runtimeReadyMessage(runtimeReady, instanceExists, online)),
+                                runtimeReadyMessage(runtimeReady, instanceExists, online),
+                                projectEvidence("LAST_HEARTBEAT", lastHeartbeatAt)),
                         new ControlAiAssistProjectController.SdkAccessReadiness(
                                 "SDK_CALLBACK_READY",
-                                "SDK 回调闭环",
+                                "SDK 同步回调",
                                 callbackReady,
-                                callbackCheck.message()),
+                                callbackCheck.message(),
+                                projectEvidence("LAST_SUCCESSFUL_CALLBACK", stringValue(readinessFacts.get("sdkCallbackVerifiedAt")))),
                         new ControlAiAssistProjectController.SdkAccessReadiness(
                                 "E2E_READY",
-                                "浏览器 Embed 闭环",
+                                "授权对话链路",
                                 e2eReady,
-                                e2eMessage)),
+                                e2eMessage,
+                                null)),
                 checks);
     }
 
@@ -181,7 +188,7 @@ public final class ControlSdkAccessReadinessCalculator {
             boolean credential,
             boolean instanceExists) {
         if ("PASS".equals(status)) {
-            return "已观测到业务实例注册，项目配置和 SDK 接入已实际生效。";
+            return "平台已配置注册凭据、启用 AI Coding，所需 SDK 制品可用，且有业务实例注册记录。";
         }
         if (!artifact) {
             return "请检查当前语言的后端 SDK 与 Embed SDK 制品，构建后重启 Control 服务。";
@@ -195,7 +202,7 @@ public final class ControlSdkAccessReadinessCalculator {
         if (!instanceExists) {
             return "平台配置和 SDK 制品已就绪，但尚未观测到业务实例注册，无法确认 Starter 已实际生效。";
         }
-        return "代码接入条件尚不完整，请检查相关配置。";
+        return "SDK 注册与配置条件尚不完整，请检查相关配置。";
     }
 
     private static String runtimeReadyMessage(String status, boolean instanceExists, boolean online) {
@@ -208,7 +215,17 @@ public final class ControlSdkAccessReadinessCalculator {
         if (!online) {
             return "业务实例没有有效的在线心跳，请启动或重启业务服务。";
         }
-        return "尚未确认 Runtime 运行状态。";
+        return "尚未确认业务服务在线状态。";
+    }
+
+    private static Map<String, Object> projectEvidence(String timeKind, String observedAt) {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("scope", "PROJECT");
+        if (StringUtils.hasText(observedAt)) {
+            evidence.put("observedAt", observedAt);
+            evidence.put("timeKind", timeKind);
+        }
+        return evidence;
     }
 
     private static String worst(String... statuses) {

@@ -4,6 +4,8 @@ import com.enterprise.ai.control.identity.PlatformPrincipal;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.aicoding.application.AiCodingPowerShellBootstrapFactory;
+import com.enterprise.ai.control.aicoding.application.AiCodingHandoffApplicationService;
+import com.enterprise.ai.control.aicoding.application.ProjectOnboardingCreationLock;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingProjectCredentialPolicyMapper;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
@@ -97,6 +99,9 @@ class AiCodingTaskProtocolHttpTest {
     private AiCodingPowerShellBootstrapFactory powerShellBootstrapFactory;
 
     @Autowired
+    private AiCodingHandoffApplicationService handoffService;
+
+    @Autowired
     private JdbcTemplate jdbcTemplate;
 
     @MockBean
@@ -110,6 +115,9 @@ class AiCodingTaskProtocolHttpTest {
 
     @MockBean
     private PageWorkbenchReleaseReadinessApplicationService releaseReadiness;
+
+    @MockBean
+    private ProjectOnboardingCreationLock onboardingLock;
 
     @BeforeEach
     void setUp() {
@@ -193,11 +201,17 @@ class AiCodingTaskProtocolHttpTest {
                 PLATFORM_TOKEN));
         String taskId = task.path("taskId").asText();
 
-        JsonNode handoff = requireBody(exchange(
+        ResponseEntity<JsonNode> retiredHandoff = exchange(
                 HttpMethod.POST,
                 "/api/ai-coding-console/tasks/" + taskId + "/handoffs",
                 objectMapper.createObjectNode().put("issuedBy", "tester"),
-                PLATFORM_TOKEN));
+                PLATFORM_TOKEN);
+        assertEquals(HttpStatus.GONE, retiredHandoff.getStatusCode());
+        assertEquals("PROJECT_ONBOARDING_MCP_REQUIRED", retiredHandoff.getBody().path("code").asText());
+
+        // Simulate a package issued before the route was retired. Its existing token must remain usable.
+        JsonNode handoff = objectMapper.valueToTree(handoffService.issue(
+                taskId, "http://localhost:" + port, "tester"));
         ObjectNode activation = objectMapper.createObjectNode();
         activation.put("schema", "reachai.ai-coding.activation.v1");
         activation.put(
@@ -314,13 +328,13 @@ class AiCodingTaskProtocolHttpTest {
                 "RESULT_APPLIED",
                 blocked.path("task").path("executionStatus").asText());
         assertTrue(blocked.path("blockers").toString()
-                .contains("代码接入"));
+                .contains("SDK 注册与配置"));
         assertTrue(blocked.path("blockers").toString()
-                .contains("Runtime"));
+                .contains("业务服务在线"));
         assertTrue(blocked.path("blockers").toString()
-                .contains("SDK 回调闭环"));
+                .contains("SDK 同步回调"));
         assertTrue(blocked.path("blockers").toString()
-                .contains("浏览器 Embed 闭环"));
+                .contains("授权对话链路"));
         assertEquals(
                 "PENDING",
                 blocked.path("readiness").findValues("status").get(0).asText());
@@ -336,6 +350,7 @@ class AiCodingTaskProtocolHttpTest {
                 "online", true,
                 "lastHeartbeatAt", "2026-07-26T10:05:00",
                 "sdkCallbackStatus", "PASS",
+                "sdkCallbackVerifiedAt", "2026-07-25T09:30:00",
                 "sdkCallbackMessage", "已完成签名回调并收到能力快照",
                 "sdkCallbackEvidence",
                 "http://business/reachai/registry/capabilities/sync"));
@@ -353,6 +368,16 @@ class AiCodingTaskProtocolHttpTest {
                 null,
                 PLATFORM_TOKEN));
         assertTrue(verified.path("acceptanceReady").asBoolean());
+        JsonNode runtimeEvidence = verified.path("readiness").get(1).path("evidence");
+        assertEquals("PROJECT", runtimeEvidence.path("scope").asText());
+        assertEquals("LAST_HEARTBEAT", runtimeEvidence.path("timeKind").asText());
+        assertEquals("2026-07-26T10:05:00", runtimeEvidence.path("observedAt").asText());
+        JsonNode callbackEvidence = verified.path("readiness").get(2).path("evidence");
+        assertEquals("2026-07-25T09:30:00", callbackEvidence.path("observedAt").asText());
+        assertFalse(callbackEvidence.toString().contains("http://business"));
+        JsonNode conversationEvidence = verified.path("readiness").get(3).path("evidence");
+        assertEquals("TASK_WINDOW", conversationEvidence.path("scope").asText());
+        assertFalse(conversationEvidence.has("observedAt"));
         assertEquals(
                 "ACCEPTANCE_READY",
                 verified.path("task").path("executionStatus").asText());
@@ -376,7 +401,8 @@ class AiCodingTaskProtocolHttpTest {
                 "/api/ai-coding-console/tasks/" + taskId + "/handoffs",
                 objectMapper.createObjectNode().put("issuedBy", "tester"),
                 PLATFORM_TOKEN);
-        assertEquals(HttpStatus.CONFLICT, unnecessaryReissue.getStatusCode());
+        assertEquals(HttpStatus.GONE, unnecessaryReissue.getStatusCode());
+        assertEquals("PROJECT_ONBOARDING_MCP_REQUIRED", unnecessaryReissue.getBody().path("code").asText());
     }
 
     @Test

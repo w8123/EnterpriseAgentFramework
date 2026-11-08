@@ -331,6 +331,16 @@ final class RuntimeDeterministicNodeHandlers {
         return merged;
     }
 
+    /** Shared AND/OR evaluation used by IF_ELSE groups and LOOP WHILE break conditions. */
+    boolean evaluateConditionGroup(List<?> conditions, String logic, Map<String, Object> context) {
+        if (conditions == null || conditions.isEmpty()) {
+            return false;
+        }
+        return "OR".equalsIgnoreCase(logic)
+                ? conditions.stream().anyMatch(condition -> evaluateCondition(condition, context))
+                : conditions.stream().allMatch(condition -> evaluateCondition(condition, context));
+    }
+
     private boolean evaluateCondition(Object value, Map<String, Object> context) {
         if (!(value instanceof Map<?, ?> condition)) {
             return false;
@@ -349,8 +359,67 @@ final class RuntimeDeterministicNodeHandlers {
             case "gte" -> compareValues(left, right) >= 0;
             case "lt" -> compareValues(left, right) < 0;
             case "lte" -> compareValues(left, right) <= 0;
+            case "starts_with" -> left != null && right != null && String.valueOf(left).startsWith(String.valueOf(right));
+            case "ends_with" -> left != null && right != null && String.valueOf(left).endsWith(String.valueOf(right));
+            case "in" -> inList(left, right);
+            case "not_in" -> !inList(left, right);
+            case "regex" -> matchesRegex(left, right);
+            case "is_number" -> left instanceof Number
+                    || left instanceof CharSequence text && StringUtils.hasText(text) && numberValue(left) != null;
+            case "is_text" -> left instanceof CharSequence;
+            case "is_list" -> left instanceof Collection<?> || left != null && left.getClass().isArray();
+            case "is_object" -> left instanceof Map<?, ?>;
+            case "is_boolean" -> left instanceof Boolean
+                    || left instanceof CharSequence text && ("true".equalsIgnoreCase(text.toString().trim())
+                    || "false".equalsIgnoreCase(text.toString().trim()));
             default -> false;
         };
+    }
+
+    static final java.util.Set<String> CONDITION_OPERATORS = java.util.Set.of(
+            "exists", "not_empty", "empty", "equals", "eq", "not_equals", "neq", "contains", "not_contains",
+            "gt", "gte", "lt", "lte", "starts_with", "ends_with", "in", "not_in", "regex",
+            "is_number", "is_text", "is_list", "is_object", "is_boolean");
+    private static final int REGEX_MAX_PATTERN = 200;
+    private static final int REGEX_MAX_INPUT = 10_000;
+
+    /** {@code right} may be a list, a JSON array text, or comma separated text. */
+    private boolean inList(Object left, Object right) {
+        if (left == null || right == null) return false;
+        Collection<?> options;
+        if (right instanceof Collection<?> collection) {
+            options = collection;
+        } else {
+            String text = String.valueOf(right).trim();
+            List<Object> parsed = null;
+            if (text.startsWith("[")) {
+                try {
+                    parsed = objectMapper.readValue(text, new com.fasterxml.jackson.core.type.TypeReference<List<Object>>() { });
+                } catch (Exception ignored) {
+                    parsed = null;
+                }
+            }
+            if (parsed == null) {
+                parsed = new ArrayList<>();
+                for (String part : text.split("[,，]")) {
+                    if (StringUtils.hasText(part)) parsed.add(part.trim());
+                }
+            }
+            options = parsed;
+        }
+        return options.stream().anyMatch(option -> valuesEqual(left, option));
+    }
+
+    private boolean matchesRegex(Object left, Object right) {
+        if (left == null || right == null) return false;
+        String pattern = String.valueOf(right);
+        String input = String.valueOf(left);
+        if (pattern.length() > REGEX_MAX_PATTERN || input.length() > REGEX_MAX_INPUT) return false;
+        try {
+            return java.util.regex.Pattern.compile(pattern).matcher(input).find();
+        } catch (java.util.regex.PatternSyntaxException ex) {
+            return false;
+        }
     }
 
     private Object resolveConditionOperand(Object value,

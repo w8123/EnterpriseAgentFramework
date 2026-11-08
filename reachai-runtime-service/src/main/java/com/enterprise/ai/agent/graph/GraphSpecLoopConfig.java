@@ -19,13 +19,41 @@ public record GraphSpecLoopConfig(
         String bodyEntry,
         String bodyExit,
         Set<String> bodyNodeIds,
-        Integer maxIterations) {
+        Integer maxIterations,
+        Integer parallelism,
+        String errorMode,
+        List<Object> breakConditions,
+        String breakLogic,
+        Map<String, Object> loopVariables) {
 
     public static final int DEFAULT_MAX_ITERATIONS = 100;
     public static final int HARD_MAX_ITERATIONS = 1000;
+    /** WHILE loops re-run the same body; keep them much tighter than list iteration. */
+    public static final int WHILE_HARD_MAX_ITERATIONS = 50;
+    public static final int MAX_PARALLELISM = 4;
+    public static final String MODE_FOREACH = "FOREACH";
+    public static final String MODE_WHILE = "WHILE";
+    /** Stop the whole loop on the first failed iteration (default, legacy behaviour). */
+    public static final String ERROR_TERMINATE = "TERMINATE";
+    /** Drop failed items from the output list. */
+    public static final String ERROR_SKIP = "SKIP";
+    /** Keep a {@code {error, message, index}} placeholder for failed items. */
+    public static final String ERROR_KEEP = "KEEP";
+    public static final Set<String> ERROR_MODES = Set.of(ERROR_TERMINATE, ERROR_SKIP, ERROR_KEEP);
 
     public GraphSpecLoopConfig {
         bodyNodeIds = Collections.unmodifiableSet(new LinkedHashSet<>(bodyNodeIds));
+        breakConditions = breakConditions == null ? List.of() : List.copyOf(breakConditions);
+        loopVariables = loopVariables == null
+                ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(loopVariables));
+    }
+
+    public boolean whileMode() {
+        return MODE_WHILE.equalsIgnoreCase(mode);
+    }
+
+    public boolean foreachMode() {
+        return MODE_FOREACH.equalsIgnoreCase(mode);
     }
 
     public static GraphSpecLoopConfig from(GraphSpec.Node node) {
@@ -42,7 +70,45 @@ public record GraphSpecLoopConfig(
                 bodyEntry,
                 bodyExit,
                 bodyNodeIds(config.get("bodyNodeIds"), bodyEntry, bodyExit),
-                parseMaxIterations(config.get("maxIterations")));
+                parseMaxIterations(config.get("maxIterations")),
+                parseParallelism(config.get("parallelism")),
+                firstText(text(config.get("errorMode")), ERROR_TERMINATE).toUpperCase(java.util.Locale.ROOT),
+                config.get("breakConditions") instanceof List<?> list ? new java.util.ArrayList<>(list) : List.of(),
+                firstText(text(config.get("breakLogic")), "AND").toUpperCase(java.util.Locale.ROOT),
+                loopVariables(config.get("loopVariables")));
+    }
+
+    /** Missing uses 1 (serial); a present value outside 1..MAX_PARALLELISM is rejected by callers (null). */
+    public static Integer parseParallelism(Object raw) {
+        if (raw == null) return 1;
+        if (raw instanceof String text && !hasText(text)) return 1;
+        int value;
+        try {
+            value = raw instanceof Number number
+                    ? new BigDecimal(number.toString()).intValueExact()
+                    : Integer.parseInt(String.valueOf(raw).trim());
+        } catch (NumberFormatException | ArithmeticException ex) {
+            return null;
+        }
+        return value < 1 || value > MAX_PARALLELISM ? null : value;
+    }
+
+    private static Map<String, Object> loopVariables(Object raw) {
+        Map<String, Object> variables = new LinkedHashMap<>();
+        if (raw instanceof Map<?, ?> map) {
+            map.forEach((key, value) -> {
+                if (key != null && hasText(String.valueOf(key))) variables.put(String.valueOf(key).trim(), value);
+            });
+        } else if (raw instanceof List<?> list) {
+            // Studio form shape: [{name, value}]
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> entry && entry.get("name") != null
+                        && hasText(String.valueOf(entry.get("name")))) {
+                    variables.put(String.valueOf(entry.get("name")).trim(), entry.get("value"));
+                }
+            }
+        }
+        return variables;
     }
 
     /** Missing or blank uses the default; a present invalid limit is rejected by callers. */

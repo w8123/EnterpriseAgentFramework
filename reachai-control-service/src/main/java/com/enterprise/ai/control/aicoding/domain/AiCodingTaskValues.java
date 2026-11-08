@@ -62,7 +62,8 @@ public final class AiCodingTaskValues {
         CODEX,
         CURSOR,
         TRAE,
-        CLAUDE_CODE
+        CLAUDE_CODE,
+        OTHER
     }
 
     public enum ExecutionMode {

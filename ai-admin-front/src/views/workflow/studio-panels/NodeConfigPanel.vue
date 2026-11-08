@@ -128,6 +128,12 @@
           </div>
         </div>
       </ConfigSection>
+      <ErrorHandlingSection
+        v-if="data.kind !== 'start' && data.kind !== 'end'"
+        :data="data"
+        :node-id="nodeId"
+        :canvas-nodes="canvasNodes"
+      />
       <ConfigSection title="高级" description="查看变量契约 JSON" collapsible>
         <pre class="contract-json">{{ contractJson }}</pre>
       </ConfigSection>
@@ -161,6 +167,10 @@ import VariableAssignConfigPanel from './VariableAssignConfigPanel.vue'
 import TemplateConfigPanel from './TemplateConfigPanel.vue'
 import ApprovalConfigPanel from './ApprovalConfigPanel.vue'
 import LoopConfigPanel from './LoopConfigPanel.vue'
+import ParallelConfigPanel from './ParallelConfigPanel.vue'
+import ListOperatorConfigPanel from './ListOperatorConfigPanel.vue'
+import SubWorkflowConfigPanel from './SubWorkflowConfigPanel.vue'
+import ErrorHandlingSection from './ErrorHandlingSection.vue'
 import KnowledgeWriteConfigPanel from './KnowledgeWriteConfigPanel.vue'
 import DocumentExtractConfigPanel from './DocumentExtractConfigPanel.vue'
 import McpConfigPanel from './McpConfigPanel.vue'
@@ -210,6 +220,9 @@ const registry = {
   template: TemplateConfigPanel,
   approval: ApprovalConfigPanel,
   loop: LoopConfigPanel,
+  parallel: ParallelConfigPanel,
+  listOperator: ListOperatorConfigPanel,
+  subWorkflow: SubWorkflowConfigPanel,
   knowledgeWrite: KnowledgeWriteConfigPanel,
   documentExtract: DocumentExtractConfigPanel,
   mcp: McpConfigPanel,

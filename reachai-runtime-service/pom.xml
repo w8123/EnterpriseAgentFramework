@@ -42,6 +42,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- Workflow CODE node: interpreted JavaScript sandbox (no Java access, no I/O). -->
+        <dependency>
+            <groupId>org.mozilla</groupId>
+            <artifactId>rhino</artifactId>
+            <version>1.7.15</version>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>

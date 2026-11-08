@@ -79,7 +79,7 @@ class PlatformMcpReadFlowTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var business = mock(McpProtocolApplicationService.class);
         var properties = new McpHubProperties(); properties.setEnabled(true);
         var guard = new McpProtocolRequestGuard(properties);
@@ -144,7 +144,7 @@ class PlatformMcpReadFlowTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var businessProtocol = mock(McpProtocolApplicationService.class);
         var properties = new McpHubProperties();
         properties.setEnabled(true);
@@ -213,7 +213,7 @@ class PlatformMcpReadFlowTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var business = mock(McpProtocolApplicationService.class);
         var properties = new McpHubProperties(); properties.setEnabled(true);
         var guard = new McpProtocolRequestGuard(properties); var json = new ObjectMapper();

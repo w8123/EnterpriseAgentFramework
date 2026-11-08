@@ -1,3 +1,15 @@
+const repositoryDocsUrl = 'https://github.com/w8123/EnterpriseAgentFramework/blob/main'
+export const integrationGuideUrl = `${repositoryDocsUrl}/docs/integration.md`
+export const embedGuideUrl = `${repositoryDocsUrl}/docs/guides/embed-chat.md`
+export const workflowGuideUrl = `${repositoryDocsUrl}/docs/guides/first-workflow.md`
+export const sdkGuideUrls = {
+  java: `${repositoryDocsUrl}/reachai-spring-boot2-starter/README.md`,
+  csharp: `${repositoryDocsUrl}/reachai-dotnet/README.md`,
+  python: `${repositoryDocsUrl}/reachai-python/README.md`,
+  node: `${repositoryDocsUrl}/reachai-node/README.md`,
+  go: `${repositoryDocsUrl}/reachai-go/README.md`,
+}
+
 export type AiOnboardingStepStatus =
   | 'TODO'
   | 'RUNNING'

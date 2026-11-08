@@ -186,7 +186,7 @@
             <LiquidGlassNotice
               title="生成配置，启动后自动注册"
               type="success"
-              description="无需填写 App Key 或 App Secret。接入令牌仅限当前项目，72 小时内可成功使用一次。将 Starter 配置交给业务系统，首次启动注册成功后，项目会出现在列表中，长期凭据由 Starter 自动保存。"
+              description="接入令牌仅限当前项目，72 小时内可成功使用一次。生成后按步骤安装 SDK、配置令牌并启动业务服务，首次注册成功后即可打开项目接入工作台。"
               source="backdrop"
             />
             <LiquidGlassNotice
@@ -270,34 +270,59 @@
     <AppDialog
       v-model="enrollmentDialogVisible"
       title="一次性 SDK 接入令牌"
-      description="请将完整配置交给业务系统，添加 Starter 依赖并启动。首次注册成功后项目才会出现在列表中。令牌仅在本弹窗保留，72 小时内只能成功使用一次；请通过受控密钥渠道传递，不要提交到代码仓库。"
+      description="安装业务 SDK 并完成首次注册后，项目才会出现在列表中。请通过受控密钥渠道交付接入令牌。"
       width="720px"
       destroy-on-close
       @close="clearEnrollment"
     >
       <el-form label-width="120px" novalidate class="enrollment-dialog-form">
+        <h3>1. 安装业务 SDK</h3>
+        <el-form-item label="业务技术栈">
+          <LiquidGlassSelect v-model="enrollmentLanguage" aria-label="业务技术栈" dropdown-title="业务技术栈">
+            <el-option v-for="option in sdkAccessLanguageOptions" :key="option.value" v-bind="option" />
+          </LiquidGlassSelect>
+        </el-form-item>
+        <p v-if="loadingSdkArtifacts" role="status">正在读取平台 SDK 制品…</p>
+        <LiquidGlassNotice v-else-if="sdkArtifactError" type="warning" :title="sdkArtifactError" source="backdrop">
+          <template #actions><LiquidGlassButton size="small" @click="loadSdkArtifacts">重新加载</LiquidGlassButton></template>
+        </LiquidGlassNotice>
+        <SdkArtifactInstall v-else-if="sdkArtifactManifest" :language="enrollmentLanguage"
+          :artifacts="sdkArtifactManifest.sdkArtifacts" :package-url="sdkArtifactManifest.skillPackageUrl" />
+        <h3>2. 配置并启动</h3>
         <el-form-item label="项目编码">
           <el-input :model-value="issuedEnrollment?.projectCode" readonly />
         </el-form-item>
         <el-form-item label="失效时间">
           <el-input :model-value="issuedEnrollment?.expiresAt" readonly />
         </el-form-item>
-        <el-form-item label="Starter 配置">
+        <el-form-item label="接入令牌">
+          <el-input :model-value="issuedEnrollment?.enrollmentToken"
+            :type="enrollmentTokenVisible ? 'text' : 'password'" readonly />
+        </el-form-item>
+        <p>将接入令牌通过环境变量 <code>{{ enrollmentTokenEnv }}</code> 提供给业务服务。一次性注册时使用应用包外的受保护凭据存储，以便服务重启后沿用注册凭据。</p>
+        <el-form-item v-if="enrollmentLanguage === 'java'" label="Starter 配置">
           <el-input
             type="textarea"
             :rows="12"
             resize="none"
-            :model-value="visibleEnrollmentSnippet"
+            :model-value="enrollmentSnippet"
             readonly
             class="enrollment-config-textarea"
           />
         </el-form-item>
+        <template v-else-if="issuedProject">
+          <p>将项目编码、平台地址 <code>{{ registryPublicUrl() }}</code> 和业务后端地址 <code>{{ issuedProject.baseUrl }}</code> 填入所选 SDK 的项目配置。</p>
+        </template>
+        <p><el-link :href="sdkGuideUrls[enrollmentLanguage]" type="primary" target="_blank" rel="noopener noreferrer">查看当前技术栈的配置与启动指南</el-link></p>
+        <h3>3. 回到项目管理</h3>
+        <p>启动成功后刷新项目列表，进入「项目详情 → 项目接入工作台 → 手动接入」，继续声明业务方法、配置身份与网关、同步能力并验收。</p>
       </el-form>
       <template #footer>
         <LiquidGlassButton @click="enrollmentTokenVisible = !enrollmentTokenVisible">
           {{ enrollmentTokenVisible ? '隐藏接入令牌' : '显示接入令牌' }}
         </LiquidGlassButton>
-        <LiquidGlassButton type="primary" @click="copyEnrollmentSnippet">复制完整 Starter 配置</LiquidGlassButton>
+        <LiquidGlassButton @click="copyEnrollmentToken">复制接入令牌</LiquidGlassButton>
+        <LiquidGlassButton v-if="enrollmentLanguage === 'java'" type="primary" @click="copyEnrollmentSnippet">复制 Starter 配置</LiquidGlassButton>
         <LiquidGlassButton @click="enrollmentDialogVisible = false">关闭</LiquidGlassButton>
       </template>
     </AppDialog>
@@ -320,10 +345,15 @@ import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { LiquidGlassButton, LiquidGlassInput, LiquidGlassSelect, LiquidGlassTable, LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
 import { projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
+import SdkArtifactInstall from '@/views/registry/components/SdkArtifactInstall.vue'
+import { sdkGuideUrls } from '@/views/registry/sdkAccessWizardViewModel'
+import { sdkAccessLanguageOptions, type SdkAccessLanguage } from '@/views/registry/composables/useSdkAccessWizardUiState'
+import { useSdkAccessWizardActions } from '@/views/registry/composables/useSdkAccessWizardActions'
 import { useCollapsiblePageHeader } from '@/composables/useCollapsiblePageHeader'
 import {
   createScanProject,
   getScanProjects,
+  getSdkArtifactManifest,
   type ScanProjectListQuery,
 } from '@/api/scanProject'
 import { issueRegistryEnrollment } from '@/api/registry'
@@ -358,6 +388,35 @@ const issuedEnrollment = ref<RegistryEnrollmentToken | null>(null)
 const issuedProject = ref<RegistryProjectRegisterRequest | null>(null)
 const enrollmentTokenVisible = ref(false)
 const enrollmentError = ref('')
+const enrollmentLanguage = ref<SdkAccessLanguage>('java')
+const sdkArtifactManifest = ref<Awaited<ReturnType<typeof getSdkArtifactManifest>>['data'] | null>(null)
+const loadingSdkArtifacts = ref(false)
+const sdkArtifactError = ref('')
+const { copyText } = useSdkAccessWizardActions()
+
+const enrollmentTokenEnv = computed(() => {
+  if (enrollmentLanguage.value === 'java') return 'REACHAI_REGISTRY_ENROLLMENT_TOKEN'
+  if (enrollmentLanguage.value === 'csharp') return 'ReachAI__EnrollmentToken'
+  return 'REACHAI_ENROLLMENT_TOKEN'
+})
+
+async function loadSdkArtifacts() {
+  if (loadingSdkArtifacts.value) return
+  loadingSdkArtifacts.value = true
+  sdkArtifactError.value = ''
+  try {
+    const { data } = await getSdkArtifactManifest()
+    sdkArtifactManifest.value = data
+  } catch {
+    sdkArtifactError.value = '无法读取平台 SDK 制品，请检查服务后重试。'
+  } finally {
+    loadingSdkArtifacts.value = false
+  }
+}
+
+watch(enrollmentDialogVisible, (visible) => {
+  if (visible && !sdkArtifactManifest.value) void loadSdkArtifacts()
+})
 
 /** 限制表格主体高度，使横向滚动条落在视口内（靠近浏览器窗口底部），无需先滚到卡片最底 */
 const projectTableMaxHeight = ref(480)
@@ -427,7 +486,8 @@ const enrollmentSnippet = computed(() => {
     '  registry:',
     '    enabled: true',
     `    url: \${REACHAI_REGISTRY_URL:${registryPublicUrl()}}`,
-    `    enrollment-token: ${JSON.stringify(issuedEnrollment.value.enrollmentToken)}`,
+    '    enrollment-token: ${REACHAI_REGISTRY_ENROLLMENT_TOKEN}',
+    '    credential-store-path: ${REACHAI_REGISTRY_CREDENTIAL_STORE_PATH:}',
     '  project:',
     `    code: ${JSON.stringify(issuedEnrollment.value.projectCode)}`,
     `    name: ${JSON.stringify(project.name)}`,
@@ -445,14 +505,6 @@ const enrollmentSnippet = computed(() => {
   ].join('\n')
 })
 
-const visibleEnrollmentSnippet = computed(() => {
-  if (enrollmentTokenVisible.value || !issuedEnrollment.value) return enrollmentSnippet.value
-  return enrollmentSnippet.value.replace(
-    `enrollment-token: ${JSON.stringify(issuedEnrollment.value.enrollmentToken)}`,
-    'enrollment-token: "******"',
-  )
-})
-
 function registryPublicUrl() {
   // 业务系统要访问的是用户当前打开的 ReachAI 公网入口，而不是开发机的 Control 端口
   return typeof window === 'undefined' ? 'http://localhost:18603' : window.location.origin
@@ -462,6 +514,10 @@ function clearEnrollment() {
   issuedEnrollment.value = null
   issuedProject.value = null
   enrollmentTokenVisible.value = false
+}
+
+async function copyEnrollmentToken() {
+  if (issuedEnrollment.value) await copyText(issuedEnrollment.value.enrollmentToken)
 }
 
 async function copyEnrollmentSnippet() {

@@ -54,7 +54,7 @@ public class RuntimeEmbedUsageSource implements EmbedUsageSource {
     }
 
     /** Runtime serializes LocalDateTime as ISO text (or, with timestamps on, as an array). */
-    static LocalDateTime time(Object value) {
+    public static LocalDateTime time(Object value) {
         if (value instanceof String text && !text.isBlank()) {
             try {
                 return LocalDateTime.parse(text.trim().replace(' ', 'T'));

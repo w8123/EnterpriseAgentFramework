@@ -26,7 +26,7 @@ public class RuntimeWorkflowDocumentCanonicalizer {
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
     private static final Set<String> GRAPH_SPEC_FIELDS = Set.of(
-            "schemaVersion", "inputSchema", "stateSchema", "nodes", "edges", "entryNodeId", "exitNodeIds");
+            "schemaVersion", "inputSchema", "stateSchema", "env", "nodes", "edges", "entryNodeId", "exitNodeIds");
     private static final Set<String> GRAPH_NODE_FIELDS = Set.of(
             "id", "type", "name", "description", "ref", "inputs", "outputs",
             "inputSchema", "outputSchema", "retry", "errorPolicy", "config");

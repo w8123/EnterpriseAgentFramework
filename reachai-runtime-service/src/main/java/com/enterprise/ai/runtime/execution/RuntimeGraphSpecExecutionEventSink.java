@@ -19,6 +19,10 @@ public interface RuntimeGraphSpecExecutionEventSink {
     default void onNodeStarted(String nodeId, String nodeType, String nodeName, Map<String, Object> safePayload) {
     }
 
+    /** Internal callback for a debugger. The state must never be emitted as an execution event. */
+    default void onNodeInputSnapshot(String nodeId, Map<String, Object> state) {
+    }
+
     default void onNodeDelta(String nodeId, String nodeType, String text, Map<String, Object> safePayload) {
     }
 

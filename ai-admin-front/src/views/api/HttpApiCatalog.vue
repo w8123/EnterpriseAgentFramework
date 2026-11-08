@@ -30,6 +30,7 @@
     <div v-if="scopeReady && projectId && currentProject" class="api-catalog-actions">
       <span class="api-catalog-actions-label">{{ currentProject.name }}</span>
       <el-button :disabled="!rows.length" @click="authDialog = true">接口鉴权</el-button>
+      <AiHandoffButton scenario="http-api-import" size="small" :context="{ projectCode: currentProject.projectCode }" missing-hint="当前项目还没有设置项目编码。" />
       <el-button v-if="canWriteProject" type="primary" @click="addDialog = true">添加 API</el-button>
     </div>
     <BusinessCapabilityCatalogList v-if="scopeReady && projectId" :current-page="page" :page-size="size" :total="total"
@@ -156,6 +157,7 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ElSelect } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'

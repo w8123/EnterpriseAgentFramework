@@ -3,7 +3,7 @@
     {
       "category": "violation",
       "file": "src/views/KnowledgeList.vue",
-      "line": 149,
+      "line": 150,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",
@@ -12,7 +12,7 @@
     {
       "category": "violation",
       "file": "src/views/registry/RegistryProjectDetail.vue",
-      "line": 593,
+      "line": 594,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",
@@ -21,7 +21,7 @@
     {
       "category": "violation",
       "file": "src/views/registry/RegistryProjectDetail.vue",
-      "line": 611,
+      "line": 612,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",

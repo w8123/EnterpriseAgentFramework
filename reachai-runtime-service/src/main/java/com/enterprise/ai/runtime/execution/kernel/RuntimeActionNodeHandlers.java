@@ -89,6 +89,81 @@ final class RuntimeActionNodeHandlers {
         return WorkflowInteractionNodeHandler.execute(node, context);
     }
 
+    /**
+     * HUMAN_APPROVAL pauses the run until the person running it approves or rejects, reusing the
+     * INTERACTION pause/resume state. Routes: approved / rejected. Automation, MCP and evaluation runs
+     * cannot pause and fail closed.
+     */
+    RuntimeGraphSpecExecutionResult executeHumanApproval(GraphSpec.Node node, RuntimeNodeExecutionContext execution) {
+        Map<String, Object> context = execution.variables();
+        Map<String, Object> raw = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> config = new LinkedHashMap<>();
+        if (raw.get("approvalConfig") instanceof Map<?, ?> nested) {
+            nested.forEach((key, value) -> config.put(String.valueOf(key), value));
+        }
+        raw.forEach((key, value) -> {
+            if (!"approvalConfig".equals(key) && value != null) config.put(key, value);
+        });
+        WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
+        if (identity.source() == WorkflowExecutionIdentity.Source.AUTOMATION) {
+            return failure("AUTOMATION_INTERACTION_REQUIRED",
+                    "定时自动化不能等待人工确认：" + node.getId(), node.getId(), "HUMAN_APPROVAL");
+        }
+        if (identity.source() == WorkflowExecutionIdentity.Source.MCP_REMOTE_CLIENT
+                || identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE) {
+            return failure("MCP_WORKFLOW_INTERACTION_UNSUPPORTED",
+                    "通过 MCP 调用时不能暂停等待人工确认：" + node.getId(), node.getId(), "HUMAN_APPROVAL");
+        }
+        RuntimeEvalExecutionContext evaluation = RuntimeTrustedExecutionContexts.evaluation(context);
+        if (evaluation.isEvaluation()) {
+            return evalSideEffectBlocked(node, "HUMAN_APPROVAL",
+                    "Eval execution blocks HUMAN_APPROVAL because resumable sessions are not sandboxed", evaluation);
+        }
+        Map<String, Object> interactionConfig = new LinkedHashMap<>();
+        interactionConfig.put("interactionType", "CONFIRM_ACTION");
+        interactionConfig.put("title", firstNonBlank(text(config.get("title")), node.getName(), "人工确认"));
+        String prompt = text(config.get("prompt"));
+        interactionConfig.put("message", valueResolver.renderTemplate(
+                prompt == null || prompt.isBlank() ? "{{ lastOutput }}" : prompt, context));
+        interactionConfig.put("outputAlias", firstNonBlank(text(config.get("outputAlias")), "approval_result"));
+        Object timeout = config.get("timeoutSeconds");
+        if (timeout != null) interactionConfig.put("ttlSeconds", timeout);
+        GraphSpec.Node synthetic = new GraphSpec.Node();
+        synthetic.setId(node.getId());
+        synthetic.setName(node.getName());
+        synthetic.setType("INTERACTION");
+        synthetic.setConfig(interactionConfig);
+        RuntimeGraphSpecExecutionResult result = WorkflowInteractionNodeHandler.execute(synthetic, context);
+        Map<String, Object> metadata = result.metadata() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(result.metadata());
+        metadata.put("nodeType", "HUMAN_APPROVAL");
+        if (result.success()) {
+            String route = "confirm".equalsIgnoreCase(String.valueOf(metadata.get("route"))) ? "approved" : "rejected";
+            metadata.put("route", route);
+            metadata.put("lastRoute", route);
+            context.put("route", route);
+            context.put("lastRoute", route);
+            Map<String, Object> structured = new LinkedHashMap<>();
+            structured.put("approved", "approved".equals(route));
+            structured.put("decision", route);
+            Object submitted = metadata.get("submittedPayload");
+            if (submitted instanceof Map<?, ?> values && values.get("comment") != null) {
+                structured.put("comment", values.get("comment"));
+            }
+            metadata.put("structuredOutput", structured);
+            return new RuntimeGraphSpecExecutionResult(true, result.code(), "approved".equals(route) ? "已批准" : "已拒绝",
+                    node.getId(), "HUMAN_APPROVAL", result.steps(), metadata);
+        }
+        return new RuntimeGraphSpecExecutionResult(false, result.code(), result.answer(), node.getId(), "HUMAN_APPROVAL",
+                result.steps(), metadata);
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value.trim();
+        }
+        return null;
+    }
+
     RuntimeGraphSpecExecutionResult executeTool(GraphSpec.Node node,
                                                 RuntimeNodeExecutionContext execution) {
         String nodeType = "TOOL";

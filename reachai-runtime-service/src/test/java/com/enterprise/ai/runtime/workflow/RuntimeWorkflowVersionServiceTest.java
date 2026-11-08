@@ -238,7 +238,7 @@ class RuntimeWorkflowVersionServiceTest {
     void rollbackRejectsHistoricalCodeSnapshotBeforeAnyWrite() {
         RuntimeWorkflowVersionService actualService = realValidationService();
         RuntimeWorkflowVersionEntity historical = historicalVersion("""
-                {"nodes":[{"id":"code","type":"CODE"}],"entryNodeId":"code","exitNodeIds":["code"]}
+                {"nodes":[{"id":"code","type":"DOCUMENT_EXTRACT"}],"entryNodeId":"code","exitNodeIds":["code"]}
                 """);
 
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,

@@ -67,4 +67,20 @@ public interface RuntimeCapabilityCatalogClient {
         throw new UnsupportedOperationException("Business method draft scope is unavailable");
     }
 
+    /**
+     * Thread-confined execution scope (read-only trial draft pins) captured on the calling thread so that
+     * parallel branches, parallel iterations and timed node attempts keep exactly the same authority.
+     * Returns null when no scope is active.
+     */
+    default Object captureThreadScope() {
+        return null;
+    }
+
+    /** Installs a scope captured by {@link #captureThreadScope()} on a worker thread. */
+    default void installThreadScope(Object captured) {
+    }
+
+    /** Removes any scope installed on the current worker thread. */
+    default void clearThreadScope() {
+    }
 }

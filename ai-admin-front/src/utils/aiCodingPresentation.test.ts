@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   aiCodingConnectionCanRestore,
+  aiCodingProviderLabel,
+  AI_CODING_EXECUTOR_OPTIONS,
   aiCodingConnectionStatusDescription,
   aiCodingConnectionStatusLabel,
   aiCodingExecutionAcceptsClientAccess,
@@ -11,6 +13,11 @@ import {
 } from './aiCodingPresentation'
 
 describe('aiCodingPresentation', () => {
+  it('shows other MCP coding tools without changing the manual selector options', () => {
+    expect(aiCodingProviderLabel('OTHER')).toBe('其他 AI 工具')
+    expect(AI_CODING_EXECUTOR_OPTIONS.map(option => option.value)).toEqual(['CODEX', 'CURSOR', 'TRAE', 'CLAUDE_CODE'])
+  })
+
   it('keeps connection activity separate from delivery and acceptance status', () => {
     expect(aiCodingConnectionStatusLabel('ACTIVE')).toBe('对接中')
     expect(aiCodingConnectionStatusLabel('TIMED_OUT')).toBe('对接超时')

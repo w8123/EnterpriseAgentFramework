@@ -881,7 +881,7 @@ public class RuntimeWorkflowProposalGenerationService {
     }
 
     private boolean isBuiltinVariableAlias(String alias) {
-        return Set.of("input", "answer", "lastOutput", "previousOutput", "lastRoute", "lastSuccess", "lastError", "params", "sys", "var", "nodeOutput")
+        return Set.of("input", "answer", "lastOutput", "previousOutput", "lastRoute", "lastSuccess", "lastError", "params", "sys", "env", "var", "nodeOutput")
                 .contains(alias);
     }
 
@@ -1042,6 +1042,21 @@ public class RuntimeWorkflowProposalGenerationService {
         return resources.get(compactToken(ref));
     }
 
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder) {
+        this.usageRecorder = usageRecorder;
+    }
+
+    private void recordAuthoringUsage(String modelInstanceId, ModelChatResult result) {
+        var recorder = usageRecorder;
+        if (recorder != null && result != null && result.getData() != null && result.getData().getUsage() != null) {
+            recorder.record(null, com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.SOURCE_WORKFLOW_AUTHORING, modelInstanceId,
+                    result.getData().getUsage().getPromptTokens(), result.getData().getUsage().getCompletionTokens());
+        }
+    }
+
     private String callModel(RuntimeWorkflowProposalGenerationRequest request) throws JsonProcessingException {
         ModelChatResult result = modelServiceClient.chat(ModelChatRequest.builder()
                 .modelInstanceId(request.modelInstanceId())
@@ -1050,6 +1065,7 @@ public class RuntimeWorkflowProposalGenerationService {
                         ChatMessage.builder().role("user").content(prompts.userPrompt(request)).build()))
                 .options(Map.of("temperature", 0.2))
                 .build());
+        recordAuthoringUsage(request.modelInstanceId(), result);
         if (result == null || result.getData() == null || !StringUtils.hasText(result.getData().getContent())) {
             throw new IllegalArgumentException("empty model response");
         }

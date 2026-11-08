@@ -56,6 +56,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !path.startsWith("/internal/runtime/automations")
                 && !path.startsWith("/internal/runtime/session-retention/")
                 && !path.startsWith("/internal/runtime/mcp/tool-executions")
+                && !path.startsWith("/internal/runtime/usage/")
                 && !isConsoleCapabilityInvocationPath(path)
                 && !isHttpApiConsolePath(path)
                 && !isAgentConfigDraftPath(path)

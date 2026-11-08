@@ -1,61 +1,108 @@
-# ReachAI 文档
+# ReachAI 操作手册
 
-从接入第一个业务方法，到发布可治理的 AI 助手。这里提供产品说明、操作指南、系统接入、部署运维与开发参考，供使用者和 AI 智能体共同阅读。
+ReachAI 让员工用一句话操作企业里的业务系统：在业务系统右下角的助手里问，或者在自己的 Codex、Claude Code 里说。AI 以员工本人的身份办事，改数据要审批，每一步都有记录。
 
-## 从你的任务开始
+手册按角色组织，找到你的角色，从第一篇开始读。所有例子都用同一套开源 ERP（芋道 ERP），截图来自真实运行的系统。
 
-| 我想做什么 | 从这里开始 | 完成后继续 |
-| --- | --- | --- |
-| 第一次了解和使用 ReachAI | [快速入门](quickstart.md) | [接入第一个模型](guides/model-setup.md) |
-| 把现有企业系统接入 AI | [系统接入](integration.md) | [在业务页面嵌入对话](guides/embed-chat.md) |
-| 编排并发布业务助手 | [创建第一个 Workflow](guides/first-workflow.md) | [Agent 与标准 Skill](agent.md) |
-| 用自己的 AI 工具办理业务 | [员工 AI 工具接入](guides/employee-ai-tools.md) | [身份与安全](security.md) |
-| 安装并维护一套服务 | [部署与运维手册](部署与运维手册.md) | [运维与验收](operations.md) |
-| 让 AI 工具理解或开发本项目 | [AI 阅读入口](for-agents.md) | [架构](architecture.md)与[开发](development.md) |
+## 第一次了解 ReachAI
 
-## 学习路径
+- [ReachAI 是什么](start/what-is-reachai.md)：解决什么问题，适合谁。
+- [一句话怎么变成一次 ERP 操作](start/how-it-works.md)：用一张图讲清楚原理。
+- [在自己电脑上体验 ReachAI](start/try-in-10-minutes.md)：一条命令跑起 ReachAI 和芋道 ERP。
+- [名词解释](start/glossary.md)：Agent、Workflow、MCP、Skill 都是什么。
 
-- **业务系统开发者**：[产品概念](product.md) → [系统接入](integration.md) → [页面对话](guides/embed-chat.md) → [业务能力与 Workflow](workflow.md)。
-- **Agent / Workflow 实施人员**：[接入模型](guides/model-setup.md) → [第一个 Workflow](guides/first-workflow.md) → [发布 Agent](agent.md) → [知识问答](guides/knowledge-qa.md)。
-- **管理员与运维人员**：[安装](部署与运维手册.md) → [身份与安全](security.md) → [员工 AI 工具](guides/employee-ai-tools.md) → [运维与验收](operations.md)。
+## 我是业务人员
 
-## 常用指南
+用 AI 查数据、办业务，不需要懂技术。
 
-- [常见问题与排查](faq.md)：模型、来源同步、调用、审批和检索问题。
-- [芋道 ERP 接入实战](guides/芋道ERP接入ReachAI实施步骤.md)：后端身份桥、页面补丁与验收。
-- [用 Claude Code 操作芋道](guides/用Claude%20Code操作芋道.md)：员工连接与审批实例。
-- [Docker 体验](../deploy/quickstart/README.md)：在本机体验已接入的业务系统。
+1. [在业务系统里用 AI 助手](business/use-assistant.md)
+2. [在自己的 Codex / Claude Code 里办业务](business/own-ai-tool.md)
+3. [让 AI 帮你改数据：为什么要审批](business/write-and-approval.md)
+4. [我的个人页](business/my-portal.md)
+5. [让 AI 记住你的习惯](business/memory.md)
+6. [用同事沉淀的 Skill](business/skills.md)
+7. [业务人员常见问题](business/faq.md)
 
-## 主题文档
+## 我是管理人员
 
-| 任务 | 文档 |
+决定员工能让 AI 做什么，处理审批，看使用情况，沉淀好做法。
+
+1. [管理人员的工作台](manager/workspace.md)
+2. [开通员工使用](manager/open-to-employees.md)
+3. [调用权限：谁能让 AI 做什么](manager/permissions.md)
+4. [审批 AI 提交的操作](manager/approvals.md)
+5. [看员工的 AI 使用情况](manager/usage.md)
+6. [运行中心：查每一次运行](manager/run-center.md)
+7. [把好的做法沉淀成 Skill](manager/skills.md)
+8. [让 AI 按计划自动办事](manager/automations.md)
+
+## 我是平台管理员
+
+安装和维护 ReachAI，管理账号。
+
+1. [安装 ReachAI](admin/install.md)
+2. [第一次登录和「开始使用」](admin/first-login.md)
+3. [账号和角色](admin/accounts-and-roles.md)
+4. [日常运维：升级、备份、恢复、卸载](admin/operations.md)
+5. [平台常见问题和排查](admin/troubleshooting.md)
+
+## 我是开发者
+
+把业务系统接入 ReachAI，开发助手和流程，开放给员工的 AI 工具。
+
+1. [开发者从这里开始](developer/overview.md)
+2. [接入第一个业务系统](developer/connect-project.md)
+3. 声明业务方法：[Java / Spring Boot](developer/java-starter.md)、[C#、Python、Node.js、Go](developer/other-sdks.md)、[没有 SDK：导入 OpenAPI](developer/openapi-import.md)
+4. [业务身份桥：让 AI 以员工本人身份办事](developer/business-identity.md)
+5. [核对业务能力](developer/capabilities.md)
+6. [接入模型](developer/model-setup.md)
+7. [创建第一个 Workflow](developer/first-workflow.md)
+8. [配置和调试 Agent](developer/agent.md)
+9. [在业务页面嵌入助手](developer/embed-chat.md)
+10. [发布 MCP 服务给员工](developer/publish-mcp.md)
+11. [交给我的 AI：让 Codex、Claude Code 帮你干活](developer/ai-tool-handoff.md)
+12. [用 AI 改造业务能力](developer/retrofit.md)
+13. [创建知识库](developer/knowledge-base.md)
+14. [芋道 ERP 接入实战](developer/yudao-example.md)
+15. [开发者常见问题](developer/troubleshooting.md)
+
+## 深入原理
+
+- [一句话怎么变成一次 ERP 操作](start/how-it-works.md)
+- [身份怎么一路传到业务系统](principles/identity.md)
+- [AI 能做什么、不能做什么](principles/safety.md)
+- [ReachAI 由哪些部分组成](principles/architecture.md)
+
+## 参考资料
+
+给开发 ReachAI 本身、或需要精确规则的读者。手册里的文章讲「怎么做」，这里讲「规则是什么」。
+
+| 主题 | 文档 |
 | --- | --- |
-| 了解 ReachAI、用户和核心对象 | [产品](product.md) |
-| 理解服务、数据归属和代码边界 | [架构](architecture.md) |
+| 产品概念 | [产品](product.md) |
+| 服务、数据归属和代码边界 | [架构](architecture.md) |
 | 构建、开发、测试与排错 | [开发](development.md) |
-| 接入业务系统和业务页面 | [系统接入](integration.md) |
-| 使用业务方法/API、设计和调试流程 | [业务能力与 Workflow](workflow.md) |
-| 配置 Agent、记忆和标准 Skill | [Agent](agent.md) |
-| 使用知识、业务索引和模型 | [数据与模型](data.md) |
-| 理解登录、业务身份、权限和安全 | [身份与安全](security.md) |
-| 使用 MCP、员工 AI 工具与 A2A | [开放协议](protocols.md) |
-| 用外部编码工具改造系统或编排流程 | [AI Coding](ai-coding.md) |
-| 修改管理端页面与公共组件 | [前端设计](../ai-admin-front/DESIGN.md) |
-| 安装、升级、备份（一条命令） | [部署与运维手册](部署与运维手册.md) |
+| 业务能力与 Workflow | [业务能力与 Workflow](workflow.md) |
+| Agent、记忆和标准 Skill | [Agent](agent.md) |
+| 知识、业务索引和模型 | [数据与模型](data.md) |
+| 登录、业务身份、权限和安全 | [身份与安全](security.md) |
+| MCP、员工 AI 工具与 A2A | [开放协议](protocols.md) |
+| 用外部编码工具改造系统 | [AI Coding](ai-coding.md) |
+| 管理端页面与公共组件 | [前端设计](../ai-admin-front/DESIGN.md) |
 | 部署、验收和恢复 | [运维](operations.md) |
-| 确认支持范围和未完成事项 | [当前边界](status.md) |
+| 支持范围和未完成事项 | [当前边界](status.md) |
 
-## 精确清单
-
-以下清单供开发核对与自动检查；业务说明不再重复完整表和接口列表。
+精确清单（供开发核对与自动检查）：
 
 - [表所有权](contracts/tables.md)：每张表的唯一 owning service。
 - [内部 API](contracts/internal-apis.md)：服务间接口、owner 与消费者。
 - [公共路由](contracts/public-routes.md)：浏览器和外部客户端的入口与凭证域。
 - [SDK 接入协议](contracts/sdk-protocol.md)：跨语言注册、同步、调用与身份协议。
 
-## 文档与 AI 阅读
+## 给 AI 阅读
 
-官网文档中心使用本目录及相关模块的 Markdown 构建，网页、搜索和 AI 文本使用同一份内容；官网源码仅在开发仓库维护，开源发布按[同步规则](development.md#开源同步)排除官网目录。阅读方法见 [AI 阅读入口](for-agents.md)。在仓库中工作的 AI 先读根目录 [AGENTS.md](../AGENTS.md)，再读相关主题及源码。模块 README 只解释模块本身，源码和配置决定当前实现。
+官网文档中心用本目录的 Markdown 构建，网页、搜索和 AI 文本是同一份内容。阅读方法见 [AI 阅读入口](for-agents.md)。在仓库中工作的 AI 先读根目录 [AGENTS.md](../AGENTS.md)。
 
-源码存在、测试通过、运行环境可用和真实业务验收分别判断。文档不保存执行流水、旧决策、历史授权或归档副本；需要的待验条件集中在[当前边界](status.md)。
+## 截图怎么来的
+
+手册截图由 `scripts/capture-manual-screenshots.mjs` 从本机一键体验环境自动拍摄。界面改了以后重跑一次脚本，截图就会更新。

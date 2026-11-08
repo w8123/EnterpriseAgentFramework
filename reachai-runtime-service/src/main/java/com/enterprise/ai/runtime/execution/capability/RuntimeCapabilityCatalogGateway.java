@@ -44,6 +44,21 @@ public class RuntimeCapabilityCatalogGateway implements RuntimeCapabilityCatalog
     private final ObjectMapper objectMapper;
     private final ThreadLocal<BusinessMethodDraftScope> businessMethodDraft = new ThreadLocal<>();
 
+    @Override
+    public Object captureThreadScope() {
+        return businessMethodDraft.get();
+    }
+
+    @Override
+    public void installThreadScope(Object captured) {
+        if (captured instanceof BusinessMethodDraftScope scope) businessMethodDraft.set(scope);
+    }
+
+    @Override
+    public void clearThreadScope() {
+        businessMethodDraft.remove();
+    }
+
     /**
      * Request-local whole-draft trial scope. Only pinned node ids may dispatch, each only to its own pinned
      * qualified name, at most {@link WorkflowReadOnlyTrialPolicy#MAX_DISPATCHES_PER_NODE} times per node and

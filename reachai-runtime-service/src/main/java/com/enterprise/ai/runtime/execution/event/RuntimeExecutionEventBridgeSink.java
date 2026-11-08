@@ -95,6 +95,11 @@ public final class RuntimeExecutionEventBridgeSink implements RuntimeGraphSpecEx
     }
 
     @Override
+    public void onNodeInputSnapshot(String nodeId, Map<String, Object> state) {
+        delegate.onNodeInputSnapshot(nodeId, state);
+    }
+
+    @Override
     public void onNodeStarted(String nodeId,
                               String nodeType,
                               String nodeName,

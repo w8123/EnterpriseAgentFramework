@@ -28,7 +28,7 @@ const EMPTY_GRAPH_SPEC: WorkflowGraphSpec = {
 }
 
 const GRAPH_SPEC_FIELDS = new Set([
-  'schemaVersion', 'inputSchema', 'stateSchema', 'nodes', 'edges', 'entryNodeId', 'exitNodeIds',
+  'schemaVersion', 'inputSchema', 'stateSchema', 'env', 'nodes', 'edges', 'entryNodeId', 'exitNodeIds',
 ])
 const GRAPH_NODE_FIELDS = new Set([
   'id', 'type', 'name', 'description', 'ref', 'inputs', 'outputs',
@@ -40,7 +40,7 @@ const GRAPH_EDGE_FIELDS = new Set([
 const GRAPH_NODE_TYPES = new Set([
   'LLM', 'USER_INPUT', 'INTERACTION', 'PAGE_ACTION', 'TOOL',
   'IF_ELSE', 'VARIABLE_ASSIGN', 'TEMPLATE', 'ANSWER', 'CODE', 'INTENT_CLASSIFIER',
-  'VARIABLE_AGGREGATOR', 'HUMAN_APPROVAL', 'LOOP', 'KNOWLEDGE_WRITE',
+  'VARIABLE_AGGREGATOR', 'HUMAN_APPROVAL', 'LOOP', 'PARALLEL', 'LIST_OPERATOR', 'SUB_WORKFLOW', 'KNOWLEDGE_WRITE',
   'DOCUMENT_EXTRACT', 'MCP_CALL', 'PARAMETER_EXTRACT', 'HTTP_REQUEST',
   'KNOWLEDGE_RETRIEVAL',
 ])

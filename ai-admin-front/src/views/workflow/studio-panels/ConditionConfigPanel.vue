@@ -17,19 +17,13 @@
         <div v-for="(item, index) in group.conditions" :key="index" class="condition-row">
           <el-input v-model="item.left" placeholder="左值：lastOutput.status" />
           <el-select v-model="item.operator" style="width: 150px">
-            <el-option label="存在" value="exists" />
-            <el-option label="为空" value="empty" />
-            <el-option label="非空" value="not_empty" />
-            <el-option label="等于" value="equals" />
-            <el-option label="不等于" value="not_equals" />
-            <el-option label="包含" value="contains" />
-            <el-option label="不包含" value="not_contains" />
-            <el-option label="大于" value="gt" />
-            <el-option label="大于等于" value="gte" />
-            <el-option label="小于" value="lt" />
-            <el-option label="小于等于" value="lte" />
+            <el-option v-for="op in CONDITION_OPERATORS" :key="op.value" :label="op.label" :value="op.value" />
           </el-select>
-          <el-input v-model="item.right" placeholder="右值" />
+          <el-input
+            v-model="item.right"
+            :disabled="isUnaryOperator(item.operator)"
+            :placeholder="isUnaryOperator(item.operator) ? '无需右值' : operatorPlaceholder(item.operator)"
+          />
           <el-button text type="danger" @click="group.conditions.splice(index, 1)">删除</el-button>
         </div>
         <el-button
@@ -51,6 +45,7 @@
 import ConfigSection from './ConfigSection.vue'
 import { computed } from 'vue'
 import type { CanvasNodeData, ConditionNodeConfig } from '@/types/studio'
+import { CONDITION_OPERATORS, isUnaryOperator, operatorPlaceholder } from './conditionOperators'
 
 const props = defineProps<{ data: CanvasNodeData }>()
 

@@ -61,7 +61,13 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
         assertNotEquals(UNSUPPORTED, codes.get("TEMPLATE"));
         assertNotEquals(UNSUPPORTED, codes.get("VARIABLE_AGGREGATOR"));
         assertNotEquals(UNSUPPORTED, codes.get("LOOP"));
-        assertEquals(15, codes.size());
+        assertEquals("RUNTIME_GRAPH_PARALLEL_BRANCH_COUNT_INVALID", codes.get("PARALLEL"));
+        assertEquals("RUNTIME_GRAPH_CODE_OUTPUTS_REQUIRED", codes.get("CODE"));
+        assertEquals("RUNTIME_GRAPH_LIST_SOURCE_REQUIRED", codes.get("LIST_OPERATOR"));
+        assertEquals("RUNTIME_GRAPH_SUB_WORKFLOW_REQUIRED", codes.get("SUB_WORKFLOW"));
+        assertEquals("RUNTIME_GRAPH_KNOWLEDGE_WRITE_KB_REQUIRED", codes.get("KNOWLEDGE_WRITE"));
+        assertEquals("RUNTIME_GRAPH_INTERACTION_WAITING", codes.get("HUMAN_APPROVAL"));
+        assertEquals(21, codes.size());
     }
 
     @Test
@@ -96,8 +102,14 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                 "VARIABLE_AGGREGATOR",
                 "KNOWLEDGE_RETRIEVAL",
                 "HTTP_REQUEST",
-                "LOOP"), RuntimeGraphSpecExecutor.handledNodeTypes());
-        assertEquals(Arrays.stream(AgentGraphNodeType.values()).count(), 20);
+                "LOOP",
+                "PARALLEL",
+                "CODE",
+                "LIST_OPERATOR",
+                "SUB_WORKFLOW",
+                "KNOWLEDGE_WRITE",
+                "HUMAN_APPROVAL"), RuntimeGraphSpecExecutor.handledNodeTypes());
+        assertEquals(Arrays.stream(AgentGraphNodeType.values()).count(), 23);
     }
 
     private Map<String, Object> minimalContext(String nodeType) {
@@ -191,6 +203,12 @@ class RuntimeGraphSpecExecutorHandlerConformanceTest {
                       {"id":"tpl","type":"TEMPLATE","config":{"template":"{{ var.item }}"}}
                     ],"exitNodeIds":["n1"]}
                     """;
+            case "PARALLEL" -> """
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"PARALLEL","config":{}}],"exitNodeIds":["n1"]}
+                    """;
+            case "CODE", "LIST_OPERATOR", "SUB_WORKFLOW", "KNOWLEDGE_WRITE", "HUMAN_APPROVAL" -> """
+                    {"entryNodeId":"n1","nodes":[{"id":"n1","type":"%s","config":{}}],"exitNodeIds":["n1"]}
+                    """.formatted(nodeType);
             default -> throw new IllegalArgumentException("unexpected handled type: " + nodeType);
         };
     }

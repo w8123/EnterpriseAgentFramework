@@ -28,6 +28,7 @@ public class ControlAiAssistSkillController {
     private static final String PUBLISHER = "reachai";
     private static final String AGENT_AI_CODING = "agent-ai-coding";
     private static final String ONBOARDING = "reachai-onboarding";
+    private static final String CAPABILITY_RETROFIT = "reachai-capability-retrofit";
     private static final String WORKFLOW_AI_CODING = "workflow-ai-coding";
 
     private final AgentSkillCatalogService catalogService;
@@ -49,6 +50,16 @@ public class ControlAiAssistSkillController {
     @GetMapping("/skills/agent-ai-coding/latest")
     public ResponseEntity<SkillPackageResponse> latestAgentAiCodingSkill(HttpServletRequest request) {
         return ResponseEntity.ok(skillResponse(request, AGENT_AI_CODING));
+    }
+
+    @GetMapping("/skills/reachai-capability-retrofit/latest")
+    public ResponseEntity<SkillPackageResponse> latestCapabilityRetrofitSkill(HttpServletRequest request) {
+        return ResponseEntity.ok(skillResponse(request, CAPABILITY_RETROFIT));
+    }
+
+    @GetMapping(value = "/skills/reachai-capability-retrofit/latest.zip", produces = "application/zip")
+    public ResponseEntity<byte[]> downloadLatestCapabilityRetrofitSkill() {
+        return zipResponse(CAPABILITY_RETROFIT);
     }
 
     @GetMapping(value = "/skills/reachai-onboarding/latest.zip", produces = "application/zip")

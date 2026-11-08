@@ -157,6 +157,13 @@ describe('EmployeePortal', () => {
 
     const wrapper = mount(EmployeePortal, { global: { stubs: { LiquidGlassButton: { template: '<button v-bind="$attrs"><slot /></button>' } } } })
     await flushPromises()
+    expect(wrapper.text()).toContain('用你习惯的 AI 工具，在已接入的业务系统中查询信息、协助办理业务')
+    expect(wrapper.text()).toContain('帮我在芋道 ERP中使用「查询库存」')
+    expect(wrapper.text()).not.toContain('帮我在芋道 ERP中使用「新建客户」')
+    expect(wrapper.text()).not.toContain('查看最近的订单')
+    await wrapper.get('input[type="checkbox"]').setValue(false)
+    expect(wrapper.text()).not.toContain('接入后，试着说')
+    await wrapper.get('input[type="checkbox"]').setValue(true)
     await wrapper.get('[data-testid="get-install-prompt"]').trigger('click')
     await flushPromises()
 

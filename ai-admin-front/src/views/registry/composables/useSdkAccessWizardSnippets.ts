@@ -5,7 +5,6 @@ import type {
 } from '@/types/scanProject'
 import {
   highlightJsCode,
-  highlightXmlCode,
   highlightYamlCode,
 } from '@/views/registry/composables/sdkAccessWizardCodeHighlight'
 
@@ -20,12 +19,6 @@ export interface UseSdkAccessWizardSnippetsDeps {
 export function useSdkAccessWizardSnippets(
   deps: UseSdkAccessWizardSnippetsDeps,
 ) {
-  const starterDependencySnippet = computed(() => `<dependency>
-  <groupId>com.enterprise.ai</groupId>
-  <artifactId>reachai-spring-boot2-starter</artifactId>
-  <version>1.0.0-SNAPSHOT</version>
-</dependency>`)
-
   const registryPublicUrl = computed(() =>
     deps.aiOnboardingManifest.value?.sdk?.config?.registryUrl
     || (typeof window === 'undefined' ? '' : window.location.origin)
@@ -35,24 +28,21 @@ export function useSdkAccessWizardSnippets(
   registry:
     enabled: true
     url: \${REACHAI_REGISTRY_URL:${registryPublicUrl.value}}
-    app-key: ${deps.project.value?.registryAppKey || 'your-app-key'}
+    app-key: ${JSON.stringify(deps.project.value?.registryAppKey || 'your-app-key')}
     app-secret: \${REACHAI_REGISTRY_APP_SECRET}
   project:
-    code: ${deps.project.value?.projectCode || deps.projectCode.value}
-    name: ${deps.project.value?.name || 'your-service-name'}
-    base-url: ${deps.project.value?.baseUrl || 'http://localhost:8080'}
+    code: ${JSON.stringify(deps.project.value?.projectCode || deps.projectCode.value)}
+    name: ${JSON.stringify(deps.project.value?.name || 'your-service-name')}
+    base-url: ${JSON.stringify(deps.project.value?.baseUrl || 'https://business.example.com')}
     # 必须填写 ReachAI 服务端实际可访问的业务系统地址；localhost 仅适用于同机、同网络命名空间联调。
-    context-path: ${deps.project.value?.contextPath || ''}
-    environment: ${deps.project.value?.environment || 'dev'}
+    context-path: ${JSON.stringify(deps.project.value?.contextPath || '')}
+    environment: ${JSON.stringify(deps.project.value?.environment || 'dev')}
   capability:
     scan-beans: true
     scan-mode: ANNOTATED_ONLY
     # ANNOTATED_ONLY 只同步 @ReachCapability 业务方法；要把 Controller 接口同步为 HTTP API，
     # 改为 ALL_CONTROLLERS 并用 scan-packages 限定包名。启动只注册项目与实例，同步在项目内手动触发。`)
 
-  const highlightedStarterDependencySnippet = computed(() =>
-    highlightXmlCode(starterDependencySnippet.value),
-  )
   const highlightedStarterApplicationSnippet = computed(() =>
     highlightYamlCode(starterApplicationSnippet.value),
   )
@@ -82,7 +72,8 @@ export function useSdkAccessWizardSnippets(
         - id: ${code}-reachai-token-broker
           uri: \${REACHAI_BUSINESS_SERVICE_URL:http://localhost:18089}
           predicates:
-            - Path=/api/reachai/embed-token
+            - Path=/reachai/embed/token
+            - Method=POST
 
 # Browser -> ReachAI Embed API. Preserve the ReachAI Embed Token Authorization header.
         - id: ${code}-reachai-embed
@@ -90,7 +81,7 @@ export function useSdkAccessWizardSnippets(
           predicates:
             - Path=/api/reachai/embed/**
           filters:
-            - RewritePath=/api/reachai/embed/(?<segment>.*), /api/embed/\${segment}
+            - RewritePath=/api/reachai/embed/?(?<segment>.*), /api/embed/$\\{segment}
             - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials, RETAIN_FIRST
 
 # /reachai/registry/** and /reachai/capabilities/** must bypass ordinary business
@@ -100,7 +91,7 @@ export function useSdkAccessWizardSnippets(
 # /api/reachai/embed/** needs an independent security chain that does not run the
 # business OAuth2 resource server. permitAll() alone is not sufficient.
 # It is anonymous only to business login validation; do not remove Authorization.
-# /api/reachai/embed-token intentionally remains on the normal business login chain.
+# /reachai/embed/token remains on the normal business login and CSRF chain.
 #
 # Starter callback/invocation traffic must preserve:
 # X-ReachAI-Invocation-Token
@@ -132,7 +123,7 @@ export function useSdkAccessWizardSnippets(
       ? '/api/reachai/embed'
       : '/api/embed'
     const configuredTokenBrokerPath =
-      deps.embedTokenPath.value.trim() || '/api/reachai/embed-token'
+      deps.embedTokenPath.value.trim() || '/reachai/embed/token'
     const tokenBrokerUrl =
       /^https?:\/\//i.test(configuredTokenBrokerPath)
         ? configuredTokenBrokerPath
@@ -151,13 +142,14 @@ import '@reachai/embed-chat/style.css'
 const pageKey = '<current-page-key>'
 const route = window.location.pathname || '/'
 const pageBridge = createEafPageBridge({ route })
-const provisionedAgentKeySlug = '${expectedKeySlug}'
+// 将此值核对为实际已发布且允许嵌入的 Agent 标识。
+const agentId = ${JSON.stringify(expectedKeySlug)}
 
-void createEafChat({
+const chat = await createEafChat({
   mount: '#reachai-chat',
-  apiBase: '${chatApiBase}',
+  apiBase: ${JSON.stringify(chatApiBase)},
   embedPathPrefix: '${embedPathPrefix}',
-  agentId: provisionedAgentKeySlug,
+  agentId,
   position: 'bottom-right',
   initialOpen: false,
   tokenTimeoutMs: 10000,
@@ -171,19 +163,19 @@ void createEafChat({
     if (!tokenContext?.pageInstanceId) {
       throw new Error('ReachAI page identity is unavailable')
     }
-    const query = new URLSearchParams({
-      projectCode: '${code}',
-      agentId: provisionedAgentKeySlug,
-      pageKey: tokenContext.pageKey || pageKey,
-      pageInstanceId: tokenContext.pageInstanceId,
-      route: tokenContext.route,
-      origin: tokenContext.origin,
-    })
-    // If the business app uses bearer-token interceptors, replace fetch with its
-    // existing authenticated HTTP client. The broker must receive business identity.
-    const response = await fetch('${tokenBrokerUrl}?' + query, {
+    // 按宿主要求使用已有登录请求客户端，并附上需要的 CSRF 请求头。
+    const response = await fetch(${JSON.stringify(tokenBrokerUrl)}, {
+      method: 'POST',
       credentials: 'include',
-      signal: tokenContext?.signal,
+      headers: { 'Content-Type': 'application/json' },
+      signal: tokenContext.signal,
+      body: JSON.stringify({
+        agentId,
+        pageKey: tokenContext.pageKey,
+        pageInstanceId: tokenContext.pageInstanceId,
+        route: tokenContext.route,
+        origin: tokenContext.origin,
+      }),
     })
     if (!response.ok) {
       throw Object.assign(new Error('embed token broker failed'), { status: response.status })
@@ -196,15 +188,9 @@ void createEafChat({
     if (!token) throw new Error('ReachAI embed token missing')
     return { token, expiresIn: payload.data?.expiresIn || payload.expiresIn }
   },
-}).catch((error) => {
-  console.error(
-    '[ReachAI] chat initialization failed',
-    error instanceof Error ? error.message : 'unknown error',
-  )
 })
 
-// Browser runtime only requests a short-lived embed token from the business token broker.
-// Never store registry secrets, AI Coding task tokens or project-level keys in browser config.`
+// 在宿主组件卸载或业务退出登录时调用 chat.destroy()。`
   })
 
   const highlightedFrontendSnippet = computed(() =>
@@ -212,9 +198,7 @@ void createEafChat({
   )
 
   return {
-    starterDependencySnippet,
     starterApplicationSnippet,
-    highlightedStarterDependencySnippet,
     highlightedStarterApplicationSnippet,
     gatewaySnippet,
     highlightedGatewaySnippet,

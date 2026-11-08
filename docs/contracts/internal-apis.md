@@ -67,6 +67,7 @@
 | `POST /internal/capability/embed/token/exchange/verify` | `reachai-capability-service` | `reachai-control-service` | No |
 | `GET /internal/capability/projects/by-id/{projectId}/tools` | `reachai-capability-service` | `reachai-runtime-service`, `reachai-control-service` | No |
 | `GET /internal/capability/projects/by-id/{projectId}/readiness-facts` | `reachai-capability-service` | `reachai-control-service` | No |
+| `GET /internal/capability/projects/by-id/{projectId}/business-method-states` | `reachai-capability-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/managed-executions` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `GET /internal/runtime/managed-executions/{executionId}` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/managed-executions/{executionId}:cancel` | `reachai-runtime-service` | `reachai-control-service` | No |
@@ -91,6 +92,8 @@
 | `POST /internal/runtime/session-retention/tenants/{tenantId}/sessions/{sessionId}/erase` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/session-retention/tenants/{tenantId}/owner-erasure` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `GET /internal/model/instances`, `GET /internal/model/instances/{id}` | `reachai-model-service` | `reachai-runtime-service`, `reachai-control-service` | No；Model 验证精确 body、原始路径和查询参数的服务 HMAC，持久化 nonce 防重放；Runtime 仅读列表，管理限 Control |
+| `GET /internal/model/instance-prices` | `reachai-model-service` | `reachai-control-service` | No；服务 HMAC；只返回每百万 Token 输入/输出价格和币种，供 /usage 费用估算 |
+| `GET /internal/runtime/usage/model-tokens`, `GET /internal/runtime/usage/audit-runs` | `reachai-runtime-service` | `reachai-control-service` | No；服务 HMAC，仅接受 Control 调用；按天/人/系统/入口/模型汇总 Token，及审计导出用的运行明细（不含对话内容） |
 | `POST /internal/knowledge/retrieval/query` | `reachai-knowledge-service` | `reachai-runtime-service` | No |
 | `POST /internal/knowledge/personal-memories/events` | `reachai-knowledge-service` | `reachai-control-service` | No |
 | `POST /internal/knowledge/personal-memories/query` | `reachai-knowledge-service` | `reachai-control-service` | No |

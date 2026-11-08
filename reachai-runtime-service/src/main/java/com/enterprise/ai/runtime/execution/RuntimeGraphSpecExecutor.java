@@ -87,6 +87,22 @@ public final class RuntimeGraphSpecExecutor {
                 httpApis);
     }
 
+    @Autowired(required = false)
+    public void setSubWorkflowPort(RuntimeSubWorkflowPort subWorkflowPort) {
+        engine.setSubWorkflowPort(subWorkflowPort);
+    }
+
+    @Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder recorder) {
+        engine.setModelUsageRecorder(recorder);
+    }
+
+    @Autowired(required = false)
+    public void setKnowledgeWriteClient(
+            com.enterprise.ai.runtime.client.knowledge.RuntimeKnowledgeWriteClient knowledgeWriteClient) {
+        engine.setKnowledgeWriteClient(knowledgeWriteClient);
+    }
+
     public static Set<String> handledNodeTypes() {
         return RuntimeGraphSpecExecutionEngine.handledNodeTypes();
     }
@@ -141,6 +157,14 @@ public final class RuntimeGraphSpecExecutor {
         RuntimeExecutionTraceProjector projector = new RuntimeExecutionTraceProjector(sink);
         return projector.project(engine.execute(
                 graphSpecJson, request, projector, cancellation, identity, evalContext));
+    }
+
+    /** Runs only one node (Studio "test this node"); downstream nodes are not executed. */
+    public RuntimeGraphSpecExecutionResult executeSingleNode(String graphSpecJson,
+                                                             Map<String, Object> request,
+                                                             String nodeId) {
+        return engine.executeSingleNode(graphSpecJson, request, nodeId,
+                WorkflowExecutionIdentity.untrustedDebug(), RuntimeEvalExecutionContext.none());
     }
 
     public RuntimeGraphSpecExecutionResult executeFromNode(String graphSpecJson,
@@ -215,7 +239,7 @@ public final class RuntimeGraphSpecExecutor {
                             "executionEngineVersion", executionEngineVersion == null ? "" : executionEngineVersion));
         }
         return executeFromNode(
-                graphSpecJson, state, entryNodeId,
+                graphSpecJson, RuntimeGraphSpecExecutionEngine.restoreCheckpointScope(state), entryNodeId,
                 RuntimeGraphSpecExecutionEventSink.NOOP,
                 RuntimeGraphSpecExecutionCancellation.none(),
                 identity == null ? WorkflowExecutionIdentity.untrustedDebug() : identity,

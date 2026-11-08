@@ -1,6 +1,8 @@
 package com.enterprise.ai.control.aiassist;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
+import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -10,6 +12,23 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/ai-assist/artifacts")
 public class ControlAiAssistArtifactController {
+
+    @GetMapping("/manifest")
+    public SdkArtifactManifest manifest(HttpServletRequest request) {
+        String baseUrl = ControlAiAssistSkillController.requestBaseUrl(request);
+        return manifestForBaseUrl(baseUrl);
+    }
+
+    public SdkArtifactManifest manifestForBaseUrl(String baseUrl) {
+        return new SdkArtifactManifest(
+                ControlAiAssistProjectController.sdkArtifacts(baseUrl),
+                baseUrl + "/api/ai-assist/skills/reachai-onboarding/latest.zip");
+    }
+
+    public record SdkArtifactManifest(
+            List<ControlAiAssistProjectController.SdkArtifact> sdkArtifacts,
+            String skillPackageUrl) {
+    }
 
     @GetMapping("/go-sdk/{filename}")
     public ResponseEntity<byte[]> downloadGoSdk(@PathVariable("filename") String filename) throws IOException {

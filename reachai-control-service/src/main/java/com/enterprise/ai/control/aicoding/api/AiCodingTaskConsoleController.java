@@ -11,7 +11,6 @@ import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.AnswerQuesti
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.AcceptanceVerificationView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.CreateTaskCommand;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.HandoffIssueCommand;
-import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.HandoffPackageView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskDetailView;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.TaskView;
 import jakarta.servlet.http.HttpServletRequest;
@@ -24,6 +23,7 @@ import com.enterprise.ai.control.managed.ControlManagedExecutionRuntimeClient.Ar
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -36,6 +36,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.List;
+import java.util.Map;
 import java.nio.charset.StandardCharsets;
 
 @RestController
@@ -163,11 +164,17 @@ public class AiCodingTaskConsoleController {
     }
 
     @PostMapping("/{taskId}/handoffs")
-    public ResponseEntity<HandoffPackageView> issueHandoff(
+    public ResponseEntity<?> issueHandoff(
             @PathVariable String taskId,
             @RequestBody(required = false) HandoffIssueCommand command,
             HttpServletRequest request) {
-        requireTask(request, taskId, true);
+        TaskDetailView detail = requireTask(request, taskId, true);
+        if ("PROJECT_ONBOARDING".equals(detail.task().taskKind())) {
+            return ResponseEntity.status(HttpStatus.GONE).body(Map.of(
+                    "schema", "reachai.ai-coding.error.v1",
+                    "code", "PROJECT_ONBOARDING_MCP_REQUIRED",
+                    "message", "项目接入请使用已连接 ReachAI 的 AI 工具，通过通用 MCP 发起或继续任务。"));
+        }
         return ResponseEntity.ok(handoffService.issue(
                 taskId,
                 AiCodingRequestSupport.publicBaseUrl(request),
@@ -229,6 +236,11 @@ public class AiCodingTaskConsoleController {
     }
 
     /** The console route rule only admits the permission somewhere; each task is checked against its own project. */
+    /** Lets the MCP adapter apply the same per-project check before a coding agent touches a task. */
+    void requireTaskAccess(HttpServletRequest request, String taskId, boolean write) {
+        requireTask(request, taskId, write);
+    }
+
     private TaskDetailView requireTask(HttpServletRequest request, String taskId, boolean write) {
         PlatformAuthenticatedSession session = session(request);
         TaskDetailView detail = taskService.detail(taskId);

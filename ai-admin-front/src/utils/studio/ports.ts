@@ -56,11 +56,13 @@ export function defaultPorts(kind: CanvasNodeKind, direction: 'input' | 'output'
     return [
       { id: 'approved', name: 'approved', type: 'boolean' },
       { id: 'rejected', name: 'rejected', type: 'boolean' },
-      { id: 'timeout', name: 'timeout', type: 'boolean' },
     ]
   }
   if (kind === 'loop') {
     return [{ id: 'output', name: 'output', type: 'array' }]
+  }
+  if (kind === 'parallel') {
+    return [{ id: 'branches', name: 'branches', type: 'object' }]
   }
   if (kind === 'condition' || kind === 'classifier') {
     if (kind === 'classifier') {

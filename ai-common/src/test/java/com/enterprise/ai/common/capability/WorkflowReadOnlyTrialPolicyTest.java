@@ -64,7 +64,7 @@ class WorkflowReadOnlyTrialPolicyTest {
                 "MCP", "{\"id\":\"mcp\",\"type\":\"MCP_CALL\"}",
                 "APPROVAL", "{\"id\":\"approve\",\"type\":\"HUMAN_APPROVAL\"}",
                 "COLLECT", "{\"id\":\"ask\",\"type\":\"INTERACTION\",\"config\":{\"interactionType\":\"COLLECT_INPUT\"}}",
-                "UNKNOWN", "{\"id\":\"code\",\"type\":\"CODE\"}",
+                "UNKNOWN", "{\"id\":\"extract\",\"type\":\"DOCUMENT_EXTRACT\"}",
                 "UNBOUND_TOOL", "{\"id\":\"empty\",\"type\":\"TOOL\",\"config\":{}}",
                 "DUPLICATE", "{\"id\":\"llm\",\"type\":\"LLM\"}");
         for (var mutation : mutations.entrySet()) {

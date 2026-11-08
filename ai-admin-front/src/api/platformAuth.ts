@@ -53,6 +53,8 @@ export interface PlatformAccountUserView extends PlatformUserView {
   updatedAt?: string
   activeSessionCount: number
   grants: PlatformUserRoleGrant[]
+  /** The bound business-system account id for accounts that sign in with a business account. */
+  loginSubject?: string | null
 }
 
 export interface PlatformPermissionView {
@@ -121,6 +123,69 @@ export async function logoutPlatform() {
   markPlatformSessionAnonymous()
 }
 
+/** 「用业务系统账号登录」 buttons shown on the login page (public). */
+export interface BusinessLoginButton {
+  code: string
+  label: string
+}
+
+export interface BusinessSsoProviderView {
+  code: string
+  label: string
+  projectCode: string
+  authorizeUrl: string
+  tokenUrl: string
+  userInfoUrl: string
+  clientId: string
+  clientSecretPresent: boolean
+  scope?: string
+  userIdPath: string
+  userNamePath?: string
+  extraHeaders: Record<string, string>
+  active: boolean
+}
+
+export interface BusinessSsoProviderList {
+  callbackUrl: string
+  encryptionAvailable: boolean
+  providers: BusinessSsoProviderView[]
+}
+
+export interface BusinessSsoProviderCommand {
+  label: string
+  projectCode: string
+  authorizeUrl: string
+  tokenUrl: string
+  userInfoUrl: string
+  clientId: string
+  /** Empty keeps the stored secret. */
+  clientSecret?: string
+  scope?: string
+  userIdPath: string
+  userNamePath?: string
+  extraHeaders: Record<string, string>
+  active: boolean
+}
+
+export function listBusinessLoginButtons() {
+  return controlRequest.get<BusinessLoginButton[]>('/api/platform/auth/sso/providers', {
+    platformAuthFailure: 'ignore',
+  })
+}
+
+/** Full-page navigation: the server redirects to the business system's own login. */
+export function businessLoginStartUrl(code: string) {
+  return `/api/platform/auth/sso/${encodeURIComponent(code)}/start`
+}
+
+export function listBusinessSsoProviders() {
+  return controlRequest.get<BusinessSsoProviderList>('/api/platform/sso-providers')
+}
+
+export function saveBusinessSsoProvider(code: string, body: BusinessSsoProviderCommand) {
+  return controlRequest.put<BusinessSsoProviderView>(`/api/platform/sso-providers/${encodeURIComponent(code)}`, body)
+}
+
 export function listPlatformAuthProviders() {
   return controlRequest.get<PlatformAuthProviderView[]>('/api/platform/auth-providers')
 }
@@ -145,9 +210,12 @@ export function createPlatformAccount(body: {
   displayName: string
   email?: string
   mobile?: string
-  password: string
+  password?: string
   status: string
   grants: PlatformUserRoleGrantCommand[]
+  /** Business-system login entry code; the account then signs in only with that business account. */
+  loginProvider?: string
+  loginSubject?: string
 }) {
   return controlRequest.post<PlatformAccountUserView>('/api/platform/account-management/users', body)
 }

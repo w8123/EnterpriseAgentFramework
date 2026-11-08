@@ -56,10 +56,24 @@ final class RuntimeWorkflowNodeConfigValidator {
         }
     }
 
+    private static final Set<String> TIMEOUT_UNSUPPORTED_TYPES = Set.of(
+            "USER_INPUT", "INTERACTION", "HUMAN_APPROVAL", "PAGE_ACTION", "ANSWER");
+
     void validateErrorPolicy(GraphSpec.Node node,
                              Set<String> nodeIds,
                              RuntimeWorkflowReleaseValidationResult.Builder report) {
         GraphSpec.ErrorPolicy policy = node.getErrorPolicy();
+        if (policy != null && policy.getTimeoutMs() != null) {
+            long timeout = policy.getTimeoutMs();
+            String nodeType = AgentGraphNodeType.normalize(node.getType());
+            if (TIMEOUT_UNSUPPORTED_TYPES.contains(nodeType)) {
+                report.error("GRAPH_TIMEOUT_NOT_ALLOWED", node.getId(),
+                        "ErrorPolicy.timeoutMs is not supported for node type: " + nodeType);
+            } else if (timeout < 1_000L || timeout > 600_000L) {
+                report.error("GRAPH_TIMEOUT_INVALID", node.getId(),
+                        "ErrorPolicy.timeoutMs must be between 1000 and 600000");
+            }
+        }
         if (policy == null || !StringUtils.hasText(policy.getStrategy())) {
             return;
         }
@@ -135,6 +149,120 @@ final class RuntimeWorkflowNodeConfigValidator {
                 report.error("GRAPH_ASSIGNMENT_TARGET_INVALID", node.getId(),
                         "Invalid assignment target '" + target + "': " + ex.getMessage());
             }
+        }
+    }
+
+    private static final Set<String> LIST_OPERATIONS = Set.of("filter", "sort", "unique", "limit", "offset", "pluck");
+    private static final java.util.regex.Pattern CODE_INPUT_NAME = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
+
+    private static Map<String, Object> mergedConfig(GraphSpec.Node node, String nestedKey) {
+        Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> merged = new java.util.LinkedHashMap<>(mapValue(config.get(nestedKey)));
+        config.forEach((key, value) -> {
+            if (!nestedKey.equals(key) && value != null) merged.put(key, value);
+        });
+        return merged;
+    }
+
+    void validateCode(GraphSpec.Node node, RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Map<String, Object> config = mergedConfig(node, "codeConfig");
+        String language = firstText(text(config.get("language")), "expression");
+        if ("javascript".equalsIgnoreCase(language)) {
+            String code = text(config.get("code"));
+            if (!StringUtils.hasText(code)) {
+                report.error("GRAPH_CODE_REQUIRED", node.getId(), "代码节点需要填写代码");
+                return;
+            }
+            if (code.length() > 20_000) {
+                report.error("GRAPH_CODE_TOO_LONG", node.getId(), "代码超过 20000 个字符");
+            }
+            if (!code.matches("(?s).*function\\s+main\\s*\\(.*")) {
+                report.error("GRAPH_CODE_MAIN_MISSING", node.getId(), "代码里需要定义 function main(inputs) { ... }");
+            }
+            if (config.get("inputs") instanceof Map<?, ?> inputs) {
+                for (Object key : inputs.keySet()) {
+                    if (!CODE_INPUT_NAME.matcher(String.valueOf(key)).matches()) {
+                        report.error("GRAPH_CODE_INPUT_NAME_INVALID", node.getId(), "输入变量名不合法：" + key);
+                    }
+                }
+            }
+            int timeout = intValue(config.get("timeoutMs"), -1);
+            if (config.get("timeoutMs") != null && (timeout < 100 || timeout > 10_000)) {
+                report.error("GRAPH_CODE_TIMEOUT_INVALID", node.getId(), "代码运行时限需要在 0.1 到 10 秒之间");
+            }
+            return;
+        }
+        if (!"expression".equalsIgnoreCase(language)) {
+            report.error("GRAPH_CODE_LANGUAGE_INVALID", node.getId(), "代码节点只支持 javascript 或 expression");
+            return;
+        }
+        if (!(config.get("outputs") instanceof Map<?, ?> outputs) || outputs.isEmpty()) {
+            report.error("GRAPH_CODE_OUTPUTS_REQUIRED", node.getId(), "表达式模式至少需要一个输出字段");
+        }
+    }
+
+    void validateListOperator(GraphSpec.Node node, RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Map<String, Object> config = mergedConfig(node, "listConfig");
+        if (!StringUtils.hasText(text(config.get("source")))) {
+            report.error("GRAPH_LIST_SOURCE_REQUIRED", node.getId(), "列表处理需要选择一个列表");
+        }
+        if (config.get("operations") instanceof List<?> operations) {
+            for (Object raw : operations) {
+                Map<String, Object> operation = mapValue(raw);
+                String type = firstText(text(operation.get("type")), "").toLowerCase(Locale.ROOT);
+                if (!LIST_OPERATIONS.contains(type)) {
+                    report.error("GRAPH_LIST_OPERATION_INVALID", node.getId(), "不支持的列表操作：" + type);
+                } else if ("pluck".equals(type) && !StringUtils.hasText(text(operation.get("field")))) {
+                    report.error("GRAPH_LIST_FIELD_REQUIRED", node.getId(), "「提取字段」需要填写字段名");
+                } else if (Set.of("limit", "offset").contains(type)) {
+                    int count = intValue(operation.get("count"), -1);
+                    if (count < 0) {
+                        report.error("GRAPH_LIST_COUNT_INVALID", node.getId(), "「取前 N 项 / 跳过」需要一个不小于 0 的数字");
+                    }
+                }
+            }
+        } else if (config.get("operations") != null) {
+            report.error("GRAPH_LIST_OPERATION_INVALID", node.getId(), "operations 需要是列表");
+        }
+    }
+
+    /** Returns the pinned (workflowId, versionId) or null after reporting what is missing. */
+    String[] validateSubWorkflowReference(GraphSpec.Node node, String parentWorkflowId,
+                                          RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Map<String, Object> raw = node.getConfig() == null ? Map.of() : node.getConfig();
+        Map<String, Object> nested = mapValue(raw.get("subWorkflowConfig"));
+        for (String key : List.of("workflowId", "versionId")) {
+            if (raw.get(key) != null && nested.get(key) != null
+                    && !java.util.Objects.equals(text(raw.get(key)), text(nested.get(key)))) {
+                report.error("GRAPH_SUB_WORKFLOW_REFERENCE_CONFLICT", node.getId(), "子流程版本配置冲突，请重新选择");
+                return null;
+            }
+        }
+        Map<String, Object> config = mergedConfig(node, "subWorkflowConfig");
+        String workflowId = text(config.get("workflowId"));
+        String versionId = text(config.get("versionId"));
+        if (!StringUtils.hasText(workflowId)) {
+            report.error("GRAPH_SUB_WORKFLOW_REQUIRED", node.getId(), "子流程需要选择一个工作流");
+            return null;
+        }
+        if (workflowId.equals(parentWorkflowId)) {
+            report.error("GRAPH_SUB_WORKFLOW_CYCLE", node.getId(), "子流程不能调用工作流自己");
+            return null;
+        }
+        if (!StringUtils.hasText(versionId) || !versionId.matches("\\d{1,18}")) {
+            report.error("GRAPH_SUB_WORKFLOW_VERSION_REQUIRED", node.getId(), "子流程需要固定一个已发布版本");
+            return null;
+        }
+        if (config.get("inputs") != null && !(config.get("inputs") instanceof Map<?, ?>)) {
+            report.error("GRAPH_SUB_WORKFLOW_INPUTS_INVALID", node.getId(), "子流程的输入需要是「名称 → 值」");
+        }
+        return new String[]{workflowId, versionId};
+    }
+
+    void validateKnowledgeWrite(GraphSpec.Node node, RuntimeWorkflowReleaseValidationResult.Builder report) {
+        Map<String, Object> config = mergedConfig(node, "knowledgeWriteConfig");
+        if (!StringUtils.hasText(text(config.get("knowledgeBaseCode")))) {
+            report.error("GRAPH_KNOWLEDGE_WRITE_KB_REQUIRED", node.getId(), "写知识库需要选择一个知识库");
         }
     }
 

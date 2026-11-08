@@ -54,6 +54,52 @@ public class RuntimeWorkflowReleaseValidationService {
         this.resourceValidator = new RuntimeWorkflowResourceValidator(controlCatalogClient, resourceBindingService);
     }
 
+    private RuntimePublishedWorkflowSnapshotQuery publishedSnapshots;
+
+    @Autowired(required = false)
+    public void setPublishedSnapshots(RuntimePublishedWorkflowSnapshotQuery publishedSnapshots) {
+        this.publishedSnapshots = publishedSnapshots;
+    }
+
+    private static final java.util.Set<String> SUB_WORKFLOW_FORBIDDEN_CHILD_TYPES =
+            java.util.Set.of("HUMAN_APPROVAL", "PAGE_ACTION", "SUB_WORKFLOW");
+
+    /** The child must be a published version in the same project and must never pause or need a page. */
+    private void validatePinnedSubWorkflow(RuntimeWorkflowDefinitionEntity workflow, GraphSpec.Node node,
+                                           String workflowId, Long versionId,
+                                           RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (publishedSnapshots == null) {
+            report.warn("GRAPH_SUB_WORKFLOW_UNVERIFIED", node.getId(), "无法在发布时检查子流程版本");
+            return;
+        }
+        RuntimePublishedWorkflowSnapshot snapshot;
+        try {
+            snapshot = publishedSnapshots.resolve(workflowId, versionId);
+        } catch (RuntimeException ex) {
+            report.error("GRAPH_SUB_WORKFLOW_NOT_FOUND", node.getId(), "子流程的发布版本不存在或已不可用，请重新选择");
+            return;
+        }
+        if (StringUtils.hasText(workflow.getProjectCode()) && StringUtils.hasText(snapshot.projectCode())
+                && !workflow.getProjectCode().equals(snapshot.projectCode())) {
+            report.error("GRAPH_SUB_WORKFLOW_PROJECT_MISMATCH", node.getId(), "子流程必须属于同一个项目");
+        }
+        try {
+            GraphSpec child = objectMapper.readValue(snapshot.graphSpecJson(), GraphSpec.class);
+            for (GraphSpec.Node childNode : child.getNodes() == null ? java.util.List.<GraphSpec.Node>of() : child.getNodes()) {
+                String childType = AgentGraphNodeType.normalize(childNode.getType());
+                boolean blockingInteraction = "INTERACTION".equals(childType)
+                        && !nodeCapabilityRegistry.isPublishable(childType, childNode.getConfig());
+                if (SUB_WORKFLOW_FORBIDDEN_CHILD_TYPES.contains(childType) || blockingInteraction) {
+                    report.error("GRAPH_SUB_WORKFLOW_CHILD_UNSUPPORTED", node.getId(),
+                            "子流程里不能有人工审批、页面动作、交互暂停或再嵌套子流程：" + childNode.getId());
+                    return;
+                }
+            }
+        } catch (Exception ex) {
+            report.error("GRAPH_SUB_WORKFLOW_NOT_FOUND", node.getId(), "子流程的发布版本无法读取");
+        }
+    }
+
     public RuntimeWorkflowReleaseValidationResult validate(RuntimeWorkflowDefinitionEntity workflow) {
         RuntimeWorkflowReleaseValidationResult.Builder report = RuntimeWorkflowReleaseValidationResult.builder();
         if (workflow == null) {
@@ -188,7 +234,10 @@ public class RuntimeWorkflowReleaseValidationService {
                         case "PAGE_ACTION" -> " depends on a valid project/page/action catalog and Page Bridge context";
                         case "KNOWLEDGE_RETRIEVAL" -> " depends on Knowledge service availability and ACL";
                         case "HTTP_REQUEST" -> " depends on egress policy, credentials and remote endpoint availability";
-                        case "LOOP" -> " FOREACH v1 is bounded/serial; Browser/Live LOOP E2E is still PENDING";
+                        case "LOOP" -> " FOREACH/WHILE are bounded; Browser/Live LOOP E2E is still PENDING";
+                        case "PARALLEL" -> " branches run on isolated variables and must meet at one join node";
+                        case "CODE" -> " JavaScript runs in a sandbox without Java, network or files (3s default limit)";
+                        case "SUB_WORKFLOW" -> " runs the pinned published version; the child cannot pause";
                         case "INTERACTION" -> " PRESENT_OUTPUT is display-only; blocking interaction variants remain closed";
                         default -> "";
                     };
@@ -215,6 +264,14 @@ public class RuntimeWorkflowReleaseValidationService {
                     nodeConfigValidator.validateToolReference(node, type, report);
                 } else if ("INTERACTION".equals(type)) {
                     interactionValidator.validateInteractionNode(node, edges, report);
+                } else if ("HUMAN_APPROVAL".equals(type)) {
+                    if ((graph.getExitNodeIds() == null || !graph.getExitNodeIds().contains(nodeId))
+                            && !RuntimeWorkflowValidationSupport.hasRouteEdge(edges, nodeId, "approved")) {
+                        report.error("GRAPH_APPROVAL_APPROVED_ROUTE_REQUIRED", nodeId, "人工确认需要明确连接批准分支");
+                    }
+                    if (!RuntimeWorkflowValidationSupport.hasRouteEdge(edges, nodeId, "rejected")) {
+                        report.warn("GRAPH_APPROVAL_REJECTED_ROUTE_MISSING", nodeId, "拒绝时流程将在此安全结束");
+                    }
                 } else if ("VARIABLE_ASSIGN".equals(type)) {
                     nodeConfigValidator.validateVariableAssign(node, report);
                 } else if ("TEMPLATE".equals(type)) {
@@ -227,6 +284,18 @@ public class RuntimeWorkflowReleaseValidationService {
                     nodeConfigValidator.validateHttpRequest(node, report);
                 } else if ("LOOP".equals(type)) {
                     graphValidator.validateLoopNode(node, byId, edges, report);
+                } else if ("PARALLEL".equals(type)) {
+                    graphValidator.validateParallelNode(node, byId, edges, graph.getExitNodeIds(), report);
+                } else if ("CODE".equals(type)) {
+                    nodeConfigValidator.validateCode(node, report);
+                } else if ("LIST_OPERATOR".equals(type)) {
+                    nodeConfigValidator.validateListOperator(node, report);
+                } else if ("KNOWLEDGE_WRITE".equals(type)) {
+                    nodeConfigValidator.validateKnowledgeWrite(node, report);
+                    report.warn("GRAPH_KNOWLEDGE_WRITE", nodeId, "该节点会写入知识库；发布到员工 MCP 时按写操作处理");
+                } else if ("SUB_WORKFLOW".equals(type)) {
+                    String[] pin = nodeConfigValidator.validateSubWorkflowReference(node, workflow.getId(), report);
+                    if (pin != null) validatePinnedSubWorkflow(workflow, node, pin[0], Long.parseLong(pin[1]), report);
                 }
                 if ("PAGE_ACTION".equals(type)) {
                     RuntimeControlCatalogClient.PageActionCatalogEntry action =

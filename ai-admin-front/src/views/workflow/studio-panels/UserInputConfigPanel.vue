@@ -17,19 +17,26 @@
       <div v-for="(field, index) in config.fields" :key="index" class="field-row user-input-field-row">
         <el-input v-model="field.name" placeholder="变量名，如 question" />
         <el-select v-model="field.type" style="width: 112px">
-          <el-option label="string" value="string" />
-          <el-option label="number" value="number" />
-          <el-option label="integer" value="integer" />
-          <el-option label="boolean" value="boolean" />
-          <el-option label="object" value="object" />
-          <el-option label="array" value="array" />
-          <el-option label="file" value="file" />
+          <el-option label="文本" value="string" />
+          <el-option label="数字" value="number" />
+          <el-option label="整数" value="integer" />
+          <el-option label="是/否" value="boolean" />
+          <el-option label="对象 JSON" value="object" />
+          <el-option label="列表 JSON" value="array" />
+          <el-option label="文件链接" value="file" />
         </el-select>
         <el-switch v-model="field.required" active-text="必填" />
-        <el-input v-model="field.description" placeholder="展示名称 / 说明" />
+        <el-input v-model="field.description" placeholder="说明（员工 AI 工具会看到）" />
         <el-input v-model="field.defaultValue" placeholder="默认值" />
+        <el-input
+          v-if="field.type === 'string' || field.type === 'number' || field.type === 'integer'"
+          :model-value="(field.options || []).map((option) => option.value).join(', ')"
+          placeholder="可选值，逗号分隔（留空不限）"
+          @change="setOptions(field, $event)"
+        />
         <el-button text type="danger" @click="removeInputField(index)">删除</el-button>
       </div>
+      <div class="hint">这份表单就是工作流的入参：调试时按它填写，发布给员工 AI 工具时它就是工具的参数说明。</div>
       <div v-if="!config.fields.length" class="panel-empty-row">当前没有输入字段；流程不需要参数时可以留空。</div>
     </ConfigSection>
   </div>
@@ -38,7 +45,7 @@
 <script setup lang="ts">
 import ConfigSection from './ConfigSection.vue'
 import { computed, watch } from 'vue'
-import type { CanvasNodeData, UserInputNodeConfig } from '@/types/studio'
+import type { CanvasNodeData, StudioFieldSchema, UserInputNodeConfig } from '@/types/studio'
 import { userInputOutputPorts } from '@/utils/studio'
 import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 
@@ -73,6 +80,12 @@ watch(
   },
   { deep: true, immediate: true },
 )
+
+function setOptions(field: StudioFieldSchema, raw: string | number) {
+  const values = String(raw ?? '').split(/[,，]/).map((item) => item.trim()).filter(Boolean)
+  const numeric = field.type === 'number' || field.type === 'integer'
+  field.options = values.map((value) => ({ label: value, value: numeric && !Number.isNaN(Number(value)) ? Number(value) : value }))
+}
 
 function addInputField() {
   config.value.fields.push({

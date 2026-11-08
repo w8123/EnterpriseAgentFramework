@@ -185,7 +185,13 @@
               <el-form-item label="测试消息">
                 <el-input :model-value="debugMessage" @update:model-value="(value: string) => emit('update:debugMessage', value)" />
               </el-form-item>
-              <el-form-item label="模拟状态（JSON）">
+              <el-form-item label="上游数据（JSON）">
+                <template #label>
+                  <span class="debug-state-label">
+                    上游数据（JSON）
+                    <el-button link type="primary" size="small" @click="emit('use-last-run-state')">带入上次调试数据</el-button>
+                  </span>
+                </template>
                 <el-input
                   :model-value="debugStateText"
                   type="textarea"
@@ -193,9 +199,15 @@
                   @update:model-value="(value: string) => emit('update:debugStateText', value)"
                 />
               </el-form-item>
-              <el-button type="primary" size="small" :loading="debugLoading" @click="emit('run-node-debug')">
-                测试此节点
-              </el-button>
+              <div class="node-debug-actions">
+                <el-button type="primary" size="small" :loading="debugLoading" @click="emit('run-node-debug')">
+                  只运行此节点
+                </el-button>
+                <el-button size="small" :loading="debugLoading" @click="emit('rerun-from-node')">
+                  从这里往后运行
+                </el-button>
+              </div>
+              <div class="hint">只运行此节点不会继续执行后面的节点；「从这里往后运行」沿用上次调试的数据，从这个节点一直跑到结束。</div>
               <div v-if="debugResult?.nodeId === node.id" class="node-trace-block">
                 <span>
                   输出
@@ -310,6 +322,8 @@ const emit = defineEmits<{
   'delete-node': []
   'load-model-options': []
   'run-node-debug': []
+  'rerun-from-node': []
+  'use-last-run-state': []
   'open-published-runs': []
 }>()
 
@@ -724,5 +738,23 @@ onBeforeUnmount(() => stopResize?.())
 }
 .tab-label i.is-wait {
   background: var(--status-warning);
+}
+.debug-state-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.node-debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.node-debug-box .hint {
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>

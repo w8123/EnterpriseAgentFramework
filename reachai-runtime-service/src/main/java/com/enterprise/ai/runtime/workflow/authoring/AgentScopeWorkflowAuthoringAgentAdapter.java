@@ -39,6 +39,13 @@ import java.util.concurrent.atomic.AtomicReference;
 @RequiredArgsConstructor
 public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthoringAgentAdapter {
 
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder) {
+        this.usageRecorder = usageRecorder;
+    }
+
     private static final Logger log = LoggerFactory.getLogger(AgentScopeWorkflowAuthoringAgentAdapter.class);
 
     public static final int DEFAULT_MAX_ITERS = 8;
@@ -94,6 +101,11 @@ public class AgentScopeWorkflowAuthoringAgentAdapter implements WorkflowAuthorin
                     modelStreamClient,
                     objectMapper,
                     null);
+            var recorder = usageRecorder;
+            if (recorder != null) {
+                model.onUsage((modelId, inTokens, outTokens) -> recorder.record(
+                        null, com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.SOURCE_WORKFLOW_AUTHORING, modelId, inTokens, outTokens));
+            }
             GenerateOptions options = GenerateOptions.builder()
                     .temperature(0.1D)
                     .parallelToolCalls(false)

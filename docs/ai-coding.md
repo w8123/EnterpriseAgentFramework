@@ -30,6 +30,20 @@ AI Coding 将接入和改造目标交给外部编码工具，并在平台中保�
 
 页面扫描识别路由、组件与接口，不凭名称推断价值。分析结果区分 `confirmedFact`、`technicalInference`、`openQuestion`，给出代码引用、实施参考与验收标准。资源绑定必须关联真实项目和页面，发布与回放能回到同一业务对象。
 
+## 业务能力改造
+
+已接入的业务系统可以用 `CAPABILITY_RETROFIT` 任务让开发者自己的编码工具开放更多业务能力。入口在项目详情「用 AI 改造业务能力」（`/registry/projects/{projectCode}/capability-retrofit`），内置 Skill 为 `reachai-capability-retrofit`。
+
+| 阶段 | 事实来源 |
+| --- | --- |
+| 盘点 | 编码工具只读扫描，提交一个 `retrofit-select-` 开头的任务问题，body 为 `reachai.capability-retrofit-candidates.v1`（最多 20 项） |
+| 勾选 | 开发者在页面勾选，或在编码工具对话里明确说明后由工具代答；answer 为 `reachai.capability-retrofit-selection.v1` 或逗号分隔的 candidateKey |
+| 实施与同步 | 只给选中的方法加 SDK 声明；未勾选前任务内 `SDK_SYNC` 被拒绝 |
+| 报告 | `reachai.capability-retrofit-report.v1`，声明的能力必须都在勾选范围内 |
+| 验收 | `SELECTION_CONFIRMED` 与 `CAPABILITIES_ACCEPTED`：报告里的能力在能力评审中被人接受后才通过 |
+
+能力状态由 Capability 内部接口 `GET /internal/capability/projects/by-id/{projectId}/business-method-states` 按项目给出（ACCEPTED / PENDING_REVIEW / NOT_SYNCED / DISABLED）。不改代码时报告 `mode=OPENAPI_IMPORT`，按 HTTP API keySlug 核对。评审接受与发布给员工 MCP 仍由人操作，页面上的「加入并发布」复用 MCP 发布接口和其权限。
+
 ## Workflow API
 
 | 操作 | 入口 |

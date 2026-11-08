@@ -96,6 +96,13 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
     })
   }
 
+  function goCapabilityRetrofit() {
+    router.push({
+      name: 'CapabilityRetrofitWorkbench',
+      params: { projectCode: deps.project.value?.projectCode || projectCode.value },
+    })
+  }
+
   return {
     projectSection,
     selectProjectSection,
@@ -109,5 +116,6 @@ export function useRegistryProjectDetailNavigation(deps: UseRegistryProjectDetai
     goContextCandidateReview,
     goPageAssistantWizard,
     goSdkAccessWizard,
+    goCapabilityRetrofit,
   }
 }

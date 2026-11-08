@@ -63,6 +63,21 @@ class ReachAiAgentScopeChatModelTest {
     }
 
     @Test
+    void reportsEachRoundsTokensToUsageListener() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        RuntimeModelServiceClient client = request -> new ModelChatResult(200, "success",
+                new ModelChatData("hi", "test", "test", new ModelUsage(12, 3, 15), null, null, "stop"));
+        List<String> seen = new java.util.ArrayList<>();
+        ReachAiAgentScopeChatModel model = new ReachAiAgentScopeChatModel("model-1", client, objectMapper)
+                .onUsage((modelId, input, output) -> seen.add(modelId + ":" + input + ":" + output));
+
+        model.stream(List.of(Msg.builder().name("user").role(MsgRole.USER).textContent("q").build()), List.of(), null)
+                .blockLast();
+
+        assertEquals(List.of("model-1:12:3"), seen);
+    }
+
+    @Test
     void doesNotEmitPublicDeltasWhenRoundContainsToolCalls() {
         ObjectMapper objectMapper = new ObjectMapper();
         List<String> publicDeltas = new CopyOnWriteArrayList<>();

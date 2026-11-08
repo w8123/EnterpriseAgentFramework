@@ -21,6 +21,7 @@
         <template #actions>
           <LiquidGlassViewToggle v-model="viewMode" source="wallpaper" />
           <LiquidGlassButton source="wallpaper" v-if="canOpenRunOps" :icon="Connection" @click="router.push('/runops')">运行中心</LiquidGlassButton>
+          <AiHandoffButton v-if="canCreateAgent" scenario="agent-config" />
           <LiquidGlassButton source="wallpaper" v-if="canCreateAgent" type="primary" :icon="Plus" @click="handleCreate">
             新建智能体
           </LiquidGlassButton>
@@ -282,6 +283,7 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { formatDateTime } from '@/utils/dateTime'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'

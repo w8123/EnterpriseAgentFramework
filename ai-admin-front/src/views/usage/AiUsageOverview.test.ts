@@ -2,11 +2,13 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, inject, provide, reactive, toRef } from 'vue'
 import AiUsageOverview from './AiUsageOverview.vue'
-import { approvalSummary, filterPeople, formatRate, sortPeople } from './aiUsageView'
+import { approvalSummary, filterPeople, formatCost, formatRate, formatTokens, sortPeople } from './aiUsageView'
 import type { AiUsagePerson, AiUsageReport } from '@/types/mcp'
 
 const mocks = vi.hoisted(() => ({
   getAiUsageReport: vi.fn(),
+  getAiCostReport: vi.fn(),
+  downloadAiAuditExport: vi.fn(),
   push: vi.fn(),
   replace: vi.fn(),
   can: vi.fn(() => true),
@@ -14,7 +16,11 @@ const mocks = vi.hoisted(() => ({
 const routeState = reactive({ path: '/usage', hash: '', query: {} as Record<string, string | undefined> })
 
 vi.mock('@/auth/usePlatformCan', () => ({ usePlatformCan: () => ({ can: mocks.can, canAny: () => true }) }))
-vi.mock('@/api/mcp', () => ({ getAiUsageReport: (...args: unknown[]) => mocks.getAiUsageReport(...args) }))
+vi.mock('@/api/mcp', () => ({
+  getAiUsageReport: (...args: unknown[]) => mocks.getAiUsageReport(...args),
+  getAiCostReport: (...args: unknown[]) => mocks.getAiCostReport(...args),
+  downloadAiAuditExport: (...args: unknown[]) => mocks.downloadAiAuditExport(...args),
+}))
 vi.mock('vue-router', async (importOriginal) => ({
   ...(await importOriginal<typeof import('vue-router')>()),
   useRoute: () => routeState,
@@ -270,6 +276,43 @@ afterEach(() => {
 })
 
 describe('AI 使用情况', () => {
+  it('shows cost by person and asks for missing model prices', async () => {
+    mocks.getAiUsageReport.mockResolvedValue({ data: report() })
+    const line = (key: string, name: string, cost: number | null, partial = false) => ({
+      key, name, calls: 3, runs: 2, inputTokens: 120_000, outputTokens: 30_000, cost, partialCost: partial,
+    })
+    mocks.getAiCostReport.mockResolvedValue({
+      data: {
+        days: 30, projectCode: null, currency: 'CNY',
+        total: line('total', '合计', 1.5, true),
+        byDay: [line('2026-11-08', '2026-11-08', 1.5, true)],
+        people: [line('u:1', '张三', 1.2), line('x:AUTOMATION', '自动化任务', 0.3, true)],
+        systems: [], channels: [], models: [],
+        unpricedModels: [{ modelInstanceId: 'pro', name: 'DeepSeek Pro' }],
+        notice: null, available: true,
+      },
+    })
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.findAll('[role="tab"]').find((tab) => tab.text() === '费用')!.trigger('click')
+    await flushPromises()
+
+    expect(mocks.getAiCostReport).toHaveBeenCalledWith({ days: 30, projectCode: undefined }, expect.any(AbortSignal))
+    const panel = wrapper.find('.usage-detail-panel').text()
+    expect(panel).toContain('¥1.50 起')
+    expect(panel).toContain('张三')
+    expect(panel).toContain('自动化任务')
+    expect(panel).toContain('DeepSeek Pro 只统计了 Token')
+  })
+
+  it('formats tokens and cost for people who read Chinese', () => {
+    expect(formatTokens(12_345)).toBe('12,345')
+    expect(formatTokens(1_234_567)).toBe('123.5 万')
+    expect(formatCost(null, 'CNY')).toBe('未填价格')
+    expect(formatCost(0.004, 'CNY')).toBe('< ¥0.01')
+    expect(formatCost(12.3, 'USD')).toBe('$12.30')
+  })
+
   it('loads the last 30 days for all systems and shows the headline figures', async () => {
     mocks.getAiUsageReport.mockResolvedValue({ data: report() })
     const wrapper = mountPage()

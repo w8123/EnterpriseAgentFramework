@@ -47,6 +47,12 @@ Handler 注册表、发布校验、Studio 可配置节点与 AI 编辑共用能�
 
 只读试运行允许符合政策的整稿及已发布 Workflow 的已保存工作副本，不创建发布版本。写方法/API、页面动作、人工审批及不支持的副作用节点在任何派发前整体拒绝；目标、派发次数和时间上限以 [WorkflowReadOnlyTrialPolicy](../ai-common/src/main/java/com/enterprise/ai/common/capability/WorkflowReadOnlyTrialPolicy.java)为准。
 
+Studio 单节点调试走 `executeSingleNode`，只执行选中节点并返回其输出；「从这里往后运行」使用上次调试中该步骤进入时的输入快照，以 `debugOptions.entryNodeId` 从指定节点开始。旧记录、循环或并行内部步骤以及重复执行的节点缺少可用快照时不可重跑。调试步骤的 `output.nodeOutput` 取自运行结束时的状态快照，超过 16000 字符的值以提示代替。
+
+环境变量来自 GraphSpec 的 `env`，执行前写入 `env` 命名空间，请求参数不能覆盖；`sys.now`、`sys.today`、`sys.channel`、`sys.runId` 在缺省时由 Runtime 补齐。
+
+模板（`ai-admin-front/src/utils/workflowTemplates.ts`）和工作流文件导入导出（`workflowExchange.ts`，格式 `reachai-workflow` v1）只在前端生成新草稿，后端照常走创建、规范化和发布校验；导入时依赖清单按图重新计算，模型绑定被移除。
+
 ## 执行、交互和恢复
 
 编译器固定入口、出口、节点和边，Engine 负责推进、错误策略、取消与 Trace，Handler 通过类型化 Port 执行业务调用。统一变量解析器处理输入、路径和模板，节点不复制解析规则。

@@ -32,6 +32,7 @@ import type { ModelInstance, ModelInstanceTestResult, ModelTemplate } from '@/ty
 import ModelInstanceForm from './components/ModelInstanceForm.vue'
 import ModelConnectionReuseDialog from './components/ModelConnectionReuseDialog.vue'
 import ModelProviderIcon from './components/ModelProviderIcon.vue'
+import ModelPricePanel from './components/ModelPricePanel.vue'
 import ModelTemplatePicker from './components/ModelTemplatePicker.vue'
 import ModelTestResultPanel from './components/ModelTestResultPanel.vue'
 import {
@@ -476,6 +477,12 @@ onBeforeUnmount(() => {
         <WorkbenchPanel class="glass-workspace-adaptive model-detail__panel" title="默认模型参数" description="调用时使用的默认参数" density="comfortable">
           <pre class="json-block">{{ defaultOptionsJson }}</pre>
         </WorkbenchPanel>
+
+        <ModelPricePanel
+          v-if="instance.modelType === 'LLM'"
+          :model-id="instance.id"
+          :can-manage="canManageModels && !archived"
+        />
         </div>
 
         <div class="model-detail__column">

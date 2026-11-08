@@ -59,7 +59,7 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
         String toolName = McpDefaultToolNames.sanitize(firstText(
                 text(workflow.get("keySlug")),
                 workflowId));
-        String floor = trustedRiskFloor(activeVersion, workflowId);
+        String floor = trustedRiskFloor(activeVersion, workflowId, 0);
         String declaredRisk = riskLevel(workflow, activeVersion);
         if ("UNKNOWN".equals(declaredRisk)) declaredRisk = floor;
         return new McpToolProjection(toolName, description, inputSchemaJson,
@@ -68,17 +68,19 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
     }
 
     /** Classify only a pinned graph and owner-written release facts, never an editable draft. */
-    private String trustedRiskFloor(Map<String, Object> version, String workflowId) {
+    private String trustedRiskFloor(Map<String, Object> version, String workflowId, int depth) {
         Map<String, Object> snapshot = readMap(text(version.get("snapshotJson")));
         String graphJson = firstText(text(version.get("graphSpecSnapshotJson")), text(snapshot.get("graphSpec")));
         Object rawNodes = readMap(graphJson).get("nodes");
         if (!(rawNodes instanceof List<?> nodes)) throw unclassified(workflowId);
         boolean business = false;
         boolean http = false;
+        boolean knowledgeWrite = false;
+        String childFloor = "READ";
         Set<String> safe = Set.of("LLM", "USERINPUT", "INTERACTION", "IFELSE", "CONDITION", "VARIABLEASSIGN",
                 "VARIABLE", "TEMPLATE", "ANSWER", "INTENTCLASSIFIER", "CLASSIFIER", "VARIABLEAGGREGATOR",
                 "AGGREGATE", "HUMANAPPROVAL", "APPROVAL", "LOOP", "DOCUMENTEXTRACT", "PARAMETEREXTRACT",
-                "PARAMETER", "KNOWLEDGERETRIEVAL", "KNOWLEDGE");
+                "PARAMETER", "KNOWLEDGERETRIEVAL", "KNOWLEDGE", "PARALLEL", "CODE", "LISTOPERATOR");
         for (Object value : nodes) {
             if (!(value instanceof Map<?, ?> node)) throw unclassified(workflowId);
             String type = text(node.get("type"));
@@ -94,6 +96,11 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
                         || config.containsKey("httpApiAssetId");
                 if ("HTTP_API".equals(assetType) || apiReference) http = true;
                 if ("BUSINESS_METHOD".equals(assetType)) business = true;
+            } else if ("KNOWLEDGEWRITE".equals(key)) {
+                knowledgeWrite = true;
+            } else if ("SUBWORKFLOW".equals(key)) {
+                // A sub-workflow is pinned to one published version; its risk merges upward.
+                childFloor = higherFloor(childFloor, subWorkflowFloor(mapValue(node.get("config")), workflowId, depth));
             } else if (!safe.contains(key)) {
                 throw failure("MCP_WORKFLOW_RISK_UNRESOLVABLE", workflowId,
                         "Workflow 包含无法安全分类的节点，暂不能发布到 MCP: " + type);
@@ -111,6 +118,8 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
             if (apiFloor == null && !Boolean.TRUE.equals(snapshot.get("httpApiRiskClassified"))) throw unclassified(workflowId);
             if ("WRITE".equals(apiFloor) && !"IRREVERSIBLE".equals(floor)) floor = "WRITE";
         }
+        if (knowledgeWrite && "READ".equals(floor)) floor = "WRITE";
+        floor = higherFloor(floor, childFloor);
         // Any independently recorded owner floor applies even if a malformed graph would
         // otherwise hide its corresponding node from classification.
         String recordedBusinessFloor = text(snapshot.get("businessMethodRiskFloor"));
@@ -121,6 +130,56 @@ public class WorkflowItemContractResolver implements McpItemContractResolver {
         else if (("WRITE".equals(recordedBusinessFloor) || "WRITE".equals(recordedApiFloor))
                 && !"IRREVERSIBLE".equals(floor)) floor = "WRITE";
         return floor;
+    }
+
+    private static final int MAX_SUB_WORKFLOW_DEPTH = 3;
+    private static final List<String> FLOOR_ORDER = List.of("READ", "WRITE", "IRREVERSIBLE");
+
+    private String higherFloor(String left, String right) {
+        return FLOOR_ORDER.indexOf(right) > FLOOR_ORDER.indexOf(left) ? right : left;
+    }
+
+    private String subWorkflowFloor(Map<String, Object> config, String parentWorkflowId, int depth) {
+        Map<String, Object> nested = mapValue(config.get("subWorkflowConfig"));
+        String nestedId = text(nested.get("workflowId"));
+        String topId = text(config.get("workflowId"));
+        Long nestedVersion = longValue(nested.get("versionId"));
+        Long topVersion = longValue(config.get("versionId"));
+        if (nestedId != null && topId != null && !nestedId.equals(topId)
+                || nested.get("versionId") != null && config.get("versionId") != null
+                && !java.util.Objects.equals(nestedVersion, topVersion)) {
+            throw unclassified(parentWorkflowId);
+        }
+        String childId = firstText(topId, nestedId);
+        Long versionId = config.get("versionId") != null ? topVersion : nestedVersion;
+        if (childId == null || versionId == null || depth + 1 > MAX_SUB_WORKFLOW_DEPTH
+                || childId.equals(parentWorkflowId)) {
+            throw unclassified(parentWorkflowId);
+        }
+        Map<String, Object> pinned = pinnedVersion(childId, versionId, parentWorkflowId);
+        return trustedRiskFloor(pinned, childId, depth + 1);
+    }
+
+    private Map<String, Object> pinnedVersion(String workflowId, Long versionId, String parentWorkflowId) {
+        List<Map<String, Object>> versions;
+        try {
+            ResponseEntity<Object> response = runtimeProxyClient.listWorkflowVersions(workflowId);
+            if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+                throw unclassified(parentWorkflowId);
+            }
+            versions = convertList(response.getBody());
+        } catch (FeignException exception) {
+            throw failure("MCP_WORKFLOW_LOOKUP_FAILED", parentWorkflowId,
+                    "runtime service version lookup failed for sub-workflow " + workflowId
+                            + ": " + exception.getMessage());
+        }
+        return versions.stream()
+                .filter(version -> versionId.equals(longValue(version.get("id"))))
+                .filter(version -> Set.of("ACTIVE", "RETIRED").contains(
+                        String.valueOf(text(version.get("status"))).toUpperCase(Locale.ROOT)))
+                .findFirst()
+                .orElseThrow(() -> failure("MCP_WORKFLOW_RISK_UNRESOLVABLE", parentWorkflowId,
+                        "子流程固定的版本不存在或未发布，请重新选择子流程版本后再发布"));
     }
 
     private McpContractResolutionException unclassified(String workflowId) {

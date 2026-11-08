@@ -54,17 +54,15 @@ describe('C# SDK access', () => {
     expect(wizard.csharpError.value).toBe('')
   })
 
-  it('uses JSON POST for the C# broker and produces valid project configuration', () => {
+  it('produces valid C# configuration and registers the host identity adapters', () => {
     const project = ref({ projectCode: 'orders', name: '订单"系统', baseUrl: 'https://orders.example' } as ScanProject)
     const manifest = ref({ sdk: { config: { registryUrl: 'https://reachai.example' } } } as AiOnboardingManifest)
-    const javaSnippet = ref("const response = await fetch('/reachai/embed/token?' + query, {\n  credentials: 'include'\n})")
-    const snippets = useSdkAccessWizardCsharpSnippets(project, manifest, javaSnippet)
+    const snippets = useSdkAccessWizardCsharpSnippets(project, manifest)
     expect(JSON.parse(snippets.application.value).ReachAI.ProjectName).toBe('订单"系统')
     expect(JSON.parse(snippets.application.value).ReachAI.CredentialFilePath).toContain('持久凭据文件路径')
-    expect(snippets.frontend.value).toContain("fetch('/reachai/embed/token', {")
-    expect(snippets.frontend.value).toContain("method: 'POST'")
-    expect(snippets.frontend.value).toContain('JSON.stringify(Object.fromEntries(query.entries()))')
+    expect(snippets.startup).toContain('IReachAiEmbedPrincipalResolver')
     expect(snippets.startup).toContain('IReachAiSecurityContextBridge')
+    expect(snippets.startup).toContain('app.MapReachAI()')
   })
 
   it('loads only the verified Python artifact and produces a host-owned identity skeleton', async () => {

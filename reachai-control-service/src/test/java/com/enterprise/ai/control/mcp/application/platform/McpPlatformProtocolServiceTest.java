@@ -45,6 +45,29 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class McpPlatformProtocolServiceTest {
+    @Test void onboardingToolsDispatchWithTheConnectionAndExposeApprovalRequirement() {
+        var fixture = fixture();
+        var enrollment = mock(McpPlatformOnboardingEnrollmentService.class);
+        var onboarding = mock(ProjectOnboardingMcpService.class);
+        org.springframework.test.util.ReflectionTestUtils.setField(fixture.service, "onboardingEnrollment", enrollment);
+        org.springframework.test.util.ReflectionTestUtils.setField(fixture.service, "projectOnboarding", onboarding);
+        var actor = identity("platform:read", "platform:write");
+        var reader = identity("platform:read");
+        assertTrue(fixture.service.visibleTools(reader).stream().anyMatch(tool -> "reachai_onboarding_resources".equals(tool.get("name"))));
+        assertFalse(fixture.service.visibleTools(reader).stream().anyMatch(tool -> "reachai_onboarding_enrollment_request".equals(tool.get("name"))));
+        assertTrue(fixture.service.capabilities(actor.session()).stream()
+                .anyMatch(item -> "reachai_onboarding_enrollment_execute".equals(item.name()) && item.approvalRequired()));
+        String invocation = "00000000-0000-0000-0000-000000000011";
+        doReturn(ResponseEntity.ok(Map.of("status", "PENDING"))).when(enrollment).request(actor, "orders", invocation);
+        doReturn(ResponseEntity.ok(Map.of("taskId", "task"))).when(onboarding).start(actor, "orders", "java", "CODEX");
+        assertTrue(fixture.service.callTool(actor, "reachai_onboarding_enrollment_request",
+                Map.of("projectCode", "orders", "invocationId", invocation)).success());
+        assertTrue(fixture.service.callTool(actor, "reachai_project_onboarding_start",
+                Map.of("projectCode", "orders", "sdkLanguage", "java", "executorProvider", "CODEX")).success());
+        verify(enrollment).request(actor, "orders", invocation);
+        verify(onboarding).start(actor, "orders", "java", "CODEX");
+    }
+
     @Test void knowledgeSettingsToolsRequireBothPermissionsAndRejectIdentityOrScopeChanges() {
         var fixture = fixture();
         var settings = (com.enterprise.ai.control.mcp.application.port.McpPlatformKnowledgeSettingsPort)
@@ -943,7 +966,7 @@ class McpPlatformProtocolServiceTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class)),
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class)),
                 connections, reads, projects, capabilities, invocations, knowledge, authoring, workflowTrials, agentAuthoring, approvals, audit);
     }
 

@@ -6,6 +6,8 @@ import {
   defaultApprovalConfig,
   defaultClassifierConfig,
   defaultCodeConfig,
+  defaultListOperatorConfig,
+  defaultSubWorkflowConfig,
   defaultConditionConfig,
   defaultDocumentExtractConfig,
   defaultHttpConfig,
@@ -22,6 +24,7 @@ import {
   defaultUserInputConfig,
   knowledgeRetrievalOverrides,
   normalizeLoopConfig,
+  normalizeParallelConfig,
 } from './defaults'
 import { normalizeParams } from './values'
 import {
@@ -239,7 +242,9 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
         ...common,
         language: code.language || 'expression',
         code: code.code || '',
+        inputs: code.language === 'javascript' ? (code.inputs || {}) : undefined,
         outputs: code.outputs || {},
+        ...(code.language === 'javascript' && code.timeoutMs ? { timeoutMs: code.timeoutMs } : {}),
         codeConfig: code,
       },
     }
@@ -294,7 +299,6 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
         prompt: approval.prompt,
         approvers: approval.approvers,
         timeoutSeconds: approval.timeoutSeconds,
-        defaultRoute: approval.defaultRoute || 'approved',
         approvalConfig: approval,
       },
     }
@@ -308,7 +312,12 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
       ...graphNodeChrome(node),
       config: {
         ...common,
-        mode: 'FOREACH',
+        mode: loop.mode || 'FOREACH',
+        parallelism: loop.parallelism ?? 1,
+        errorMode: loop.errorMode || 'TERMINATE',
+        breakConditions: loop.breakConditions || [],
+        breakLogic: loop.breakLogic || 'AND',
+        loopVariables: loop.loopVariables || [],
         collection: loop.collection,
         itemAlias: loop.itemAlias,
         indexAlias: loop.indexAlias,
@@ -322,6 +331,50 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
       },
     }
   }
+  if (node.data.kind === 'parallel') {
+    const parallel = normalizeParallelConfig(node.data.parallelConfig)
+    return {
+      id: node.id,
+      type: 'PARALLEL',
+      name: node.data.label,
+      ...graphNodeChrome(node),
+      config: {
+        ...common,
+        maxConcurrency: parallel.maxConcurrency,
+        failureMode: parallel.failureMode,
+      },
+    }
+  }
+  if (node.data.kind === 'listOperator') {
+    const list = node.data.listConfig || defaultListOperatorConfig()
+    return {
+      id: node.id,
+      type: 'LIST_OPERATOR',
+      name: node.data.label,
+      ...graphNodeChrome(node),
+      config: {
+        ...common,
+        source: list.source,
+        operations: list.operations,
+      },
+    }
+  }
+  if (node.data.kind === 'subWorkflow') {
+    const sub = node.data.subWorkflowConfig || defaultSubWorkflowConfig()
+    return {
+      id: node.id,
+      type: 'SUB_WORKFLOW',
+      name: node.data.label,
+      ...graphNodeChrome(node),
+      config: {
+        ...common,
+        workflowId: sub.workflowId,
+        versionId: sub.versionId,
+        inputs: sub.inputs || {},
+        subWorkflowConfig: sub,
+      },
+    }
+  }
   if (node.data.kind === 'knowledgeWrite') {
     const knowledgeWrite = node.data.knowledgeWriteConfig || defaultKnowledgeWriteConfig()
     return {
@@ -332,6 +385,8 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
       config: {
         ...common,
         knowledgeBaseCode: knowledgeWrite.knowledgeBaseCode,
+        title: knowledgeWrite.titleExpression,
+        content: knowledgeWrite.contentExpression,
         titleExpression: knowledgeWrite.titleExpression,
         contentExpression: knowledgeWrite.contentExpression,
         tags: knowledgeWrite.tags,

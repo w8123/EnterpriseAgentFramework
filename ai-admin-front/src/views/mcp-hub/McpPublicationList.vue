@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -194,11 +195,13 @@ onMounted(() => {
       <div class="publication-actions">
         <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
         <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
+        <AiHandoffButton v-if="canManage" scenario="mcp-publication" />
       </div>
     </Teleport>
     <div v-else class="publication-actions">
       <LiquidGlassButton source="wallpaper" link :icon="QuestionFilled" aria-label="MCP 开放使用说明" title="使用说明" @click="$emit('help')" />
       <LiquidGlassButton v-if="canManage" source="wallpaper" type="primary" :icon="Plus" @click="openCreate">新建 MCP 服务</LiquidGlassButton>
+      <AiHandoffButton v-if="canManage" scenario="mcp-publication" />
     </div>
 
     <LiquidGlassTable

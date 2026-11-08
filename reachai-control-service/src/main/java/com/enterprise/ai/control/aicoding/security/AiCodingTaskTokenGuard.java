@@ -88,6 +88,70 @@ public class AiCodingTaskTokenGuard {
         return handoff;
     }
 
+    /** Session reference written when a platform AI connection claims a task over MCP. */
+    public static String connectionSessionRef(long connectionId) {
+        return "mcp-connection:" + connectionId;
+    }
+
+    /**
+     * Same checks as {@link #requireTaskAccess}, but the caller is the platform AI connection that
+     * claimed the task; the task token never leaves the server in that flow.
+     */
+    public AiCodingTaskHandoffEntity requireConnectionTaskAccess(String taskId, long connectionId) {
+        String sessionRef = connectionSessionRef(connectionId);
+        String normalizedTaskId = requireText(taskId, "taskId");
+        AiCodingTaskHandoffEntity handoff = handoffMapper.selectOne(
+                Wrappers.<AiCodingTaskHandoffEntity>lambdaQuery()
+                        .eq(AiCodingTaskHandoffEntity::getTaskId, normalizedTaskId)
+                        .eq(AiCodingTaskHandoffEntity::getClientSessionRef, sessionRef)
+                        .eq(AiCodingTaskHandoffEntity::getActivationStatus,
+                                ActivationStatus.ACTIVATED.name())
+                        .isNull(AiCodingTaskHandoffEntity::getClosedAt)
+                        .orderByDesc(AiCodingTaskHandoffEntity::getActivatedAt)
+                        .last("LIMIT 1"));
+        if (handoff == null) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "this connection has not claimed the task; claim it with the one-time code first");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        if (handoff.getTokenExpiresAt() == null || !handoff.getTokenExpiresAt().isAfter(now)) {
+            throw new ResponseStatusException(HttpStatus.GONE, "task claim has expired; issue a new claim code");
+        }
+        AiCodingTaskEntity task = taskMapper.selectById(normalizedTaskId);
+        if (task == null) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "task not found");
+        }
+        ExecutionStatus executionStatus = ExecutionStatus.valueOf(task.getExecutionStatus());
+        if (!executionStatus.acceptsClientAccess()) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    executionStatus.terminal()
+                            ? "task is already terminal"
+                            : "task is waiting for ReachAI acceptance");
+        }
+        LocalDateTime leaseExpiresAt = now.plus(properties.getConnectionLease());
+        int touched = handoffMapper.update(
+                null,
+                Wrappers.<AiCodingTaskHandoffEntity>lambdaUpdate()
+                        .eq(AiCodingTaskHandoffEntity::getHandoffId, handoff.getHandoffId())
+                        .eq(AiCodingTaskHandoffEntity::getClientSessionRef, sessionRef)
+                        .eq(AiCodingTaskHandoffEntity::getActivationStatus,
+                                ActivationStatus.ACTIVATED.name())
+                        .isNull(AiCodingTaskHandoffEntity::getClosedAt)
+                        .gt(AiCodingTaskHandoffEntity::getTokenExpiresAt, now)
+                        .set(AiCodingTaskHandoffEntity::getLastSeenAt, now)
+                        .set(AiCodingTaskHandoffEntity::getLeaseExpiresAt, leaseExpiresAt)
+                        .set(AiCodingTaskHandoffEntity::getUpdatedAt, now));
+        if (touched != 1) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "task claim was revoked while the request was processed");
+        }
+        handoff.setLastSeenAt(now);
+        handoff.setLeaseExpiresAt(leaseExpiresAt);
+        handoff.setUpdatedAt(now);
+        return handoff;
+    }
+
     private static String bearerToken(String authorization) {
         if (!StringUtils.hasText(authorization)
                 || !authorization.regionMatches(

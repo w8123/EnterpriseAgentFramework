@@ -176,6 +176,18 @@
           </el-button>
         </el-form>
 
+        <div v-if="businessLogins.length" class="business-logins" aria-label="用业务系统账号登录">
+          <span class="business-logins__divider">或者</span>
+          <a
+            v-for="item in businessLogins"
+            :key="item.code"
+            class="business-login-button"
+            :href="businessLoginStartUrl(item.code)"
+            >{{ businessLoginText(item.label) }}</a
+          >
+          <p class="business-logins__hint">员工直接用业务系统的账号进来，不用另外记 ReachAI 密码。</p>
+        </div>
+
         <details class="dev-hint">
           <summary>本地开发登录说明</summary>
           <p>
@@ -193,7 +205,13 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Collection, Connection, Cpu, Link, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 import axios from 'axios'
-import { applyPlatformLogin, loginPlatform } from '@/api/platformAuth'
+import {
+  applyPlatformLogin,
+  businessLoginStartUrl,
+  listBusinessLoginButtons,
+  loginPlatform,
+  type BusinessLoginButton,
+} from '@/api/platformAuth'
 import { sanitizePlatformRedirect } from '@/auth/platformSession'
 import '@/conversation/styles/conversation-tokens.css'
 
@@ -345,6 +363,33 @@ onBeforeUnmount(() => {
 const router = useRouter()
 const route = useRoute()
 const loading = ref(false)
+const businessLogins = ref<BusinessLoginButton[]>([])
+
+/** 「用芋道 ERP 账号登录」: a space only next to Latin letters or digits. */
+function businessLoginText(label: string) {
+  const name = label.trim()
+  const before = /^[A-Za-z0-9]/.test(name) ? ' ' : ''
+  const after = /[A-Za-z0-9]$/.test(name) ? ' ' : ''
+  return `用${before}${name}${after}账号登录`
+}
+
+async function loadBusinessLogins() {
+  try {
+    const { data } = await listBusinessLoginButtons()
+    businessLogins.value = Array.isArray(data) ? data : []
+  } catch {
+    businessLogins.value = []
+  }
+}
+
+onMounted(() => {
+  void loadBusinessLogins()
+  const ssoError = route.query.sso_error
+  if (typeof ssoError === 'string' && ssoError) {
+    ElMessage.error({ message: ssoError, duration: 8000 })
+    void router.replace({ query: { ...route.query, sso_error: undefined } })
+  }
+})
 const form = reactive({
   username: 'admin',
   password: 'admin123',
@@ -1163,6 +1208,53 @@ async function handleLogin() {
   min-height: 43px;
   margin-top: 8px;
   font-weight: 750;
+}
+
+.business-logins {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.business-logins__divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.business-logins__divider::before,
+.business-logins__divider::after {
+  flex: 1;
+  height: 1px;
+  background: var(--border-subtle, rgba(127, 127, 127, 0.2));
+  content: '';
+}
+
+.business-login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 43px;
+  border: 1px solid var(--border-strong, rgba(127, 127, 127, 0.35));
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-weight: 650;
+  text-decoration: none;
+  transition: background-color 0.15s ease;
+}
+
+.business-login-button:hover,
+.business-login-button:focus-visible {
+  background: var(--surface-hover, rgba(127, 127, 127, 0.1));
+}
+
+.business-logins__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .dev-hint {

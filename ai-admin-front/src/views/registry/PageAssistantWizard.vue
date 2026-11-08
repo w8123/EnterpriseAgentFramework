@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -1409,13 +1410,18 @@ watch(projectCode, loadAll, { immediate: true })
             <el-button @click="sourceDialogVisible = false">
               {{ handoffCopied ? '完成' : '稍后处理' }}
             </el-button>
-            <el-button
+            <AiHandoffButton
+              scenario="page-workbench"
               type="primary"
+              label="交给我的 AI（推荐）"
+              :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
+            />
+            <el-button
               :icon="handoffCopied ? Check : CopyDocument"
               :disabled="handoffCopied"
               @click="copyHandoffPrompt"
             >
-              {{ handoffCopied ? '已复制，等待对接' : '复制交接包' }}
+              {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
             </el-button>
           </div>
         </footer>
@@ -1663,13 +1669,18 @@ watch(projectCode, loadAll, { immediate: true })
           <LiquidGlassButton @click="taskDialogVisible = false">
             {{ handoffCopied ? '完成' : '稍后处理' }}
           </LiquidGlassButton>
-          <LiquidGlassButton
+          <AiHandoffButton
+            scenario="page-workbench"
             type="primary"
+            label="交给我的 AI（推荐）"
+            :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
+          />
+          <LiquidGlassButton
             :icon="handoffCopied ? Check : CopyDocument"
             :disabled="handoffCopied"
             @click="copyHandoffPrompt"
           >
-            {{ handoffCopied ? '已复制，等待对接' : '复制交接包' }}
+            {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
           </LiquidGlassButton>
         </template>
       </template>
@@ -1687,13 +1698,18 @@ watch(projectCode, loadAll, { immediate: true })
         <LiquidGlassButton @click="handoffDialogVisible = false">
           {{ handoffCopied ? '完成' : '稍后处理' }}
         </LiquidGlassButton>
-        <LiquidGlassButton
+        <AiHandoffButton
+          scenario="page-workbench"
           type="primary"
+          label="交给我的 AI（推荐）"
+          :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
+        />
+        <LiquidGlassButton
           :icon="handoffCopied ? Check : CopyDocument"
           :disabled="handoffCopied"
           @click="copyHandoffPrompt"
         >
-          {{ handoffCopied ? '已复制，等待对接' : '复制交接包' }}
+          {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
         </LiquidGlassButton>
       </template>
     </AppDialog>

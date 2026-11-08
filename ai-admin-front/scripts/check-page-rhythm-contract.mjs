@@ -167,6 +167,7 @@ const PROJECT_WORKBENCH_PAGE_FILES = new Set([
   'src/views/registry/RegistryProjectDetail.vue',
   'src/views/registry/PageAssistantWizard.vue',
   'src/views/registry/SdkAccessWizard.vue',
+  'src/views/registry/CapabilityRetrofitWorkbench.vue',
   'src/views/settings/EmbedOpsMonitor.vue',
   'src/views/settings/EmbedSessionAudit.vue',
 ])
@@ -2106,7 +2107,7 @@ function createRepositoryFixture() {
     projectWorkbenchDirectComponentFiles: PROJECT_WORKBENCH_DIRECT_COMPONENT_FILES,
     exemptPageFiles: EXEMPT_PAGE_FILES,
     listFillPageFiles: LIST_FILL_PAGE_FILES,
-    expectedSetSizes: { standard: 35, projectWorkbench: 7, exempt: 3 },
+    expectedSetSizes: { standard: 35, projectWorkbench: 8, exempt: 3 },
     expectedListFillSize: 14,
   }
 }

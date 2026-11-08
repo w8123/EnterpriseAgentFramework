@@ -4,7 +4,6 @@ import type { AiOnboardingManifest, ScanProject } from '@/types/scanProject'
 export function useSdkAccessWizardCsharpSnippets(
   project: Ref<ScanProject | null>,
   manifest: Ref<AiOnboardingManifest | null>,
-  javaFrontendSnippet: Ref<string>,
 ) {
   const application = computed(() => JSON.stringify({
     ReachAI: {
@@ -29,10 +28,5 @@ builder.Services.AddReachAI(builder.Configuration.GetSection("ReachAI"))
 // 在宿主的认证与授权中间件之后注册。
 app.MapReachAI();`
 
-  const frontend = computed(() => javaFrontendSnippet.value.replace(
-    "?' + query, {",
-    "', {\n      method: 'POST',\n      headers: { 'Content-Type': 'application/json' },\n      body: JSON.stringify(Object.fromEntries(query.entries())),",
-  ))
-
-  return { application, startup, frontend }
+  return { application, startup }
 }

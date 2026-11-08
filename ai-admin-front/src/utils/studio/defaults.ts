@@ -2,6 +2,7 @@ import type { AgentForm } from '@/types/agent'
 import { studioNodeCategory, studioNodeRetryable } from '@/utils/studioNodeRegistry'
 import type {
   CanvasNodeKind,
+  CodeNodeConfig,
   ConditionNodeConfig,
   DocumentExtractNodeConfig,
   HumanApprovalNodeConfig,
@@ -13,6 +14,10 @@ import type {
   LlmNodeConfig,
   LlmPromptMessage,
   LoopNodeConfig,
+  ListOperatorNodeConfig,
+  LoopVariable,
+  ParallelNodeConfig,
+  SubWorkflowNodeConfig,
   McpNodeConfig,
   PageActionNodeConfig,
   ParameterNodeConfig,
@@ -139,11 +144,35 @@ export function defaultAnswerConfig() {
   }
 }
 
-export function defaultCodeConfig() {
+export const DEFAULT_CODE_TEMPLATE = `function main(inputs) {
+  // inputs 里是上面配置的输入变量
+  const text = String(inputs.text || '')
   return {
-    language: 'expression' as const,
-    code: '// Safe expression mode. Configure outputs below.',
-    outputs: { result: 'lastOutput' },
+    result: text.trim(),
+    length: text.length,
+  }
+}`
+
+export function defaultCodeConfig(): CodeNodeConfig {
+  return {
+    language: 'javascript',
+    code: DEFAULT_CODE_TEMPLATE,
+    inputs: { text: 'lastOutput' },
+    outputs: { result: 'string', length: 'number' },
+  }
+}
+
+export function defaultListOperatorConfig(): ListOperatorNodeConfig {
+  return {
+    source: '',
+    operations: [],
+  }
+}
+
+export function defaultSubWorkflowConfig(): SubWorkflowNodeConfig {
+  return {
+    workflowId: '',
+    inputs: {},
   }
 }
 
@@ -176,7 +205,6 @@ export function defaultApprovalConfig(): HumanApprovalNodeConfig {
     prompt: '{{ lastOutput }}',
     approvers: [],
     timeoutSeconds: 3600,
-    defaultRoute: 'approved',
   }
 }
 
@@ -195,6 +223,38 @@ export function defaultLoopConfig(): LoopNodeConfig {
   }
 }
 
+export function defaultParallelConfig(): ParallelNodeConfig {
+  return { maxConcurrency: 4, failureMode: 'FAIL_FAST' }
+}
+
+export function normalizeParallelConfig(raw: Partial<ParallelNodeConfig> | undefined): ParallelNodeConfig {
+  let maxConcurrency = numberValue(raw?.maxConcurrency, 4)
+  if (maxConcurrency < 1) maxConcurrency = 1
+  if (maxConcurrency > 4) maxConcurrency = 4
+  return {
+    maxConcurrency: Math.floor(maxConcurrency),
+    failureMode: raw?.failureMode === 'CONTINUE' ? 'CONTINUE' : 'FAIL_FAST',
+  }
+}
+
+function normalizeLoopVariables(raw: unknown): LoopVariable[] {
+  if (Array.isArray(raw)) {
+    return raw
+      .map((item) => ({
+        name: stringValue((item as Record<string, unknown>)?.name),
+        value: (item as Record<string, unknown>)?.value === undefined || (item as Record<string, unknown>)?.value === null
+          ? ''
+          : String((item as Record<string, unknown>).value),
+      }))
+      .filter((item) => item.name)
+  }
+  if (raw && typeof raw === 'object') {
+    return Object.entries(raw as Record<string, unknown>)
+      .map(([name, value]) => ({ name, value: value === undefined || value === null ? '' : String(value) }))
+  }
+  return []
+}
+
 export function normalizeLoopConfig(raw: Partial<LoopNodeConfig> | undefined): LoopNodeConfig {
   const collection = stringValue(raw?.collection || raw?.itemExpression) || ''
   const bodyEntry = stringValue(raw?.bodyEntry)
@@ -204,11 +264,23 @@ export function normalizeLoopConfig(raw: Partial<LoopNodeConfig> | undefined): L
     ...(bodyEntry ? [bodyEntry] : []),
     ...(bodyExit ? [bodyExit] : []),
   ].filter(Boolean)))
-  let maxIterations = numberValue(raw?.maxIterations, 100)
-  if (maxIterations < 1) maxIterations = 100
-  if (maxIterations > 1000) maxIterations = 1000
+  const mode = raw?.mode === 'WHILE' ? 'WHILE' : 'FOREACH'
+  let maxIterations = numberValue(raw?.maxIterations, mode === 'WHILE' ? 10 : 100)
+  if (maxIterations < 1) maxIterations = mode === 'WHILE' ? 10 : 100
+  if (maxIterations > (mode === 'WHILE' ? 50 : 1000)) maxIterations = mode === 'WHILE' ? 50 : 1000
+  let parallelism = numberValue(raw?.parallelism, 1)
+  if (parallelism < 1 || mode === 'WHILE') parallelism = 1
+  if (parallelism > 4) parallelism = 4
+  const errorMode = mode === 'FOREACH' && (raw?.errorMode === 'SKIP' || raw?.errorMode === 'KEEP')
+    ? raw.errorMode
+    : 'TERMINATE'
   return {
-    mode: 'FOREACH',
+    mode,
+    parallelism: Math.floor(parallelism),
+    errorMode,
+    breakConditions: Array.isArray(raw?.breakConditions) ? raw!.breakConditions!.map((item) => ({ ...item })) : [],
+    breakLogic: raw?.breakLogic === 'OR' ? 'OR' : 'AND',
+    loopVariables: normalizeLoopVariables(raw?.loopVariables),
     collection,
     itemAlias: stringValue(raw?.itemAlias) || 'item',
     indexAlias: stringValue(raw?.indexAlias) || 'index',
@@ -224,7 +296,7 @@ export function normalizeLoopConfig(raw: Partial<LoopNodeConfig> | undefined): L
 export function defaultKnowledgeWriteConfig(): KnowledgeWriteNodeConfig {
   return {
     knowledgeBaseCode: '',
-    titleExpression: 'const:工作流写入',
+    titleExpression: '工作流写入',
     contentExpression: 'lastOutput',
     tags: [],
     mode: 'draft',
@@ -283,7 +355,7 @@ export function defaultOutputAlias(kind: CanvasNodeKind) {
 const CANVAS_NODE_KINDS = new Set<CanvasNodeKind>([
   'start', 'end', 'userInput', 'interaction', 'pageAction', 'llm', 'tool', 'knowledge',
   'condition', 'variable', 'template', 'parameter', 'http', 'answer', 'code', 'classifier',
-  'aggregate', 'approval', 'loop', 'knowledgeWrite', 'documentExtract', 'mcp',
+  'aggregate', 'approval', 'loop', 'parallel', 'listOperator', 'subWorkflow', 'knowledgeWrite', 'documentExtract', 'mcp',
 ])
 
 export function canvasKindValue(kind: string | undefined | null): CanvasNodeKind {

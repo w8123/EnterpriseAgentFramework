@@ -50,6 +50,7 @@
 | `runtime_managed_execution_outbox` | `reachai-runtime-service` | - | Durable metadata-only Managed Executor status and Artifact notification outbox |
 | `control_managed_execution_inbox` | `reachai-control-service` | - | Idempotent Runtime event receipt and Control-side Managed Execution projection state |
 | `runtime_run` | `reachai-runtime-service` | - | RunOps root execution fact used by lists, KPIs, diagnostics, and replay |
+| `runtime_model_usage` | `reachai-runtime-service` | - | Per model call token usage (no content), joined with `runtime_run` for AI usage cost |
 | `runtime_console_capability_invocation` | `reachai-runtime-service` | - | Typed Console BUSINESS_METHOD / HTTP_API trial-call idempotency, safe result retention, and UNKNOWN recovery record |
 | `runtime_http_api_connection` | `reachai-runtime-service` | - | Revisioned per-API override of the project default connection (origin, auth mode, PROJECT credential reference, `override_active`); no secret material |
 | `runtime_http_api_project_connection` | `reachai-runtime-service` | - | Revisioned project + environment default HTTP API connection inherited by APIs without an active override; no secret material |
@@ -69,6 +70,7 @@
 | `runtime_agent_remote_agent_binding` | `reachai-runtime-service` | - | Exact remote Agent revision delegated by a published Agent configuration; Runtime validates through Control internal API |
 | `model_template` | `reachai-model-service` | - | Model Center V2 catalog templates (no secrets) |
 | `model_instance` | `reachai-model-service` | - | Model Center V2 executable instances (stable modelInstanceId) |
+| `model_instance_price` | `reachai-model-service` | - | Price per million input/output tokens, used only to estimate AI usage cost |
 | `model_internal_auth_nonce` | `reachai-model-service` | - | Model signed-ingress HMAC nonce anti-replay store |
 | `model_provider_account` | `reachai-model-service` | - | Provider base URL and API key stored once and referenced by model instances |
 | `model_catalog_source` | `reachai-model-service` | - | Official provider source metadata and safe fetch policy; no credentials |

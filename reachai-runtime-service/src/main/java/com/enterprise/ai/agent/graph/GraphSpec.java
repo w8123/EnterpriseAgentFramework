@@ -23,6 +23,9 @@ public class GraphSpec {
 
     private Map<String, Object> stateSchema;
 
+    /** Workflow-level constants readable as env.NAME; never secrets (use Workflow credentials for those). */
+    private Map<String, Object> env;
+
     @Singular
     private List<Node> nodes;
 
@@ -153,6 +156,8 @@ public class GraphSpec {
         private String strategy;
         private String fallbackNodeId;
         private Map<String, Object> defaultOutput;
+        /** Per-attempt time limit (1s..600s); a timed-out business call is an unknown outcome and terminates. */
+        private Long timeoutMs;
 
         @JsonAnySetter
         private void rejectUnknownField(String field, Object value) {

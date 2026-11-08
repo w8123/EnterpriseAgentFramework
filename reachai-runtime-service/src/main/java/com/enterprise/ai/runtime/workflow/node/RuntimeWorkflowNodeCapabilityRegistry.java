@@ -166,11 +166,24 @@ public class RuntimeWorkflowNodeCapabilityRegistry {
         policies.put(AgentGraphNodeType.HTTP_REQUEST, Policy.betaOpen());
         // Temporarily open for Browser/Live LOOP E2E; will close again if E2E fails.
         policies.put(AgentGraphNodeType.LOOP, Policy.betaOpen());
+        // Fork/join with isolated branch contexts; branches cannot pause, answer or call page actions.
+        policies.put(AgentGraphNodeType.PARALLEL, Policy.betaOpen());
+        // Interpreted JavaScript sandbox (no Java, no I/O, time and step limits) or safe expressions.
+        policies.put(AgentGraphNodeType.CODE, Policy.betaOpen());
+        policies.put(AgentGraphNodeType.LIST_OPERATOR, Policy.betaOpen());
+        // Calls one pinned published workflow; the child cannot pause.
+        policies.put(AgentGraphNodeType.SUB_WORKFLOW, Policy.betaOpen());
+        // Project-scoped, signed write; MCP publication classifies it as WRITE.
+        policies.put(AgentGraphNodeType.KNOWLEDGE_WRITE, Policy.betaOpen());
         // PRESENT_OUTPUT never pauses a run and is independently open. Blocking interaction
         // variants stay closed until Agent/Embed + RunOps pause/resume Production Live E2E passes.
+        // Blocking variants pause and resume in Studio debug, Agent chat and embedded chat. Automation, MCP and
+        // evaluation runs fail closed before pausing. CUSTOM and REVIEW_EDIT stay closed.
         policies.put(AgentGraphNodeType.INTERACTION, Policy.betaVariantOpen(
-                List.of("PRESENT_OUTPUT"),
-                "Only display-only INTERACTION/PRESENT_OUTPUT is enabled; blocking interaction pause/resume variants remain closed"));
+                List.of("PRESENT_OUTPUT", "COLLECT_INPUT", "USER_CHOICE", "CONFIRM_ACTION"),
+                "Only PRESENT_OUTPUT, COLLECT_INPUT, USER_CHOICE and CONFIRM_ACTION interactions are enabled"));
+        // Run-owner confirmation that reuses the INTERACTION pause/resume state; routes approved / rejected.
+        policies.put(AgentGraphNodeType.HUMAN_APPROVAL, Policy.betaOpen());
         for (AgentGraphNodeType type : AgentGraphNodeType.values()) {
             policies.putIfAbsent(type, Policy.planned(PLANNED_REASON));
         }

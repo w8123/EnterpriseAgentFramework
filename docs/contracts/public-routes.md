@@ -27,9 +27,12 @@ Model 服务除健康探针外均验证服务间 HMAC，管理入口仅接受 Co
 | 项目 AI Coding | `/api/ai-coding/projects/**` | Control，委托 owning service | `X-ReachAI-AiCoding-Key` |
 | 任务与交接 | `/api/ai-coding-console/**`、`/api/ai-coding/handoffs/**`、`/api/ai-coding/tasks/**` | Control | 平台会话、一次性交接或 Task Token |
 | Skill 与市场 | `/api/skills/**`、`/api/ai-assist/skills/**`、`/api/api-market/**` | Control / Capability | 按目录、发布下载与项目操作区分 |
+| SDK 制品 | `GET /api/ai-assist/artifacts/manifest`、`GET /api/ai-assist/artifacts/**` | Control | 公开分发元数据与制品，可在首次注册前读取，不含项目凭据 |
 | MCP | `/api/mcp/**`、`/mcp/**` | Control，执行经 Runtime | 管理端会话、客户端凭证或员工连接 |
 | A2A | `/api/a2a-hub/**`、`/.well-known/agent-card.json`、`/a2a/v1/**` | Control，执行经 Runtime | 平台权限或 A2A Principal |
 | 内部接口 | `/internal/control/**`、`/internal/runtime/**`、`/internal/capability/**` | 各服务 | 服务间签名与可信执行信封，浏览器禁用 |
+
+项目接入任务通过平台 MCP 绑定连接；控制台的任务交接包签发入口对 `PROJECT_ONBOARDING` 返回 `410 PROJECT_ONBOARDING_MCP_REQUIRED`。其他任务类型继续使用其现有入口，已签发的任务凭据按原有效期处理。
 
 `POST /api/embed/chat/sessions/{sessionId}/context/clear` 使用当前 Embed Token 清除已验证会话的 Runtime 上下文；它保留 Embed 会话及审计记录，并透传 Runtime 的冲突等失败状态。
 

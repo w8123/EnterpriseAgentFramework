@@ -52,6 +52,19 @@ final class RuntimeWorkflowProposalPromptBuilder {
                 """.formatted(authorableTypes, closedTypes));
         prompt.append("""
 
+                Node config examples (use the same keys):
+                - CODE (pure computation, no network or files): {"language":"javascript","inputs":{"items":"nodeOutput.query"},"code":"function main(inputs) { return { total: inputs.items.length }; }","outputs":{"total":"number"}}. Simple field mapping can use {"language":"expression","outputs":{"name":"params.name"}}.
+                - LIST_OPERATOR: {"source":"nodeOutput.query","outputAlias":"picked","operations":[{"type":"filter","logic":"AND","conditions":[{"left":"item.quantity","operator":"lt","right":"10"}]},{"type":"sort","field":"quantity","order":"asc"},{"type":"limit","count":20}]}. Output fields: items, count, first, last.
+                - LOOP over a list: {"mode":"FOREACH","collection":"params.orders","itemAlias":"item","indexAlias":"index","outputAlias":"results","bodyOutput":"lastOutput","maxIterations":100,"parallelism":1,"errorMode":"TERMINATE","bodyEntry":"body_node","bodyExit":"body_node","bodyNodeIds":["body_node"]}. Body nodes have no edges to or from outside the loop; the LOOP node has one always edge to the next step.
+                - PARALLEL: {"maxConcurrency":4,"failureMode":"FAIL_FAST"}; give it two or more always edges to branch nodes and join the branches on one VARIABLE_AGGREGATOR node.
+                - HUMAN_APPROVAL (the person running the workflow confirms before a write): {"title":"确认新建客户","prompt":"将新建客户 {{ params.name }}，确认吗？","timeoutSeconds":3600}; route with condition route:approved and route:rejected. Put it before write steps when the requirement asks for confirmation.
+                - KNOWLEDGE_WRITE: {"knowledgeBaseCode":"<from knowledgeBases>","titleExpression":"标题模板","contentExpression":"lastOutput"}. It is a write; only use it when the requirement asks to save content into a knowledge base.
+                - SUB_WORKFLOW calls another published workflow: there is no workflow list in this request, so emit it only as a placeholder with config.needsConfiguration=true and config.placeholderReason naming the workflow to choose.
+                IF_ELSE operators: equals, not_equals, contains, not_contains, starts_with, ends_with, in, not_in, regex, gt, gte, lt, lte, empty, not_empty, exists, is_number, is_text, is_list, is_object, is_boolean.
+                Variables: params.<field>, nodeOutput.<nodeId>, var.<outputAlias>, sys.userId / sys.projectCode / sys.today / sys.now, env.<name>.
+                """);
+        prompt.append("""
+
                 KNOWLEDGE_RETRIEVAL evidence policy rules:
                 - Default config.evidencePolicy to REQUIRED for factual answers grounded in a knowledge base.
                 - REQUIRED must have exactly addressable route:evidence and route:no_evidence outgoing paths. Do not use always/success as a fallback from this node.

@@ -10,6 +10,7 @@
     >
       <template #actions>
         <LiquidGlassViewToggle v-model="viewMode" source="wallpaper" />
+        <AiHandoffButton v-if="canWriteKnowledge" scenario="knowledge-import" />
         <LiquidGlassButton v-if="canWriteKnowledge" source="wallpaper" type="primary" :icon="Plus" @click="openCreateDialog">新建知识库</LiquidGlassButton>
       </template>
     </PageHeader>
@@ -416,6 +417,7 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { formatTableDateTime } from '@/utils/dateTime'
 import GlassDialog from '@/components/common/GlassDialog.vue'
 import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'

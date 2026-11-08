@@ -130,6 +130,21 @@ public interface RuntimeProxyClient {
             @RequestParam(value = "projectCode", required = false) String projectCode,
             @RequestParam("days") int days);
 
+    /** 每次调模型的 Token 汇总（按天、人、系统、入口、模型），供「AI 使用情况 · 费用」。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/usage/model-tokens")
+    ResponseEntity<List<Map<String, Object>>> runOpsModelTokens(
+            @RequestHeader Map<String, String> headers,
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam("days") int days);
+
+    /** 审计导出用的业务运行明细（不含对话内容）。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/usage/audit-runs")
+    ResponseEntity<List<Map<String, Object>>> runOpsAuditRuns(
+            @RequestHeader Map<String, String> headers,
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam("days") int days,
+            @RequestParam("limit") int limit);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/runops/diagnostics")
     ResponseEntity<Map<String, Object>> runOpsDiagnostics(
                                                           @RequestParam(value = "projectCode", required = false) String projectCode,

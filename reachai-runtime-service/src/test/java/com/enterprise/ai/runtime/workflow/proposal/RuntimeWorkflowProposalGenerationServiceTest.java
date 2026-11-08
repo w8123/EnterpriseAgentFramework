@@ -159,7 +159,7 @@ class RuntimeWorkflowProposalGenerationServiceTest {
     @Test
     void proposalPromptExposesPresentOutputAndRejectsBlockingInteractionVariant() throws Exception {
         CapturingModelClient modelClient = new CapturingModelClient("""
-                {"entryNodeId":"ask","exitNodeIds":["answer"],"nodes":[{"id":"ask","type":"INTERACTION","label":"Ask","config":{"interactionType":"COLLECT_INPUT"}},{"id":"answer","type":"ANSWER","label":"Answer"}],"edges":[{"from":"ask","to":"answer"}]}
+                {"entryNodeId":"ask","exitNodeIds":["answer"],"nodes":[{"id":"ask","type":"INTERACTION","label":"Ask","config":{"interactionType":"REVIEW_EDIT"}},{"id":"answer","type":"ANSWER","label":"Answer"}],"edges":[{"from":"ask","to":"answer"}]}
                 """);
         ObjectMapper objectMapper = new ObjectMapper();
         RuntimeWorkflowProposalValidationService validationService = validationService();
@@ -209,7 +209,7 @@ class RuntimeWorkflowProposalGenerationServiceTest {
         assertTrue(promptTypes.contains("HTTP_REQUEST"));
         assertTrue(promptTypes.contains("LOOP"));
         assertTrue(promptTypes.contains("INTERACTION"));
-        assertFalse(promptTypes.contains("HUMAN_APPROVAL"));
+        assertTrue(promptTypes.contains("HUMAN_APPROVAL"));
         assertFalse(promptTypes.contains("MCP_CALL"));
         assertTrue(systemPrompt.contains("Authorable canonical node types"));
         assertTrue(systemPrompt.contains("Closed / non-authorable types are forbidden"));

@@ -53,6 +53,40 @@ describe('useAiCodingTask', () => {
     vi.clearAllMocks()
   })
 
+  it('publishes background task and detail together without toggling loading', async () => {
+    const kernel = useAiCodingTask()
+    mocks.listAiCodingTasks.mockResolvedValueOnce({ data: [task('new-task')] })
+    mocks.getAiCodingTask.mockResolvedValueOnce({ data: { task: task('new-task'), readiness: [], events: [], questions: [], artifacts: [] } })
+    const polling = kernel.refreshTasksInBackground({ projectCode: 'demo' }, (rows) => rows[0] || null, () => true)
+    expect(kernel.loading.value).toBe(false)
+    await polling
+    expect(kernel.tasks.value.map((item) => item.taskId)).toEqual(['new-task'])
+    expect(kernel.selectedTaskDetail.value?.task.taskId).toBe('new-task')
+  })
+
+  it('keeps confirmed task state if a background detail fails or a user action intervenes', async () => {
+    const kernel = useAiCodingTask()
+    mocks.listAiCodingTasks.mockResolvedValueOnce({ data: [task('old-task')] })
+    await kernel.loadTasks({ projectCode: 'demo' })
+    mocks.getAiCodingTask.mockResolvedValueOnce({ data: { task: task('old-task'), readiness: [], events: [], questions: [], artifacts: [] } })
+    await kernel.refreshTask('old-task')
+    mocks.listAiCodingTasks.mockResolvedValueOnce({ data: [task('new-task')] })
+    mocks.getAiCodingTask.mockRejectedValueOnce(new Error('offline'))
+    await expect(kernel.refreshTasksInBackground({ projectCode: 'demo' }, (rows) => rows[0] || null, () => true)).rejects.toThrow('offline')
+    expect(kernel.tasks.value[0]?.taskId).toBe('old-task')
+    expect(kernel.selectedTaskDetail.value?.task.taskId).toBe('old-task')
+
+    let resolveList!: (value: { data: ReturnType<typeof task>[] }) => void
+    mocks.listAiCodingTasks.mockImplementationOnce(() => new Promise((resolve) => { resolveList = resolve }))
+    const polling = kernel.refreshTasksInBackground({ projectCode: 'demo' }, (rows) => rows[0] || null, () => true)
+    kernel.reset()
+    resolveList({ data: [task('new-task')] })
+    mocks.getAiCodingTask.mockResolvedValueOnce({ data: { task: task('new-task'), readiness: [], events: [], questions: [], artifacts: [] } })
+    await polling
+    expect(kernel.tasks.value).toEqual([])
+    expect(kernel.selectedTaskDetail.value).toBeNull()
+  })
+
   it('does not let an older task-list response overwrite the latest project', async () => {
     let resolveOlder:
       | ((value: { data: ReturnType<typeof task>[] }) => void)

@@ -19,7 +19,7 @@ Windows PowerShell 用 `Copy-Item .env.example .env` 复制配置。按 `.env.ex
 | `http://localhost:48080` | 芋道 ERP 与 AI 面板 | admin / admin123 |
 | `http://localhost:18080` | ReachAI 管理端 | admin / admin123 |
 
-这些账号和配置仅用于本机演示。服务、端口、持久卷与资源限制以本目录 Compose 文件为准，正式部署用一条命令安装，见[部署与运维手册](../../docs/部署与运维手册.md)。
+这些账号和配置仅用于本机演示。服务、端口、持久卷与资源限制以本目录 Compose 文件为准，正式部署用一条命令安装，见[安装 ReachAI](../../docs/admin/install.md)。
 
 ## 使用
 
@@ -37,4 +37,4 @@ docker compose logs --tail=100
 docker compose down
 ```
 
-停止时默认保留数据卷；需要重新初始化时先确认数据归属和影响，不把删除卷作为常规重试。更详细的接入和验收见[芋道指南](../../docs/guides/芋道ERP接入ReachAI实施步骤.md)。
+停止时默认保留数据卷；需要重新初始化时先确认数据归属和影响，不把删除卷作为常规重试。更详细的接入和验收见[芋道 ERP 接入实战](../../docs/developer/yudao-example.md)。

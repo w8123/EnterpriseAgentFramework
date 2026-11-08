@@ -6,7 +6,9 @@ import type {
   InteractionNodeConfig,
   IntentClassifierNodeConfig,
   KnowledgeNodeConfig,
+  ListOperation,
   LlmNodeConfig,
+  LoopNodeConfig,
   PageActionNodeConfig,
   ParameterNodeConfig,
   ToolNodeConfig,
@@ -19,6 +21,7 @@ import {
   llmMessagesValue,
   nodeCategory,
   normalizeLoopConfig,
+  normalizeParallelConfig,
 } from './defaults'
 import {
   aggregateItemsValue,
@@ -252,12 +255,44 @@ export function graphConfigToNodeData(
     }
   }
   if (kind === 'code') {
+    const nested = objectRecordValue(config.codeConfig)
+    const merged = { ...nested, ...config }
+    const javascript = stringValue(merged.language) === 'javascript'
+    const timeout = numberValue(merged.timeoutMs, 0)
     return {
       ...common,
       codeConfig: {
-        language: 'expression' as const,
-        code: stringValue(config.code),
-        outputs: stringRecord(config.outputs),
+        language: javascript ? 'javascript' as const : 'expression' as const,
+        code: stringValue(merged.code),
+        ...(javascript ? { inputs: stringRecord(merged.inputs) } : {}),
+        outputs: stringRecord(merged.outputs),
+        ...(javascript && timeout > 0 ? { timeoutMs: timeout } : {}),
+      },
+    }
+  }
+  if (kind === 'listOperator') {
+    const nested = objectRecordValue(config.listConfig)
+    const merged = { ...nested, ...config }
+    return {
+      ...common,
+      listConfig: {
+        source: stringValue(merged.source),
+        operations: Array.isArray(merged.operations) ? merged.operations as ListOperation[] : [],
+      },
+    }
+  }
+  if (kind === 'subWorkflow') {
+    const nested = objectRecordValue(config.subWorkflowConfig)
+    const merged = { ...nested, ...config }
+    const versionId = numberValue(merged.versionId, 0)
+    return {
+      ...common,
+      subWorkflowConfig: {
+        workflowId: stringValue(merged.workflowId),
+        ...(stringValue(nested.workflowName) ? { workflowName: stringValue(nested.workflowName) } : {}),
+        ...(versionId > 0 ? { versionId } : {}),
+        ...(stringValue(nested.versionLabel) ? { versionLabel: stringValue(nested.versionLabel) } : {}),
+        inputs: stringRecord(merged.inputs),
       },
     }
   }
@@ -315,7 +350,13 @@ export function graphConfigToNodeData(
     return {
       ...common,
       loopConfig: normalizeLoopConfig({
-        mode: 'FOREACH',
+        mode: (config.mode || nested.mode) === 'WHILE' ? 'WHILE' : 'FOREACH',
+        parallelism: numberValue(config.parallelism ?? nested.parallelism, 1),
+        errorMode: stringValue(config.errorMode || nested.errorMode) as LoopNodeConfig['errorMode'],
+        breakConditions: (Array.isArray(config.breakConditions) ? config.breakConditions
+          : Array.isArray(nested.breakConditions) ? nested.breakConditions : []) as LoopNodeConfig['breakConditions'],
+        breakLogic: (config.breakLogic || nested.breakLogic) === 'OR' ? 'OR' : 'AND',
+        loopVariables: (config.loopVariables || nested.loopVariables) as LoopNodeConfig['loopVariables'],
         collection: stringValue(config.collection || nested.collection || config.itemExpression || nested.itemExpression),
         itemAlias: stringValue(config.itemAlias || nested.itemAlias) || 'item',
         indexAlias: stringValue(config.indexAlias || nested.indexAlias) || 'index',
@@ -325,6 +366,15 @@ export function graphConfigToNodeData(
         bodyEntry: stringValue(config.bodyEntry || nested.bodyEntry),
         bodyExit: stringValue(config.bodyExit || nested.bodyExit),
         bodyNodeIds: arrayValue(config.bodyNodeIds || nested.bodyNodeIds),
+      }),
+    }
+  }
+  if (kind === 'parallel') {
+    return {
+      ...common,
+      parallelConfig: normalizeParallelConfig({
+        maxConcurrency: numberValue(config.maxConcurrency, 4),
+        failureMode: stringValue(config.failureMode) === 'CONTINUE' ? 'CONTINUE' : 'FAIL_FAST',
       }),
     }
   }

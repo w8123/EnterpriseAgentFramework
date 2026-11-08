@@ -37,6 +37,12 @@ x-reachai-env: &reachai-env
   MODEL_CREDENTIAL_SECRET: ${MODEL_CREDENTIAL_SECRET:-quickstart-model-credential-secret-change-me}
   AGENT_WORKFLOW_CREDENTIAL_SECRET: ${AGENT_WORKFLOW_CREDENTIAL_SECRET:-quickstart-workflow-credential-secret-change-me}
   EAF_EMBED_TOKEN_SECRET: ${EAF_EMBED_TOKEN_SECRET:-quickstart-embed-token-secret-change-me-32bytes}
+  # 演示库由 MySQL 镜像预先建表，服务不会再自动生成内部密钥，所以这里显式给出（只适合本机体验）
+  REACHAI_INTERNAL_SERVICE_SECRET: ${REACHAI_INTERNAL_SERVICE_SECRET:-quickstart-internal-service-secret-demo-only}
+  REACHAI_PERSONAL_MEMORY_INDEX_IDENTITY_SECRET: ${REACHAI_PERSONAL_MEMORY_INDEX_IDENTITY_SECRET:-quickstart-memory-index-secret-demo-only}
+  REACHAI_AICODINGTASK_SECRETPEPPER: ${REACHAI_AI_CODING_TASK_SECRET_PEPPER:-quickstart-ai-coding-pepper-demo-only}
+  # 演示「自动化中心」按计划运行 Agent / Workflow（演示库已包含自动化相关表）
+  REACHAI_AUTOMATION_ENABLED: ${REACHAI_AUTOMATION_ENABLED:-true}
   REACHAI_MCP_HUB_PUBLIC_BASE_URL: ${REACHAI_PUBLIC_URL:-http://localhost:18080}
   # 演示环境里芋道在 Docker 内网，HTTP API 需要访问内网地址
   RUNTIME_HTTP_EGRESS_ALLOW_PRIVATE: "true"
@@ -105,6 +111,9 @@ services:
     environment:
       <<: *reachai-env
       JAVA_OPTS: -Xms96m -Xmx384m -XX:+UseSerialGC
+    # 五个服务共用 /app/data 里自动生成的内部签名密钥，缺了这个卷模型服务会拒绝其他服务的请求
+    volumes:
+      - reachai-data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:18601/actuator/health"]
       interval: 10s
@@ -137,6 +146,8 @@ services:
     environment:
       <<: *reachai-env
       JAVA_OPTS: -Xms96m -Xmx384m -XX:+UseSerialGC
+    volumes:
+      - reachai-data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://localhost:18605/actuator/health"]
       interval: 10s

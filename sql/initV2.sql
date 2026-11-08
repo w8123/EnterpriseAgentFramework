@@ -284,6 +284,15 @@ CREATE TABLE IF NOT EXISTS `model_catalog_snapshot` (
     KEY `idx_model_catalog_snapshot_time` (`source_id`, `fetched_at`, `id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Immutable normalized official model source snapshot and bounded AI analysis';
 
+CREATE TABLE IF NOT EXISTS `model_instance_price` (
+    `model_instance_id`        VARCHAR(64)   NOT NULL COMMENT 'model_instance.id',
+    `input_price_per_million`  DECIMAL(12,4) DEFAULT NULL COMMENT '每百万输入 Token 价格',
+    `output_price_per_million` DECIMAL(12,4) DEFAULT NULL COMMENT '每百万输出 Token 价格',
+    `currency`                 VARCHAR(8)    NOT NULL DEFAULT 'CNY' COMMENT 'CNY / USD',
+    `updated_at`               DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`model_instance_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='模型价格（估算费用用）';
+
 CREATE TABLE IF NOT EXISTS `model_catalog_change` (
     `id`                    BIGINT         NOT NULL AUTO_INCREMENT,
     `run_id`                BIGINT         NOT NULL,
@@ -1398,6 +1407,19 @@ CREATE TABLE IF NOT EXISTS `runtime_tool_call_log` (
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_create_time',      'create_time');
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_user_create_time', 'user_id, create_time');
 CALL add_idx_if_absent('runtime_tool_call_log', 'idx_intent_create',    'intent_type, create_time');
+
+CREATE TABLE IF NOT EXISTS `runtime_model_usage` (
+    `id`                BIGINT      NOT NULL AUTO_INCREMENT,
+    `trace_id`          VARCHAR(64) DEFAULT NULL COMMENT '根运行 runtime_run.trace_id；运行之外的调用（如 Studio AI 编辑）为空',
+    `usage_source`      VARCHAR(32) NOT NULL COMMENT 'AGENT / AGENT_COMPACTION / WORKFLOW_NODE / WORKFLOW_AUTHORING',
+    `model_instance_id` VARCHAR(64) NOT NULL COMMENT 'model_instance.id',
+    `input_tokens`      INT         NOT NULL DEFAULT 0,
+    `output_tokens`     INT         NOT NULL DEFAULT 0,
+    `created_at`        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_runtime_model_usage_time` (`created_at`),
+    KEY `idx_runtime_model_usage_trace` (`trace_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='每次调用模型的 Token 用量（不含对话内容），用于估算费用';
 
 CREATE TABLE IF NOT EXISTS `runtime_trace_span` (
     `id`                BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
@@ -3688,7 +3710,7 @@ CREATE TABLE IF NOT EXISTS `control_ai_coding_task` (
     `capability_key`          VARCHAR(64)   NOT NULL COMMENT 'PROJECT_ONBOARDING / BUSINESS_PAGE_WORKBENCH / ...',
     `task_kind`               VARCHAR(64)   NOT NULL COMMENT 'Provider-owned task kind, for example PROJECT_ONBOARDING / PAGE_MAP_SCAN',
     `protocol_version`        VARCHAR(16)   NOT NULL DEFAULT 'v1',
-    `executor_provider`       VARCHAR(24)   NOT NULL COMMENT 'CODEX / CURSOR / TRAE / CLAUDE_CODE',
+    `executor_provider`       VARCHAR(24)   NOT NULL COMMENT 'CODEX / CURSOR / TRAE / CLAUDE_CODE / OTHER',
     `execution_mode`          VARCHAR(24)   NOT NULL DEFAULT 'EXTERNAL_CLIENT' COMMENT 'EXTERNAL_CLIENT / MANAGED_SANDBOX',
     `managed_execution_id`    VARCHAR(64)   DEFAULT NULL COMMENT 'Runtime-owned Managed Execution id; immutable after binding',
     `sandbox_profile`         VARCHAR(48)   DEFAULT NULL COMMENT 'ANALYZE_READONLY / WORKSPACE_PATCH for managed tasks',

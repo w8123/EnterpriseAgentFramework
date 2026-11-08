@@ -119,3 +119,23 @@ export function getProviderAccountModels(id: string) {
 export function createProviderAccountInstances(id: string, data: ProviderAccountInstancesRequest) {
   return modelRequest.post<ApiResult<ProviderAccountInstancesResult>>(`${PROVIDER_ACCOUNTS}/${id}/instances`, data)
 }
+
+export interface ModelInstancePrice {
+  modelInstanceId: string
+  inputPricePerMillion: number | null
+  outputPricePerMillion: number | null
+  currency: 'CNY' | 'USD'
+  updatedAt: string | null
+}
+
+/** 模型价格（每百万 Token），只用于「AI 使用情况」估算费用。 */
+export function getModelInstancePrice(id: string) {
+  return modelRequest.get<ApiResult<ModelInstancePrice>>(`/instances/${id}/price`)
+}
+
+export function saveModelInstancePrice(
+  id: string,
+  data: { inputPricePerMillion: number | null; outputPricePerMillion: number | null; currency: string },
+) {
+  return modelRequest.put<ApiResult<ModelInstancePrice>>(`/instances/${id}/price`, data)
+}

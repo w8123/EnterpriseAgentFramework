@@ -18,11 +18,31 @@
         </template>
         <template #actions>
           <LiquidGlassButton source="wallpaper" v-if="projectScoped" @click="backToProject">返回项目</LiquidGlassButton>
+          <AiHandoffButton
+            v-if="scopeCanLoadData"
+            scenario="workflow-draft"
+            :context="{ projectCode: pageProjectScope.resolution.value?.kind === 'project' ? pageProjectScope.resolution.value.project.projectCode : '' }"
+          />
+          <LiquidGlassButton source="wallpaper"
+            v-if="scopeCanLoadData && canCreateWorkflowInCurrentScope"
+            :icon="Upload"
+            @click="importInputRef?.click()"
+          >
+            导入
+          </LiquidGlassButton>
+          <input
+            ref="importInputRef"
+            class="workflow-import-input"
+            type="file"
+            accept=".json,application/json"
+            aria-label="导入工作流文件"
+            @change="handleImportFile"
+          />
           <LiquidGlassButton source="wallpaper"
             v-if="scopeCanLoadData && canCreateWorkflowInCurrentScope"
             type="primary"
             :icon="Plus"
-            @click="openCreateDialog"
+            @click="openCreateDialog()"
           >
             新建 Workflow
           </LiquidGlassButton>
@@ -190,10 +210,48 @@
     <AppDialog
       v-model="createDialogVisible"
       title="新建 Workflow"
-      width="560px"
+      width="min(720px, 94vw)"
       destroy-on-close
     >
       <el-form label-position="top" class="create-form">
+        <div v-if="importedFile" class="create-import-summary">
+          <strong>导入：{{ importedFile.workflow.name || importedFile.workflow.keySlug || '工作流文件' }}</strong>
+          <span>会创建为一个新草稿，原来的模型选择已清空，用工作流默认模型。</span>
+          <ul v-if="importDependencyLines.length">
+            <li v-for="line in importDependencyLines" :key="line">{{ line }}</li>
+          </ul>
+          <span v-if="importDependencyLines.length">如果当前项目没有这些，打开后在对应节点重新选择。</span>
+        </div>
+        <el-form-item v-else label="从哪里开始">
+          <div class="create-template-grid" role="radiogroup" aria-label="从哪里开始">
+            <button
+              type="button"
+              role="radio"
+              class="create-template-card"
+              :class="{ active: !createForm.templateKey }"
+              :aria-checked="!createForm.templateKey"
+              @click="selectTemplate('')"
+            >
+              <strong>空白</strong>
+              <span>从开始和结束两个节点搭起</span>
+            </button>
+            <button
+              v-for="item in WORKFLOW_TEMPLATES"
+              :key="item.key"
+              type="button"
+              role="radio"
+              class="create-template-card"
+              :class="{ active: createForm.templateKey === item.key }"
+              :aria-checked="createForm.templateKey === item.key"
+              @click="selectTemplate(item.key)"
+            >
+              <strong>{{ item.name }}</strong>
+              <span>{{ item.description }}</span>
+              <em>{{ item.tags.join(' · ') }}</em>
+            </button>
+          </div>
+          <p v-if="selectedTemplate" class="create-project-hint">创建后还要做：{{ selectedTemplate.setupHint }}</p>
+        </el-form-item>
         <el-form-item label="名称" required>
           <el-input
             v-model="createForm.name"
@@ -291,11 +349,14 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import AppDialog from '@/components/common/AppDialog.vue'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
+import { Plus, Upload } from '@element-plus/icons-vue'
+import { WORKFLOW_TEMPLATES, templateDocuments } from '@/utils/workflowTemplates'
+import { parseWorkflowFile, stripEnvironmentBindings, type WorkflowFile } from '@/utils/workflowExchange'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
@@ -431,6 +492,7 @@ const createForm = reactive<{
   workflowKind: string
   executionEngine: string
   description: string
+  templateKey: string
 }>({
   name: '',
   keySlug: '',
@@ -438,7 +500,44 @@ const createForm = reactive<{
   workflowKind: 'GENERAL',
   executionEngine: 'GRAPH_SPEC',
   description: '',
+  templateKey: '',
 })
+const importInputRef = ref<HTMLInputElement | null>(null)
+const importedFile = ref<WorkflowFile | null>(null)
+const selectedTemplate = computed(() => WORKFLOW_TEMPLATES.find((item) => item.key === createForm.templateKey) || null)
+const importDependencyLines = computed(() => {
+  const deps = importedFile.value?.dependencies
+  if (!deps) return []
+  const lines: string[] = []
+  if (deps.tools.length) lines.push(`业务能力：${deps.tools.join('、')}`)
+  if (deps.knowledgeBases.length) lines.push(`知识库：${deps.knowledgeBases.join('、')}`)
+  if (deps.subWorkflows.length) lines.push(`子流程：${deps.subWorkflows.join('、')}`)
+  return lines
+})
+
+function selectTemplate(key: string) {
+  const previous = selectedTemplate.value
+  createForm.templateKey = key
+  const next = selectedTemplate.value
+  // Only replace the name/description the template filled in, never what the user typed.
+  if (!createForm.name.trim() || createForm.name === previous?.name) createForm.name = next?.name || ''
+  if (!createForm.description.trim() || createForm.description === previous?.description) {
+    createForm.description = next?.description || ''
+  }
+}
+
+async function handleImportFile(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  try {
+    const parsed = parseWorkflowFile(await file.text())
+    openCreateDialog(parsed)
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '导入失败')
+  }
+}
 const createScopeSnapshot = ref<WorkflowCreateScopeSnapshot | null>(null)
 const createTargetIdentity = ref<WorkflowCreateProjectIdentity | null>(null)
 
@@ -1012,7 +1111,7 @@ async function retryCreateCatalog() {
   }
 }
 
-function openCreateDialog() {
+function openCreateDialog(imported: WorkflowFile | null = null) {
   if (!canCreateWorkflowInCurrentScope.value) return
   const resolution = pageProjectScope.resolution.value
   const reference = pageProjectScope.reference.value
@@ -1029,9 +1128,15 @@ function openCreateDialog() {
   createTargetIdentity.value = resolution.kind === 'project' && resolution.project.projectCode
     ? { id: resolution.project.id, projectCode: resolution.project.projectCode }
     : null
-  createForm.workflowKind = 'GENERAL'
+  createForm.workflowKind = imported?.workflow.workflowKind || 'GENERAL'
   createForm.executionEngine = 'GRAPH_SPEC'
-  createForm.description = ''
+  createForm.description = imported?.workflow.description || ''
+  createForm.templateKey = ''
+  importedFile.value = imported
+  if (imported) {
+    createForm.name = imported.workflow.name ? `${imported.workflow.name}（导入）` : ''
+    createForm.keySlug = imported.workflow.keySlug ? `${imported.workflow.keySlug}-import`.slice(0, 128) : ''
+  }
   createDialogVisible.value = true
 }
 
@@ -1149,6 +1254,22 @@ function isCreateOperationCurrent(
   )
 }
 
+function createDocuments(): { graphSpecJson: string; canvasJson: string } {
+  if (importedFile.value) {
+    return {
+      graphSpecJson: JSON.stringify(stripEnvironmentBindings(importedFile.value.graphSpec)),
+      canvasJson: importedFile.value.canvas
+        ? JSON.stringify(importedFile.value.canvas)
+        : '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
+    }
+  }
+  if (selectedTemplate.value) return templateDocuments(selectedTemplate.value)
+  return {
+    graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
+    canvasJson: '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
+  }
+}
+
 async function submitCreateWorkflow() {
   if (creating.value || !validateCreateForm()) return
   const target = resolveCreateTarget()
@@ -1167,8 +1288,7 @@ async function submitCreateWorkflow() {
     creationChannel: 'STUDIO',
     description: createForm.description.trim() || null,
     status: 'DRAFT',
-    graphSpecJson: '{"schemaVersion":2,"nodes":[],"edges":[],"entryNodeId":"","exitNodeIds":[]}',
-    canvasJson: '{"schemaVersion":1,"layoutVersion":1,"nodes":[],"edges":[]}',
+    ...createDocuments(),
   }
   creating.value = true
   try {
@@ -1569,6 +1689,72 @@ function workflowStatusClass(status?: string | null) {
   .workflow-table,
   .workflow-table :deep(.el-scrollbar__wrap) {
     transition: none;
+  }
+}
+.workflow-import-input {
+  display: none;
+}
+
+.create-template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.create-template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border-readable);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+
+  strong {
+    font-size: 13px;
+  }
+
+  span {
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-secondary);
+  }
+
+  em {
+    font-size: 11px;
+    font-style: normal;
+    color: var(--brand-primary);
+  }
+
+  &.active {
+    border-color: var(--brand-primary);
+    box-shadow: 0 0 0 1px var(--brand-primary) inset;
+  }
+}
+
+.create-import-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-readable);
+  border-radius: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+
+  strong {
+    font-size: 13px;
+    color: var(--text-primary);
+  }
+
+  ul {
+    margin: 2px 0;
+    padding-left: 18px;
   }
 }
 </style>

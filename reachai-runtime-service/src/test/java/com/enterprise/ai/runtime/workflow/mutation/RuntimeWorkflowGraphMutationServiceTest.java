@@ -144,7 +144,7 @@ class RuntimeWorkflowGraphMutationServiceTest {
     void rejectsAddAndUpdateForNonAuthorableNodesButAllowsDelete() {
         GraphSpec.Node approval = GraphSpec.Node.builder()
                 .id("approve")
-                .type("HUMAN_APPROVAL")
+                .type("DOCUMENT_EXTRACT")
                 .name("Approve")
                 .build();
         GraphSpec source = GraphSpec.builder()
@@ -175,7 +175,7 @@ class RuntimeWorkflowGraphMutationServiceTest {
                         MutationOperation.Op.UPDATE_NODE,
                         null,
                         "answer",
-                        Map.of("type", "CODE"),
+                        Map.of("type", "MCP_CALL"),
                         null,
                         null,
                         null,

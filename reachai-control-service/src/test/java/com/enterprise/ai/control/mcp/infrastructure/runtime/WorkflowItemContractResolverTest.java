@@ -96,6 +96,44 @@ class WorkflowItemContractResolverTest {
         assertEquals("WRITE", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
     }
 
+    @Test
+    void subWorkflowMergesThePinnedChildRiskUpward() {
+        stubWorkflowLookup();
+        Map<String, Object> parent = version("ACTIVE", "{\"inputSchemaJson\":\"{}\"}");
+        parent.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"LLM\"},{\"type\":\"SUB_WORKFLOW\",\"config\":{\"workflowId\":\"wf-child\",\"versionId\":7}}]}");
+        stubVersions(parent);
+        Map<String, Object> child = new LinkedHashMap<>();
+        child.put("id", 7L);
+        child.put("status", "RETIRED");
+        child.put("snapshotJson", "{}");
+        child.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"KNOWLEDGE_WRITE\"}]}");
+        when(runtimeProxyClient.listWorkflowVersions("wf-child")).thenReturn(ResponseEntity.ok(List.of(child)));
+        assertEquals("WRITE", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+
+        child.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"CODE\"}]}");
+        assertEquals("READ", resolver.resolve(WORKFLOW_ID).minimumRiskLevel());
+
+        child.put("status", "DRAFT");
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+
+        parent.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"SUB_WORKFLOW\",\"config\":{\"workflowId\":\"wf-child\"}}]}");
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+    }
+
+    @Test
+    void conflictingSubWorkflowPinsCannotPublishWithLowerRisk() {
+        stubWorkflowLookup();
+        Map<String, Object> parent = version("ACTIVE", "{\"inputSchemaJson\":\"{}\"}");
+        parent.put("graphSpecSnapshotJson", "{\"nodes\":[{\"type\":\"SUB_WORKFLOW\",\"config\":{" +
+                "\"workflowId\":\"write-child\",\"versionId\":8," +
+                "\"subWorkflowConfig\":{\"workflowId\":\"read-child\",\"versionId\":7}}}]}");
+        stubVersions(parent);
+        assertEquals("MCP_WORKFLOW_RISK_UNRESOLVABLE", assertThrows(McpContractResolutionException.class,
+                () -> resolver.resolve(WORKFLOW_ID)).code());
+    }
+
     @BeforeEach
     void setUp() {
         runtimeProxyClient = mock(RuntimeProxyClient.class);

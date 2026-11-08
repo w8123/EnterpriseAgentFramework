@@ -3,6 +3,7 @@ export type AiCodingExecutorProvider =
   | 'CURSOR'
   | 'TRAE'
   | 'CLAUDE_CODE'
+  | 'OTHER'
 export type AiCodingAccessMode = 'READ_ONLY' | 'READ_WRITE'
 export type AiCodingExecutionMode = 'EXTERNAL_CLIENT' | 'MANAGED_SANDBOX'
 export type AiCodingSandboxProfile = 'ANALYZE_READONLY' | 'WORKSPACE_PATCH'

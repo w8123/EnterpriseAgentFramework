@@ -24,6 +24,7 @@ public final class WorkflowVariableNamespaces {
     public static final String NODE_OUTPUT_ROOT = "nodeOutput";
     public static final String PARAMS_ROOT = "params";
     public static final String SYS_ROOT = "sys";
+    public static final String ENV_ROOT = "env";
 
     private static final Pattern ALIAS_PATTERN = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*$");
     private static final Set<String> RESERVED_ROOTS = Set.of(
@@ -31,6 +32,7 @@ public final class WorkflowVariableNamespaces {
             "message",
             "params",
             "sys",
+            "env",
             "nodeOutput",
             "lastOutput",
             "previousOutput",

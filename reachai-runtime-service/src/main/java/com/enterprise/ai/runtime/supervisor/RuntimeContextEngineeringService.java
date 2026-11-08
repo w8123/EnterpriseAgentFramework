@@ -71,6 +71,12 @@ public class RuntimeContextEngineeringService {
     private final ObjectMapper objectMapper;
     private final RuntimeSessionMemoryService sessionMemoryService;
     private final RuntimeToolResultArtifactService artifactService;
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder) {
+        this.usageRecorder = usageRecorder;
+    }
 
     public RuntimeContextEngineeringService(
             RuntimeContextEngineeringProperties properties,
@@ -142,6 +148,11 @@ public class RuntimeContextEngineeringService {
         if (properties.compactionActive() || properties.overflowRecoveryActive()) {
             compactionModel = new ReachAiAgentScopeChatModel(
                     modelInstanceId, modelClient, modelStreamClient, objectMapper, null);
+            var recorder = usageRecorder;
+            if (recorder != null) {
+                compactionModel.onUsage((modelId, inTokens, outTokens) -> recorder.record(
+                        traceId, com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.SOURCE_AGENT_COMPACTION, modelId, inTokens, outTokens));
+            }
             compactionMiddleware = new ReachAiCompactionMiddleware(
                     compactionModel,
                     compactionConfig(

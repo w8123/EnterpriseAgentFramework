@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   submitWorkflowDebugSession: vi.fn(),
   cancelWorkflowDebugSession: vi.fn(),
   success: vi.fn(),
+  info: vi.fn(),
   warning: vi.fn(),
   error: vi.fn(),
 }))
@@ -44,6 +45,7 @@ vi.mock('@/api/workflow', () => ({
 vi.mock('element-plus', () => ({
   ElMessage: {
     success: mocks.success,
+    info: mocks.info,
     warning: mocks.warning,
     error: mocks.error,
   },
@@ -350,6 +352,46 @@ describe('useWorkflowStudioDebugRun account changes during async work', () => {
     expect(deps.nodeDebugStateJson.value).toBe('{}')
     expect(deps.debugInputParams).toEqual({})
     expect(mocks.success).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('re-runs from the selected node input rather than the final state', async () => {
+    mocks.debugWorkflowRun.mockResolvedValue({ data: { runId: 'r2', success: true, status: 'COMPLETED', steps: [] } })
+    const deps = createDeps()
+    deps.debugRunResult.value = {
+      runId: 'r1', success: true, status: 'COMPLETED',
+      steps: [{ index: 0, nodeId: 'b', status: 'SUCCESS', input: { input: 'hi', nodeOutput: { a: { x: 1 } } } }],
+      stateSnapshot: { input: 'hi', nodeOutput: { a: { x: 2 } } },
+    }
+    deps.selectedDebugStepIndex.value = 0
+    const mounted = mountDebugRun(deps)
+    await mounted.debugRun.handleRerunFromNode('b')
+    const request = mocks.debugWorkflowRun.mock.lastCall?.[0]
+    expect(request.debugOptions.entryNodeId).toBe('b')
+    expect(request.inputParams).toEqual({ input: 'hi', nodeOutput: { a: { x: 1 } } })
+    expect(deps.debugRunResult.value?.runId).toBe('r2')
+    mounted.unmount()
+  })
+
+  it('does not rerun old steps without an input snapshot', async () => {
+    const deps = createDeps()
+    deps.debugRunResult.value = { runId: 'r1', success: true, status: 'COMPLETED',
+      steps: [{ index: 0, nodeId: 'b', status: 'SUCCESS' }], stateSnapshot: { input: 'final' } }
+    deps.selectedDebugStepIndex.value = 0
+    const mounted = mountDebugRun(deps)
+    mocks.debugWorkflowRun.mockClear()
+    await mounted.debugRun.handleRerunFromNode('b')
+    expect(mocks.debugWorkflowRun).not.toHaveBeenCalled()
+    mounted.unmount()
+  })
+
+  it('fills the node test box from the last run', () => {
+    const deps = createDeps()
+    const mounted = mountDebugRun(deps)
+    expect(mounted.debugRun.applyLastRunStateToNodeTest({ silent: true })).toBe(false)
+    deps.debugRunResult.value = { runId: 'r1', success: true, status: 'COMPLETED', steps: [], stateSnapshot: { var: { a: 1 } } }
+    expect(mounted.debugRun.applyLastRunStateToNodeTest({ silent: true })).toBe(true)
+    expect(JSON.parse(deps.nodeDebugStateText.value)).toEqual({ var: { a: 1 } })
     mounted.unmount()
   })
 })

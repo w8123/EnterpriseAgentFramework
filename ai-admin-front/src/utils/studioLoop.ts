@@ -12,6 +12,7 @@ const FORBIDDEN_BODY_KINDS = new Set<CanvasNodeKind>([
   'loop',
   'interaction',
   'approval',
+  'parallel',
 ])
 
 function nodeLabel(node: CanvasNode): string {
@@ -66,8 +67,8 @@ export function syncLoopBodyMembership(input: {
   if (!input.nodes?.length) {
     return {
       ...input.loopConfig,
-      mode: 'FOREACH',
-      maxIterations: normalizeMaxIterations(input.loopConfig.maxIterations),
+      mode: input.loopConfig.mode === 'WHILE' ? 'WHILE' : 'FOREACH',
+      maxIterations: normalizeMaxIterations(input.loopConfig.maxIterations, input.loopConfig.mode),
     }
   }
   const occupied = occupiedLoopBodyNodeIds(input.nodes, input.loopNodeId)
@@ -90,18 +91,19 @@ export function syncLoopBodyMembership(input: {
   if (!bodyExit && bodyNodeIds.length) bodyExit = bodyNodeIds[bodyNodeIds.length - 1]
   return {
     ...input.loopConfig,
-    mode: 'FOREACH',
-    maxIterations: normalizeMaxIterations(input.loopConfig.maxIterations),
+    mode: input.loopConfig.mode === 'WHILE' ? 'WHILE' : 'FOREACH',
+    maxIterations: normalizeMaxIterations(input.loopConfig.maxIterations, input.loopConfig.mode),
     bodyNodeIds,
     bodyEntry,
     bodyExit,
   }
 }
 
-export function normalizeMaxIterations(raw: unknown): number {
+export function normalizeMaxIterations(raw: unknown, mode?: string): number {
+  const whileMode = mode === 'WHILE'
   const value = typeof raw === 'number' ? raw : Number(raw)
-  if (!Number.isFinite(value) || value < 1) return 100
-  if (value > 1000) return 1000
+  if (!Number.isFinite(value) || value < 1) return whileMode ? 10 : 100
+  if (value > (whileMode ? 50 : 1000)) return whileMode ? 50 : 1000
   return Math.floor(value)
 }
 

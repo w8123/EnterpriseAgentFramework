@@ -240,3 +240,58 @@ export function updateAiCodingCredentialPolicy(
     data,
   )
 }
+
+export interface CapabilityRetrofitCandidate {
+  candidateKey: string
+  title: string
+  description?: string
+  sideEffect: 'READ' | 'WRITE' | 'IRREVERSIBLE' | string
+  sourceFile?: string
+  symbol?: string
+  httpMethod?: string
+  path?: string
+  reason?: string
+  risk?: string
+  recommended?: boolean
+}
+
+export interface CapabilityRetrofitCapabilityState {
+  name: string
+  state: 'ACCEPTED' | 'PENDING_REVIEW' | 'NOT_SYNCED' | 'DISABLED' | 'UNKNOWN' | string
+  qualifiedName?: string | null
+  invocationName?: string | null
+  title?: string | null
+  sideEffect?: string | null
+  pendingChangeId?: number | null
+}
+
+export interface CapabilityRetrofitOverview {
+  schema: string
+  taskId: string
+  executionStatus: string
+  selection: {
+    questionId: string
+    status: string
+    answered: boolean
+    selected: string[]
+    answeredBy?: string | null
+    candidates?: { summary?: string; candidates?: CapabilityRetrofitCandidate[] } | null
+  } | null
+  report: {
+    summary?: string
+    mode?: string
+    capabilities?: Array<{ candidateKey: string; name: string; title: string; sideEffect: string; sourceFile: string; status: string; note?: string | null }>
+    changedFiles?: string[]
+    tests?: Array<{ name: string; status: string; command?: string | null; evidence?: string | null }>
+    sdkSync?: { status: string; message: string }
+    remainingQuestions?: string[]
+  } | null
+  mode: string
+  capabilityStates: CapabilityRetrofitCapabilityState[]
+}
+
+export function getCapabilityRetrofitOverview(taskId: string) {
+  return controlRequest.get<CapabilityRetrofitOverview>(
+    `${ROOT}/${encodeURIComponent(taskId)}/capability-retrofit`,
+  )
+}

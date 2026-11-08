@@ -34,6 +34,19 @@ public class BusinessUserSyncService {
 
     @Transactional
     public SyncedBusinessUser sync(AttestedBusinessUser attested) {
+        return sync(attested, true);
+    }
+
+    /**
+     * For sign-ins that prove who the user is but carry no roles (business-system single sign-on):
+     * the roles last synced from the business system, or granted by an administrator, stay as they are.
+     */
+    @Transactional
+    public SyncedBusinessUser syncKeepingRoles(AttestedBusinessUser attested) {
+        return sync(attested, false);
+    }
+
+    private SyncedBusinessUser sync(AttestedBusinessUser attested, boolean replaceRoles) {
         String tenantId = tenant(attested.tenantId());
         String appId = requireText(attested.appId(), "appId");
         String externalUserId = requireText(attested.externalUserId(), "externalUserId");
@@ -88,7 +101,11 @@ public class BusinessUserSyncService {
         } else {
             externalUserBindingMapper.updateById(binding);
         }
-        List<String> roles = replaceSyncedRoles(user.getId(), binding, attested.roles(), now);
+        List<String> roles = replaceRoles
+                ? replaceSyncedRoles(user.getId(), binding, attested.roles(), now)
+                : activeAccount(tenantId, user.getId(), appId)
+                        .filter(account -> externalUserId.equals(account.externalUserId()))
+                        .map(BusinessSystemAccount::roles).orElse(List.of());
         return new SyncedBusinessUser(user.getId(), tenantId, user.getGlobalUserId(),
                 user.getDisplayName(), appId, externalUserId, userName, roles);
     }

@@ -183,6 +183,7 @@ final class RuntimeNodeValueResolver {
                 || candidate.startsWith("nodeOutput.")
                 || candidate.startsWith("var.")
                 || candidate.startsWith("sys.")
+                || candidate.startsWith("env.")
                 || "input".equals(candidate)
                 || "message".equals(candidate)
                 || "lastOutput".equals(candidate)

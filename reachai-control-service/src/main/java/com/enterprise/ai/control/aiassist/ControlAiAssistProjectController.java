@@ -534,7 +534,8 @@ public class ControlAiAssistProjectController {
     ) {
     }
 
-    public record SdkAccessReadiness(String key, String label, String status, String message) {
+    public record SdkAccessReadiness(String key, String label, String status, String message,
+                                     Map<String, Object> evidence) {
     }
 
     public record SdkAccessCheckItem(String key, String label, String status, String message, String evidence) {

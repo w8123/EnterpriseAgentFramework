@@ -37,6 +37,7 @@ import {
 
 const DEBUG_DRAWER_WIDTH_RATIO = 0.58
 const DEBUG_DRAWER_MAX_WIDTH = 960
+const LAST_RUN_STATE_SKIPPED_KEYS = new Set(['runtimeCode', 'lastError', 'submittedPayload', 'traceId', 'supervisorTraceId'])
 const WORKFLOW_CONVERSATION_FIELD_NAMES = new Set(['message', 'input', 'question', 'query', 'prompt'])
 
 export function resolveWorkflowInitialChatField(fields: StudioFieldSchema[]): StudioFieldSchema | null {
@@ -902,6 +903,68 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     await runNodeDebug()
   }
 
+  /** Last debug run state, without server bookkeeping keys, for reuse as node test input. */
+  function lastRunState(): Record<string, unknown> | null {
+    const snapshot = deps.debugRunResult.value?.stateSnapshot
+    if (!snapshot || typeof snapshot !== 'object') return null
+    const state: Record<string, unknown> = {}
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (key.startsWith('__') || LAST_RUN_STATE_SKIPPED_KEYS.has(key)) continue
+      state[key] = value
+    }
+    return Object.keys(state).length ? state : null
+  }
+
+  /** Fill the node test box with the last run state. Returns false when there is no run to reuse. */
+  function applyLastRunStateToNodeTest(options: { silent?: boolean } = {}) {
+    const state = lastRunState()
+    if (!state) {
+      if (!options.silent) ElMessage.info('还没有调试记录，先完整调试一次')
+      return false
+    }
+    deps.nodeDebugStateText.value = JSON.stringify(state, null, 2)
+    if (!options.silent) ElMessage.success('已带入上次调试的数据')
+    return true
+  }
+
+  /** Re-run from the state captured immediately before the selected node. */
+  async function handleRerunFromNode(nodeId: string) {
+    const isCurrent = currentDebugScope()
+    if (!isCurrent()) return
+    const steps = deps.debugRunResult.value?.steps || []
+    const selected = steps[deps.selectedDebugStepIndex.value ?? -1]
+    const step = selected?.nodeId === nodeId ? selected : steps.find(item => item.nodeId === nodeId)
+    const state = step?.input
+    if (!state || typeof state !== 'object' || !Object.keys(state).length) {
+      ElMessage.info('该步骤没有可用的输入快照，请重新完整调试')
+      return
+    }
+    deps.debugLoading.value = true
+    try {
+      const { data } = await debugWorkflowRun({
+        ...buildDebugBaseRequest(),
+        message: typeof state.input === 'string' ? state.input : undefined,
+        inputParams: state,
+        debugOptions: { entryNodeId: nodeId, source: 'studio-rerun-from-node' },
+      })
+      if (!isCurrent()) return
+      deps.debugSession.value = null
+      deps.forgetDebugSession()
+      deps.debugRunResult.value = data
+      deps.currentTraceId.value = data.traceId || ''
+      deps.selectedDebugStepIndex.value = data.steps?.length ? data.steps.length - 1 : null
+      deps.refreshWorkflowNodeClasses()
+      await replayDebugSteps(data.steps || [])
+      if (!isCurrent()) return
+      ElMessage[data.success ? 'success' : 'error'](data.success ? '已从该节点重新运行' : `重新运行失败：${data.errorMessage || data.errorCode || ''}`)
+    } catch (err) {
+      if (!isCurrent()) return
+      ElMessage.error('重新运行失败：' + (err as Error).message)
+    } finally {
+      if (isCurrent()) deps.debugLoading.value = false
+    }
+  }
+
   function isDebugStepRunning(step: WorkflowDebugStepResult) {
     if (debugStepStatus(step.status) === 'running') return true
     const sessionCurrentNodeId = deps.debugSession.value?.currentNodeId || deps.debugRunResult.value?.currentNodeId || ''
@@ -934,6 +997,8 @@ export function useWorkflowStudioDebugRun(deps: UseWorkflowStudioDebugRunDeps) {
     recentRunLabel,
     handleRunPublishedDebug,
     handleRunNodeDebug,
+    handleRerunFromNode,
+    applyLastRunStateToNodeTest,
     isDebugStepRunning,
     debugConversationSnapshot,
     workflowInitialUiRequest,

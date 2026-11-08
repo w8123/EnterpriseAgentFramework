@@ -10,11 +10,13 @@ import {
   Document,
   Finished,
   Files,
+  Filter,
   Link,
   MagicStick,
   Operation,
   SetUp,
   Switch,
+  Share,
 } from '@element-plus/icons-vue'
 import LlmModelIcon from '@/components/icons/LlmModelIcon.vue'
 import type { WorkflowGraphNodeTypeDescriptor as NodeTypeDescriptor } from '@/types/workflow'
@@ -61,6 +63,9 @@ const nodeIconMap: Record<CanvasNodeKind, Component> = {
   aggregate: SetUp,
   approval: Finished,
   loop: SetUp,
+  parallel: Share,
+  listOperator: Filter,
+  subWorkflow: Operation,
   knowledgeWrite: Collection,
   documentExtract: Files,
   mcp: Connection,
@@ -75,7 +80,7 @@ const groupIconMap: Record<string, Component> = {
   Document,
 }
 
-const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|'tool'|'http'|'mcp'|'knowledge'|'knowledgeWrite'|'documentExtract'|'condition'|'variable'|'aggregate'|'loop', { border: string; bg: string }> = {
+const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|'tool'|'http'|'mcp'|'knowledge'|'knowledgeWrite'|'documentExtract'|'condition'|'variable'|'aggregate'|'loop'|'parallel'|'listOperator'|'subWorkflow', { border: string; bg: string }> = {
   start: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
   end: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
   answer: { border: '#34d399', bg: 'rgba(52, 211, 153, 0.12)' },
@@ -92,6 +97,9 @@ const kindColorMap: Record<'start'|'end'|'answer'|'approval'|'llm'|'classifier'|
   variable: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
   aggregate: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
   loop: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
+  parallel: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
+  listOperator: { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.12)' },
+  subWorkflow: { border: '#5b8def', bg: 'rgba(91, 141, 239, 0.12)' },
 }
 
 export function useWorkflowStudioPalette(deps: UseWorkflowStudioPaletteDeps) {

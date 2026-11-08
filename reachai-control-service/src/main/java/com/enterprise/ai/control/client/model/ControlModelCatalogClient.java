@@ -30,6 +30,10 @@ public interface ControlModelCatalogClient {
     @RequestMapping(method = RequestMethod.POST, path = "/model/instances")
     ResponseEntity<Map<String, Object>> create(@RequestBody Map<String, Object> request);
 
+    /** 全部模型价格（只给 Control 内部读取，用于估算费用）。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/model/instance-prices")
+    ResponseEntity<Map<String, Object>> prices();
+
     @RequestMapping(method = RequestMethod.GET, path = "/internal/model/instances/{id}")
     ResponseEntity<Map<String, Object>> getInternal(@PathVariable("id") String id);
 }

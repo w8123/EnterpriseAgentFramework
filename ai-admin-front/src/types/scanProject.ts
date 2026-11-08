@@ -137,6 +137,11 @@ export interface SdkAccessReadiness {
   label: string
   status: SdkAccessCheckStatus
   message: string
+  evidence?: {
+    scope?: 'PROJECT' | 'TASK_WINDOW'
+    observedAt?: string
+    timeKind?: 'LAST_HEARTBEAT' | 'LAST_SUCCESSFUL_CALLBACK'
+  } | null
 }
 
 export interface SdkAccessCheckResponse {

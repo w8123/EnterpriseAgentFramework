@@ -95,6 +95,7 @@ function canvasToGraphSpec(base: AgentForm, snapshot: CanvasSnapshot): WorkflowG
     // release validation or the public Workflow AI Coding Skill.
     inputSchema: userInputSchema || base.graphSpec?.inputSchema,
     stateSchema: base.graphSpec?.stateSchema,
+    ...(base.graphSpec?.env && Object.keys(base.graphSpec.env).length ? { env: base.graphSpec.env } : {}),
     nodes: graphNodes,
     edges: graphEdges,
     entryNodeId,
@@ -120,6 +121,10 @@ function userInputSchemaFromCanvas(nodes: CanvasNode[]): WorkflowGraphSpec['inpu
     if (field.description?.trim()) property.description = field.description.trim()
     if (field.defaultValue != null && String(field.defaultValue).trim()) {
       property.default = field.defaultValue
+    }
+    const choices = (field.options || []).map((option) => option.value).filter((value) => value !== '' && value != null)
+    if (choices.length && (field.type === 'string' || field.type === 'number' || field.type === 'integer')) {
+      property.enum = choices
     }
     properties[name] = property
     if (field.required === true) required.push(name)
@@ -212,6 +217,9 @@ function jsonSchemaInputFields(schema: WorkflowGraphSpec['inputSchema']): Studio
       required: required.has(name),
       description: stringValue(property.description || property.title),
       defaultValue: property.default == null ? '' : String(property.default),
+      ...(Array.isArray(property.enum) && property.enum.length
+        ? { options: property.enum.map((value) => ({ label: String(value), value: value as string | number | boolean })) }
+        : {}),
       source: `input.${name}`,
     }
   })
@@ -268,6 +276,9 @@ function graphNodeKindToCanvas(type: string): CanvasNodeKind {
   if (type === 'VARIABLE_AGGREGATOR') return 'aggregate'
   if (type === 'HUMAN_APPROVAL') return 'approval'
   if (type === 'LOOP') return 'loop'
+  if (type === 'PARALLEL') return 'parallel'
+  if (type === 'LIST_OPERATOR') return 'listOperator'
+  if (type === 'SUB_WORKFLOW') return 'subWorkflow'
   if (type === 'KNOWLEDGE_WRITE') return 'knowledgeWrite'
   if (type === 'DOCUMENT_EXTRACT') return 'documentExtract'
   if (type === 'MCP_CALL') return 'mcp'

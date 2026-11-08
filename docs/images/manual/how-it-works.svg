@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1080 560" font-family="'PingFang SC','Microsoft YaHei','Noto Sans CJK SC',sans-serif" role="img" aria-labelledby="t d">
+  <title id="t">ReachAI 工作原理</title>
+  <desc id="d">员工在业务系统或自己的 AI 工具里提问，ReachAI 确认身份、理解意图、检查权限和审批后，以员工身份调用业务系统，业务系统再次校验并执行，结果和记录回到员工和管理人员。</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#5b6478"/></marker>
+  </defs>
+  <rect width="1080" height="560" fill="#ffffff"/>
+
+  <!-- column titles -->
+  <text x="130" y="44" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2a44">员工</text>
+  <text x="540" y="44" text-anchor="middle" font-size="18" font-weight="700" fill="#4b3fd8">ReachAI</text>
+  <text x="950" y="44" text-anchor="middle" font-size="18" font-weight="700" fill="#1f2a44">业务系统（例如芋道 ERP）</text>
+
+  <!-- employee entries -->
+  <rect x="30" y="80" width="200" height="86" rx="12" fill="#f3f6fb" stroke="#c9d3e6"/>
+  <text x="130" y="112" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2a44">在业务系统里</text>
+  <text x="130" y="136" text-anchor="middle" font-size="13" fill="#4a5568">右下角 AI 助手</text>
+  <text x="130" y="155" text-anchor="middle" font-size="13" fill="#4a5568">“帮我查一下库存”</text>
+
+  <rect x="30" y="190" width="200" height="86" rx="12" fill="#f3f6fb" stroke="#c9d3e6"/>
+  <text x="130" y="222" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2a44">在自己的 AI 工具里</text>
+  <text x="130" y="246" text-anchor="middle" font-size="13" fill="#4a5568">Codex / Claude Code</text>
+  <text x="130" y="265" text-anchor="middle" font-size="13" fill="#4a5568">“新建客户 华东贸易”</text>
+
+  <!-- ReachAI steps -->
+  <rect x="300" y="64" width="480" height="420" rx="16" fill="#f5f4ff" stroke="#b9b3f5"/>
+  <g font-size="14" fill="#1f2a44">
+    <rect x="324" y="84" width="432" height="62" rx="10" fill="#ffffff" stroke="#d6d2fb"/>
+    <circle cx="350" cy="115" r="14" fill="#4b3fd8"/><text x="350" y="120" text-anchor="middle" fill="#fff" font-weight="700">1</text>
+    <text x="376" y="110" font-weight="600">确认你是谁</text>
+    <text x="376" y="132" font-size="12.5" fill="#4a5568">身份来自业务系统的登录，不用另注册 ReachAI 账号</text>
+
+    <rect x="324" y="158" width="432" height="62" rx="10" fill="#ffffff" stroke="#d6d2fb"/>
+    <circle cx="350" cy="189" r="14" fill="#4b3fd8"/><text x="350" y="194" text-anchor="middle" fill="#fff" font-weight="700">2</text>
+    <text x="376" y="184" font-weight="600">AI 听懂你要做什么</text>
+    <text x="376" y="206" font-size="12.5" fill="#4a5568">从企业开放的“能力清单”里挑出要用的功能</text>
+
+    <rect x="324" y="232" width="432" height="62" rx="10" fill="#ffffff" stroke="#d6d2fb"/>
+    <circle cx="350" cy="263" r="14" fill="#4b3fd8"/><text x="350" y="268" text-anchor="middle" fill="#fff" font-weight="700">3</text>
+    <text x="376" y="258" font-weight="600">检查权限，改数据先审批</text>
+    <text x="376" y="280" font-size="12.5" fill="#4a5568">查询直接执行；新建、修改等操作等管理人员批准</text>
+
+    <rect x="324" y="306" width="432" height="62" rx="10" fill="#ffffff" stroke="#d6d2fb"/>
+    <circle cx="350" cy="337" r="14" fill="#4b3fd8"/><text x="350" y="342" text-anchor="middle" fill="#fff" font-weight="700">4</text>
+    <text x="376" y="332" font-weight="600">以你的身份调用业务系统</text>
+    <text x="376" y="354" font-size="12.5" fill="#4a5568">每次调用都带签名，业务系统能验证真伪</text>
+
+    <rect x="324" y="380" width="432" height="62" rx="10" fill="#ffffff" stroke="#d6d2fb"/>
+    <circle cx="350" cy="411" r="14" fill="#4b3fd8"/><text x="350" y="416" text-anchor="middle" fill="#fff" font-weight="700">6</text>
+    <text x="376" y="406" font-weight="600">整理回答，留下记录</text>
+    <text x="376" y="428" font-size="12.5" fill="#4a5568">谁、用什么工具、做了什么，管理人员都看得到</text>
+  </g>
+
+  <!-- business system -->
+  <rect x="850" y="250" width="200" height="150" rx="12" fill="#f3f6fb" stroke="#c9d3e6"/>
+  <circle cx="876" cy="282" r="14" fill="#1f2a44"/><text x="876" y="287" text-anchor="middle" fill="#fff" font-size="14" font-weight="700">5</text>
+  <text x="898" y="287" font-size="15" font-weight="600" fill="#1f2a44">原系统执行</text>
+  <text x="870" y="318" font-size="12.5" fill="#4a5568">按你在 ERP 里的</text>
+  <text x="870" y="338" font-size="12.5" fill="#4a5568">角色和数据权限</text>
+  <text x="870" y="358" font-size="12.5" fill="#4a5568">再校验一遍，</text>
+  <text x="870" y="378" font-size="12.5" fill="#4a5568">没权限就拒绝</text>
+
+  <!-- arrows -->
+  <path d="M230 123 C 265 123, 280 115, 322 115" fill="none" stroke="#5b6478" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M230 233 C 270 233, 270 130, 322 120" fill="none" stroke="#5b6478" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M756 337 L 848 320" fill="none" stroke="#5b6478" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M848 370 L 758 405" fill="none" stroke="#5b6478" stroke-width="2" marker-end="url(#a)"/>
+  <path d="M322 425 C 200 425, 150 360, 140 280" fill="none" stroke="#5b6478" stroke-width="2" stroke-dasharray="6 5" marker-end="url(#a)"/>
+  <text x="160" y="400" font-size="13" fill="#4a5568">回答你</text>
+
+  <!-- manager -->
+  <rect x="30" y="460" width="200" height="70" rx="12" fill="#fff8ec" stroke="#f0d29a"/>
+  <text x="130" y="490" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2a44">管理人员</text>
+  <text x="130" y="512" text-anchor="middle" font-size="12.5" fill="#4a5568">审批、看使用情况</text>
+  <path d="M322 270 C 270 300, 260 420, 232 480" fill="none" stroke="#c98a1b" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#a)"/>
+  <path d="M410 444 L 410 500 L 234 500" fill="none" stroke="#c98a1b" stroke-width="2" stroke-dasharray="4 4" marker-end="url(#a)"/>
+</svg>

@@ -10,7 +10,7 @@ Never place `appSecret`, project `aiCodingKey`, task token, or activation code i
 - Markdown reports.
 - Terminal output summaries.
 
-Project-level `aiCodingKey` and `provisionAgentUrl` belong to independently authenticated AI coding tools, local shell scripts, or server-side onboarding only. A ReachAI task handoff does not expose that key: activate the one-time code and keep its short-lived task token only in the current process. Browser runtime must not call onboarding manifests, provisioning endpoints, handoff activation, or task protocol endpoints.
+Project-level `aiCodingKey` and `provisionAgentUrl` belong to independently authenticated AI coding tools, local shell scripts, or server-side onboarding only. A PROJECT_ONBOARDING task uses the authenticated platform MCP connection and its bound task tools; browser runtime must not call onboarding manifests, provisioning endpoints, or task protocol endpoints.
 
 Use the manifest field `sdk.config.appSecretEnv` and write configuration like:
 

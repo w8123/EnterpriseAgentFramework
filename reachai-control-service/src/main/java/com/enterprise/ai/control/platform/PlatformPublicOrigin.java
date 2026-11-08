@@ -8,12 +8,12 @@ import org.springframework.util.StringUtils;
 import java.util.Locale;
 
 /** The ReachAI origin employees' browsers and AI tools reach: the configured one, else the request's. */
-final class PlatformPublicOrigin {
+public final class PlatformPublicOrigin {
 
     private PlatformPublicOrigin() {
     }
 
-    static String resolve(McpHubProperties properties, HttpServletRequest request) {
+    public static String resolve(McpHubProperties properties, HttpServletRequest request) {
         if (StringUtils.hasText(properties.getPublicBaseUrl())) {
             String configured = properties.getPublicBaseUrl().trim();
             return configured.endsWith("/") ? configured.substring(0, configured.length() - 1) : configured;

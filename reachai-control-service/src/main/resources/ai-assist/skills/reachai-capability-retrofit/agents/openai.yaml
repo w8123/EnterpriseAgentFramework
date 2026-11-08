@@ -1,0 +1,4 @@
+interface:
+  display_name: "ReachAI Capability Retrofit"
+  short_description: "Open more business operations of a connected system to ReachAI, with the developer choosing what to open."
+  default_prompt: "Use this skill to inventory, declare and sync new ReachAI business capabilities for the current business repository."

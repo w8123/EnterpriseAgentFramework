@@ -21,6 +21,32 @@ import static org.mockito.Mockito.when;
 class RuntimeWorkflowReleaseValidationServiceTest {
 
     @Test
+    void humanApprovalRequiresExplicitApprovedEdge() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {"schemaVersion":2,"entryNodeId":"approval","exitNodeIds":["done"],
+                 "nodes":[{"id":"approval","type":"HUMAN_APPROVAL","config":{}},
+                   {"id":"done","type":"ANSWER","config":{"template":"done"}}],
+                 "edges":[{"from":"approval","to":"done","condition":"always"}]}
+                """);
+        assertTrue(hasError(service(mock(RuntimeControlCatalogClient.class)).validate(workflow),
+                "GRAPH_APPROVAL_APPROVED_ROUTE_REQUIRED"));
+    }
+
+    @Test
+    void conflictingSubWorkflowReferencesFailPublication() {
+        RuntimeWorkflowDefinitionEntity workflow = workflow("""
+                {"schemaVersion":2,"entryNodeId":"child","exitNodeIds":["answer"],
+                 "nodes":[{"id":"child","type":"SUB_WORKFLOW","config":{
+                   "workflowId":"write-child","versionId":8,
+                   "subWorkflowConfig":{"workflowId":"read-child","versionId":7}}},
+                   {"id":"answer","type":"ANSWER","config":{"template":"done"}}],
+                 "edges":[{"from":"child","to":"answer","condition":"always"}]}
+                """);
+        assertTrue(hasError(service(mock(RuntimeControlCatalogClient.class)).validate(workflow),
+                "GRAPH_SUB_WORKFLOW_REFERENCE_CONFLICT"));
+    }
+
+    @Test
     void missingGraphSpecFails() {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow(null);
@@ -263,7 +289,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "nodes":[{"id":"code","type":"CODE","config":{"code":"return 1"}}],
+                  "nodes":[{"id":"code","type":"DOCUMENT_EXTRACT","config":{"code":"return 1"}}],
                   "edges":[],
                   "entryNodeId":"code",
                   "exitNodeIds":["code"]
@@ -283,7 +309,7 @@ class RuntimeWorkflowReleaseValidationServiceTest {
         RuntimeWorkflowReleaseValidationService service = service(mock(RuntimeControlCatalogClient.class));
         RuntimeWorkflowDefinitionEntity workflow = workflow("""
                 {
-                  "nodes":[{"id":"ask","type":"INTERACTION","config":{"mode":"confirm_action"}}],
+                  "nodes":[{"id":"ask","type":"INTERACTION","config":{"mode":"review_edit"}}],
                   "edges":[],
                   "entryNodeId":"ask",
                   "exitNodeIds":["ask"]
@@ -1092,10 +1118,10 @@ class RuntimeWorkflowReleaseValidationServiceTest {
     }
 
     @Test
-    void validMultiSelectDoesNotOpenTheProductionBlockingInteractionGate() {
+    void validMultiSelectCollectInputIsPublishable() {
         var result = service(mock(RuntimeControlCatalogClient.class)).validate(multiSelectWorkflow(
                 ",\"options\":[{\"value\":\"a\",\"label\":\"甲\"}]"));
-        assertTrue(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"));
+        assertFalse(hasError(result, "GRAPH_NODE_NOT_PUBLISHABLE"), () -> result.errors().toString());
     }
 
     private RuntimeWorkflowDefinitionEntity multiSelectWorkflow(String options) {

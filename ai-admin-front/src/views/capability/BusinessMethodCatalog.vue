@@ -183,6 +183,7 @@
       <template #empty-actions>
         <el-button type="primary" @click="router.push('/registry/projects')">接入业务项目</el-button>
         <el-button v-if="currentProject" @click="openProject">查看项目接入与同步</el-button>
+        <AiHandoffButton v-if="currentProject" scenario="business-method-try" size="small" :context="{ projectCode: currentProject.projectCode }" />
       </template>
     </BusinessCapabilityCatalogList>
 
@@ -201,6 +202,7 @@
 </template>
 
 <script setup lang="ts">
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LiquidGlassInput, LiquidGlassSelect, LiquidGlassNotice } from '@/components/common/liquid-glass'

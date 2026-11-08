@@ -65,7 +65,7 @@ Prefer an existing dependency-management pattern if the business repo already ce
 
 Add `reachai.registry`, `reachai.project`, and `reachai.capability` configuration to the active service configuration. Keep the app secret as an environment variable.
 
-The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add a capability startup-sync setting. For a task handoff, an active `PROJECT_ONBOARDING` task explicitly triggers project-scoped SDK sync with `POST <taskRoot>/verifications/SDK_SYNC` after registration and heartbeat pass. Console users trigger SDK sync from the project's **业务能力 → 接入与变更**. Both are explicit actions over the same signed two-hop callback; neither runs on business application startup.
+The starter registers the project and instance and sends heartbeat data during SDK onboarding. Do not add startup sync. An active `PROJECT_ONBOARDING` task explicitly triggers project-scoped sync using `reachai_ai_coding_task_verify` with its taskId and `verificationKey=SDK_SYNC` after registration and heartbeat pass. Console users trigger SDK sync from the project's **业务能力 → 接入与变更**. Both are explicit actions over the same signed two-hop callback.
 
 `reachai.project.base-url` is the business-system address as seen from the ReachAI server. It is not merely a browser URL or a local developer convenience. Do not keep `localhost`, `127.0.0.1`, or `::1` when ReachAI and the business service run on different machines, containers, or network namespaces.
 
@@ -81,7 +81,7 @@ Before writing optional `reachai.capability` scan boundary configuration:
 - Configure `reachai.capability.scan-packages` with business-owned packages only.
 - Configure `reachai.capability.exclude-packages` for framework, platform, starter, generated, and third-party packages.
 - If the business package cannot be determined confidently, stop and ask the user to choose from the candidate packages.
-- Do not add a capability startup-sync setting or call internal/public capability service sync endpoints directly. A task handoff may call only its declared task verification URL with its task Bearer token.
+- Do not add a capability startup-sync setting or call internal/public capability sync endpoints directly. An onboarding task uses `reachai_ai_coding_task_verify` for its declared `SDK_SYNC` verification.
 
 Prepare the inbound callback before explicit sync:
 - ReachAI sends `POST {baseUrl}{contextPath}/reachai/registry/capabilities/sync` from the platform server to the online business-system instance.
@@ -398,8 +398,8 @@ When caching embed tokens in the front end:
 
 ## Task Progress and Final Report
 
-For a ReachAI task handoff, use the task Bearer token and task root returned by one-time activation. Read task context and its `protocolGuide.eventStateRules` before editing, then report `STARTED` and truthful `PROGRESS` events. A `PROGRESS` event sent while `WAITING_USER` records independent work but preserves that status and every open question. Submit blocking ambiguity through the task question endpoint and write `RESUMED` only after all answers have been read.
+For a PROJECT_ONBOARDING task, use `reachai_ai_coding_task_context` before editing and follow `protocolGuide.eventStateRules`. Report STARTED and truthful PROGRESS with `reachai_ai_coding_task_event`. A PROGRESS event while WAITING_USER preserves that status and all open questions. Use `reachai_ai_coding_task_ask` for blocking ambiguity, read answers with `reachai_ai_coding_task_questions`, and write RESUMED only after all answers have been read.
 
 The final onboarding artifact must contain the six canonical step keys `PROJECT`, `STARTER`, `GATEWAY`, `BUSINESS_API`, `EMBED_TOKEN`, and `FINAL_CHECK`. Each step records a final `PASS`, `WARN`, `FAIL`, or `SKIPPED` status, changed files, and observed evidence. Use `WARN` or `NOT_RUN` rather than inferring runtime, platform, or browser success.
 
-Follow the contract key, version, and JSON Schema returned by `GET <taskRoot>/context`. Reuse the same artifact key and identical content when retrying a network failure; changing content under an existing key is a conflict.
+Follow the contract key, version, and JSON Schema returned by `reachai_ai_coding_task_context`. Submit through `reachai_ai_coding_task_artifact`. Reuse the same artifact key and identical content when retrying a network failure; changing content under an existing key is a conflict.

@@ -70,6 +70,13 @@ export function getAiOnboardingManifest(id: number, language?: 'csharp' | 'pytho
   })
 }
 
+export function getSdkArtifactManifest() {
+  return controlRequest.get<{
+    sdkArtifacts: NonNullable<AiOnboardingManifest['sdkArtifacts']>
+    skillPackageUrl: string
+  }>('/api/ai-assist/artifacts/manifest', { errorFeedback: 'local' })
+}
+
 export function provisionProjectAgent(id: number, requestedBy: string) {
   return controlRequest.post<Record<string, unknown>>(
     `/api/ai-assist/projects/${id}/agents/provision`,

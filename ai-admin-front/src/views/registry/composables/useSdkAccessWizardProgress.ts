@@ -14,16 +14,24 @@ import type { SdkAccessLanguage } from './useSdkAccessWizardUiState'
 
 export type SdkAccessWizardStepKey =
   | 'starter'
+  | 'capabilities'
+  | 'identity'
   | 'gateway'
   | 'backend-check'
   | 'frontend'
-  | 'self-check'
+  | 'acceptance'
 
 export interface SdkAccessWizardManualChecks {
   starter: boolean
+  capabilities: boolean
+  identity: boolean
   gateway: boolean
+  sync: boolean
   frontend: boolean
+  acceptance: boolean
 }
+
+const SDK_CHECK_KEYS = ['REGISTRY_CREDENTIAL', 'INSTANCE_HEARTBEAT', 'SDK_SYNC_CALLBACK']
 
 export interface UseSdkAccessWizardProgressDeps {
   activeStep: Ref<SdkAccessWizardStepKey>
@@ -33,12 +41,8 @@ export interface UseSdkAccessWizardProgressDeps {
   checkResult: Ref<SdkAccessCheckResponse | null>
   isSdkBackedProject: Readonly<Ref<boolean>>
   onlineInstanceCount: Readonly<Ref<number>>
-  gatewayBaseUrl: Ref<string>
   embedTokenPath: Ref<string>
   manualChecks: SdkAccessWizardManualChecks
-  /** Selected language; legacy callers without this retain Java behavior. */
-  sdkLanguage?: Readonly<Ref<SdkAccessLanguage>>
-  hasOtherLanguageInstances?: Readonly<Ref<boolean>>
 }
 
 /** Missing language identifies legacy Java; malformed metadata never proves a language. */
@@ -56,66 +60,72 @@ export function instanceMatchesSdkLanguage(instance: ProjectInstance, language: 
 }
 
 export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps) {
-  const steps = computed(() => {
-    const starterVerified = deps.instances.value.length > 0
-      || ((!deps.sdkLanguage || deps.sdkLanguage.value === 'java') && !deps.hasOtherLanguageInstances?.value && deps.checkResult.value?.readiness?.some(
-        (item) => item.key === 'CODE_READY' && item.status === 'PASS',
-      ))
-    const gatewayConfirmed = Boolean(
-      deps.gatewayBaseUrl.value.trim() && deps.manualChecks.gateway,
-    )
-    const frontendConfirmed = Boolean(
-      deps.embedTokenPath.value.trim() && deps.manualChecks.frontend,
-    )
-    // The public project self-check has no callback/Embed instance provenance.
-    // Even with a Python heartbeat, another SDK could have supplied that evidence.
-    const selfCheckVerified = deps.sdkLanguage?.value !== 'python' && deps.sdkLanguage?.value !== 'node' && deps.sdkLanguage?.value !== 'go'
-      && deps.checkResult.value?.overallStatus === 'PASS'
-      && ((!deps.sdkLanguage || deps.sdkLanguage.value === 'java') || deps.onlineInstanceCount.value > 0)
-      && (!deps.hasOtherLanguageInstances?.value || deps.onlineInstanceCount.value > 0)
+  const manualSdkCheck = computed(() => {
+    if (!deps.checkResult.value) return null
+    const checks = deps.checkResult.value.checks.filter((item) => SDK_CHECK_KEYS.includes(item.key))
+    const passed = SDK_CHECK_KEYS.every((key) => checks.some((item) => item.key === key && item.status === 'PASS'))
+    const status = checks.some((item) => item.status === 'FAIL') ? 'FAIL' : passed ? 'PASS' : 'WARN'
+    return { checks, status }
+  })
 
+  // Callback evidence is project-scoped. A matching heartbeat and a review of
+  // the target capabilities are required before the manual sync step is done.
+  const canConfirmSync = computed(() =>
+    manualSdkCheck.value?.status === 'PASS' && deps.onlineInstanceCount.value > 0,
+  )
+
+  const steps = computed(() => {
+    const starterRegistered = deps.instances.value.length > 0
+    const checks = deps.manualChecks
     return [
       {
-        index: 1,
         key: 'starter' as const,
         title: '后端 SDK',
-        desc: '复制并确认后端配置',
-        status: starterVerified ? '已验证' : (deps.manualChecks.starter ? '已确认' : '待处理'),
-        done: Boolean(starterVerified || deps.manualChecks.starter),
+        desc: '安装对应技术栈的 SDK，配置项目和后端注册凭据。',
+        done: starterRegistered || checks.starter,
       },
       {
-        index: 2,
+        key: 'capabilities' as const,
+        title: '声明业务方法',
+        desc: '选择本次开放的方法，声明参数、返回值、副作用和身份要求。',
+        done: checks.capabilities,
+      },
+      {
+        key: 'identity' as const,
+        title: '接入业务身份',
+        desc: '沿用业务系统登录，从可信登录态取得身份，并让业务方法使用原有权限校验。',
+        done: checks.identity,
+      },
+      {
         key: 'gateway' as const,
         title: '网关路由',
-        desc: '配置业务网关转发规则',
-        status: gatewayConfirmed ? '已确认' : '待处理',
-        done: gatewayConfirmed,
+        desc: '按业务系统的网络和认证架构配置签名回调、调用和页面对话路由。',
+        done: checks.gateway,
       },
       {
-        index: 3,
         key: 'backend-check' as const,
-        title: '业务服务校验',
-        desc: '确认 SDK 实例心跳',
-        status: deps.onlineInstanceCount.value > 0 ? '已验证' : '待处理',
-        done: deps.onlineInstanceCount.value > 0,
+        title: '启动、同步与自检',
+        desc: '启动服务，检查实例心跳、签名回调和能力目录中的同步结果。',
+        done: canConfirmSync.value && checks.sync,
       },
       {
-        index: 4,
         key: 'frontend' as const,
-        title: '前端 Embed Token',
-        desc: '接入短期 token broker',
-        status: frontendConfirmed ? '已确认' : '待处理',
-        done: frontendConfirmed,
+        title: '嵌入业务页面',
+        desc: '需要页面对话时，配置 Agent、安装 Embed Chat SDK 并挂载对话。',
+        done: Boolean(deps.embedTokenPath.value.trim() && checks.frontend),
       },
       {
-        index: 5,
-        key: 'self-check' as const,
-        title: '平台接入自检',
-        desc: '核对 SDK 注册、心跳与签名回调',
-        status: selfCheckVerified ? '已验证' : '待处理',
-        done: selfCheckVerified,
+        key: 'acceptance' as const,
+        title: '真实业务验收',
+        desc: '使用真实业务测试账号验证身份、授权、业务结果，以及本次接入的页面功能。',
+        done: checks.acceptance,
       },
-    ]
+    ].map((step, index) => ({
+      ...step,
+      index: index + 1,
+      status: step.key === 'starter' && starterRegistered ? '已注册'
+        : step.done ? '已确认' : step.key === 'frontend' ? '按需接入' : '待处理',
+    }))
   })
 
   const activeStepIndex = computed(() => steps.value.findIndex((item) => item.key === deps.activeStep.value))
@@ -149,12 +159,6 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
       status: deps.onlineInstanceCount.value > 0 ? 'pass' : 'warn',
       icon: deps.onlineInstanceCount.value > 0 ? CircleCheck : Warning,
     },
-    {
-      label: '接口扫描',
-      desc: '不作为 SDK 接入完成条件；请在 API 管理手动同步 SDK 接口',
-      status: 'pass',
-      icon: CircleCheck,
-    },
   ])
 
   return {
@@ -164,5 +168,7 @@ export function useSdkAccessWizardProgress(deps: UseSdkAccessWizardProgressDeps)
     completedPercent,
     accessSessionTagType,
     backendChecks,
+    manualSdkCheck,
+    canConfirmSync,
   }
 }

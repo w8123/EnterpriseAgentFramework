@@ -5,16 +5,36 @@ import java.util.HexFormat;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.ResponseEntity;
 import org.springframework.core.io.ByteArrayResource;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class ControlAiAssistArtifactControllerTest {
 
     private final ControlAiAssistArtifactController controller = new ControlAiAssistArtifactController();
+
+    @Test
+    void providesVerifiedSdkArtifactsBeforeAProjectExists() throws Exception {
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+        mvc.perform(get("/api/ai-assist/artifacts/manifest")
+                        .header("X-Forwarded-Host", "reachai.example.com:9443")
+                        .header("X-Forwarded-Proto", "https"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.skillPackageUrl")
+                        .value("https://reachai.example.com:9443/api/ai-assist/skills/reachai-onboarding/latest.zip"))
+                .andExpect(jsonPath("$.sdkArtifacts.length()").value(7))
+                .andExpect(jsonPath("$.sdkArtifacts[0].artifactId").value("reachai-capability-sdk"))
+                .andExpect(jsonPath("$.sdkArtifacts[0].pomIntegritySha256").isNotEmpty())
+                .andExpect(jsonPath("$.sdkArtifacts[1].artifactId").value("reachai-spring-boot2-starter"));
+    }
 
     @Test
     void goPackageIsVerifiedAndRejectsModifiedBytes() throws Exception {

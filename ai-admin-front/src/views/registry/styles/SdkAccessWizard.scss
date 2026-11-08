@@ -2178,10 +2178,6 @@
   }
 }
 
-.ai-onboarding-alert {
-  margin-bottom: 14px;
-}
-
 .ai-session-card {
   margin: 14px 10px 0;
   padding: 14px;
@@ -2306,16 +2302,6 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 10px;
-}
-
-.ai-onboarding-provider-selector {
-  margin-bottom: 12px;
-}
-
-.ai-prompt-input :deep(.el-textarea__inner) {
-  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.7;
 }
 
 @media (max-width: 768px) {
@@ -2481,10 +2467,6 @@
   }
 }
 
-.ai-prompt-preview :deep(.el-textarea__inner) {
-  min-height: 330px !important;
-}
-
 .ai-readiness-list {
   grid-template-columns: 1fr;
   margin-bottom: 12px;
@@ -2583,6 +2565,153 @@
 
 .manual-access-pane.wizard-shell {
   align-items: start;
+  grid-template-columns: clamp(208px, 17vw, 264px) minmax(0, 1fr);
+  gap: var(--layout-panel-padding);
+}
+
+.manual-access-pane {
+  --guide-width: 62rem;
+  --guide-gutter: clamp(var(--layout-panel-padding), 2.2vw, 32px);
+
+  .focus-panel {
+    min-inline-size: 0;
+    padding: var(--guide-gutter);
+  }
+
+  .step-screen {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: calc(var(--layout-panel-padding) * 1.25);
+    max-inline-size: var(--guide-width);
+    margin-inline: auto;
+  }
+
+  .panel-head {
+    margin: 0;
+    padding-block-end: var(--layout-panel-padding);
+    border-block-end: 1px solid var(--border-divider);
+
+    h2 {
+      margin-block: 5px 6px;
+      font-size: clamp(25px, 2vw, 30px);
+      line-height: 1.25;
+      text-shadow: none;
+    }
+  }
+
+  .config-section {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--layout-control-gap);
+    margin: 0;
+
+    h3 {
+      margin: 0;
+      color: var(--text-primary);
+      font-size: 16px;
+      line-height: 1.5;
+    }
+
+    > :deep(.el-link),
+    > :deep(.liquid-glass-button) {
+      justify-self: start;
+      max-inline-size: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    > :deep(.el-link) {
+      color: var(--brand-on-surface);
+    }
+
+    + .config-section {
+      padding-block-start: var(--layout-panel-padding);
+      border-block-start: 1px solid var(--border-divider);
+    }
+  }
+
+  .step-screen p,
+  .credential-options {
+    max-inline-size: 48rem;
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+  }
+
+  .credential-options {
+    display: grid;
+    gap: var(--layout-control-gap);
+
+    > div {
+      display: grid;
+      grid-template-columns: 5em minmax(0, 1fr);
+      gap: var(--layout-control-gap);
+    }
+
+    dt {
+      color: var(--text-primary);
+      font-weight: 650;
+    }
+
+    dd {
+      margin: 0;
+    }
+  }
+
+  .inline-form {
+    max-inline-size: 36rem;
+    margin: 0;
+
+    :deep(.el-form-item) {
+      margin-block-end: 0;
+    }
+  }
+
+  .step-screen > :deep(.el-checkbox) {
+    justify-self: start;
+    max-inline-size: 100%;
+    height: auto;
+    margin: 0;
+    padding: var(--layout-control-gap) var(--layout-section-gap);
+    border: 1px solid var(--border-divider);
+    border-radius: var(--radius-sm);
+    background: var(--surface-glass-inset);
+    white-space: normal;
+  }
+
+  .step-screen :deep(.el-checkbox__label) {
+    line-height: 1.6;
+    overflow-wrap: anywhere;
+  }
+
+  .wizard-footer {
+    padding-inline: var(--guide-gutter);
+
+    .footer-actions {
+      inline-size: 100%;
+      max-inline-size: var(--guide-width);
+      margin-inline: auto;
+      justify-content: flex-end;
+    }
+  }
+}
+
+.manual-access-pane .step-progress {
+  height: auto;
+  overflow-y: auto;
+}
+
+.manual-access-pane .progress-step:focus-visible {
+  outline: 2px solid var(--brand-on-surface);
+  outline-offset: -2px;
+}
+
+.sdk-access-page.is-dark-skin .manual-access-pane {
+  .step-kicker,
+  .step-progress.access-progress--refined .access-progress strong {
+    color: var(--brand-on-surface) !important;
+  }
 }
 
 .step-progress,
@@ -2615,6 +2744,12 @@
 }
 
 @media (max-width: 980px) {
+  .manual-access-pane.wizard-shell {
+    flex: 0 0 auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+  }
+
   .title-mode-switch {
     width: 100%;
     margin-left: 0;
@@ -2627,6 +2762,13 @@
   .step-progress {
     height: auto;
     max-height: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .manual-access-pane .credential-options > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
   }
 }
 

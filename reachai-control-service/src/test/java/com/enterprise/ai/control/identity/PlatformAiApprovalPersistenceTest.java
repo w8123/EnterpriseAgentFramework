@@ -344,7 +344,7 @@ class PlatformAiApprovalPersistenceTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var context = Map.ofEntries(Map.entry("contractVersion", 1), Map.entry("name", "orders.create"),
                 Map.entry("qualifiedName", "orders.create"), Map.entry("assetType", "BUSINESS_METHOD"),
                 Map.entry("projectId", 3L), Map.entry("projectCode", "orders"),
@@ -416,7 +416,7 @@ class PlatformAiApprovalPersistenceTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var context = Map.ofEntries(Map.entry("apiId", 9L), Map.entry("projectId", 3L), Map.entry("projectCode", "orders"),
                 Map.entry("qualifiedName", "orders.dev.POST./orders"), Map.entry("environment", "dev"),
                 Map.entry("sideEffect", "WRITE"), Map.entry("httpMethod", "POST"), Map.entry("routeTemplate", "/orders"),

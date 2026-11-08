@@ -250,7 +250,8 @@ class PlatformAccountRoleControllerTest {
                 requestAuthorization,
                 auditService,
                 passwordEncoder,
-                projectClient);
+                projectClient,
+                mock(PlatformAuthProviderMapper.class));
         return new Fixture(controller, userMapper, roleMapper, userRoleMapper, permissionMapper,
                 rolePermissionMapper, sessionMapper, aiConnections, auditEventMapper, auditService,
                 passwordEncoder, projectClient);

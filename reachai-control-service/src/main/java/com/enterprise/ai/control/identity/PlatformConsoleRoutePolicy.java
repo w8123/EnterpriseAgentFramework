@@ -84,7 +84,9 @@ public final class PlatformConsoleRoutePolicy {
             "/api/scan-projects/**");
 
     public static final List<String> EXCLUDED_PATH_PATTERNS = List.of(
-            "/api/platform/auth/login");
+            "/api/platform/auth/login",
+            // 用业务系统账号登录: buttons, redirect out, callback (state-protected, see BusinessSsoService)
+            "/api/platform/auth/sso/**");
 
     /**
      * The subset of independent protocol endpoints that is authenticated by a

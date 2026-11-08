@@ -22,7 +22,7 @@ const emit = defineEmits<{
   'update:modelValue': [value: AiCodingExecutorProvider]
 }>()
 
-const providerIcons: Readonly<Record<AiCodingExecutorProvider, string>> = {
+const providerIcons: Readonly<Record<Exclude<AiCodingExecutorProvider, 'OTHER'>, string>> = {
   CODEX: codexIcon,
   CURSOR: cursorIcon,
   TRAE: traeIcon,

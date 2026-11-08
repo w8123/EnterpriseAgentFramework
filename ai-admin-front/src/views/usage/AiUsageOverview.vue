@@ -5,6 +5,7 @@ import {
   ArrowRight,
   ChatDotRound,
   Check,
+  Download,
   Connection,
   Cpu,
   Monitor,
@@ -28,7 +29,9 @@ import {
   LiquidGlassTable,
   LiquidGlassTabs,
 } from '@/components/common/liquid-glass'
-import { getAiUsageReport } from '@/api/mcp'
+import { downloadAiAuditExport, getAiUsageReport } from '@/api/mcp'
+import { ElMessage } from 'element-plus'
+import AiUsageCostPanel from './AiUsageCostPanel.vue'
 import type { AiUsagePerson, AiUsageReport } from '@/types/mcp'
 import { useCatalogQuery } from '@/composables/useCatalogQuery'
 import { usePlatformCan } from '@/auth/usePlatformCan'
@@ -72,7 +75,7 @@ const sort = computed(
 )
 const activeTab = computed({
   get: () =>
-    ['operations', 'skills'].includes(catalog.filters.value.tab) ? catalog.filters.value.tab : 'people',
+    ['operations', 'skills', 'cost'].includes(catalog.filters.value.tab) ? catalog.filters.value.tab : 'people',
   set: (value: string) => {
     void catalog.applyField('tab', value === 'people' ? '' : value)
   },
@@ -235,6 +238,35 @@ async function reload() {
   }
 }
 
+const exporting = ref(false)
+
+async function exportAudit() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const result = await downloadAiAuditExport({ days: days.value, projectCode: projectCode.value || undefined })
+    const url = URL.createObjectURL(result.blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = result.fileName
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    ElMessage.success(
+      result.truncated
+        ? `已导出最近的 ${formatCount(result.rows)} 条记录（超过上限，请缩小时间范围或选择业务系统）`
+        : `已导出 ${formatCount(result.rows)} 条记录`,
+    )
+  } catch (error) {
+    ElMessage.error(
+      projectCode.value ? `导出失败：${extractErrorMessage(error)}` : '导出失败。只能看部分业务系统的账号请先选择业务系统再导出。',
+    )
+  } finally {
+    exporting.value = false
+  }
+}
+
 function selectChannel(value: string) {
   catalog.draft.channel = value === channel.value ? '' : value
   catalog.draft.tab = ''
@@ -305,9 +337,17 @@ onBeforeUnmount(() => {
       action-presentation="inline"
       domain="governance"
       title="AI 使用情况"
-      description="查看员工的 AI 使用、业务操作与审批结果。"
+      description="查看员工的 AI 使用、业务操作、审批结果和费用。"
     >
       <template #actions
+        ><LiquidGlassButton
+          source="wallpaper"
+          :icon="Download"
+          :loading="exporting"
+          :disabled="exporting"
+          title="导出当前统计范围内的 AI 工具调用、写操作审批、业务系统内对话、自动化和登录记录（CSV，可用 Excel 打开）"
+          @click="exportAudit"
+          >导出审计记录</LiquidGlassButton
         ><LiquidGlassButton
           source="wallpaper"
           :icon="Refresh"
@@ -473,13 +513,16 @@ onBeforeUnmount(() => {
               }}</span></template
             ></el-tab-pane
           >
+          <el-tab-pane name="cost" label="费用" />
         </LiquidGlassTabs>
-        <p v-if="hasActivity || loading || activeTab === 'skills'" class="view-description">
+        <AiUsageCostPanel v-if="activeTab === 'cost'" :days="days" :project-code="projectCode || undefined" />
+        <p v-else-if="hasActivity || loading || activeTab === 'skills'" class="view-description">
           {{ tabDescription }}
         </p>
 
+        <template v-if="activeTab === 'cost'" />
         <div
-          v-if="loading && !report"
+          v-else-if="loading && !report"
           v-loading="true"
           class="initial-loading"
           element-loading-text="正在加载使用情况"

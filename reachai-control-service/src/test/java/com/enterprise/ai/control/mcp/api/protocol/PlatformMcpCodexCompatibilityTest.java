@@ -125,7 +125,7 @@ class PlatformMcpCodexCompatibilityTest {
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformMemoryErasureService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformAgentWorkflowService.class),
                 org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformPageWorkflowDeliveryService.class),
-                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class));
+                org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformRunCandidateService.class), org.mockito.Mockito.mock(com.enterprise.ai.control.mcp.application.platform.McpPlatformIntegrationService.class));
         var models = (com.enterprise.ai.control.mcp.application.port.McpPlatformModelCatalogPort)
                 org.springframework.test.util.ReflectionTestUtils.getField(platform, "models");
         var skills = (com.enterprise.ai.control.mcp.application.port.McpPlatformSkillCatalogPort)

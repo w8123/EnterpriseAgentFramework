@@ -7,6 +7,8 @@ import {
   defaultApprovalConfig,
   defaultClassifierConfig,
   defaultCodeConfig,
+  defaultListOperatorConfig,
+  defaultSubWorkflowConfig,
   defaultConditionConfig,
   defaultDocumentExtractConfig,
   defaultErrorPolicy,
@@ -20,6 +22,7 @@ import {
   defaultOutputAlias,
   defaultPageActionConfig,
   defaultParameterConfig,
+  defaultParallelConfig,
   defaultRetryPolicy,
   defaultToolConfig,
   defaultUserInputConfig,
@@ -88,6 +91,9 @@ export function createDefaultNodeData(kind: CanvasNodeKind, label: string, base?
   if (kind === 'aggregate') return { ...common, aggregateConfig: defaultAggregateConfig() }
   if (kind === 'approval') return { ...common, approvalConfig: defaultApprovalConfig() }
   if (kind === 'loop') return { ...common, loopConfig: defaultLoopConfig() }
+  if (kind === 'parallel') return { ...common, parallelConfig: defaultParallelConfig() }
+  if (kind === 'listOperator') return { ...common, listConfig: defaultListOperatorConfig() }
+  if (kind === 'subWorkflow') return { ...common, subWorkflowConfig: defaultSubWorkflowConfig() }
   if (kind === 'knowledgeWrite') return { ...common, knowledgeWriteConfig: defaultKnowledgeWriteConfig() }
   if (kind === 'documentExtract') return { ...common, documentExtractConfig: defaultDocumentExtractConfig() }
   if (kind === 'mcp') return { ...common, mcpConfig: defaultMcpConfig() }

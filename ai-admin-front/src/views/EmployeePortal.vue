@@ -28,7 +28,7 @@
 
       <template v-else>
         <p class="employee-portal__intro">
-          把 Claude Code、Codex 等 AI 工具接进来，让它以你的身份使用已开放的业务能力；业务写操作按管理员设置审批。连接还允许 AI 工具读取、保存和删除你的个人记忆；连接时会发送你的相关偏好，记忆操作不经过业务写审批。
+          用你习惯的 AI 工具，在已接入的业务系统中查询信息、协助办理业务。AI 以你的业务身份使用已开放的能力；业务写操作按管理员设置审批。连接还允许 AI 工具读取、保存和删除你的个人记忆；连接时会发送你的相关偏好，记忆操作不经过业务写审批。
         </p>
 
         <AiAccessStatusBar :items="statusItems" />
@@ -64,13 +64,21 @@
             <template #scope>
               <p v-if="!systemsLoading && !systems.length" class="employee-portal__muted">暂时没有可以接入的系统，请联系管理员开通。</p>
               <label v-for="system in systems" :key="system.projectCode" class="employee-portal__check">
-                <input v-model="picked" type="checkbox" :value="system.projectCode" :disabled="!!installPrompt">
+                <input v-model="picked" type="checkbox" :value="system.projectCode" :disabled="creating">
                 <span>{{ system.name }}</span>
                 <small>{{ system.toolCount }} 项能力<template v-if="system.current"> · 当前系统</template></small>
               </label>
             </template>
           </AiAccessSetup>
         </div>
+
+        <LiquidGlassCard v-show="tab === 'prompts'" class="employee-portal__card" data-testid="portal-prompts">
+          <AiPromptLibrary
+            connection="employee"
+            intro="接好 AI 工具后，复制这些提示词粘贴给它就能开始办事。"
+            :initial-values="{ systemName: me?.systemName ?? '' }"
+          />
+        </LiquidGlassCard>
 
         <LiquidGlassCard v-show="tab === 'capabilities'" class="employee-portal__card" data-testid="portal-capabilities">
           <AiCapabilityList
@@ -161,6 +169,7 @@ import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
 import AiCapabilityList from '@/components/ai-access/AiCapabilityList.vue'
 import AiCredentialTable from '@/components/ai-access/AiCredentialTable.vue'
 import AiCallRecords from '@/components/ai-access/AiCallRecords.vue'
+import AiPromptLibrary from '@/components/ai-access/AiPromptLibrary.vue'
 import {
   aiToolLabel, buildInstallPrompt, isToday,
   type AiCallRecord, type AiCapabilityGroup, type AiCredentialRow, type AiToolKind,
@@ -216,6 +225,7 @@ const TOKEN_KEY = EMPLOYEE_PORTAL_TOKEN_KEY
 // 员工的「AI 工具接入」：照宝塔 MCP 面板分成接入与体验、我能办的事、访问凭据、任务记录，外加我的审批、我的助手（全屏对话）和我的记忆。
 const tabs = [
   { key: 'setup', label: '接入与体验' },
+  { key: 'prompts', label: '提示词库' },
   { key: 'capabilities', label: '我能办的事' },
   { key: 'credentials', label: '访问凭据' },
   { key: 'records', label: '任务记录' },
@@ -315,8 +325,12 @@ const statusItems = computed(() => [
 ])
 
 const tryPhrases = computed(() => {
-  const system = systems.value.find(item => picked.value.includes(item.projectCode))?.name ?? me.value?.systemName ?? '业务系统'
-  return [`帮我在${system}里查一下最近的库存`, `在${system}里新建一个客户，名称叫测试客户`, '我提交的审批现在到哪一步了？']
+  return capabilities.value
+    .filter(system => picked.value.includes(system.projectCode))
+    .flatMap(system => system.tools
+      .filter(tool => tool.readOnly && tool.description?.trim())
+      .map(tool => `帮我在${system.name}中使用「${tool.description!.trim()}」`))
+    .slice(0, 3)
 })
 
 function readStored(): string {

@@ -114,7 +114,7 @@
         </el-form-item>
         <LiquidGlassNotice
           v-if="!isInteractionTypeEnabled(config.interactionType)"
-          title="当前草稿使用了尚未开放的暂停/恢复交互类型；可以查看，但必须改为“展示输出”后才能发布。"
+          title="这个交互类型还没开放；可以查看，但要改成已开放的类型后才能发布。"
           type="warning"
           source="backdrop"
         />
@@ -471,7 +471,7 @@ function selectBindingKind(value: InteractionBindingSourceKind) {
 
 function selectInteractionType(value: InteractionNodeType) {
   if (!isInteractionTypeEnabled(value)) {
-    ElMessage.warning('当前仅开放无需暂停流程的 PRESENT_OUTPUT 展示输出类型')
+    ElMessage.warning('这个交互类型还没开放')
     return
   }
   config.value.interactionType = value

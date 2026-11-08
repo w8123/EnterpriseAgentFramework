@@ -34,6 +34,21 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RuntimeWorkflowProposalRepairService {
 
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder) {
+        this.usageRecorder = usageRecorder;
+    }
+
+    private void recordAuthoringUsage(String modelInstanceId, ModelChatResult result) {
+        var recorder = usageRecorder;
+        if (recorder != null && result != null && result.getData() != null && result.getData().getUsage() != null) {
+            recorder.record(null, com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.SOURCE_WORKFLOW_AUTHORING, modelInstanceId,
+                    result.getData().getUsage().getPromptTokens(), result.getData().getUsage().getCompletionTokens());
+        }
+    }
+
     public static final int DEFAULT_MAX_REPAIR_ROUNDS = 2;
     private static final Set<String> REPAIR_RESPONSE_FIELDS = Set.of("summary", "operations");
     private static final Set<String> REPAIR_OPERATION_FIELDS = Set.of(
@@ -110,6 +125,7 @@ public class RuntimeWorkflowProposalRepairService {
                                 .build()))
                 .build();
         ModelChatResult result = modelServiceClient.chat(modelRequest);
+        recordAuthoringUsage(modelRequest.getModelInstanceId(), result);
         String raw = result == null || result.getData() == null ? null : result.getData().getContent();
         JsonNode root = objectMapper.readTree(extractJsonObject(raw));
         validateRepairResponse(root);

@@ -3,6 +3,7 @@ package com.enterprise.ai.runtime.workflow;
 import com.enterprise.ai.agent.graph.AgentGraphNodeType;
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.agent.graph.GraphSpecLoopConfig;
+import com.enterprise.ai.agent.graph.GraphSpecParallelPlan;
 import com.enterprise.ai.runtime.execution.context.WorkflowVariableNamespaces;
 import com.enterprise.ai.runtime.execution.kernel.EdgeConditions;
 import org.springframework.util.StringUtils;
@@ -62,15 +63,49 @@ final class RuntimeWorkflowGraphValidator {
                           List<GraphSpec.Edge> edges,
                           RuntimeWorkflowReleaseValidationResult.Builder report) {
         GraphSpecLoopConfig loop = GraphSpecLoopConfig.from(node);
-        String mode = loop.mode();
-        if (!"FOREACH".equalsIgnoreCase(mode)) {
+        if (!loop.foreachMode() && !loop.whileMode()) {
             report.error("GRAPH_LOOP_MODE_UNSUPPORTED", node.getId(),
-                    "LOOP v1 only supports FOREACH mode");
+                    "LOOP supports FOREACH and WHILE modes");
         }
         String collection = loop.collection();
-        if (!StringUtils.hasText(collection)) {
+        if (loop.foreachMode() && !StringUtils.hasText(collection)) {
             report.error("GRAPH_LOOP_COLLECTION_REQUIRED", node.getId(),
                     "LOOP requires collection expression");
+        }
+        if (loop.parallelism() == null) {
+            report.error("GRAPH_LOOP_PARALLELISM_INVALID", node.getId(),
+                    "LOOP parallelism must be between 1 and " + GraphSpecLoopConfig.MAX_PARALLELISM);
+        } else if (loop.whileMode() && loop.parallelism() > 1) {
+            report.error("GRAPH_LOOP_PARALLELISM_INVALID", node.getId(),
+                    "LOOP WHILE rounds depend on each other and cannot run in parallel");
+        }
+        if (!GraphSpecLoopConfig.ERROR_MODES.contains(loop.errorMode())) {
+            report.error("GRAPH_LOOP_ERROR_MODE_INVALID", node.getId(),
+                    "LOOP errorMode must be TERMINATE, SKIP or KEEP");
+        } else if (loop.whileMode() && !GraphSpecLoopConfig.ERROR_TERMINATE.equals(loop.errorMode())) {
+            report.error("GRAPH_LOOP_ERROR_MODE_INVALID", node.getId(),
+                    "LOOP WHILE only supports errorMode TERMINATE");
+        }
+        if (loop.whileMode()) {
+            if (loop.breakConditions().isEmpty()) {
+                report.error("GRAPH_LOOP_BREAK_CONDITION_REQUIRED", node.getId(),
+                        "LOOP WHILE requires at least one break condition");
+            }
+            if (!"AND".equals(loop.breakLogic()) && !"OR".equals(loop.breakLogic())) {
+                report.error("GRAPH_LOOP_BREAK_LOGIC_INVALID", node.getId(), "LOOP breakLogic must be AND or OR");
+            }
+            if (loop.maxIterations() != null && loop.maxIterations() > GraphSpecLoopConfig.WHILE_HARD_MAX_ITERATIONS) {
+                report.warn("GRAPH_LOOP_WHILE_ROUNDS_CAPPED", node.getId(),
+                        "LOOP WHILE runs at most " + GraphSpecLoopConfig.WHILE_HARD_MAX_ITERATIONS + " rounds");
+            }
+            for (String variable : loop.loopVariables().keySet()) {
+                try {
+                    WorkflowVariableNamespaces.normalizeBusinessWriteTarget(variable);
+                } catch (IllegalArgumentException ex) {
+                    report.error("GRAPH_LOOP_VARIABLE_INVALID", node.getId(),
+                            "LOOP variable name is invalid: " + variable);
+                }
+            }
         }
         String itemAlias = loop.itemAlias();
         String indexAlias = loop.indexAlias();
@@ -120,7 +155,7 @@ final class RuntimeWorkflowGraphValidator {
             if ("LOOP".equals(bodyType)) {
                 report.error("GRAPH_LOOP_NESTED", node.getId(), "LOOP nesting is not supported in v1");
             }
-            if ("INTERACTION".equals(bodyType) || "HUMAN_APPROVAL".equals(bodyType)) {
+            if ("INTERACTION".equals(bodyType) || "HUMAN_APPROVAL".equals(bodyType) || "PARALLEL".equals(bodyType)) {
                 report.error("GRAPH_LOOP_BODY_FORBIDDEN", node.getId(),
                         "LOOP body cannot include " + bodyType);
             }
@@ -202,6 +237,36 @@ final class RuntimeWorkflowGraphValidator {
                     && !reachable.contains(bodyExit)) {
                 report.error("GRAPH_LOOP_BODY_EXIT_UNREACHABLE", node.getId(),
                         "LOOP bodyExit is unreachable from bodyEntry: " + bodyExit);
+            }
+        }
+    }
+
+    private static final Set<String> PARALLEL_FORBIDDEN_BRANCH_TYPES = Set.of(
+            "PARALLEL", "ANSWER", "INTERACTION", "HUMAN_APPROVAL", "PAGE_ACTION", "USER_INPUT");
+
+    void validateParallelNode(GraphSpec.Node node,
+                              Map<String, GraphSpec.Node> byId,
+                              List<GraphSpec.Edge> edges,
+                              List<String> exitNodeIds,
+                              RuntimeWorkflowReleaseValidationResult.Builder report) {
+        GraphSpecParallelPlan plan = GraphSpecParallelPlan.from(node, byId, edges);
+        for (GraphSpecParallelPlan.Problem problem : plan.problems()) {
+            report.error(problem.code(), node.getId(), problem.message());
+        }
+        Set<String> exits = exitNodeIds == null ? Set.of() : new HashSet<>(exitNodeIds);
+        if (exits.contains(node.getId())) {
+            report.error("GRAPH_PARALLEL_EXIT_INVALID", node.getId(), "PARALLEL cannot be an exit node");
+        }
+        for (String member : plan.allBranchNodeIds()) {
+            GraphSpec.Node branchNode = byId.get(member);
+            String type = branchNode == null ? "" : AgentGraphNodeType.normalize(branchNode.getType());
+            if (PARALLEL_FORBIDDEN_BRANCH_TYPES.contains(type)) {
+                report.error("GRAPH_PARALLEL_BRANCH_FORBIDDEN", member,
+                        "PARALLEL branch cannot contain " + type + "; move it after the join");
+            }
+            if (exits.contains(member)) {
+                report.error("GRAPH_PARALLEL_BRANCH_FORBIDDEN", member,
+                        "PARALLEL branch cannot end the workflow; branches must meet at the join");
             }
         }
     }

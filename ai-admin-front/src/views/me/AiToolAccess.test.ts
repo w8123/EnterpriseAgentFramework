@@ -5,6 +5,7 @@ import ElementPlus, { ElMessageBox } from 'element-plus'
 import { platformSessionUser } from '@/auth/platformSession'
 import AiToolAccess from './AiToolAccess.vue'
 import { platformAiSetup } from './platformAiSetup'
+import { useSidebarWorkspace } from '@/composables/useSidebarWorkspace'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), revoke: vi.fn(), capabilities: vi.fn(),
   calls: vi.fn(), listApprovals: vi.fn() }))
@@ -18,7 +19,7 @@ vi.mock('@/api/platformAiConnections', () => ({
 vi.mock('@/api/platformAiApprovals', () => ({ listPlatformAiApprovals: mocks.listApprovals }))
 vi.mock('@/auth/platformSession', () => ({ platformSessionUser: ref({ userId: 7, username: 'operator' }) }))
 
-const owner = platformSessionUser as unknown as Ref<{ userId: number; username: string } | null>
+const owner = platformSessionUser as unknown as Ref<{ userId: number; username: string; roles?: string[]; permissions?: string[] } | null>
 const connection = {
   id: 19, label: '我的 Codex', toolKind: 'CODEX', tokenHint: 'rpi_hint', status: 'ACTIVE',
   createdAt: '2026-10-28T10:00:00', expiresAt: '2026-11-04T10:00:00', lastUsedAt: null,
@@ -46,9 +47,6 @@ async function openTab(label: string) {
 
 async function startCreate() {
   ;(document.querySelector('[data-tool-kind="CODEX"] input') as HTMLInputElement).click()
-  const input = document.querySelector('input[aria-label="凭据名称"]') as HTMLInputElement
-  input.value = '我的 Codex'
-  input.dispatchEvent(new Event('input', { bubbles: true }))
   await flushPromises()
   button('获取安装提示词').click()
   await flushPromises()
@@ -76,6 +74,45 @@ afterEach(() => {
 })
 
 describe('AI 工具接入 (console)', () => {
+  it('updates workspace copy and only suggests capabilities returned for the account', async () => {
+    owner.value = { userId: 7, username: 'admin', roles: ['PLATFORM_ADMIN'], permissions: ['*'] }
+    mocks.capabilities.mockResolvedValue({ data: [
+      { name: 'reachai_project_onboarding_start', description: '接入业务系统', readOnly: false },
+      { name: 'reachai_doctor', description: '检查接入', readOnly: true },
+      { name: 'reachai_mcp_usage', description: '查看使用情况', readOnly: true },
+      { name: 'reachai_agents_list', description: '查看智能体', readOnly: true },
+    ] })
+    const workspace = useSidebarWorkspace()
+    workspace.setWorkspace('developer')
+    await mountPage()
+    expect(wrapper!.text()).toContain('协助接入业务系统、改造项目和开发智能体')
+    expect(wrapper!.text()).toContain('帮我接入 ReachAI')
+    expect(wrapper!.text()).toContain('查看我的项目接入情况')
+    expect(wrapper!.text()).not.toContain('帮我创建一个 Workflow 草稿')
+
+    workspace.setWorkspace('manager')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('协助了解使用情况、运营智能体和处理管理工作')
+    expect(wrapper!.text()).toContain('查看 AI 使用情况')
+    expect(wrapper!.text()).not.toContain('查看员工 AI 写操作审批')
+    expect(wrapper!.text()).not.toContain('查看我的项目接入情况')
+
+    workspace.setWorkspace('admin')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('协助检查和管理 ReachAI 平台')
+    expect(wrapper!.text()).toContain('帮我检查一个项目的接入配置')
+    workspace.setWorkspace('my')
+    await flushPromises()
+    expect(wrapper!.text()).toContain('让 AI 协助你完成工作')
+    expect(wrapper!.text()).toContain('查看我能访问的智能体')
+  })
+
+  it('does not suggest actions when capability loading fails', async () => {
+    mocks.capabilities.mockRejectedValue(new Error('offline'))
+    await mountPage()
+    expect(wrapper!.text()).not.toContain('接入后，试着说')
+  })
+
   it.each([['WORKBUDDY', 'WorkBuddy'], ['TRAE', 'TRAE'], ['DOUBAO', '豆包'], ['OPENCLAW', 'OpenClaw'], ['HERMES', 'Hermes Agent'], ['OTHER', '企业自建智能体']])(
     'keeps %s in the setup guide while using the compatible connection kind', async (clientId, clientLabel) => {
     mocks.create.mockResolvedValue({ data: {
@@ -95,12 +132,14 @@ describe('AI 工具接入 (console)', () => {
     expect(prompt).toContain('Streamable HTTP')
     expect(prompt).toContain('Authorization')
     expect(prompt).not.toContain('请帮我把 ReachAI 接入到你')
-    expect((document.querySelector('[data-tool-kind="TRAE"] input') as HTMLInputElement).disabled).toBe(true)
+    expect(document.querySelector('[data-tool-kind="TRAE"] input')).toBeNull()
+    expect(button('复制配置').disabled).toBe(false)
   })
 
   it('preserves a custom credential name when switching clients and locks the selection during creation', async () => {
     mocks.create.mockReturnValue(new Promise(() => {}))
     await mountPage()
+    wrapper!.get<HTMLDetailsElement>('.ai-setup__scope').element.open = true
     const input = document.querySelector('input[aria-label="凭据名称"]') as HTMLInputElement
     input.value = '办公电脑'
     input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -121,6 +160,7 @@ describe('AI 工具接入 (console)', () => {
     button('复制提示词').click()
     await flushPromises()
     expect(document.body.textContent).toContain('复制失败，请选中文本手动复制')
+    expect(document.querySelector('[data-testid="install-prompt"]')?.closest('details')?.open).toBe(true)
     button('复制提示词').click()
     await flushPromises()
     expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining('rpi_one_time_secret'))
@@ -131,6 +171,7 @@ describe('AI 工具接入 (console)', () => {
 
   it('shows the install prompt once, with the secret only as an environment variable value', async () => {
     await mountPage()
+    expect(wrapper!.get<HTMLDetailsElement>('.ai-setup__scope').element.open).toBe(false)
     await startCreate()
 
     expect(mocks.create).toHaveBeenCalledWith({ label: '我的 Codex', toolKind: 'CODEX', ttlDays: 7 })
@@ -143,9 +184,12 @@ describe('AI 工具接入 (console)', () => {
     expect(JSON.stringify(localStorage)).not.toContain('rpi_one_time_secret')
     expect(JSON.stringify(sessionStorage)).not.toContain('rpi_one_time_secret')
 
-    button('完成').click()
+    expect(document.activeElement?.textContent).toBe('在 Codex 中完成接入')
+    expect(document.querySelector('[data-testid="install-prompt"]')?.closest('details')?.open).toBe(false)
+    button('关闭接入信息').click()
     await flushPromises()
     expect(document.body.textContent).not.toContain('rpi_one_time_secret')
+    expect(document.activeElement?.textContent).toBe('选择你正在用的 AI 工具')
   })
 
   it('does not show a secret created for the previous signed-in user', async () => {
@@ -196,12 +240,11 @@ describe('AI 工具接入 (console)', () => {
     await openTab('我能办的事')
     expect(document.querySelector('[data-capability-group="platform"]')?.textContent).toContain('分页查询项目')
     expect(document.body.textContent).toContain('需要审核')
-    const trialGroup = [...document.querySelectorAll('.ai-capabilities__mode')]
-      .find(item => item.querySelector('.is-trial'))
+    const trialGroup = document.querySelector('.ai-capabilities__mode.is-trial')
     expect(trialGroup?.textContent).toContain('试运行已保存的 Workflow')
     expect(trialGroup?.textContent).toContain('会真实执行调用')
     expect(trialGroup?.textContent).not.toContain('创建 Agent 身份')
-    expect(document.querySelector('.is-write')?.closest('.ai-capabilities__mode')?.textContent).toContain('创建 Agent 身份')
+    expect(document.querySelector('.ai-capabilities__mode.is-write')?.textContent).toContain('创建 Agent 身份')
     expect(document.body.textContent).not.toContain('只改草稿，不影响线上')
 
     await openTab('任务记录')
@@ -211,6 +254,33 @@ describe('AI 工具接入 (console)', () => {
     ;(document.querySelector('[data-call-filter="failed"]') as HTMLButtonElement).click()
     await flushPromises()
     expect(document.querySelectorAll('[data-testid="call-record"]')).toHaveLength(1)
+  })
+
+  it('finds capabilities beyond the preview and combines keyword and execution filters', async () => {
+    mocks.capabilities.mockResolvedValue({ data: [
+      ...Array.from({ length: 8 }, (_, index) => ({
+        name: `reachai_query_${index + 1}`, description: `查询能力 ${index + 1}`, readOnly: true,
+      })),
+      { name: 'reachai_request_write', description: '提交修改', readOnly: false, approvalRequired: true },
+    ] })
+    await mountPage()
+    await openTab('我能办的事')
+    const catalog = wrapper!.get('.ai-capabilities')
+    expect(catalog.text()).toContain('9 项能力')
+    expect(catalog.findAll('.is-read > ul > li')).toHaveLength(6)
+    expect(catalog.get('details summary').text()).toContain('查看其余 2 项')
+
+    const search = catalog.get('input[aria-label="搜索能力说明或工具名"]')
+    await search.setValue(' REACHAI_QUERY_8 ')
+    expect(catalog.get('.ai-capabilities__entries').text()).toContain('查询能力 8')
+    expect(catalog.find('details').exists()).toBe(false)
+
+    await catalog.get('button.is-approval').trigger('click')
+    expect(catalog.text()).toContain('没有符合条件的能力')
+    await catalog.get('button[aria-label="清除搜索"]').trigger('click')
+    expect(document.activeElement).toBe(search.element)
+    expect(catalog.get('.ai-capabilities__mode').text()).toContain('提交修改')
+    expect(catalog.find('.ai-capabilities__mode.is-read').exists()).toBe(false)
   })
 
   it('provides portable Codex and Claude Code setup without embedding a secret', () => {

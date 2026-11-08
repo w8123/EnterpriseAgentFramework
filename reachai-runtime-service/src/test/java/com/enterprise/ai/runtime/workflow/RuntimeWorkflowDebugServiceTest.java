@@ -126,6 +126,41 @@ class RuntimeWorkflowDebugServiceTest {
                 mock(com.enterprise.ai.runtime.trace.RuntimeTraceSpanTerminationService.class));
 
     @Test
+    void debugStepCapturesStateBeforeTheNodeRuns() {
+        String graph = """
+                {"schemaVersion":2,"entryNodeId":"first","exitNodeIds":["answer"],
+                 "nodes":[
+                   {"id":"first","type":"VARIABLE_ASSIGN","config":{"assignments":{"value":"before"}}},
+                   {"id":"second","type":"VARIABLE_ASSIGN","config":{"assignments":{"value":"after"}}},
+                   {"id":"answer","type":"ANSWER","config":{"template":"{{ var.value }}"}}],
+                 "edges":[{"from":"first","to":"second","condition":"always"},
+                          {"from":"second","to":"answer","condition":"always"}]}
+                """;
+        var request = new RuntimeWorkflowDebugService.DebugRunRequest(null, "demo", "demo", "GENERAL", "demo",
+                "GRAPH_SPEC", null, graph, null, "hi", Map.of(), Map.of());
+        var result = service.debugRun(request);
+        assertTrue(result.success(), result.errorMessage());
+        var step = result.steps().stream().filter(item -> "second".equals(item.nodeId())).findFirst().orElseThrow();
+        assertEquals("before", ((Map<?, ?>) step.input().get("var")).get("value"));
+        assertEquals("after", ((Map<?, ?>) result.stateSnapshot().get("var")).get("value"));
+        assertFalse(step.input().keySet().stream().anyMatch(key -> key.startsWith("__")));
+    }
+
+    @Test
+    void failedNodeKeepsItsInputSnapshot() {
+        String graph = """
+                {"schemaVersion":2,"entryNodeId":"bad","exitNodeIds":["bad"],
+                 "nodes":[{"id":"bad","type":"CODE","config":{"language":"javascript","code":""}}],"edges":[]}
+                """;
+        var request = new RuntimeWorkflowDebugService.DebugRunRequest(null, "demo", "demo", "GENERAL", "demo",
+                "GRAPH_SPEC", null, graph, null, "hello", Map.of(), Map.of());
+        var result = service.debugRun(request);
+        assertFalse(result.success());
+        var step = result.steps().stream().filter(item -> "bad".equals(item.nodeId())).findFirst().orElseThrow();
+        assertEquals("hello", step.input().get("input"));
+    }
+
+    @Test
     void debugContractsUseCanonicalNamesOnly() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         RuntimeWorkflowDebugService.DebugRunRequest request = mapper.readValue("""

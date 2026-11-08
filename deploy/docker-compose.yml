@@ -9,7 +9,7 @@
 ##   docker compose --env-file reachai.env up -d
 ##
 ## 打开 http://<服务器>:${REACHAI_PORT}（默认 8080），账号 admin。
-## 详细说明见 docs/部署与运维手册.md
+## 详细说明见 docs/admin/install.md
 ##
 ## 可选组件（在 reachai.env 的 COMPOSE_PROFILES 里开启，逗号分隔）：
 ##   mysql   自带 MySQL（默认开启；用自己的 MySQL 时去掉，并填写 AI_MYSQL_HOST 等）

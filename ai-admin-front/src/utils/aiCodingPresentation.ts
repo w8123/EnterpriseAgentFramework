@@ -14,7 +14,7 @@ export type AiCodingTagType =
   | 'info'
 
 export const AI_CODING_EXECUTOR_OPTIONS: ReadonlyArray<{
-  value: AiCodingExecutorProvider
+  value: Exclude<AiCodingExecutorProvider, 'OTHER'>
   label: string
 }> = [
   { value: 'CODEX', label: 'Codex' },
@@ -42,6 +42,7 @@ export function aiCodingProviderLabel(
   provider?: AiCodingExecutorProvider | string,
 ) {
   if (!provider) return '—'
+  if (provider === 'OTHER') return '其他 AI 工具'
   return AI_CODING_EXECUTOR_OPTIONS.find(
     (option) => option.value === provider,
   )?.label || provider

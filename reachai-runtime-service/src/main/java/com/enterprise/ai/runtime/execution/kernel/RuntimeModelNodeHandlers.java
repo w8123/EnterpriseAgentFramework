@@ -29,14 +29,14 @@ final class RuntimeModelNodeHandlers {
     private static final int MAX_PARAMETER_OPTIONS = 200;
 
     private final ObjectMapper objectMapper;
-    private final RuntimeModelServiceClient modelServiceClient;
+    private final RuntimeModelUsageTap models;
     private final RuntimeNodeValueResolver valueResolver;
 
     RuntimeModelNodeHandlers(ObjectMapper objectMapper,
-                             RuntimeModelServiceClient modelServiceClient,
+                             RuntimeModelUsageTap models,
                              RuntimeNodeValueResolver valueResolver) {
         this.objectMapper = objectMapper;
-        this.modelServiceClient = modelServiceClient;
+        this.models = models;
         this.valueResolver = valueResolver;
     }
 
@@ -160,7 +160,7 @@ final class RuntimeModelNodeHandlers {
                         + parameterOptionsPrompt(fields, context);
                 String userPrompt = firstText(
                         valueResolver.renderTemplate(text(config.get("userPrompt")), context), input);
-                ModelChatResult result = modelServiceClient.chat(ModelChatRequest.builder()
+                ModelChatResult result = models.chat(context, ModelChatRequest.builder()
                         .modelInstanceId(modelInstanceId)
                         .messages(List.of(
                                 ChatMessage.builder().role("system").content(systemPrompt).build(),
@@ -238,7 +238,7 @@ final class RuntimeModelNodeHandlers {
                 .build();
         boolean publicUserOutput = isSafePublicUserOutputLlm(node, execution.graph(), config);
         try {
-            ModelChatResult result = modelServiceClient.chat(modelRequest);
+            ModelChatResult result = models.chat(context, modelRequest);
             if (cancel.isCancelled()) {
                 // Discard success after cancellation; never emit a public delta or success memory path.
                 return cancelled(node.getId(), "LLM");
@@ -482,7 +482,7 @@ final class RuntimeModelNodeHandlers {
         String userPrompt = firstText(
                 valueResolver.renderTemplate(text(config.get("llmPrompt")), promptContext),
                 "Input: " + input);
-        ModelChatResult result = modelServiceClient.chat(ModelChatRequest.builder()
+        ModelChatResult result = models.chat(context, ModelChatRequest.builder()
                 .modelInstanceId(modelInstanceId)
                 .messages(List.of(
                         ChatMessage.builder().role("system").content(systemPrompt).build(),

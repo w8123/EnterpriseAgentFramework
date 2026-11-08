@@ -36,6 +36,10 @@ Current Runtime-executable node families:
 - Integrations: `TOOL`
 - Page automation: `PAGE_ACTION` (PAGE_ASSISTANT only)
 - Structured display: `INTERACTION`, currently restricted to `enabledVariants=["PRESENT_OUTPUT"]`
+- Knowledge: `KNOWLEDGE_RETRIEVAL`, `KNOWLEDGE_WRITE` (write)
+- Computation: `CODE`, `LIST_OPERATOR`, `VARIABLE_AGGREGATOR`
+- Control flow: `LOOP`, `PARALLEL`, `SUB_WORKFLOW`
+- Confirmation: `HUMAN_APPROVAL` (the person running the workflow confirms; routes `route:approved` / `route:rejected`)
 
 Do not rely on a hard-coded list of open node types. Use the live context flags and never use a variant absent from `enabledVariants`. In particular, blocking interaction variants remain closed even though `INTERACTION/PRESENT_OUTPUT` is executable and publishable.
 
@@ -300,6 +304,112 @@ Preferred expression form:
 `{{ nodeOutput.extract_filters.owner }}` is also supported (rendered via template engine), but prefer the bare expression form above.
 
 Do not hard-code `null` placeholders in setFilters args.
+
+### CODE
+
+Pure computation, no network or files. Use `javascript` for logic, or `expression` for simple field mapping.
+
+```json
+{
+  "id": "count_items",
+  "type": "CODE",
+  "name": "统计数量",
+  "config": {
+    "language": "javascript",
+    "inputs": { "items": "nodeOutput.query_stock" },
+    "code": "function main(inputs) { return { total: inputs.items.length }; }",
+    "outputs": { "total": "number" }
+  }
+}
+```
+
+`{"language":"expression","outputs":{"name":"params.name"}}` maps fields without code.
+
+### LIST_OPERATOR
+
+```json
+{
+  "id": "low_stock",
+  "type": "LIST_OPERATOR",
+  "name": "筛选低库存",
+  "config": {
+    "source": "nodeOutput.query_stock",
+    "outputAlias": "picked",
+    "operations": [
+      { "type": "filter", "logic": "AND", "conditions": [{ "left": "item.quantity", "operator": "lt", "right": "10" }] },
+      { "type": "sort", "field": "quantity", "order": "asc" },
+      { "type": "limit", "count": 20 }
+    ]
+  }
+}
+```
+
+Output fields: `items`, `count`, `first`, `last`.
+
+### LOOP
+
+```json
+{
+  "id": "each_order",
+  "type": "LOOP",
+  "name": "逐个处理订单",
+  "config": {
+    "mode": "FOREACH",
+    "collection": "params.orders",
+    "itemAlias": "item",
+    "indexAlias": "index",
+    "outputAlias": "results",
+    "bodyOutput": "lastOutput",
+    "maxIterations": 100,
+    "parallelism": 1,
+    "errorMode": "TERMINATE",
+    "bodyEntry": "handle_order",
+    "bodyExit": "handle_order",
+    "bodyNodeIds": ["handle_order"]
+  }
+}
+```
+
+Rules:
+
+- Body nodes have no edges to or from nodes outside the loop. The LOOP node has one `always` edge to the next step.
+- `errorMode`: `TERMINATE` (stop on first failure), `SKIP` (drop failed items) or `KEEP` (keep failed items in results).
+- The loop output (`var.results`) is a list; follow it with `LIST_OPERATOR` to count or filter results.
+
+### PARALLEL
+
+`{"maxConcurrency":4,"failureMode":"FAIL_FAST"}`. Give it two or more `always` edges to branch nodes and join the branches on one `VARIABLE_AGGREGATOR` node. Give each branch tool its own `outputAlias`.
+
+### HUMAN_APPROVAL
+
+```json
+{
+  "id": "confirm_create",
+  "type": "HUMAN_APPROVAL",
+  "name": "确认新建客户",
+  "config": {
+    "title": "确认新建客户",
+    "prompt": "将新建客户 {{ params.name }}，确认吗？",
+    "timeoutSeconds": 3600
+  }
+}
+```
+
+Route outgoing edges with `route:approved` and `route:rejected`. Put it before write steps when the requirement asks for confirmation. v1 asks the person running the workflow; named approvers are not supported yet.
+
+### KNOWLEDGE_WRITE
+
+`{"knowledgeBaseCode":"<code from context>","titleExpression":"标题模板","contentExpression":"lastOutput"}`. It is a write; only use it when the requirement asks to save content into a knowledge base.
+
+### SUB_WORKFLOW
+
+`{"workflowId":"<published workflow id>","versionId":<published version id>,"inputs":{"name":"params.name"}}`. The child must be published and both `workflowId` and `versionId` are required. When you don't know the id, emit a placeholder with `needsConfiguration=true` and a `placeholderReason` naming the workflow to choose.
+
+### Variables
+
+`params.<field>`, `nodeOutput.<nodeId>`, `var.<outputAlias>`, `sys.userId` / `sys.projectCode` / `sys.today` / `sys.now` / `sys.runId`, and `env.<name>` (workflow environment variables, read-only, set on the workflow, not from the request).
+
+IF_ELSE operators: `equals`, `not_equals`, `contains`, `not_contains`, `starts_with`, `ends_with`, `in`, `not_in`, `regex`, `gt`, `gte`, `lt`, `lte`, `empty`, `not_empty`, `exists`, `is_number`, `is_text`, `is_list`, `is_object`, `is_boolean`.
 
 ## Patch Operations
 

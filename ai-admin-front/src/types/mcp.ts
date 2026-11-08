@@ -352,6 +352,34 @@ export interface AiUsageSkill {
   createdAt: string | null
 }
 
+/** 费用里的一行：一个人 / 系统 / 入口 / 模型 / 一天的合计。cost 为空表示用到的模型都还没填价格。 */
+export interface AiCostLine {
+  key: string
+  name: string
+  calls: number
+  runs: number
+  inputTokens: number
+  outputTokens: number
+  cost: number | null
+  /** 有一部分调用用的模型没填价格，金额偏低。 */
+  partialCost: boolean
+}
+
+export interface AiCostReport {
+  days: number
+  projectCode: string | null
+  currency: 'CNY' | 'USD' | 'MIXED'
+  total: AiCostLine
+  byDay: AiCostLine[]
+  people: AiCostLine[]
+  systems: AiCostLine[]
+  channels: AiCostLine[]
+  models: AiCostLine[]
+  unpricedModels: { modelInstanceId: string; name: string }[]
+  notice: string | null
+  available: boolean
+}
+
 export interface AiUsageReport {
   days: number
   since: string

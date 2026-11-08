@@ -94,6 +94,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private final ObjectMapper objectMapper;
     private final RuntimeContextEngineeringService contextEngineeringService;
     private final RuntimeAgentSkillRepositoryFactory skillRepositoryFactory;
+    private volatile com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder;
+
+    @Autowired(required = false)
+    public void setModelUsageRecorder(com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder usageRecorder) {
+        this.usageRecorder = usageRecorder;
+    }
     private RuntimeA2aDelegationService a2aDelegationService;
     private ManagedExecutorAgentDelegationService managedExecutorDelegationService;
     private com.enterprise.ai.runtime.workflow.RuntimeWorkflowInputProtectionService workflowInputProtection;
@@ -273,6 +279,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         }
                     },
                     answerPhase);
+            var recorder = usageRecorder;
+            if (recorder != null) {
+                String usageTraceId = trace.traceId();
+                model.onUsage((modelId, inTokens, outTokens) -> recorder.record(
+                        usageTraceId, com.enterprise.ai.runtime.trace.usage.RuntimeModelUsageRecorder.SOURCE_AGENT, modelId, inTokens, outTokens));
+            }
             RuntimeContextEngineeringService.Invocation contextEngineering =
                     contextEngineeringService == null
                             ? RuntimeContextEngineeringService.Invocation.disabled()

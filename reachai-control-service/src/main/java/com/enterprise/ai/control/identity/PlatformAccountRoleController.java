@@ -65,6 +65,7 @@ public class PlatformAccountRoleController {
     private final PlatformAuthAuditService auditService;
     private final PasswordEncoder passwordEncoder;
     private final CapabilityProjectOnboardingClient projectClient;
+    private final PlatformAuthProviderMapper authProviderMapper;
 
     @GetMapping("/api/platform/account-management/users")
     public ResponseEntity<List<AccountUserView>> listUsers(HttpServletRequest request) {
@@ -85,7 +86,19 @@ public class PlatformAccountRoleController {
                 .last("limit 1")) != null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "platform username already exists");
         }
-        String password = validatePassword(command.password());
+        // An account that signs in with a business-system account (芋道 etc.) has no password here.
+        boolean businessLogin = StringUtils.hasText(command.loginProvider());
+        String loginProvider = businessLogin ? requireBusinessLoginProvider(command.loginProvider()) : "LOCAL";
+        String loginSubject = businessLogin
+                ? requireLength(command.loginSubject(), "loginSubject", 128)
+                : "local:" + username;
+        if (businessLogin && userMapper.selectOne(new LambdaQueryWrapper<PlatformUserEntity>()
+                .eq(PlatformUserEntity::getSourceProvider, loginProvider)
+                .eq(PlatformUserEntity::getExternalSubject, loginSubject)
+                .last("limit 1")) != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "这个业务系统账号已经绑定了别的平台账号");
+        }
+        String password = businessLogin ? null : validatePassword(command.password());
         List<NormalizedGrant> grants = normalizeGrants(command.grants());
         LocalDateTime now = LocalDateTime.now();
         PlatformUserEntity entity = new PlatformUserEntity();
@@ -94,9 +107,9 @@ public class PlatformAccountRoleController {
         entity.setEmail(optionalLength(command.email(), "email", 128));
         entity.setMobile(optionalLength(command.mobile(), "mobile", 64));
         entity.setStatus(normalizeStatus(command.status(), "ACTIVE"));
-        entity.setSourceProvider("LOCAL");
-        entity.setExternalSubject("local:" + username);
-        entity.setPasswordHash(passwordEncoder.encode(password));
+        entity.setSourceProvider(loginProvider);
+        entity.setExternalSubject(loginSubject);
+        entity.setPasswordHash(password == null ? null : passwordEncoder.encode(password));
         entity.setCreatedAt(now);
         entity.setUpdatedAt(now);
         userMapper.insert(entity);
@@ -104,7 +117,7 @@ public class PlatformAccountRoleController {
         auditService.record(actor, "PLATFORM_ACCOUNT_CREATED", "PLATFORM_USER",
                 String.valueOf(entity.getId()), Map.of(
                         "username", username,
-                        "sourceProvider", "LOCAL",
+                        "sourceProvider", loginProvider,
                         "status", entity.getStatus(),
                         "grantCount", grants.size()));
         return ResponseEntity.status(HttpStatus.CREATED).body(accountUserView(entity));
@@ -346,6 +359,18 @@ public class PlatformAccountRoleController {
                 grantViews(grantsByUser.getOrDefault(user.getId(), List.of()), roles))).toList();
     }
 
+    private String requireBusinessLoginProvider(String value) {
+        String code = value.trim();
+        PlatformAuthProviderEntity provider = authProviderMapper.selectOne(
+                new LambdaQueryWrapper<PlatformAuthProviderEntity>()
+                        .eq(PlatformAuthProviderEntity::getProviderCode, code).last("limit 1"));
+        if (provider == null || !code.equals(provider.getProviderCode())
+                || !"BUSINESS_OAUTH".equals(provider.getProviderType())) {
+            throw badRequest("没有这个业务系统登录方式：" + code);
+        }
+        return code;
+    }
+
     private AccountUserView accountUserView(PlatformUserEntity user) {
         LocalDateTime now = LocalDateTime.now();
         long activeSessions = sessionMapper.selectCount(new LambdaQueryWrapper<PlatformLoginSessionEntity>()
@@ -363,7 +388,7 @@ public class PlatformAccountRoleController {
                 user.getId(), user.getUsername(), user.getDisplayName(), user.getEmail(), user.getMobile(),
                 user.getStatus(), user.getSourceProvider(), instantText(user.getLastLoginAt()),
                 instantText(user.getCreatedAt()), instantText(user.getUpdatedAt()), activeSessions,
-                grants);
+                grants, "LOCAL".equalsIgnoreCase(user.getSourceProvider()) ? null : user.getExternalSubject());
     }
 
     private List<RoleManagementView> roleManagementViews() {
@@ -669,12 +694,23 @@ public class PlatformAccountRoleController {
             Long id, String username, String displayName, String email, String mobile,
             String status, String sourceProvider, String lastLoginAt, String createdAt,
             String updatedAt, long activeSessionCount,
-            List<PlatformIdentityController.PlatformUserRoleGrantView> grants) {
+            List<PlatformIdentityController.PlatformUserRoleGrantView> grants,
+            String loginSubject) {
     }
 
+    /**
+     * @param loginProvider a 「用业务系统账号登录」 entry code; when set the account has no password and signs in
+     *                      only as the business-system account {@code loginSubject} (for example 芋道 user id 1)
+     */
     public record AccountUserCreateCommand(
             String username, String displayName, String email, String mobile,
-            String password, String status, List<RoleGrantCommand> grants) {
+            String password, String status, List<RoleGrantCommand> grants,
+            String loginProvider, String loginSubject) {
+
+        public AccountUserCreateCommand(String username, String displayName, String email, String mobile,
+                                        String password, String status, List<RoleGrantCommand> grants) {
+            this(username, displayName, email, mobile, password, status, grants, null, null);
+        }
     }
 
     public record AccountUserUpdateCommand(

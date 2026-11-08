@@ -206,15 +206,26 @@
 
         <section class="debug-steps-panel">
           <div class="debug-section-head">
-            <div>
-              <strong>节点轨迹</strong>
-              <span>{{ steps.length }} 个节点事件</span>
+            <div class="debug-panel-tabs" role="tablist">
+              <button
+                v-for="item in PANEL_TABS"
+                :key="item.value"
+                type="button"
+                role="tab"
+                :aria-selected="panelTab === item.value"
+                :class="{ active: panelTab === item.value }"
+                @click="panelTab = item.value"
+              >{{ item.label }}<em v-if="item.value === 'steps' && steps.length">{{ steps.length }}</em></button>
             </div>
-            <el-button size="small" text :disabled="!session" @click="$emit('clear-session-view')">
+            <el-button v-if="panelTab === 'steps'" size="small" text :disabled="!session && !runResult" @click="$emit('clear-session-view')">
               清空视图
             </el-button>
+            <el-button v-else-if="panelTab === 'runs'" size="small" text :loading="recentRunsLoading" @click="$emit('load-recent-runs')">
+              刷新
+            </el-button>
           </div>
-          <div class="workflow-debug-steps">
+          <div v-if="panelTab === 'steps'" class="workflow-debug-steps">
+            <el-empty v-if="!steps.length" :image-size="72" description="运行一次后，这里按顺序列出每个节点的结果" />
             <article
               v-for="(step, index) in steps"
               :key="step.nodeId + ':' + index"
@@ -236,7 +247,7 @@
                   <span class="step-index">{{ index + 1 }}</span>
                 </span>
                 <span class="step-main">
-                  <strong>{{ step.nodeName || step.nodeId }}</strong>
+                  <strong>{{ step.nodeName || step.nodeId }}<small v-if="stepOccurrence[index] > 1" class="step-repeat">第 {{ stepOccurrence[index] }} 次</small></strong>
                   <em>{{ step.nodeType || step.eventType || '-' }}</em>
                 </span>
                 <span class="step-route">
@@ -248,9 +259,6 @@
               </button>
               <div v-if="selectedStepIndex === index" class="debug-step-inline">
                 <LiquidGlassTabs>
-                  <el-tab-pane label="输入">
-                    <pre>{{ stringifyDebugPayload(step.input) }}</pre>
-                  </el-tab-pane>
                   <el-tab-pane label="输出">
                     <div v-if="step.uiRequest || waitingOutput(step)" class="debug-waiting-card">
                       <strong>{{ step.status === 'WAITING' ? '等待用户补充' : '输出卡片' }}</strong>
@@ -258,15 +266,71 @@
                     </div>
                     <pre>{{ stringifyDebugPayload(step.output ?? step.statePatch) }}</pre>
                   </el-tab-pane>
-                  <el-tab-pane label="状态变化">
+                  <el-tab-pane v-if="hasContent(step.input)" label="输入">
+                    <pre>{{ stringifyDebugPayload(step.input) }}</pre>
+                  </el-tab-pane>
+                  <el-tab-pane v-if="hasContent(step.statePatch)" label="状态变化">
                     <pre>{{ stringifyDebugPayload(step.statePatch) }}</pre>
                   </el-tab-pane>
                   <el-tab-pane v-if="step.errorMessage" label="错误">
                     <pre>{{ step.errorCode }} {{ step.errorMessage }}</pre>
                   </el-tab-pane>
                 </LiquidGlassTabs>
+                <div class="debug-step-actions">
+                  <el-button
+                    size="small"
+                    :disabled="!step.input || !Object.keys(step.input).length || conversationBusy"
+                    @click="$emit('rerun-from', step.nodeId)"
+                  >从这里重新运行</el-button>
+                  <span>沿用这次的数据，从这个节点跑到结束，前面的节点不再执行。</span>
+                </div>
               </div>
             </article>
+          </div>
+          <div v-else-if="panelTab === 'variables'" class="workflow-debug-variables">
+            <el-empty v-if="!variableGroups.length" :image-size="72" description="运行结束后，这里能看到所有变量的值" />
+            <details v-for="group in variableGroups" :key="group.key" class="debug-variable-group" open>
+              <summary>
+                <strong>{{ group.label }}</strong>
+                <span>{{ group.hint }}</span>
+              </summary>
+              <div v-for="item in group.items" :key="group.key + '.' + item.name" class="debug-variable-row">
+                <code>{{ item.path }}</code>
+                <pre>{{ stringifyDebugPayload(item.value) }}</pre>
+              </div>
+            </details>
+          </div>
+          <div v-else class="workflow-debug-runs">
+            <el-empty v-if="!recentRuns.length" :image-size="72" description="最近 7 天没有运行记录" />
+            <button
+              v-for="run in recentRuns"
+              :key="run.traceId"
+              type="button"
+              class="debug-run-row"
+              :class="{ active: run.traceId === currentTraceId }"
+              @click="$emit('recent-trace-change', run.traceId)"
+            >
+              <span class="debug-run-status" :class="runStatusClass(run.status)">{{ runStatusText(run.status) }}</span>
+              <span class="debug-run-main">
+                <strong>{{ recentRunLabel(run) }}</strong>
+              </span>
+            </button>
+            <div v-if="currentTraceId && nodeTraceList.length" class="node-run-summary">
+              <button
+                v-for="item in nodeTraceList"
+                :key="item.nodeId"
+                class="node-run-item"
+                :class="item.status"
+                type="button"
+                @click="$emit('open-node-trace', item.nodeId)"
+              >
+                <span>{{ item.nodeId }}</span>
+                <em>{{ formatElapsed(item.elapsedMs) }}</em>
+              </button>
+            </div>
+            <el-button v-if="currentTraceId" size="small" type="primary" plain @click="$emit('open-runops', currentTraceId)">
+              在运行中心查看完整详情
+            </el-button>
           </div>
         </section>
       </div>
@@ -292,6 +356,7 @@
 
 <script setup lang="ts">
 import AppDrawer from '@/components/common/AppDrawer.vue'
+import { computed, ref } from 'vue'
 import { Operation } from '@element-plus/icons-vue'
 import type { ChatResponse } from '@/types/chat'
 import type { RunSummary } from '@/types/runops'
@@ -367,6 +432,7 @@ const emit = defineEmits<{
   (event: 'run-working-copy'): void
   (event: 'clear-session-view'): void
   (event: 'select-step', index: number): void
+  (event: 'rerun-from', nodeId: string): void
 }>()
 
 const open = defineModel<boolean>('open', { required: true })
@@ -384,6 +450,83 @@ function handleInteractionSubmit(
 
 function handleInitialInteractionSubmit(action: string, values: Record<string, unknown>) {
   emit('interaction-submit', WORKFLOW_INITIAL_INPUT_ID, action, values)
+}
+
+type DebugPanelTab = 'steps' | 'variables' | 'runs'
+const PANEL_TABS: { label: string; value: DebugPanelTab }[] = [
+  { label: '节点轨迹', value: 'steps' },
+  { label: '变量', value: 'variables' },
+  { label: '最近运行', value: 'runs' },
+]
+const panelTab = ref<DebugPanelTab>('steps')
+
+/** Loop bodies run the same node several times; number each repeat. */
+const stepOccurrence = computed(() => {
+  const seen = new Map<string, number>()
+  return props.steps.map((step) => {
+    const count = (seen.get(step.nodeId) || 0) + 1
+    seen.set(step.nodeId, count)
+    return count
+  })
+})
+
+function hasContent(value: unknown) {
+  if (value == null) return false
+  if (typeof value === 'object') return Object.keys(value as object).length > 0
+  return String(value).trim() !== ''
+}
+
+interface VariableGroup {
+  key: string
+  label: string
+  hint: string
+  items: { name: string; path: string; value: unknown }[]
+}
+
+const VARIABLE_GROUPS: { key: string; label: string; hint: string }[] = [
+  { key: 'params', label: '开始输入', hint: 'params.字段名' },
+  { key: 'var', label: '业务变量', hint: 'var.名称（节点设置的输出别名）' },
+  { key: 'nodeOutput', label: '节点输出', hint: 'nodeOutput.节点ID' },
+  { key: 'sys', label: '系统变量', hint: 'sys.名称' },
+  { key: 'env', label: '环境变量', hint: 'env.名称' },
+]
+
+const variableGroups = computed<VariableGroup[]>(() => {
+  const snapshot = props.runResult?.stateSnapshot
+  if (!snapshot || typeof snapshot !== 'object') return []
+  const groups: VariableGroup[] = []
+  for (const group of VARIABLE_GROUPS) {
+    const value = (snapshot as Record<string, unknown>)[group.key]
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+    const items = Object.entries(value as Record<string, unknown>)
+      .filter(([name]) => !name.startsWith('__'))
+      .map(([name, item]) => ({ name, path: `${group.key}.${name}`, value: item }))
+    if (items.length) groups.push({ ...group, items })
+  }
+  const lastOutput = (snapshot as Record<string, unknown>).lastOutput
+  if (lastOutput !== undefined) {
+    groups.push({
+      key: 'last',
+      label: '最近一次输出',
+      hint: 'lastOutput',
+      items: [{ name: 'lastOutput', path: 'lastOutput', value: lastOutput }],
+    })
+  }
+  return groups
+})
+
+function runStatusClass(status?: string) {
+  const normalized = (status || '').toUpperCase()
+  if (['SUCCESS', 'COMPLETED', 'OK'].includes(normalized)) return 'is-success'
+  if (['FAILED', 'ERROR', 'TIMED_OUT', 'CANCELLED'].includes(normalized)) return 'is-error'
+  return 'is-waiting'
+}
+
+function runStatusText(status?: string) {
+  const cls = runStatusClass(status)
+  if (cls === 'is-success') return '成功'
+  if (cls === 'is-error') return '失败'
+  return status || '进行中'
 }
 
 function debugStepStatusClass(status?: string) {
@@ -1104,5 +1247,140 @@ function resolveWorkflowThinkingPresentation(message: ConversationMessage) {
   50% {
     opacity: 0.9;
   }
+}
+.debug-panel-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 10px;
+  background: var(--surface-glass-inset);
+
+  button {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+
+    &.active {
+      background: var(--surface-glass-strong, rgba(255, 255, 255, 0.7));
+      color: var(--text-primary);
+      font-weight: 700;
+    }
+
+    em {
+      font-style: normal;
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+  }
+}
+
+.step-repeat {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.debug-step-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+
+  span {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+}
+
+.workflow-debug-variables,
+.workflow-debug-runs {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.debug-variable-group {
+  border: 1px solid var(--border-readable);
+  border-radius: 12px;
+  padding: 8px 10px;
+
+  summary {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    cursor: pointer;
+
+    span {
+      font-size: 12px;
+      color: var(--text-secondary);
+    }
+  }
+}
+
+.debug-variable-row {
+  margin-top: 8px;
+
+  code {
+    font-size: 12px;
+    color: var(--brand-primary);
+  }
+
+  pre {
+    margin: 4px 0 0;
+    max-height: 220px;
+    overflow: auto;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+}
+
+.debug-run-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-readable);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--brand-primary);
+  }
+
+  .debug-run-main {
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
+}
+
+.debug-run-status {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 11px;
+
+  &.is-success { background: rgba(34, 197, 94, 0.14); color: var(--status-success); }
+  &.is-error { background: rgba(239, 68, 68, 0.14); color: var(--status-danger, #dc2626); }
+  &.is-waiting { background: rgba(234, 179, 8, 0.16); color: var(--status-warning, #b45309); }
 }
 </style>

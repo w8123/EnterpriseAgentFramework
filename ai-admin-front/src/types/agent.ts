@@ -174,6 +174,8 @@ export interface WorkflowGraphSpec {
   exitNodeIds: string[]
   inputSchema?: Record<string, unknown>
   stateSchema?: Record<string, unknown>
+  /** Workflow-level constants readable as env.NAME. */
+  env?: Record<string, string>
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
 }
@@ -195,6 +197,9 @@ export interface WorkflowGraphNode {
     | 'VARIABLE_AGGREGATOR'
     | 'HUMAN_APPROVAL'
     | 'LOOP'
+    | 'PARALLEL'
+    | 'LIST_OPERATOR'
+    | 'SUB_WORKFLOW'
     | 'KNOWLEDGE_WRITE'
     | 'DOCUMENT_EXTRACT'
     | 'MCP_CALL'

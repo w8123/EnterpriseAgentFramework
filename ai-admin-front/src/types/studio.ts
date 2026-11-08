@@ -18,6 +18,9 @@ export type CanvasNodeKind =
   | 'aggregate'
   | 'approval'
   | 'loop'
+  | 'parallel'
+  | 'listOperator'
+  | 'subWorkflow'
   | 'knowledgeWrite'
   | 'documentExtract'
   | 'mcp'
@@ -37,6 +40,16 @@ export type ConditionOperator =
   | 'gte'
   | 'lt'
   | 'lte'
+  | 'starts_with'
+  | 'ends_with'
+  | 'in'
+  | 'not_in'
+  | 'regex'
+  | 'is_number'
+  | 'is_text'
+  | 'is_list'
+  | 'is_object'
+  | 'is_boolean'
 
 export interface StudioFieldSchema {
   name: string
@@ -99,6 +112,8 @@ export interface StudioErrorPolicy {
   strategy: 'TERMINATE' | 'CONTINUE' | 'FALLBACK'
   fallbackNodeId?: string
   defaultOutput?: Record<string, unknown>
+  /** Per-attempt time limit in milliseconds (1000–600000). */
+  timeoutMs?: number
 }
 
 export interface StudioCondition {
@@ -254,9 +269,38 @@ export interface AnswerNodeConfig {
 }
 
 export interface CodeNodeConfig {
-  language: 'expression'
+  /** javascript: sandboxed main(inputs); expression: each output is a variable path or template. */
+  language: 'javascript' | 'expression'
   code?: string
+  /** javascript only: input name -> variable path or template. */
+  inputs?: Record<string, string>
+  /** javascript: declared output field -> type label; expression: output field -> expression. */
   outputs: Record<string, string>
+  timeoutMs?: number
+}
+
+export type ListOperationType = 'filter' | 'sort' | 'unique' | 'limit' | 'offset' | 'pluck'
+
+export interface ListOperation {
+  type: ListOperationType
+  field?: string
+  order?: 'asc' | 'desc'
+  count?: number
+  logic?: ConditionLogic
+  conditions?: StudioCondition[]
+}
+
+export interface ListOperatorNodeConfig {
+  source: string
+  operations: ListOperation[]
+}
+
+export interface SubWorkflowNodeConfig {
+  workflowId: string
+  workflowName?: string
+  versionId?: number
+  versionLabel?: string
+  inputs: Record<string, string>
 }
 
 export interface IntentClassConfig {
@@ -298,9 +342,23 @@ export interface HumanApprovalNodeConfig {
   defaultRoute?: string
 }
 
+export interface LoopVariable {
+  name: string
+  value: string
+}
+
 export interface LoopNodeConfig {
-  /** v1 only supports FOREACH (bounded serial). */
-  mode?: 'FOREACH'
+  /** FOREACH iterates a list; WHILE repeats until the break conditions hold. */
+  mode?: 'FOREACH' | 'WHILE'
+  /** FOREACH only: iterations processed at once (1–4). */
+  parallelism?: number
+  /** FOREACH only: TERMINATE stops the loop, SKIP drops failed items, KEEP keeps an error placeholder. */
+  errorMode?: 'TERMINATE' | 'SKIP' | 'KEEP'
+  /** WHILE only: checked after every round. */
+  breakConditions?: StudioCondition[]
+  breakLogic?: ConditionLogic
+  /** WHILE only: carried across rounds as var.<name>. */
+  loopVariables?: LoopVariable[]
   collection: string
   itemAlias: string
   indexAlias: string
@@ -314,8 +372,15 @@ export interface LoopNodeConfig {
   itemExpression?: string
   /** @deprecated unused in FOREACH v1 */
   loopKey?: string
-  /** @deprecated WHILE/break not supported in v1 */
+  /** @deprecated replaced by breakConditions */
   breakCondition?: string
+}
+
+export interface ParallelNodeConfig {
+  /** Branches running at once (1–4). */
+  maxConcurrency: number
+  /** FAIL_FAST fails the node when any branch fails; CONTINUE goes on with the successful branches. */
+  failureMode: 'FAIL_FAST' | 'CONTINUE'
 }
 
 export interface KnowledgeWriteNodeConfig {
@@ -398,6 +463,9 @@ export interface CanvasNodeData {
   aggregateConfig?: VariableAggregateNodeConfig
   approvalConfig?: HumanApprovalNodeConfig
   loopConfig?: LoopNodeConfig
+  parallelConfig?: ParallelNodeConfig
+  listConfig?: ListOperatorNodeConfig
+  subWorkflowConfig?: SubWorkflowNodeConfig
   /** Runtime decoration only: id of LOOP that owns this body node. */
   loopOwnerId?: string
   knowledgeWriteConfig?: KnowledgeWriteNodeConfig

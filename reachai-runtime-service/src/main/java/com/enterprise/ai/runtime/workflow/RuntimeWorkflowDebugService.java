@@ -7,6 +7,7 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
 import com.enterprise.ai.runtime.execution.WorkflowExecutionStatus;
+import com.enterprise.ai.runtime.execution.event.RuntimeExecutionEvent;
 import com.enterprise.ai.runtime.execution.policy.RuntimeEvalExecutionContext;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.trace.WorkflowTraceSanitizer;
@@ -58,7 +59,7 @@ public class RuntimeWorkflowDebugService {
                     text(debugOption(actual.debugOptions(), "entryNodeId")), false, eventSink, cancellation);
         } catch (MissingDebugWorkflow missing) {
             return toDebugRunResult(run.runId(), run.traceId(), actual.message(), Map.of(), null,
-                    failure("WORKFLOW_NOT_FOUND", missing.getMessage(), null, null), System.currentTimeMillis());
+                    failure("WORKFLOW_NOT_FOUND", missing.getMessage(), null, null), System.currentTimeMillis(), Map.of());
         }
     }
 
@@ -145,6 +146,10 @@ public class RuntimeWorkflowDebugService {
                                            WorkflowExecutionIdentity identity, TrialAudit trial) {
         RuntimeGraphSpecExecutionEventSink sink = eventSink == null
                 ? RuntimeGraphSpecExecutionEventSink.NOOP : eventSink;
+        Map<String, Map<String, Object>> nodeInputs = new LinkedHashMap<>();
+        if (trial == null && identity.source() == WorkflowExecutionIdentity.Source.DEBUG_UNTRUSTED) {
+            sink = debugSnapshotSink(sink, nodeInputs);
+        }
         RuntimeGraphSpecExecutionCancellation cancel = cancellation == null
                 ? RuntimeGraphSpecExecutionCancellation.none() : cancellation;
         String runId = run.runId();
@@ -168,7 +173,7 @@ public class RuntimeWorkflowDebugService {
         if (!resolved.success()) {
             RuntimeGraphSpecExecutionResult failure = failure(resolved.code(), resolved.message(), null, null);
             finishWorkflowTrace(trace, failure);
-            return toDebugRunResult(runId, traceId, actual.message(), Map.of(), null, failure, started);
+            return toDebugRunResult(runId, traceId, actual.message(), Map.of(), null, failure, started, nodeInputs);
         }
 
         RuntimeGraphSpecExecutionResult execution;
@@ -184,7 +189,7 @@ public class RuntimeWorkflowDebugService {
                     "试运行结果未确认，请先核对 Run/Trace，勿直接重试", null, null);
         }
         finishWorkflowTrace(trace, execution);
-        return toDebugRunResult(runId, traceId, actual.message(), context, resolved.graph(), execution, started);
+        return toDebugRunResult(runId, traceId, actual.message(), context, resolved.graph(), execution, started, nodeInputs);
     }
 
     public NodeDebugResult debugNode(NodeDebugRequest request) {
@@ -237,7 +242,7 @@ public class RuntimeWorkflowDebugService {
         }
 
         RuntimeGraphSpecExecutionResult execution =
-                graphSpecExecutor.executeFromNode(resolved.graphSpecJson(), context, actual.nodeId());
+                graphSpecExecutor.executeSingleNode(resolved.graphSpecJson(), context, actual.nodeId());
         finishWorkflowTrace(trace, execution);
         GraphSpec.Node node = nodeById(resolved.graph(), firstText(execution.nodeId(), actual.nodeId()));
         String nodeType = firstText(execution.nodeType(), normalizeNodeType(node));
@@ -255,13 +260,74 @@ public class RuntimeWorkflowDebugService {
                 traceId);
     }
 
+    private RuntimeGraphSpecExecutionEventSink debugSnapshotSink(
+            RuntimeGraphSpecExecutionEventSink delegate, Map<String, Map<String, Object>> snapshots) {
+        java.util.Set<String> seenNodes = new java.util.HashSet<>();
+        return new RuntimeGraphSpecExecutionEventSink() {
+            @Override
+            public void onNodeInputSnapshot(String nodeId, Map<String, Object> state) {
+                if (!seenNodes.add(nodeId)) {
+                    snapshots.remove(nodeId);
+                    return;
+                }
+                Map<String, Object> safe = new LinkedHashMap<>();
+                state.forEach((key, value) -> {
+                    if (key != null && !key.startsWith("__")
+                            && !java.util.Set.of("traceId", "supervisorTraceId", "runtimeCode", "lastError", "submittedPayload").contains(key)) {
+                        safe.put(key, value);
+                    }
+                });
+                try {
+                    String json = objectMapper.writeValueAsString(safe);
+                    if (json.length() <= 262144) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> copy = objectMapper.readValue(json, LinkedHashMap.class);
+                        snapshots.put(nodeId, copy);
+                    }
+                } catch (Exception ignored) {
+                    // An unserialisable or oversized state cannot be safely reused for a node rerun.
+                }
+            }
+
+            @Override
+            public void onExecutionEvent(RuntimeExecutionEvent event) {
+                delegate.onExecutionEvent(event);
+            }
+            @Override
+            public void onNodeStarted(String id, String type, String name, Map<String, Object> payload) {
+                delegate.onNodeStarted(id, type, name, payload);
+            }
+            @Override
+            public void onNodeDelta(String id, String type, String text, Map<String, Object> payload) {
+                delegate.onNodeDelta(id, type, text, payload);
+            }
+            @Override
+            public void onNodeCompleted(String id, String type, String name, Map<String, Object> payload) {
+                delegate.onNodeCompleted(id, type, name, payload);
+            }
+            @Override
+            public void onNodeWaiting(String id, String type, String name, Map<String, Object> payload) {
+                delegate.onNodeWaiting(id, type, name, payload);
+            }
+            @Override
+            public void onNodeFailed(String id, String type, String name, Map<String, Object> payload) {
+                delegate.onNodeFailed(id, type, name, payload);
+            }
+            @Override
+            public void onExecutionCancelled(Map<String, Object> payload) {
+                delegate.onExecutionCancelled(payload);
+            }
+        };
+    }
+
     private DebugRunResult toDebugRunResult(String runId,
                                             String traceId,
                                             String message,
                                             Map<String, Object> inputContext,
                                             GraphSpec graph,
                                             RuntimeGraphSpecExecutionResult execution,
-                                            long started) {
+                                            long started,
+                                            Map<String, Map<String, Object>> nodeInputs) {
         String status = status(execution);
         Map<String, Object> snapshotBase = execution.resumeCheckpoint() != null && !execution.resumeCheckpoint().isEmpty()
                 ? execution.resumeCheckpoint()
@@ -287,13 +353,34 @@ public class RuntimeWorkflowDebugService {
                 execution.nodeId(),
                 messages,
                 interactionRequest(execution),
-                debugSteps(graph, execution),
+                debugSteps(graph, execution, stateSnapshot, nodeInputs),
                 stateSnapshot,
                 execution.success() ? null : execution.code(),
                 execution.success() ? null : execution.answer());
     }
 
-    private List<DebugStepResult> debugSteps(GraphSpec graph, RuntimeGraphSpecExecutionResult execution) {
+    /** Studio step output: the node's recorded nodeOutput value, capped so session rows stay small. */
+    private Object stepNodeOutput(Map<String, Object> stateSnapshot, String nodeId) {
+        if (nodeId == null || stateSnapshot == null
+                || !(stateSnapshot.get("nodeOutput") instanceof Map<?, ?> outputs)
+                || !outputs.containsKey(nodeId)) {
+            return null;
+        }
+        Object value = outputs.get(nodeId);
+        try {
+            String json = objectMapper.writeValueAsString(value);
+            if (json.length() > 16_000) {
+                return "输出较大（" + json.length() + " 字符），请在「变量」里查看 nodeOutput." + nodeId;
+            }
+        } catch (Exception ex) {
+            return String.valueOf(value);
+        }
+        return value;
+    }
+
+    private List<DebugStepResult> debugSteps(GraphSpec graph, RuntimeGraphSpecExecutionResult execution,
+                                             Map<String, Object> stateSnapshot,
+                                             Map<String, Map<String, Object>> nodeInputs) {
         List<Map<String, Object>> rawSteps = execution.steps() == null ? List.of() : execution.steps();
         List<DebugStepResult> steps = new ArrayList<>();
         // Node traces carry the executor-measured latency; consume them in order per node id.
@@ -321,6 +408,10 @@ public class RuntimeWorkflowDebugService {
             if (nodeId != null && nodeId.equals(execution.nodeId()) && StringUtils.hasText(execution.answer())) {
                 output.put("answer", execution.answer());
             }
+            Object recordedOutput = waitingStep || failedStep ? null : stepNodeOutput(stateSnapshot, nodeId);
+            if (recordedOutput != null) {
+                output.put("nodeOutput", recordedOutput);
+            }
             if (waitingStep && execution.uiRequest() != null) {
                 output.put("uiRequest", execution.uiRequest());
             }
@@ -339,7 +430,7 @@ public class RuntimeWorkflowDebugService {
                     null,
                     null,
                     elapsed,
-                    Map.of(),
+                    nodeInputs.getOrDefault(nodeId, Map.of()),
                     output,
                     output.isEmpty() ? null : output,
                     Map.of(),
@@ -363,7 +454,7 @@ public class RuntimeWorkflowDebugService {
             steps.add(new DebugStepResult(steps.size(), failedNodeId,
                     firstText(normalizeNodeType(node), execution.nodeType()), node == null ? null : node.getName(),
                     "ERROR", null, null, nodeLatencies == null || nodeLatencies.isEmpty() ? 0L : nodeLatencies.poll(),
-                    Map.of(), Map.of(), null, Map.of(), Map.of(), "execute-node", null, null, null, null, null,
+                    nodeInputs.getOrDefault(failedNodeId, Map.of()), Map.of(), null, Map.of(), Map.of(), "execute-node", null, null, null, null, null,
                     execution.code(), execution.answer()));
         }
         return steps;

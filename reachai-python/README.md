@@ -66,7 +66,7 @@ SDK 在发送首次注册前持久化 pending 标记；响应丢失、进程中�
 
 `principal_resolver(request, agent_id)` 必须从宿主验证过的 Cookie 或会话取得 `EmbedPrincipal`；`attributes['tenantId']`、用户、角色和业务会话都不能来自浏览器提交字段。将实际业务页面来源写入 `allowed_origins`；broker 必须收到匹配的 `Origin`。对 Cookie 认证宿主还应使用现有 CSRF 策略。
 
-业务退出时调用 `await reach.revoke_business_session(session_id)`，并由宿主负责网络失败后的可靠处理；只有服务端确认后才表示 ReachAI 撤销完成。浏览器只请求本系统 `/reachai/embed/token` 并得到短期 Token，不能接触项目密钥。前端对话组件与页面动作桥按[嵌入指南](../docs/guides/embed-chat.md)接入。
+业务退出时调用 `await reach.revoke_business_session(session_id)`，并由宿主负责网络失败后的可靠处理；只有服务端确认后才表示 ReachAI 撤销完成。浏览器只请求本系统 `/reachai/embed/token` 并得到短期 Token，不能接触项目密钥。前端对话组件与页面动作桥按[嵌入指南](../docs/developer/embed-chat.md)接入。
 
 ## 业务索引
 

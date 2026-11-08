@@ -17,6 +17,13 @@ export interface SidebarWorkspace {
 }
 
 export const PLATFORM_ADMIN_ROLE = 'PLATFORM_ADMIN'
+export const PLATFORM_AI_CONNECTIONS_PATH = '/me/ai-connections'
+const aiConnectionsEntry: SidebarEntry = { kind: 'item', index: PLATFORM_AI_CONNECTIONS_PATH, label: 'AI 工具接入', icon: Monitor }
+
+/** 完整菜单也提供个人 AI 连接入口，放在概览之后。 */
+const fullWorkspaceMenu: SidebarEntry[] = sidebarMenu.flatMap(item =>
+  item.kind === 'item' && item.index === '/dashboard' ? [item, aiConnectionsEntry] : [item],
+)
 
 /** 从完整菜单目录取入口；子菜单项提升为一级入口并沿用所属分组的图标。 */
 function entry(index: string, label?: string): SidebarEntry {
@@ -55,6 +62,7 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
     description: '接入业务系统、开发 Agent 和 Workflow',
     menu: [
       entry('/dashboard'),
+      aiConnectionsEntry,
       group('接入与能力'),
       entry('/registry/projects'),
       entry('/business-capabilities'),
@@ -80,6 +88,7 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
     description: '上线和运营智能体、查看员工 AI 使用情况、审批写操作',
     menu: [
       entry('/dashboard'),
+      aiConnectionsEntry,
       group('使用与审批'),
       entry('/usage'),
       entry('/mcp-hub', '员工连接与审批'),
@@ -100,15 +109,14 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
     roleCode: PLATFORM_ADMIN_ROLE,
     label: '平台管理员',
     description: '全部功能：安装平台、管理账号、认证和模型',
-    menu: sidebarMenu,
+    menu: fullWorkspaceMenu,
   },
 ]
 
-/** 人人都有的「我的」：普通用户的个人空间，也是没有管理端角色的账号的落脚点。 */
-export const PLATFORM_AI_CONNECTIONS_PATH = '/me/ai-connections'
 /** 「AI 操作审核」：审核 AI 申请的写操作（自己平台 AI 的，管理人员还有员工的）。 */
 export const AI_APPROVALS_PATH = '/me/ai-approvals'
 
+/** 人人都有的「我的」：普通用户的个人空间，也是没有管理端角色的账号的落脚点。 */
 export const mySidebarWorkspace: SidebarWorkspace = {
   key: 'my',
   roleCode: '',
@@ -117,7 +125,7 @@ export const mySidebarWorkspace: SidebarWorkspace = {
   description: '普通用户：在业务系统里用 AI、我的 AI 连接和记忆',
   menu: [
     { kind: 'item', index: '/me', label: '我的首页', icon: House },
-    { kind: 'item', index: PLATFORM_AI_CONNECTIONS_PATH, label: 'AI 工具接入', icon: Monitor },
+    aiConnectionsEntry,
     { kind: 'item', index: AI_APPROVALS_PATH, label: 'AI 操作审核', icon: DocumentChecked },
     { kind: 'item', index: '/me/memories', label: '我的记忆', icon: Memo },
   ],
@@ -130,7 +138,7 @@ const customRoleWorkspace: SidebarWorkspace = {
   home: '/dashboard',
   label: '全部功能',
   description: '按你的权限显示全部菜单',
-  menu: sidebarMenu,
+  menu: fullWorkspaceMenu,
 }
 
 export function findSidebarWorkspace(key: unknown): SidebarWorkspace | undefined {

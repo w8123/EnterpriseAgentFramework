@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AiCodingHandoffApplicationService {
 
-    private static final String ACTIVATION_SCHEMA = "reachai.ai-coding.activation.v1";
+    public static final String ACTIVATION_SCHEMA = "reachai.ai-coding.activation.v1";
     private static final String ACTIVATION_RESULT_SCHEMA =
             "reachai.ai-coding.activation-result.v1";
 
@@ -56,6 +56,22 @@ public class AiCodingHandoffApplicationService {
             String taskId,
             String publicBaseUrl,
             String issuedBy) {
+        IssuedHandoff issued = issueInternal(taskId, issuedBy, false);
+        return promptFactory.build(publicBaseUrl, issued.task(), issued.handoff(), issued.activationCode());
+    }
+
+    /** Issues a one-time activation for an MCP connection without creating a client-facing script. */
+    @Transactional
+    public ConnectionActivation issueForConnection(String taskId, String issuedBy) {
+        IssuedHandoff issued = issueInternal(taskId, issuedBy, true);
+        return new ConnectionActivation(issued.handoff().getHandoffId(), issued.activationCode());
+    }
+
+    public record ConnectionActivation(String handoffId, String activationCode) { }
+
+    private record IssuedHandoff(AiCodingTaskEntity task, AiCodingTaskHandoffEntity handoff, String activationCode) { }
+
+    private IssuedHandoff issueInternal(String taskId, String issuedBy, boolean connectionClaim) {
         AiCodingTaskEntity task = requireTask(taskId);
         if ("MANAGED_SANDBOX".equalsIgnoreCase(task.getExecutionMode())) {
             throw new IllegalStateException(
@@ -89,7 +105,8 @@ public class AiCodingHandoffApplicationService {
         handoff.setUpdatedAt(now);
         handoffMapper.insert(handoff);
 
-        task.setLastMessage("交接包已签发，等待 " + task.getExecutorProvider() + " 对接");
+        task.setLastMessage((connectionClaim ? "任务连接已准备，等待 " : "交接包已签发，等待 ")
+                + task.getExecutorProvider() + " 对接");
         task.setUpdatedAt(now);
         requireTaskUpdate(task);
         appendEvent(
@@ -99,11 +116,7 @@ public class AiCodingHandoffApplicationService {
                 ActorType.USER,
                 normalizedIssuedBy);
 
-        return promptFactory.build(
-                publicBaseUrl,
-                task,
-                handoff,
-                activationCode);
+        return new IssuedHandoff(task, handoff, activationCode);
     }
 
     @Transactional(noRollbackFor = ResponseStatusException.class)
@@ -111,6 +124,23 @@ public class AiCodingHandoffApplicationService {
             String handoffId,
             ActivationCommand command,
             String publicBaseUrl) {
+        return activateInternal(handoffId, command, publicBaseUrl, true);
+    }
+
+    /** Activates an MCP-bound handoff without generating shell setup instructions. */
+    @Transactional(noRollbackFor = ResponseStatusException.class)
+    public ActivationView activateForConnection(
+            String handoffId,
+            ActivationCommand command,
+            String publicBaseUrl) {
+        return activateInternal(handoffId, command, publicBaseUrl, false);
+    }
+
+    private ActivationView activateInternal(
+            String handoffId,
+            ActivationCommand command,
+            String publicBaseUrl,
+            boolean includeClientSetup) {
         if (command == null) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
@@ -256,10 +286,10 @@ public class AiCodingHandoffApplicationService {
                 taskRoot,
                 tokenExpiresAt,
                 leaseExpiresAt,
-                powerShellBootstrapFactory.clientSetup(
+                includeClientSetup ? powerShellBootstrapFactory.clientSetup(
                         task.getTaskId(),
                         handoff.getHandoffId(),
-                        clientProvider));
+                        clientProvider) : null);
     }
 
     public AiCodingTaskHandoffEntity latest(String taskId) {

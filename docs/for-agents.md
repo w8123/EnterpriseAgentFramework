@@ -22,9 +22,9 @@
 | --- | --- | --- |
 | 理解产品与对象 | [产品](product.md)、[当前边界](status.md) | 相应实现与目标环境 |
 | 接入 Java 业务系统 | [系统接入](integration.md)、[Starter](../reachai-spring-boot2-starter/README.md) | 项目 onboarding manifest 与业务身份桥 |
-| 嵌入业务对话 | [页面对话指南](guides/embed-chat.md) | SDK 类型与实际 broker 响应 |
+| 嵌入业务对话 | [在业务页面嵌入助手](developer/embed-chat.md) | SDK 类型与实际 broker 响应 |
 | 编排 Agent / Workflow | [Workflow](workflow.md)、[Agent](agent.md)、[AI Coding](ai-coding.md) | 当前草稿修订、来源契约与发布版本 |
-| 安装、升级或排障 | [部署与运维手册](部署与运维手册.md) | `reachai doctor` 与对应服务日志 |
+| 安装、升级或排障 | [安装 ReachAI](admin/install.md)、[日常运维](admin/operations.md) | `reachai doctor` 与对应服务日志 |
 | 修改项目源码 | [架构](architecture.md)、[开发](development.md) | [表归属](contracts/tables.md)、[内部 API](contracts/internal-apis.md)、[公共路由](contracts/public-routes.md) |
 
 ## 核对事实与执行权限
@@ -33,7 +33,7 @@
 
 文档用于理解产品，不替用户授权提交、部署、数据库变更或真实业务写入。调用平台时分别使用平台 AI 连接、员工个人连接或项目 Key，不混用身份；需要审核的操作沿原审核流程执行。
 
-遇到冲突先读取并比较修订；写调用结果不确定时查询原调用、运行或审批，不通过更换标识盲目重发。部署、密钥与恢复约束以[部署手册](部署与运维手册.md#给-ai-编程工具的部署说明)为准。
+遇到冲突先读取并比较修订；写调用结果不确定时查询原调用、运行或审批，不通过更换标识盲目重发。部署、密钥与恢复约束以[安装 ReachAI](admin/install.md#让-ai-编程工具帮你部署)为准。
 
 ## 引用与内容维护
 

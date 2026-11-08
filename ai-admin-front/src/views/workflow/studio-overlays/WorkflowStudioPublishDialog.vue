@@ -68,6 +68,43 @@
       <el-form-item label="发布说明">
         <el-input v-model="form.note" type="textarea" :rows="3" resize="none" />
       </el-form-item>
+      <el-form-item v-if="exposure" label="员工 AI 工具">
+        <div class="exposure-box">
+          <el-checkbox v-model="exposure.enabled">发布后开放给员工 AI 工具</el-checkbox>
+          <p class="exposure-hint">
+            加入所选 MCP 服务并发布新版本，有权限的员工会在自己的 Codex、Claude Code 里看到这个工作流，按自己的身份调用。
+          </p>
+          <template v-if="exposure.enabled">
+            <el-select
+              v-model="exposure.publicationId"
+              :loading="exposureLoading"
+              placeholder="选择 MCP 服务"
+              style="width: 100%"
+            >
+              <el-option v-for="item in exposurePublications" :key="item.id" :label="item.name" :value="item.id" />
+            </el-select>
+            <p v-if="!exposureLoading && !exposurePublications?.length" class="exposure-hint">
+              还没有 MCP 服务，先到「MCP 服务」里建一个。
+            </p>
+            <el-select v-model="exposure.riskLevel" style="width: 100%">
+              <el-option label="只读：查询类，员工直接调用" value="READ" />
+              <el-option label="写入：会改业务数据，员工调用要先审批" value="WRITE" />
+              <el-option label="页面操作" value="PAGE_ACTION" />
+              <el-option label="不可逆：需要到 MCP 服务里单独确认" value="IRREVERSIBLE" />
+            </el-select>
+            <p v-if="exposure.riskLevel !== exposureSuggestedRisk" class="exposure-hint is-warn">
+              按节点推荐的风险等级是 {{ exposureSuggestedRisk }}，调低前请确认这个工作流不会改业务数据。
+            </p>
+            <el-input
+              v-model="exposure.description"
+              type="textarea"
+              :rows="3"
+              resize="none"
+              placeholder="员工的 AI 看到的工具说明"
+            />
+          </template>
+        </div>
+      </el-form-item>
     </el-form>
     <template #footer>
       <LiquidGlassButton :disabled="publishing" @click="open = false">取消</LiquidGlassButton>
@@ -90,8 +127,14 @@ import type {
   WorkflowReleaseValidationItem,
 } from '@/types/workflow'
 import { LiquidGlassNotice, LiquidGlassButton } from '@/components/common/liquid-glass'
+import type { McpPublication } from '@/types/mcp'
+import type { EmployeeAiExposureForm, ExposureRiskLevel } from '@/views/workflow/composables/useWorkflowEmployeeAiExposure'
 
 defineProps<{
+  exposure?: EmployeeAiExposureForm
+  exposurePublications?: McpPublication[]
+  exposureLoading?: boolean
+  exposureSuggestedRisk?: ExposureRiskLevel
   publishing: boolean
   releaseChecking: boolean
   releaseValidationReady: boolean
@@ -194,5 +237,22 @@ const open = defineModel<boolean>('open', { required: true })
   flex-basis: 100%;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.exposure-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.exposure-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+
+  &.is-warn {
+    color: var(--status-warning, #b45309);
+  }
 }
 </style>

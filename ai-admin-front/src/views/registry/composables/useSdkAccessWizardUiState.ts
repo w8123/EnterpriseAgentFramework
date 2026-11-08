@@ -1,31 +1,45 @@
 import { reactive, ref } from 'vue'
-import type { AiCodingExecutorProvider } from '@/types/aiCodingTask'
-import type { SdkAccessWizardStepKey } from './useSdkAccessWizardProgress'
+import type { SdkAccessWizardManualChecks, SdkAccessWizardStepKey } from './useSdkAccessWizardProgress'
 
-export type SdkAccessAiPromptTool = AiCodingExecutorProvider
 export type SdkAccessMode = 'manual' | 'ai-coding'
 export type SdkAccessLanguage = 'java' | 'csharp' | 'python' | 'node' | 'go'
 
+export const sdkAccessLanguageOptions = [
+  { value: 'java', label: 'Java / Spring' },
+  { value: 'csharp', label: 'C# / ASP.NET Core' },
+  { value: 'python', label: 'Python / FastAPI' },
+  { value: 'node', label: 'Node.js / Express' },
+  { value: 'go', label: 'Go / net/http' },
+] as const satisfies ReadonlyArray<{ value: SdkAccessLanguage; label: string }>
+
 export function useSdkAccessWizardUiState() {
-  const aiPromptTool = ref<SdkAccessAiPromptTool>('CURSOR')
   const accessMode = ref<SdkAccessMode>('ai-coding')
   const sdkLanguage = ref<SdkAccessLanguage>('java')
   const activeStep = ref<SdkAccessWizardStepKey>('starter')
-  const gatewayBaseUrl = ref('http://localhost:8080')
-  const embedTokenPath = ref('/api/reachai/embed-token')
-  const manualChecks = reactive({
+  const gatewayBaseUrl = ref('')
+  const embedTokenPath = ref('/reachai/embed/token')
+  const defaultManualChecks: SdkAccessWizardManualChecks = {
     starter: false,
+    capabilities: false,
+    identity: false,
     gateway: false,
+    sync: false,
     frontend: false,
-  })
+    acceptance: false,
+  }
+  const manualChecks = reactive({ ...defaultManualChecks })
+
+  function resetManualChecks() {
+    Object.assign(manualChecks, defaultManualChecks)
+  }
 
   return {
-    aiPromptTool,
     accessMode,
     sdkLanguage,
     activeStep,
     gatewayBaseUrl,
     embedTokenPath,
     manualChecks,
+    resetManualChecks,
   }
 }

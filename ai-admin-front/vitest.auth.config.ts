@@ -25,6 +25,7 @@ export default defineConfig({
       'src/store/project.test.ts',
       'src/views/layout/MainLayout.test.ts',
       'src/views/me/AiToolAccess.test.ts',
+      'src/components/ai-access/**/*.test.ts',
       'src/views/me/AiApprovals.test.ts',
       'src/views/me/MyWorkbench.test.ts',
       'src/views/me/components/WorkbenchAssistant.test.ts',
