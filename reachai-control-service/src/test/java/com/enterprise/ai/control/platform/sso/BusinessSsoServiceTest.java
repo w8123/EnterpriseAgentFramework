@@ -251,6 +251,63 @@ class BusinessSsoServiceTest {
         verify(userSync, never()).syncKeepingRoles(any());
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"X-Forwarded-For", "X-Real-IP"})
+    void forwardedHeadersCannotRotateTheAddressUsedToLimitPasswordSpraying(String header) {
+        passwordProvider(null, null, null);
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap())).thenReturn(Map.of());
+
+        for (int attempt = 0; attempt <= BusinessSsoService.MAX_PASSWORD_FAILURES; attempt++) {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setRemoteAddr("192.0.2.10");
+            request.addHeader(header, "198.51.100." + attempt
+                    + ("X-Forwarded-For".equals(header) ? ", 192.0.2.10" : ""));
+            var outcome = service.passwordLogin("mall", "account-" + attempt, "guess", request);
+            assertThat(outcome.error()).contains(attempt < BusinessSsoService.MAX_PASSWORD_FAILURES
+                    ? "账号或密码不对" : "试错次数太多");
+        }
+
+        verify(http, org.mockito.Mockito.times(BusinessSsoService.MAX_PASSWORD_FAILURES))
+                .postBody(anyString(), anyString(), anyString(), anyMap());
+    }
+
+    @Test
+    void aFullAttemptTrackerRefusesNewKeysBeforeCheckingThePassword() {
+        fillPasswordAttemptTracker();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("203.0.113.10");
+
+        assertThat(service.passwordLogin("mall", "new-account", "guess", request).error())
+                .contains("登录的人太多");
+        verify(http, org.mockito.Mockito.times(5_000)).postBody(anyString(), anyString(), anyString(), anyMap());
+    }
+
+    @Test
+    void aFullAttemptTrackerStillLocksExistingAccountsAndAddresses() {
+        fillPasswordAttemptTracker();
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("198.18.0.0");
+
+        for (int attempt = 1; attempt < BusinessSsoService.MAX_PASSWORD_FAILURES; attempt++) {
+            assertThat(service.passwordLogin("mall", "account-0", "guess", request).error())
+                    .isEqualTo("账号或密码不对");
+        }
+        assertThat(service.passwordLogin("mall", "account-0", "guess", request).error())
+                .contains("试错次数太多");
+        verify(http, org.mockito.Mockito.times(5_004)).postBody(anyString(), anyString(), anyString(), anyMap());
+    }
+
+    private void fillPasswordAttemptTracker() {
+        passwordProvider(null, null, null);
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap())).thenReturn(Map.of());
+        for (int account = 0; account < 5_000; account++) {
+            MockHttpServletRequest request = new MockHttpServletRequest();
+            request.setRemoteAddr("198.18." + (account / 256) + "." + (account % 256));
+            assertThat(service.passwordLogin("mall", "account-" + account, "guess", request).error())
+                    .isEqualTo("账号或密码不对");
+        }
+    }
+
     @Test
     void theLoginNameIsTheAccountWhenTheSystemReturnsNoUserInfo() {
         passwordProvider(null, null, null);

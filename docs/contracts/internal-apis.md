@@ -18,7 +18,7 @@
 | `POST /internal/control/page-bridge/execute` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/page-bridge/resolve-context` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/automation-run-as/resolve` | `reachai-control-service` | `reachai-runtime-service` | No；每次自动化运行前，Control 按保存人的运行时用户映射和业务账号状态返回员工身份，查不到时 Runtime 用服务账号 |
-| `POST /internal/control/employee-business-tokens/resolve`, `POST /internal/control/employee-business-tokens/expired` | `reachai-control-service` | `reachai-runtime-service` | No；「用员工自己的令牌调用」：Runtime 为员工调用业务系统前问 Control 用哪个令牌（员工登录时业务系统给的令牌只存 Control 内存，最长 7 天），业务系统拒绝时通知 Control 忘掉；答复不缓存超过 60 秒，不写日志 |
+| `POST /internal/control/employee-business-tokens/resolve`, `POST /internal/control/employee-business-tokens/expired` | `reachai-control-service` | `reachai-runtime-service` | No；「用员工自己的令牌调用」：Runtime 每次为员工调用业务系统前（含令牌被拒后的重试）都问 Control 当前策略与令牌（员工登录时业务系统给的令牌只存 Control 内存，最长 7 天），业务系统拒绝时通知 Control 忘掉；答复不在 Runtime 缓存，不写日志；查询不可用时拒绝业务调用 |
 | `POST /internal/runtime/workflows/ai-coding/page-assistant/smoke-test` | `reachai-runtime-service` | `reachai-control-service` | No；Control 验证页面令牌及 Workflow 项目权限后签名用户与请求体；Runtime 复核项目和会话，真实页面动作逐项确认 |
 | `POST /internal/control/assistant-capabilities/search` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/assistant-capabilities/read-catalog` | `reachai-control-service` | `reachai-runtime-service` | No；服务签名验证后按业务身份读取获准调用的只读能力目录，供项目评测生成问题 |

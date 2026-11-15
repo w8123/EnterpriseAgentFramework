@@ -64,7 +64,8 @@ public class BusinessSsoService {
     private final EmployeeBusinessTokens employeeTokens;
     private final Clock clock;
     private final Map<String, PendingLogin> states = new ConcurrentHashMap<>();
-    private final Map<String, Attempts> failures = new ConcurrentHashMap<>();
+    private final PasswordLoginAttempts passwordAttempts =
+            new PasswordLoginAttempts(10_000, MAX_PASSWORD_FAILURES, PASSWORD_LOCK);
     private final SecureRandom random = new SecureRandom();
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -177,12 +178,16 @@ public class BusinessSsoService {
                 || password.length() > 256) {
             return refused(provider.code(), null, ip, "请输入账号和密码");
         }
-        Instant now = clock.instant();
-        String accountKey = provider.code() + "|" + account.toLowerCase(java.util.Locale.ROOT);
+        String accountKey = "account|" + provider.code() + "|" + account.toLowerCase(java.util.Locale.ROOT);
         String ipKey = "ip|" + ip;
-        if (locked(accountKey, now) || locked(ipKey, now)) {
-            return refused(provider.code(), account, ip, "试错次数太多了，请 10 分钟后再试");
+        PasswordLoginAttempts.Permit permit;
+        try {
+            permit = passwordAttempts.acquire(accountKey, ipKey, clock.instant());
+        } catch (BusinessSsoException unavailable) {
+            return refused(provider.code(), account, ip, unavailable.getMessage());
         }
+        boolean passwordFailed = false;
+        boolean succeeded = false;
         String externalUserId = null;
         String userName = null;
         try {
@@ -224,11 +229,10 @@ public class BusinessSsoService {
             userName = text(path(identity, provider.userNamePath()));
             if (userName == null) userName = account;
             Outcome outcome = signedIn(provider, externalUserId, userName, request, ip, token);
-            failures.remove(accountKey);
+            succeeded = true;
             return new PasswordOutcome(outcome.location(), outcome.cookies(), null);
         } catch (BusinessSsoException failure) {
-            failed(accountKey, now);
-            failed(ipKey, now);
+            passwordFailed = true;
             return refused(provider.code(), account, ip, failure.getMessage());
         } catch (PlatformExternalLoginService.BoundAccountDisabledException disabled) {
             return refused(provider.code(), account, ip, "你的管理端账号已被停用，请联系管理员");
@@ -237,29 +241,14 @@ public class BusinessSsoService {
         } catch (RuntimeException unexpected) {
             log.warn("[BusinessSso] {} password sign-in failed: {}", provider.code(), unexpected.getClass().getName());
             return refused(provider.code(), account, ip, "登录失败，请稍后再试");
+        } finally {
+            passwordAttempts.finish(permit, passwordFailed, succeeded, clock.instant());
         }
     }
 
     private PasswordOutcome refused(String providerCode, String account, String ip, String reason) {
         failed(providerCode, null, account, ip, reason);
         return new PasswordOutcome(null, List.of(), reason);
-    }
-
-    private boolean locked(String key, Instant now) {
-        Attempts attempts = failures.get(key);
-        if (attempts == null) return false;
-        if (!now.isBefore(attempts.resetAt())) {
-            failures.remove(key);
-            return false;
-        }
-        return attempts.count() >= MAX_PASSWORD_FAILURES;
-    }
-
-    private void failed(String key, Instant now) {
-        if (failures.size() >= MAX_STATES) failures.values().removeIf(attempts -> !now.isBefore(attempts.resetAt()));
-        if (failures.size() >= MAX_STATES) return;
-        failures.merge(key, new Attempts(1, now.plus(PASSWORD_LOCK)), (old, fresh) ->
-                !now.isBefore(old.resetAt()) ? fresh : new Attempts(old.count() + 1, old.resetAt()));
     }
 
     /** Fills the login template; every value is escaped for the body it goes into. */
@@ -410,11 +399,8 @@ public class BusinessSsoService {
     }
 
     private static String clientIp(HttpServletRequest request) {
-        if (request == null) return null;
-        String forwarded = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwarded)) return forwarded.split(",")[0].trim();
-        String real = request.getHeader("X-Real-IP");
-        return StringUtils.hasText(real) ? real.trim() : request.getRemoteAddr();
+        // Only the container may resolve forwarding headers after checking its trusted proxy boundary.
+        return request == null ? null : request.getRemoteAddr();
     }
 
     private static String encodeQuery(Map<String, String> query) {
@@ -441,9 +427,6 @@ public class BusinessSsoService {
 
     /** Where to go after a password sign-in, or why it was refused. */
     public record PasswordOutcome(String location, List<String> cookies, String error) {
-    }
-
-    private record Attempts(int count, Instant resetAt) {
     }
 
     /** Where to send the browser, and the console session cookies to set (empty for employees and failures). */

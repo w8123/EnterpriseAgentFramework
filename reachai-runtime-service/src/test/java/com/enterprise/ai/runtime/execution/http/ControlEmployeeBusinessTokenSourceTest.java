@@ -21,22 +21,60 @@ class ControlEmployeeBusinessTokenSourceTest {
     void adaptsTheClientContractWithoutLosingTokenScopeAndInvalidatesItAfterRejection() {
         when(control.resolveEmployeeBusinessToken(subject)).thenReturn(
                 new EmployeeBusinessTokenResolution("REQUIRED", List.of("https://erp.example:443"), "secret"),
+                new EmployeeBusinessTokenResolution("REQUIRED", List.of("https://erp.example:443"), "secret"),
                 new EmployeeBusinessTokenResolution("REQUIRED", List.of("https://erp.example:443"), null));
 
         var resolution = source.resolve(employee);
         assertEquals("REQUIRED", resolution.mode());
         assertEquals(List.of("https://erp.example:443"), resolution.origins());
         assertEquals("secret", resolution.token());
-        assertSame(resolution, source.resolve(employee));
+        assertEquals(resolution, source.resolve(employee));
         source.expired(employee);
         verify(control).employeeBusinessTokenExpired(subject);
         assertNull(source.resolve(employee).token());
-        verify(control, times(2)).resolveEmployeeBusinessToken(subject);
+        verify(control, times(3)).resolveEmployeeBusinessToken(subject);
+    }
+
+    @Test
+    void everyRuntimeObservesPolicyChangesOnItsNextResolution() {
+        var secondRuntime = new ControlEmployeeBusinessTokenSource(control);
+        var current = new java.util.concurrent.atomic.AtomicReference<>(
+                new EmployeeBusinessTokenResolution("OFF", List.of(), null));
+        when(control.resolveEmployeeBusinessToken(subject)).thenAnswer(call -> current.get());
+        assertEquals("OFF", source.resolve(employee).mode());
+        assertEquals("OFF", secondRuntime.resolve(employee).mode());
+
+        current.set(new EmployeeBusinessTokenResolution("REQUIRED", List.of("https://erp.example:443"), null));
+        assertEquals("REQUIRED", source.resolve(employee).mode());
+        assertEquals("REQUIRED", secondRuntime.resolve(employee).mode());
+
+        current.set(new EmployeeBusinessTokenResolution("PREFERRED", List.of("https://erp.example:443"), "new-token"));
+        assertEquals("new-token", source.resolve(employee).token());
+        assertEquals("new-token", secondRuntime.resolve(employee).token());
+
+        current.set(new EmployeeBusinessTokenResolution("OFF", List.of(), null));
+        assertEquals("OFF", source.resolve(employee).mode());
+        assertEquals("OFF", secondRuntime.resolve(employee).mode());
+    }
+
+    @Test
+    void previouslyAllowedSharedCredentialsCannotBeReusedWhenControlIsUnavailable() {
+        when(control.resolveEmployeeBusinessToken(subject))
+                .thenReturn(new EmployeeBusinessTokenResolution("OFF", List.of(), null))
+                .thenThrow(new IllegalStateException("unavailable"));
+        assertEquals("OFF", source.resolve(employee).mode());
+        assertThrows(WorkflowHttpClient.WorkflowHttpExecutionException.class, () -> source.resolve(employee));
     }
 
     @Test
     void unavailableCredentialResolutionNeverFallsBackToTheSharedCredential() {
         when(control.resolveEmployeeBusinessToken(subject)).thenThrow(new IllegalStateException("unavailable"));
+        assertThrows(WorkflowHttpClient.WorkflowHttpExecutionException.class, () -> source.resolve(employee));
+    }
+
+    @Test
+    void aMissingControlAnswerCannotBeTreatedAsPermissionToUseSharedCredentials() {
+        when(control.resolveEmployeeBusinessToken(subject)).thenReturn(null);
         assertThrows(WorkflowHttpClient.WorkflowHttpExecutionException.class, () -> source.resolve(employee));
     }
 

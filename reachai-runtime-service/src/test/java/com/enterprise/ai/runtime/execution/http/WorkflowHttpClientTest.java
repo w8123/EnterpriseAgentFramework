@@ -5,6 +5,8 @@ import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialMapper;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialCipher;
 import com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialService;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient;
+import com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.EmployeeBusinessTokenResolution;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
@@ -545,6 +547,64 @@ class WorkflowHttpClientTest {
         assertEquals("RUNTIME_HTTP_EMPLOYEE_LOGIN_REQUIRED", refused.code());
         assertTrue(String.valueOf(refused.body()).contains("重新登录"));
         assertTrue(seen.isEmpty());
+    }
+
+    @Test
+    void tighteningThePolicyStopsSharedCredentialDispatchOnEveryRuntimeImmediately() throws Exception {
+        var control = mock(RuntimeControlCatalogClient.class);
+        var current = new java.util.concurrent.atomic.AtomicReference<>(
+                new EmployeeBusinessTokenResolution("OFF", List.of(), null));
+        when(control.resolveEmployeeBusinessToken(any())).thenAnswer(call -> current.get());
+        var credentials = new RuntimeWorkflowCredentialService(credentialMapper,
+                new RuntimeWorkflowCredentialCipher("test-secret-for-workflow-http-client-unit"), objectMapper);
+        var policy = WorkflowHttpEgressPolicy.permissiveForTests(
+                host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")});
+        var runtimes = List.of(
+                new WorkflowHttpClient(objectMapper, policy, credentials, new ControlEmployeeBusinessTokenSource(control)),
+                new WorkflowHttpClient(objectMapper, policy, credentials, new ControlEmployeeBusinessTokenSource(control)));
+        List<String> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+        server.createContext("/orders", exchange -> {
+            seen.add(String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
+            respond(exchange, 200, "{}");
+        });
+        server.start();
+        stubCredential("cred_shared", "BEARER", "PROJECT", 7L, "mall", Map.of("token", "shared"));
+        var employee = WorkflowExecutionIdentity.fromMcpEmployee("default", 7L, "mall", "u1", List.of("ops"));
+        var request = employeeRequest(url("/orders"), "cred_shared", employee);
+
+        for (var runtime : runtimes) assertTrue(runtime.execute(request).success());
+        assertEquals(List.of("Bearer shared", "Bearer shared"), seen);
+        seen.clear();
+
+        current.set(new EmployeeBusinessTokenResolution("REQUIRED", List.of(baseOrigin()), null));
+        for (var runtime : runtimes) {
+            var result = runtime.execute(request);
+            assertFalse(result.success());
+            assertEquals("RUNTIME_HTTP_EMPLOYEE_LOGIN_REQUIRED", result.code());
+        }
+        assertTrue(seen.isEmpty());
+
+        current.set(new EmployeeBusinessTokenResolution("REQUIRED", List.of(baseOrigin()), "mine"));
+        for (var runtime : runtimes) assertTrue(runtime.execute(request).success());
+        assertEquals(List.of("Bearer mine", "Bearer mine"), seen);
+        seen.clear();
+
+        current.set(new EmployeeBusinessTokenResolution("OFF", List.of(), null));
+        for (var runtime : runtimes) assertTrue(runtime.execute(request).success());
+        assertEquals(List.of("Bearer shared", "Bearer shared"), seen);
+        seen.clear();
+
+        when(control.resolveEmployeeBusinessToken(any())).thenThrow(new IllegalStateException("unavailable"));
+        for (var runtime : runtimes) {
+            var result = runtime.execute(request);
+            assertFalse(result.success());
+            assertEquals("RUNTIME_HTTP_EMPLOYEE_TOKEN_UNAVAILABLE", result.code());
+        }
+        assertTrue(seen.isEmpty());
+    }
+
+    private String baseOrigin() {
+        return "http://127.0.0.1:" + server.getAddress().getPort();
     }
 
     private WorkflowHttpClient.HttpExecutionRequest getRequest(String url, String credentialRef) {
