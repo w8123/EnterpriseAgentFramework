@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import { CircleClose, CopyDocument, Refresh } from '@element-plus/icons-vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessageBox } from 'element-plus'
 import AiCodingArtifactEvidence from '@/components/ai-coding/AiCodingArtifactEvidence.vue'
 import AiCodingManagedExecutionPanel from '@/components/ai-coding/AiCodingManagedExecutionPanel.vue'
 import type {
@@ -9,7 +9,6 @@ import type {
   AiCodingTaskDetail,
 } from '@/types/aiCodingTask'
 import {
-  aiCodingConnectionCanRestore,
   aiCodingConnectionStatusDescription,
   aiCodingExecutionAcceptsClientAccess,
   aiCodingExecutionIsTerminal,
@@ -17,7 +16,6 @@ import {
   aiCodingExecutionStatusLabel,
   aiCodingProviderLabel,
 } from '@/utils/aiCodingPresentation'
-import { copyAiCodingText } from '@/utils/aiCodingClipboard'
 
 const props = withDefaults(defineProps<{
   detail: AiCodingTaskDetail | null
@@ -85,18 +83,10 @@ const canReissue = computed(() =>
       ),
   ),
 )
-const canRestore = computed(() =>
-  Boolean(
-    props.handoffEnabled && task.value
-      && task.value.executionMode !== 'MANAGED_SANDBOX'
-      && aiCodingExecutionAcceptsClientAccess(task.value.executionStatus)
-      && aiCodingConnectionCanRestore(task.value.connection),
-  ),
-)
 const reissueActionLabel = computed(() =>
   task.value && ['ACTIVE', 'TIMED_OUT', 'CLOSED'].includes(task.value.connection.status)
-    ? '重新生成交接包'
-    : '生成交接包',
+    ? '重新生成领取码'
+    : '生成领取码',
 )
 const canCancelInline = computed(() =>
   Boolean(
@@ -120,26 +110,10 @@ const showFooter = computed(() =>
       || (props.variant === 'drawer' && canReissue.value),
   ),
 )
-const restoreCommand = computed(() =>
-  task.value
-    ? `. "$env:LOCALAPPDATA\\ReachAI\\ai-coding-sessions\\${task.value.taskId}.restore.ps1"`
-    : '',
-)
-
 function submitAnswer(questionId: string) {
   const value = answers[questionId]?.trim()
   if (!value || !task.value) return
   emit('answer', task.value.taskId, questionId, value)
-}
-
-async function copyRestoreCommand() {
-  if (!restoreCommand.value) return
-  const copied = await copyAiCodingText(restoreCommand.value)
-  if (copied.copied) {
-    ElMessage.success('恢复命令已复制')
-    return
-  }
-  ElMessage.warning('无法自动复制，请手动复制下方恢复命令。')
 }
 
 async function requestAcceptance(passed: boolean) {
@@ -167,9 +141,7 @@ async function requestCancel() {
   await ElMessageBox.confirm(
     task.value.executionMode === 'MANAGED_SANDBOX'
       ? '取消后 Runtime 会终止 Worker 并清理一次性沙箱；已校验的证据仍会保留。'
-      : props.handoffEnabled
-        ? '取消后当前交接凭据会立即失效，且该任务不能继续执行。'
-        : '取消后当前 AI 连接的任务权限会失效，且该任务不能继续执行。',
+      : '取消后当前 AI 连接的任务权限会失效，且该任务不能继续执行。',
     '取消 AI 编程任务',
     {
       confirmButtonText: '确认取消',
@@ -182,10 +154,10 @@ async function requestCancel() {
 
 async function requestReissue() {
   if (!task.value) return
-  if (task.value.connection.status === 'ACTIVE') {
+  if (['ACTIVE', 'TIMED_OUT'].includes(task.value.connection.status)) {
     await ElMessageBox.confirm(
-      '重新生成会立即撤销当前 AI 编程工具的任务凭据。仅在原终端和本机加密缓存都无法恢复时继续。',
-      '确认重新生成交接包',
+      '重新生成会立即撤销当前连接的任务权限。请确认需要换连接或重新领取。',
+      '确认重新生成领取码',
       {
         confirmButtonText: '撤销并重新生成',
         cancelButtonText: '返回',
@@ -203,7 +175,7 @@ function primaryTarget(current: AiCodingTask) {
 function eventLabel(type: string) {
   return {
     CREATED: '任务已创建',
-    HANDOFF_ISSUED: props.handoffEnabled ? '交接包已签发' : '任务连接已准备',
+    HANDOFF_ISSUED: '任务领取码已生成',
     CONNECTION_ACTIVATED: '客户端已对接',
     STARTED: '开始执行',
     PROGRESS: '执行进度',
@@ -372,23 +344,6 @@ function formatDateTime(value?: string) {
         :task="task"
         @refresh-task="emit('refresh', $event)"
       />
-
-      <aside v-if="canRestore" class="ai-task-recovery">
-        <span>
-          <strong>终端重置后可继续当前任务</strong>
-          <small>
-            将恢复命令发回原 AI 编程工具；命令不含凭据。若本机加密缓存不存在，再重新生成交接包。
-          </small>
-          <code class="ai-task-recovery__command">{{ restoreCommand }}</code>
-        </span>
-        <el-button
-          :icon="CopyDocument"
-          :disabled="busy"
-          @click="copyRestoreCommand"
-        >
-          复制恢复命令
-        </el-button>
-      </aside>
 
       <section v-if="readiness.length" class="ai-task-panel ai-task-readiness">
         <div class="ai-readiness-heading">

@@ -1,4 +1,4 @@
-# 五种语言的能力声明写法
+# 六种语言的能力声明写法
 
 只给被开发者勾选的方法加声明。能力名在项目内唯一；`title`、`description`、参数说明用中文。
 
@@ -71,6 +71,21 @@ err := client.RegisterCapability(reachai.Capability{
     Handler: func(ctx context.Context, args map[string]any) (any, error) { return svc.PageReceivables(ctx, args) },
 })
 ```
+
+## PHP（原生 PHP / Laravel / ThinkPHP，`reachai/php-sdk`）
+
+```php
+$reach->capability('erp.receivable.page', [$receivableService, 'page'], [
+    'title' => '查询应收款', 'description' => '按客户和日期分页查询应收款',
+    'sideEffect' => 'READ', 'businessIdentityRequired' => true,
+    'parameters' => ['customerName' => ['type' => 'string', 'description' => '客户名称', 'required' => false]],
+    'returns' => ['type' => 'object', 'properties' => ['total' => ['type' => 'integer', 'required' => true]]],
+]);
+```
+
+- Laravel / ThinkPHP 写在实现 `ReachAI\CapabilityProvider` 的类里，并把类名加进 `config/reachai.php` 的 `capabilities`；原生 PHP 写在返回 `$reach` 的 `reachai.php` 里。
+- 只有 `int`/`float`/`string`/`bool` 参数可以省略 `parameters`；数组、对象参数和结构化返回值必须显式声明。
+- 业务方法里用 `ReachAI::currentInvocation()` 拿到已验证身份，业务服务仍要校验数据权限。
 
 ## 共同规则
 

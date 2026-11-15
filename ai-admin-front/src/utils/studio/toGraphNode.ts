@@ -227,6 +227,7 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
         ...common,
         template: node.data.answerConfig?.template || node.data.template || '{{ lastOutput }}',
         writeToAnswer: true,
+        ...(node.data.answerConfig?.directAnswer ? { directAnswer: true } : {}),
         answerConfig: node.data.answerConfig,
       },
     }
@@ -299,6 +300,14 @@ export function canvasNodeToGraphNode(node: CanvasNode, base: AgentForm): Workfl
         prompt: approval.prompt,
         approvers: approval.approvers,
         timeoutSeconds: approval.timeoutSeconds,
+        approverMode: approval.approverMode === 'ASSIGNED' ? 'ASSIGNED' : 'RUNNER',
+        ...(approval.approverMode === 'ASSIGNED'
+          ? {
+              approverUsers: approval.approverUsers || [],
+              approverRoles: approval.approverRoles || [],
+              allowRunnerApprove: Boolean(approval.allowRunnerApprove),
+            }
+          : {}),
         approvalConfig: approval,
       },
     }

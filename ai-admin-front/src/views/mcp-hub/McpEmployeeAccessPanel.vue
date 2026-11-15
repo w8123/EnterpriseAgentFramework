@@ -18,6 +18,8 @@ const props = defineProps<{
 const loading = ref(false)
 const saving = ref(false)
 const saved = ref(false)
+const hiddenToolCount = ref(0)
+const toolCount = ref(0)
 const projects = ref<Array<{ id: number; code: string; name: string }>>([])
 const form = reactive({ enabled: false, projectCode: '', displayName: '', writeApprovalRequired: true })
 
@@ -41,6 +43,8 @@ async function load() {
     form.displayName = data?.displayName ?? ''
     form.writeApprovalRequired = data?.writeApprovalRequired ?? true
     saved.value = Boolean(data?.projectCode)
+    hiddenToolCount.value = Number(data?.hiddenToolCount ?? 0)
+    toolCount.value = Number(data?.toolCount ?? 0)
   } catch (error) {
     ElMessage.error(`员工使用设置加载失败：${extractErrorMessage(error)}`)
   } finally {
@@ -113,6 +117,12 @@ onMounted(() => {
       type="warning"
       source="backdrop"
       title="先发布服务，再开通员工使用。"
+    />
+    <LiquidGlassNotice
+      v-else-if="hiddenToolCount > 0"
+      type="warning"
+      source="backdrop"
+      :title="`当前发布版本里有 ${hiddenToolCount} / ${toolCount} 个能力对员工和业务系统内的助手不可见。这是旧版本发布缺少风险标记造成的，请重新发布一次服务。`"
     />
 
     <el-form label-position="top" class="employee-access__form" :disabled="!canManage">

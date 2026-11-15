@@ -216,6 +216,9 @@ export interface McpEmployeeAccessView {
   enabled: boolean
   /** 写操作（非只读能力）先审批，通过后才以员工身份执行。 */
   writeApprovalRequired: boolean
+  /** 当前发布版本里的能力数，以及其中对员工和助手不可见的数量（旧版本发布缺少风险标记）。 */
+  toolCount?: number
+  hiddenToolCount?: number
 }
 
 export interface McpEmployeeConnectionSystem {
@@ -401,4 +404,102 @@ export interface AiUsageReport {
   systems: { projectCode: string; name: string }[]
   embedIncluded: boolean
   embedNotice: string | null
+}
+
+/** 主动感知：员工在已接入业务系统里的操作和搜索。 */
+export interface ActivitySetting {
+  projectCode: string
+  enabled: boolean
+  captureSearch: boolean
+  hideUserNames: boolean
+  retentionDays: number
+  updatedBy: string | null
+  updatedAt: string | null
+  saved: boolean
+}
+
+export interface ActivityOperationRow {
+  projectCode: string
+  operationKey: string
+  operationName: string | null
+  total: number
+  people: number
+  failures: number
+  avgDurationMs: number | null
+  lastAt: string | null
+}
+
+export interface ActivityKeywordRow {
+  projectCode: string
+  keyword: string
+  total: number
+  people: number
+  operationName: string | null
+  failures: number
+  lastAt: string | null
+}
+
+export interface ActivityProblemRow {
+  projectCode: string
+  operationKey: string
+  operationName: string | null
+  errorMessage: string | null
+  total: number
+  people: number
+  pagePath: string | null
+  lastAt: string | null
+}
+
+export interface ActivityPersonRow {
+  projectCode: string
+  userId: string
+  userName: string | null
+  total: number
+  operations: number
+  failures: number
+  searches: number
+  lastAt: string | null
+}
+
+export interface ActivityReport {
+  days: number
+  projectCode: string | null
+  summary: { total?: number; people?: number; operations?: number; failures?: number; searches?: number; lastAt?: string | null }
+  operations: ActivityOperationRow[]
+  keywords: ActivityKeywordRow[]
+  problems: ActivityProblemRow[]
+  people: ActivityPersonRow[]
+  byDay: { day: string; total: number; failures: number }[]
+  setting: ActivitySetting | null
+}
+
+export type ActivityInsightStatus = 'SUGGESTED' | 'RECOMMENDED' | 'DISMISSED'
+
+export interface ActivityInsight {
+  id: number
+  kind: 'FLOW' | 'PITFALL'
+  title: string
+  summary: string | null
+  advice: string | null
+  shortcutPrompt: string | null
+  steps: { operationKey: string; name: string | null }[]
+  pagePaths: string[]
+  evidence: Record<string, unknown>
+  status: ActivityInsightStatus
+  usedCount: number
+  generatedBy: 'AI' | 'RULE' | null
+  updatedBy: string | null
+  updatedAt: string | null
+}
+
+export interface ActivityInsightGeneration {
+  days: number
+  events: number
+  truncated: boolean
+  sessions: number
+  flows: number
+  pitfalls: number
+  ai: boolean
+  notice: string | null
+  insights: ActivityInsight[]
 }

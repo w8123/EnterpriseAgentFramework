@@ -201,6 +201,27 @@ final class RuntimeWorkflowNodeConfigValidator {
         }
     }
 
+    void validateHumanApproval(GraphSpec.Node node, Map<String, Object> config,
+                               RuntimeWorkflowReleaseValidationResult.Builder report) {
+        com.enterprise.ai.runtime.execution.interaction.WorkflowApprovalAssignment assignment =
+                com.enterprise.ai.runtime.execution.interaction.WorkflowApprovalAssignment.fromNodeConfig(config);
+        if (assignment != null && assignment.isEmpty()) {
+            report.error("GRAPH_APPROVAL_ASSIGNEE_REQUIRED", node.getId(), "人工确认选择了「指定审批人」，请至少选一个人员或角色");
+        }
+        Object timeout = config == null ? null : config.get("timeoutSeconds");
+        if (timeout != null) {
+            long seconds;
+            try {
+                seconds = Long.parseLong(String.valueOf(timeout).trim());
+            } catch (NumberFormatException ex) {
+                seconds = -1;
+            }
+            if (seconds < 60 || seconds > com.enterprise.ai.runtime.execution.interaction.WorkflowApprovalAssignment.MAX_TTL_SECONDS) {
+                report.error("GRAPH_APPROVAL_TIMEOUT_INVALID", node.getId(), "人工确认的等待时间需要在 1 分钟到 30 天之间");
+            }
+        }
+    }
+
     void validateListOperator(GraphSpec.Node node, RuntimeWorkflowReleaseValidationResult.Builder report) {
         Map<String, Object> config = mergedConfig(node, "listConfig");
         if (!StringUtils.hasText(text(config.get("source")))) {

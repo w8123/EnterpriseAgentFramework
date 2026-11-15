@@ -175,7 +175,7 @@ export interface WorkflowGraphSpec {
   inputSchema?: Record<string, unknown>
   stateSchema?: Record<string, unknown>
   /** Workflow-level constants readable as env.NAME. */
-  env?: Record<string, string>
+  env?: Record<string, string | boolean>
   nodes: WorkflowGraphNode[]
   edges: WorkflowGraphEdge[]
 }

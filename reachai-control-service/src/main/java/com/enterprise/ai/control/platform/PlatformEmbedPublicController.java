@@ -67,11 +67,27 @@ public class PlatformEmbedPublicController {
     private CapabilityProjectRequestVerificationGateway projectRequestVerifier;
     private PlatformEmbedBusinessSessionRevocation businessSessionRevocation;
     private PageCatalogApplicationService pageCatalog;
+    private PageActionEffectReviewService pageActionEffectReviews;
+    private PlatformEmbedTurnLeaseService turnLeaseService;
+    private PlatformEmbedContextClearService contextClearService;
+
+    @Autowired
+    void setTurnLeaseService(PlatformEmbedTurnLeaseService turnLeaseService) {
+        this.turnLeaseService = turnLeaseService;
+    }
+
+    @Autowired
+    void setContextClearService(PlatformEmbedContextClearService contextClearService) {
+        this.contextClearService = contextClearService;
+    }
 
     @Autowired
     void setPageCatalog(PageCatalogApplicationService pageCatalog) {
         this.pageCatalog = pageCatalog;
     }
+
+    @Autowired(required = false)
+    void setPageActionEffectReviews(PageActionEffectReviewService service) { this.pageActionEffectReviews = service; }
 
     @Autowired
     void setProjectRequestVerifier(CapabilityProjectRequestVerificationGateway verifier) {
@@ -268,6 +284,7 @@ public class PlatformEmbedPublicController {
                     request == null ? null : request.route(),
                     request == null ? List.of() : request.bridgeActions(),
                     request == null ? null : request.sdkVersion());
+            requireTurnLeaseService().startTracking(session);
             Map<String, Object> principal = Map.of(
                     "tenantId", claims.getTenantId(),
                     "appId", claims.getAppId(),
@@ -317,14 +334,44 @@ public class PlatformEmbedPublicController {
             }
             var owner = com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal.business(
                     session.getTenantId(), user, session.getProjectCode());
-            return trustedExecutionGateway.clearTrusted(session.getSessionId(), "EMBED_SESSION",
+            if (contextClearService == null) throw new IllegalStateException("context clear protection is unavailable");
+            long marker = contextClearService.begin(sessionId, claims);
+            ResponseEntity<Void> response = trustedExecutionGateway.clearTrusted(session.getSessionId(), "EMBED_SESSION",
                     firstText(session.getTenantId(), "default"), user.trim(), owner);
+            if (response.getStatusCode().is2xxSuccessful()) {
+                chatEventService.completeClear(session, marker);
+                requireTurnLeaseService().startTracking(session);
+            }
+            return response;
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().build();
+        } catch (PlatformEmbedContextClearService.PageActionBusyException ex) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+        }
+    }
+
+    @GetMapping("/chat/sessions/{sessionId}/history")
+    public ResponseEntity<ApiResult<PlatformEmbedChatEventService.HistoryPage>> history(
+            @PathVariable String sessionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(required = false) Long beforeId,
+            @RequestParam(required = false) Long expectedEpoch,
+            @RequestParam(defaultValue = "50") int limit) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(ApiResult.ok(chatEventService.history(session, beforeId, limit, expectedEpoch)));
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().build();
         } catch (IllegalStateException ex) {
-            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build();
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
         }
     }
 
@@ -342,7 +389,7 @@ public class PlatformEmbedPublicController {
             String message = request == null ? null : request.message();
             requireText(message, "message");
             long userAuditStart = System.nanoTime();
-            chatEventService.recordUserMessage(session, message);
+            PlatformEmbedTurnLeaseService.TurnAdmission admission = requireTurnLeaseService().admitMessage(session, message);
             long userMessageAuditMs = Math.max(0L, (System.nanoTime() - userAuditStart) / 1_000_000L);
             Map<String, Object> runtimeBody = runtimeContext(session, claims);
             runtimeBody.put("message", message);
@@ -354,7 +401,7 @@ public class PlatformEmbedPublicController {
             controlTiming.put("control.preRuntimeMs", Math.max(0L, (System.nanoTime() - controlStarted) / 1_000_000L));
             runtimeBody.put("controlTiming", controlTiming);
             StreamingResponseBody stream = outputStream ->
-                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream);
+                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream, admission, turnLeaseService);
             return streamResponse(stream);
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -375,6 +422,7 @@ public class PlatformEmbedPublicController {
         try {
             PlatformEmbedTokenClaims claims = verifyBearer(authorization);
             PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            PlatformEmbedTurnLeaseService.TurnAdmission admission = requireTurnLeaseService().resumeInteraction(session, interactionId);
             Map<String, Object> runtimeBody = runtimeContext(session, claims);
             runtimeBody.put("interactionId", requiredRequestText(interactionId, "interactionId"));
             runtimeBody.put("uiSubmit", Map.of(
@@ -386,7 +434,7 @@ public class PlatformEmbedPublicController {
             runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
             runtimeBody.put("entryType", "EMBED");
             StreamingResponseBody stream = outputStream ->
-                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream);
+                    embedStreamRelay.streamMessage(session, runtimeBody, outputStream, admission, turnLeaseService);
             return streamResponse(stream);
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
@@ -406,6 +454,7 @@ public class PlatformEmbedPublicController {
         try {
             PlatformEmbedTokenClaims claims = verifyBearer(authorization);
             PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            PlatformEmbedTurnLeaseService.TurnAdmission admission = requireTurnLeaseService().resumeInteraction(session, interactionId);
             Map<String, Object> runtimeBody = runtimeContext(session, claims);
             runtimeBody.put("interactionId", requiredRequestText(interactionId, "interactionId"));
             runtimeBody.put("uiSubmit", Map.of(
@@ -415,7 +464,7 @@ public class PlatformEmbedPublicController {
                 runtimeBody.put("idempotencyKey", request.idempotencyKey().trim());
             }
             runtimeBody.put("intentHint", "EMBED_INTERACTION_RESUME");
-            return ResponseEntity.ok(ApiResult.ok(executeRuntimeMessage(session, runtimeBody)));
+            return ResponseEntity.ok(ApiResult.ok(executeWithLease(session, runtimeBody, admission)));
         } catch (PlatformEmbedTokenException ex) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(ApiResult.fail(401, ex.getMessage()));
@@ -425,6 +474,30 @@ public class PlatformEmbedPublicController {
         } catch (EmbedRuntimeFailure ex) {
             return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
                     .body(ApiResult.fail(503, safeRuntimeFailureMessage(ex.code)));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
+        } catch (IllegalStateException ex) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(ApiResult.fail(403, ex.getMessage()));
+        }
+    }
+
+    /** Waiting card of a Workflow 人工确认 with named approvers: who decides, and whether they have. */
+    @GetMapping("/chat/sessions/{sessionId}/interactions/{interactionId}/approval-status")
+    public ResponseEntity<ApiResult<Map<String, Object>>> approvalStatus(
+            @PathVariable String sessionId,
+            @PathVariable String interactionId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            ResponseEntity<Map<String, Object>> status = runtimeProxyClient.workflowApprovalRunnerStatus(
+                    requiredRequestText(interactionId, "interactionId"), session.getSessionId(), null,
+                    firstText(session.getAppId(), claims.getAppId(), session.getProjectCode()));
+            return ResponseEntity.ok(ApiResult.ok(status.getBody()));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResult.fail(401, ex.getMessage()));
+        } catch (feign.FeignException.NotFound ex) {
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ApiResult.fail(404, "审批不存在"));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ApiResult.fail(400, ex.getMessage()));
         } catch (IllegalStateException ex) {
@@ -533,6 +606,107 @@ public class PlatformEmbedPublicController {
         }
     }
 
+    /** Resolve only the interaction previously bound by the trusted Runtime to this completed navigation. */
+    @GetMapping("/chat/sessions/{sessionId}/page-bridge/navigations/{requestId}/interaction")
+    @Transactional
+    public ResponseEntity<ApiResult<NavigationInteractionResponse>> navigationInteraction(
+            @PathVariable String sessionId, @PathVariable String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            String normalizedSessionId = requiredRequestText(sessionId, "sessionId");
+            String normalizedRequestId = requiredRequestText(requestId, "requestId");
+            // Same lock order as rebind: session, then event. A target-page token
+            // must match the current binding, not just the business principal.
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSessionForNavigationRebind(normalizedSessionId, claims);
+            if (!Objects.equals(session.getGlobalUserId(), claims.getGlobalUserId())) {
+                throw new PlatformEmbedTokenException("embed business identity changed");
+            }
+            if (!sameText(session.getPageInstanceId(), claims.getPageInstanceId())
+                    || !sameText(session.getPageKey(), claims.getPageKey())
+                    || !sameText(session.getRoute(), claims.getRoute())) {
+                throw new PlatformEmbedTokenException("target Page Bridge does not match embed token");
+            }
+            PlatformPageActionEventEntity event = findPageActionEventForUpdate(session, normalizedRequestId);
+            if (event == null || !"NAVIGATE".equals(event.getCommandType())
+                    || !PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey())
+                    || !"SUCCESS".equals(event.getStatus()) || expiredDocumentNavigation(event)) {
+                throw new IllegalArgumentException("document navigation is unavailable");
+            }
+            Map<String, Object> args = parseJsonObject(event.getArgsJson());
+            Map<String, Object> data = mapValue(parseJsonObject(event.getResultJson()).get("data"));
+            String interactionId = text(args.get("interactionId"));
+            if (!Boolean.TRUE.equals(args.get("documentNavigation"))
+                    || !Boolean.TRUE.equals(data.get("ready"))
+                    || !sameText(event.getTargetPageKey(), session.getPageKey())
+                    || !routeMatches(event.getTargetRoute(), session.getRoute())
+                    || !sameText(text(data.get("pageKey")), session.getPageKey())
+                    || !sameText(text(data.get("pageInstanceId")), session.getPageInstanceId())
+                    || !sameText(text(data.get("route")), session.getRoute())
+                    || interactionId == null || !interactionId.matches("wfi_[0-9a-f]{32}")) {
+                throw new IllegalArgumentException("document navigation is unavailable");
+            }
+            // The Runtime may not yet have persisted the interaction's trusted
+            // history epoch. A client may retry this read, but must not replay a submit.
+            if (!chatEventService.interactionReady(session, interactionId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .cacheControl(CacheControl.noStore())
+                        .body(ApiResult.fail(409, "navigation interaction is not ready"));
+            }
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(ApiResult.ok(new NavigationInteractionResponse(normalizedRequestId, interactionId)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
+    /** Read the trusted waiting interaction only for a cancellation from its still-bound source page. */
+    @GetMapping("/chat/sessions/{sessionId}/page-bridge/navigations/{requestId}/cancelled-interaction")
+    @Transactional
+    public ResponseEntity<ApiResult<NavigationInteractionResponse>> cancelledNavigationInteraction(
+            @PathVariable String sessionId, @PathVariable String requestId,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        try {
+            PlatformEmbedTokenClaims claims = verifyBearer(authorization);
+            String normalizedSessionId = requiredRequestText(sessionId, "sessionId");
+            String normalizedRequestId = requiredRequestText(requestId, "requestId");
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSessionForNavigationRebind(normalizedSessionId, claims);
+            if (!Objects.equals(session.getGlobalUserId(), claims.getGlobalUserId())
+                    || !sameText(session.getPageInstanceId(), claims.getPageInstanceId())
+                    || !sameText(session.getPageKey(), claims.getPageKey())
+                    || !sameText(session.getRoute(), claims.getRoute())) {
+                throw new PlatformEmbedTokenException("source Page Bridge does not match embed token");
+            }
+            PlatformPageActionEventEntity event = findPageActionEventForUpdate(session, normalizedRequestId);
+            if (event == null || !"NAVIGATE".equals(event.getCommandType())
+                    || !PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey())
+                    || !"USER_CANCELLED".equals(event.getStatus())
+                    || !sameText(event.getTargetPageInstanceId(), session.getPageInstanceId())
+                    || expiredDocumentNavigation(event)) {
+                throw new IllegalArgumentException("cancelled navigation is unavailable");
+            }
+            Map<String, Object> args = parseJsonObject(event.getArgsJson());
+            Map<String, Object> data = mapValue(parseJsonObject(event.getResultJson()).get("data"));
+            String interactionId = text(args.get("interactionId"));
+            if (!Boolean.TRUE.equals(args.get("documentNavigation")) || Boolean.TRUE.equals(data.get("ready"))
+                    || interactionId == null || !interactionId.matches("wfi_[0-9a-f]{32}")) {
+                throw new IllegalArgumentException("cancelled navigation is unavailable");
+            }
+            if (!chatEventService.interactionReady(session, interactionId)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore())
+                        .body(ApiResult.fail(409, "navigation interaction is not ready"));
+            }
+            return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                    .body(ApiResult.ok(new NavigationInteractionResponse(normalizedRequestId, interactionId)));
+        } catch (PlatformEmbedTokenException ex) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().build();
+        }
+    }
+
     @PostMapping("/chat/sessions/{sessionId}/page-actions/{requestId}/claim")
     @Transactional
     public ResponseEntity<ApiResult<PageActionClaimResponse>> claimPageAction(
@@ -542,7 +716,10 @@ public class PlatformEmbedPublicController {
             @RequestBody(required = false) PageActionClaimRequest request) {
         try {
             PlatformEmbedTokenClaims claims = verifyBearer(authorization);
-            PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
+            PlatformEmbedSessionEntity session = sessionService.requireActiveSessionForNavigationRebind(sessionId, claims);
+            if (!sameText(session.getPageInstanceId(), claims.getPageInstanceId())) {
+                throw new PlatformEmbedTokenException("embed chat session does not match embed token");
+            }
             String normalizedRequestId = requiredRequestText(requestId, "requestId");
             if (request != null && StringUtils.hasText(request.requestId())
                     && !normalizedRequestId.equals(request.requestId().trim())) {
@@ -563,21 +740,66 @@ public class PlatformEmbedPublicController {
             // an administrator may have restricted it after it was dispatched.
             boolean navigation = "NAVIGATE".equals(event.getCommandType())
                     && PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey());
-            if (!navigation) {
+            if (navigation) {
+                // Check freshness after acquiring the event lock. Otherwise a claim may
+                // wait behind another transaction until after the navigation expires.
+                event = findPageActionEventForUpdate(session, normalizedRequestId);
+                if (event == null || !"NAVIGATE".equals(event.getCommandType())
+                        || !PlatformPageBridgeCommandService.NAVIGATE_ACTION.equals(event.getActionKey())) {
+                    return ResponseEntity.status(HttpStatus.CONFLICT)
+                            .body(ApiResult.fail(409, "page navigation changed before claim"));
+                }
+            }
+            if (navigation && expiredDocumentNavigation(event)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResult.fail(409, "document navigation expired"));
+            }
+            if (!sameText(event.getTargetPageInstanceId(), session.getPageInstanceId())
+                    || (!navigation && !sameText(event.getTargetPageKey(), session.getPageKey()))) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(ApiResult.fail(409, "page action no longer belongs to the active page instance"));
+            }
+            {
+                String catalogActionKey = navigation ? navigationActionKey(event) : event.getActionKey();
                 if (pageCatalog == null || !StringUtils.hasText(session.getProjectCode())
                         || !StringUtils.hasText(event.getTargetPageKey())
-                        || !StringUtils.hasText(event.getActionKey())) {
+                        || !StringUtils.hasText(catalogActionKey)
+                        || !StringUtils.hasText(event.getActionContractHash())) {
                     return ResponseEntity.status(HttpStatus.CONFLICT)
                             .body(ApiResult.fail(409, "page action catalog is unavailable"));
                 }
-                ActionView action = pageCatalog.findActiveActionForUpdate(session.getProjectCode(),
-                        event.getTargetPageKey(), event.getActionKey()).orElse(null);
+                var locked = pageCatalog.findActiveActionAndPageForUpdate(session.getProjectCode(),
+                        event.getTargetPageKey(), catalogActionKey).orElse(null);
+                ActionView action = locked == null ? null : locked.action();
+                var page = locked == null ? null : locked.page();
+                Boolean riskRequiresConfirmation = action == null ? null
+                        : PageActionRiskFloor.requiresConfirmation(action);
                 if (action == null
+                        || riskRequiresConfirmation == null
+                        || !Objects.equals(event.getActionContractHash(),
+                                PageActionContractFingerprint.of(action, page, objectMapper))
                         || (action.allowedAgentIds() != null && !action.allowedAgentIds().isEmpty()
                                 && !action.allowedAgentIds().contains(session.getAgentId()))
-                        || (action.confirmRequired() && !Boolean.TRUE.equals(event.getConfirmRequired()))) {
+                        || ((action.confirmRequired() || riskRequiresConfirmation)
+                                && !Boolean.TRUE.equals(event.getConfirmRequired()))) {
                     return ResponseEntity.status(HttpStatus.CONFLICT)
                             .body(ApiResult.fail(409, "page action policy changed or is unavailable"));
+                }
+                if (event.getEffectApprovalId() != null || event.getEffectApprovalRevision() != null) {
+                    if (pageActionEffectReviews == null || event.getEffectApprovalId() == null
+                            || event.getEffectApprovalRevision() == null || !Boolean.TRUE.equals(event.getConfirmRequired())) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT)
+                                .body(ApiResult.fail(409, "page action effect approval is unavailable"));
+                    }
+                    var approval = pageActionEffectReviews.resolveApprovedForUpdate(session.getProjectCode(),
+                            event.getTargetPageKey(), catalogActionKey).orElse(null);
+                    if (approval == null || !approval.active() || !"PAGE_LOCAL_DRAFT".equals(approval.effect())
+                            || !Objects.equals(approval.approvalId(), event.getEffectApprovalId())
+                            || approval.revision() != event.getEffectApprovalRevision()
+                            || !Objects.equals(approval.catalogHash(), event.getActionContractHash())) {
+                        return ResponseEntity.status(HttpStatus.CONFLICT)
+                                .body(ApiResult.fail(409, "page action effect approval changed or was revoked"));
+                    }
                 }
             }
             int updated = pageActionEventMapper.update(
@@ -605,6 +827,16 @@ public class PlatformEmbedPublicController {
         }
     }
 
+    private String navigationActionKey(PlatformPageActionEventEntity event) {
+        try {
+            Map<String, Object> args = objectMapper.readValue(event.getArgsJson(), new TypeReference<>() { });
+            Object value = args.get("resumeActionKey");
+            return value instanceof String text && StringUtils.hasText(text) ? text : null;
+        } catch (Exception invalid) {
+            return null;
+        }
+    }
+
     /**
      * The target SPA page calls this after a platform-issued NAVIGATE action
      * completed locally and its new Page Bridge is ready. This is the only
@@ -625,6 +857,9 @@ public class PlatformEmbedPublicController {
                     request == null ? null : request.navigationRequestId(), "navigationRequestId");
             PlatformEmbedSessionEntity session = sessionService.requireActiveSessionForNavigationRebind(
                     normalizedSessionId, claims);
+            if (!Objects.equals(session.getGlobalUserId(), claims.getGlobalUserId())) {
+                throw new PlatformEmbedTokenException("embed business identity changed");
+            }
             requireTargetBindingMatchesToken(request, claims);
             PlatformPageActionEventEntity navigation = pageActionEventMapper.selectOne(
                     new LambdaQueryWrapper<PlatformPageActionEventEntity>()
@@ -658,6 +893,9 @@ public class PlatformEmbedPublicController {
                 }
                 return ResponseEntity.ok(ApiResult.ok(new PageBridgeRebindResponse(
                         session.getSessionId(), session.getPageKey(), session.getPageInstanceId(), session.getRoute())));
+            }
+            if (expiredDocumentNavigation(navigation)) {
+                throw new IllegalArgumentException("document navigation expired");
             }
             if (!StringUtils.hasText(navigation.getTargetPageInstanceId())
                     || !navigation.getTargetPageInstanceId().equals(session.getPageInstanceId())) {
@@ -707,12 +945,22 @@ public class PlatformEmbedPublicController {
         PlatformEmbedSessionEntity session = sessionService.requireActiveSession(sessionId, claims);
         String message = request == null ? null : request.message();
         requireText(message, "message");
-        chatEventService.recordUserMessage(session, message);
+        PlatformEmbedTurnLeaseService.TurnAdmission admission = requireTurnLeaseService().admitMessage(session, message);
         Map<String, Object> runtimeBody = runtimeContext(session, claims);
         runtimeBody.put("message", message);
         runtimeBody.put("intentHint", "EMBED_CHAT");
         runtimeBody.put("entryType", "EMBED");
-        return executeRuntimeMessage(session, runtimeBody);
+        return executeWithLease(session, runtimeBody, admission);
+    }
+
+    private EmbedChatMessageResponse executeWithLease(PlatformEmbedSessionEntity session, Map<String, Object> body,
+                                                       PlatformEmbedTurnLeaseService.TurnAdmission admission) {
+        try {
+            return executeRuntimeMessage(session, body, admission);
+        } catch (RuntimeException ex) {
+            requireTurnLeaseService().unknown(session, admission);
+            throw ex;
+        }
     }
 
     private Map<String, Object> runtimeContext(PlatformEmbedSessionEntity session,
@@ -753,7 +1001,8 @@ public class PlatformEmbedPublicController {
     }
 
     private EmbedChatMessageResponse executeRuntimeMessage(PlatformEmbedSessionEntity session,
-                                                            Map<String, Object> runtimeBody) {
+                                                            Map<String, Object> runtimeBody,
+                                                            PlatformEmbedTurnLeaseService.TurnAdmission admission) {
         // Identity comes only from verified Embed token/session claims — never from chat body.
         String trustedUserId = firstText(session.getExternalUserId(), session.getGlobalUserId());
         ResponseEntity<Map<String, Object>> runtimeResponse;
@@ -797,7 +1046,15 @@ public class PlatformEmbedPublicController {
         }
         Map<String, Object> metadata = mapValue(body.get("metadata"));
         String answer = text(body.get("answer"));
-        chatEventService.recordAssistantMessage(session, answer, body, text(metadata.get("traceId")));
+        String interactionId = text(mapValue(body.get("uiRequest")).get("interactionId"));
+        if (isWaitingInteraction(body)) {
+            if (interactionId == null || !turnLeaseService.waiting(session, admission, interactionId)
+                    || !turnLeaseService.recordWaitingAnswer(session, admission, answer, body, text(metadata.get("traceId")))) {
+                throw new IllegalStateException("waiting interaction could not be tracked");
+            }
+        } else if (!turnLeaseService.completeAndRecord(session, admission, answer, body, text(metadata.get("traceId")))) {
+            throw new IllegalStateException("completed turn is no longer current");
+        }
         return new EmbedChatMessageResponse(
                 firstText(text(body.get("sessionId")), session.getSessionId()),
                 answer,
@@ -807,7 +1064,18 @@ public class PlatformEmbedPublicController {
                 body.get("uiRequest"));
     }
 
+    private PlatformEmbedTurnLeaseService requireTurnLeaseService() {
+        if (turnLeaseService == null) throw new IllegalStateException("turn tracking is unavailable");
+        return turnLeaseService;
+    }
+
     static String safeRuntimeFailureMessage(String code) {
+        if ("SUPERVISOR_PAGE_ACTION_NOT_EXECUTED".equals(code)) {
+            return "本轮没有执行页面操作，请确认所需信息后重试。";
+        }
+        if ("PAGE_BRIDGE_PRECONDITION_FAILED".equals(code)) {
+            return "页面操作条件不满足，本次未完成，请检查输入后重试。";
+        }
         if ("HTTP_API_WORKFLOW_RESULT_UNCONFIRMED".equals(code) || "PAGE_BRIDGE_RESULT_UNCONFIRMED".equals(code)) {
             return "操作结果尚未确认，请先核对业务记录，避免重复提交。";
         }
@@ -975,6 +1243,16 @@ public class PlatformEmbedPublicController {
         }
     }
 
+    private boolean expiredDocumentNavigation(PlatformPageActionEventEntity event) {
+        if (!"NAVIGATE".equals(event.getCommandType())
+                || !Boolean.TRUE.equals(parseJsonObject(event.getArgsJson()).get("documentNavigation"))) {
+            return false;
+        }
+        LocalDateTime requestedAt = event.getRequestedAt();
+        LocalDateTime now = LocalDateTime.now();
+        return requestedAt == null || requestedAt.isAfter(now) || requestedAt.isBefore(now.minusSeconds(120));
+    }
+
     private String toJson(Object value) {
         try {
             return objectMapper.writeValueAsString(value == null ? Map.of() : value);
@@ -1032,6 +1310,15 @@ public class PlatformEmbedPublicController {
         return isOwnedPageAction(session, event) && requestId.equals(event.getRequestId()) ? event : null;
     }
 
+    private PlatformPageActionEventEntity findPageActionEventForUpdate(PlatformEmbedSessionEntity session, String requestId) {
+        PlatformPageActionEventEntity event = pageActionEventMapper.selectOne(
+                new LambdaQueryWrapper<PlatformPageActionEventEntity>()
+                        .eq(PlatformPageActionEventEntity::getSessionId, session.getSessionId())
+                        .eq(PlatformPageActionEventEntity::getRequestId, requestId)
+                        .last("limit 1 for update"));
+        return isOwnedPageAction(session, event) && requestId.equals(event.getRequestId()) ? event : null;
+    }
+
     private boolean isOwnedPageAction(PlatformEmbedSessionEntity session, PlatformPageActionEventEntity event) {
         return session != null && event != null
                 && Objects.equals(session.getSessionId(), event.getSessionId())
@@ -1079,14 +1366,20 @@ public class PlatformEmbedPublicController {
                 && left.trim().equals(right.trim());
     }
 
-    private boolean routeMatches(String routePattern, String actualRoute) {
+    static boolean routeMatches(String routePattern, String actualRoute) {
         if (!StringUtils.hasText(routePattern) || !StringUtils.hasText(actualRoute)) {
             return false;
         }
-        String normalizedPattern = routePattern.trim()
-                .replaceAll("([\\\\.\\[\\]{}()+*?^$|])", "\\\\\\\\$1")
-                .replaceAll(":([A-Za-z0-9_-]+)", "[^/]+");
-        return actualRoute.trim().matches("^" + normalizedPattern + "(?:/)?$");
+        String pattern = routePattern.trim();
+        var parameter = java.util.regex.Pattern.compile(":([A-Za-z0-9_-]+)|\\{([A-Za-z0-9_-]+)\\}").matcher(pattern);
+        StringBuilder regex = new StringBuilder("^");
+        int start = 0;
+        while (parameter.find()) {
+            regex.append(java.util.regex.Pattern.quote(pattern.substring(start, parameter.start()))).append("[^/]+");
+            start = parameter.end();
+        }
+        regex.append(java.util.regex.Pattern.quote(pattern.substring(start))).append("(?:/)?$");
+        return actualRoute.trim().matches(regex.toString());
     }
 
     private void putIfText(Map<String, Object> map, String key, String value) {
@@ -1204,6 +1497,8 @@ public class PlatformEmbedPublicController {
             String pageInstanceId,
             String route) {
     }
+
+    public record NavigationInteractionResponse(String navigationRequestId, String interactionId) { }
 
     public record PageActionDispatchRequest(
             String type,

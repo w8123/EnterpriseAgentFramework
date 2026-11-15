@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +24,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class PlatformPageBridgeCommandService {
+    private static final String DOCUMENT_NAVIGATION_CAPABILITY = "__reachai.document-navigation.v1";
 
     public static final String NAVIGATE_ACTION = "__reachai.navigate";
     private static final String PAGE_BRIDGE_BUSINESS_TERMINAL =
@@ -35,6 +37,10 @@ public class PlatformPageBridgeCommandService {
     private final PlatformPageActionEventMapper eventMapper;
     private final ObjectMapper objectMapper;
     private final PageCatalogApplicationService pageCatalog;
+    private PageActionEffectReviewService effectReviews;
+
+    @Autowired(required = false)
+    void setEffectReviews(PageActionEffectReviewService effectReviews) { this.effectReviews = effectReviews; }
 
     /**
      * Resolves the trusted Page Bridge identity for an AI Coding smoke test.
@@ -104,16 +110,29 @@ public class PlatformPageBridgeCommandService {
         // action must fail closed before either navigation or action is queued.
         ActionView catalogAction = pageCatalog.findAction(session.getProjectCode(),
                 request.targetPageKey(), request.actionKey()).orElse(null);
-        if (catalogAction == null || !"ACTIVE".equalsIgnoreCase(catalogAction.status())
-                || pageCatalog.findPageForAction(catalogAction.id())
-                        .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).isEmpty()) {
+        var catalogPage = catalogAction == null ? null : pageCatalog.findPageForAction(catalogAction.id())
+                .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).orElse(null);
+        if (catalogAction == null || !"ACTIVE".equalsIgnoreCase(catalogAction.status()) || catalogPage == null) {
             return failure("PAGE_BRIDGE_ACTION_UNAVAILABLE", "Page or action is unavailable", List.of());
         }
         if (catalogAction.allowedAgentIds() != null && !catalogAction.allowedAgentIds().isEmpty()
                 && !catalogAction.allowedAgentIds().contains(session.getAgentId())) {
             return failure("PAGE_BRIDGE_ACTION_FORBIDDEN", "Agent is not allowed to execute this page action", List.of());
         }
-        boolean confirmRequired = request.confirmRequired() || catalogAction.confirmRequired();
+        String actionContractHash = PageActionContractFingerprint.of(catalogAction, catalogPage, objectMapper);
+        if (!StringUtils.hasText(actionContractHash)) {
+            return failure("PAGE_BRIDGE_ACTION_UNAVAILABLE", "Page action declaration is incomplete", List.of());
+        }
+        boolean hasEffectPin = request.effectApprovalId() != null || request.effectApprovalRevision() != null
+                || StringUtils.hasText(request.effectCatalogHash());
+        if (hasEffectPin && !effectPinMatches(request, actionContractHash)) {
+            return failure("PAGE_BRIDGE_EFFECT_UNVERIFIED", "Approved page effect is unavailable or changed", List.of());
+        }
+        Boolean riskRequiresConfirmation = PageActionRiskFloor.requiresConfirmation(catalogAction);
+        if (riskRequiresConfirmation == null) {
+            return failure("PAGE_BRIDGE_RISK_UNVERIFIED", "Page action risk is missing or unknown", List.of());
+        }
+        boolean confirmRequired = hasEffectPin || request.confirmRequired() || catalogAction.confirmRequired() || riskRequiresConfirmation;
         List<PageBridgePhase> phases = new ArrayList<>();
         String traceId = request.supervisorTraceId();
         // Keep the existing opaque per-execution bridge group, while allowing
@@ -123,14 +142,38 @@ public class PlatformPageBridgeCommandService {
                 ? "bridge-t1-" + traceId + "-" + UUID.randomUUID().toString().replace("-", "")
                 : "bridge-" + UUID.randomUUID();
         boolean crossRoute = !Objects.equals(normalize(session.getPageKey()), normalize(request.targetPageKey()));
+        if (StringUtils.hasText(request.resumeNavigationRequestId())) {
+            if (!verifiedDocumentNavigation(session, request, actionContractHash)) {
+                return failure("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID",
+                        "Document navigation is not ready for this action", phases);
+            }
+            if (crossRoute) return failure("PAGE_BRIDGE_TARGET_NOT_READY", "Target page is not bound", phases);
+        } else if (crossRoute && supportsDocumentNavigation(session)) {
+            if (!StringUtils.hasText(request.targetRoute()) || traceId == null || !traceId.matches("[0-9a-f]{32}")
+                    || request.navigationInteractionId() == null
+                    || !request.navigationInteractionId().matches("wfi_[0-9a-f]{32}")) {
+                return failure("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID",
+                        "Document navigation requires a target route and trusted trace", phases);
+            }
+            PlatformPageActionEventEntity navigation = enqueue(session, parentRequestId, "NAVIGATE", NAVIGATE_ACTION,
+                    request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
+                    Map.of("pageKey", request.targetPageKey(), "route", request.targetRoute(),
+                            "documentNavigation", true, "resumeActionKey", request.actionKey(),
+                            "interactionId", request.navigationInteractionId()), true, actionContractHash,
+                    request.effectApprovalId(), request.effectApprovalRevision());
+            return new PageBridgeExecutionResponse(false, "PAGE_BRIDGE_DOCUMENT_NAVIGATION_REQUIRED", "WAITING",
+                    Map.of("navigationRequestId", navigation.getRequestId(), "pageKey", request.targetPageKey(),
+                            "route", request.targetRoute()), List.of(phase("NAVIGATE", navigation)));
+        }
         if (crossRoute) {
             long navigationDeadline = System.currentTimeMillis()
                     + normalizedTimeout(confirmRequired
                     ? request.confirmationTimeoutMs() : request.executionTimeoutMs());
             PlatformPageActionEventEntity navigation = enqueue(session, parentRequestId, "NAVIGATE", NAVIGATE_ACTION,
                     request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
-                    Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute())),
-                    confirmRequired);
+                    Map.of("pageKey", request.targetPageKey(), "route", nullToEmpty(request.targetRoute()),
+                            "resumeActionKey", request.actionKey()),
+                    confirmRequired, actionContractHash, request.effectApprovalId(), request.effectApprovalRevision());
             PlatformPageActionEventEntity completedNavigation = await(
                     navigation, navigationDeadline, request.executionTimeoutMs());
             phases.add(phase("NAVIGATE", completedNavigation));
@@ -161,20 +204,28 @@ public class PlatformPageBridgeCommandService {
         // catalog. Recheck it before dispatching the actual business action.
         ActionView currentAction = pageCatalog.findAction(session.getProjectCode(),
                 request.targetPageKey(), request.actionKey()).orElse(null);
-        if (currentAction == null || !"ACTIVE".equalsIgnoreCase(currentAction.status())
-                || pageCatalog.findPageForAction(currentAction.id())
-                        .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).isEmpty()) {
+        var currentPage = currentAction == null ? null : pageCatalog.findPageForAction(currentAction.id())
+                .filter(page -> "ACTIVE".equalsIgnoreCase(page.lifecycleStatus())).orElse(null);
+        if (currentAction == null || !"ACTIVE".equalsIgnoreCase(currentAction.status()) || currentPage == null) {
             return failure("PAGE_BRIDGE_ACTION_UNAVAILABLE", "Page or action is unavailable", phases);
         }
         if (currentAction.allowedAgentIds() != null && !currentAction.allowedAgentIds().isEmpty()
                 && !currentAction.allowedAgentIds().contains(session.getAgentId())) {
             return failure("PAGE_BRIDGE_ACTION_FORBIDDEN", "Agent is not allowed to execute this page action", phases);
         }
-        confirmRequired = confirmRequired || currentAction.confirmRequired();
+        if (!Objects.equals(actionContractHash, PageActionContractFingerprint.of(currentAction, currentPage, objectMapper))) {
+            return failure("PAGE_BRIDGE_ACTION_CHANGED", "Page action declaration changed; retry the request", phases);
+        }
+        Boolean currentRiskConfirmation = PageActionRiskFloor.requiresConfirmation(currentAction);
+        if (currentRiskConfirmation == null) {
+            return failure("PAGE_BRIDGE_RISK_UNVERIFIED", "Page action risk is missing or unknown", phases);
+        }
+        confirmRequired = confirmRequired || currentAction.confirmRequired() || currentRiskConfirmation;
 
         PlatformPageActionEventEntity action = enqueue(session, parentRequestId, "PAGE_ACTION", request.actionKey(),
                 request.targetPageKey(), request.targetRoute(), session.getPageInstanceId(),
-                request.args() == null ? Map.of() : request.args(), confirmRequired);
+                request.args() == null ? Map.of() : request.args(), confirmRequired, actionContractHash,
+                request.effectApprovalId(), request.effectApprovalRevision());
         long requestedActionTimeout = confirmRequired
                 ? normalizedTimeout(request.confirmationTimeoutMs())
                 : normalizedTimeout(request.executionTimeoutMs());
@@ -203,6 +254,64 @@ public class PlatformPageBridgeCommandService {
                 resultData(completedAction), List.copyOf(phases));
     }
 
+    private boolean supportsDocumentNavigation(PlatformEmbedSessionEntity session) {
+        try {
+            List<String> actions = objectMapper.readValue(session.getBridgeActionsJson(), new TypeReference<>() {});
+            return actions != null && actions.contains(DOCUMENT_NAVIGATION_CAPABILITY);
+        } catch (Exception invalid) {
+            return false;
+        }
+    }
+
+    private boolean verifiedDocumentNavigation(PlatformEmbedSessionEntity session, PageBridgeExecutionRequest request,
+                                               String actionContractHash) {
+        PlatformPageActionEventEntity event = eventMapper.selectOne(
+                Wrappers.<PlatformPageActionEventEntity>lambdaQuery()
+                        .eq(PlatformPageActionEventEntity::getSessionId, session.getSessionId())
+                        .eq(PlatformPageActionEventEntity::getRequestId, request.resumeNavigationRequestId())
+                        .last("LIMIT 1"));
+        if (event == null || !"NAVIGATE".equals(event.getCommandType())
+                || !Objects.equals(event.getSessionId(), session.getSessionId())
+                || !Objects.equals(event.getRequestId(), request.resumeNavigationRequestId())
+                || !NAVIGATE_ACTION.equals(event.getActionKey()) || !"SUCCESS".equals(event.getStatus())
+                || !Objects.equals(event.getTenantId(), session.getTenantId())
+                || !Objects.equals(event.getAppId(), session.getAppId())
+                || !Objects.equals(event.getAgentId(), session.getAgentId())
+                || !StringUtils.hasText(event.getActionContractHash())
+                || !Objects.equals(event.getActionContractHash(), actionContractHash)
+                || !Objects.equals(event.getEffectApprovalId(), request.effectApprovalId())
+                || !Objects.equals(event.getEffectApprovalRevision(), request.effectApprovalRevision())
+                || !Objects.equals(event.getTargetPageKey(), request.targetPageKey())
+                || event.getRequestedAt() == null || event.getRequestedAt().isAfter(LocalDateTime.now())
+                || event.getRequestedAt().plusSeconds(120).isBefore(LocalDateTime.now())) {
+            return false;
+        }
+        try {
+            Map<String, Object> args = objectMapper.readValue(event.getArgsJson(), new TypeReference<>() {});
+            Map<String, Object> result = resultData(event);
+            return Boolean.TRUE.equals(args.get("documentNavigation"))
+                    && Objects.equals(args.get("resumeActionKey"), request.actionKey())
+                    && Objects.equals(args.get("interactionId"), request.navigationInteractionId())
+                    && Boolean.TRUE.equals(result.get("ready"))
+                    && Objects.equals(result.get("pageInstanceId"), session.getPageInstanceId())
+                    && Objects.equals(result.get("pageKey"), session.getPageKey())
+                    && Objects.equals(result.get("route"), session.getRoute());
+        } catch (Exception invalid) {
+            return false;
+        }
+    }
+
+    private boolean effectPinMatches(PageBridgeExecutionRequest request, String actionHash) {
+        if (effectReviews == null || request.effectApprovalId() == null || request.effectApprovalRevision() == null
+                || !StringUtils.hasText(request.effectCatalogHash())
+                || !Objects.equals(request.effectCatalogHash(), actionHash)) return false;
+        var approval = effectReviews.resolveApproved(request.projectCode(), request.targetPageKey(), request.actionKey()).orElse(null);
+        return approval != null && approval.active() && "PAGE_LOCAL_DRAFT".equals(approval.effect())
+                && Objects.equals(approval.approvalId(), request.effectApprovalId())
+                && approval.revision() == request.effectApprovalRevision()
+                && Objects.equals(approval.catalogHash(), request.effectCatalogHash());
+    }
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     protected PlatformPageActionEventEntity enqueue(PlatformEmbedSessionEntity session,
                                                      String parentRequestId,
@@ -212,7 +321,10 @@ public class PlatformPageBridgeCommandService {
                                                      String targetRoute,
                                                      String targetPageInstanceId,
                                                      Map<String, Object> args,
-                                                     boolean confirmRequired) {
+                                                     boolean confirmRequired,
+                                                     String actionContractHash,
+                                                     Long effectApprovalId,
+                                                     Long effectApprovalRevision) {
         PlatformPageActionEventEntity event = new PlatformPageActionEventEntity();
         event.setRequestId(commandType.toLowerCase() + "-" + UUID.randomUUID());
         event.setSessionId(session.getSessionId());
@@ -222,6 +334,9 @@ public class PlatformPageBridgeCommandService {
         event.setCommandType(commandType);
         event.setParentRequestId(parentRequestId);
         event.setActionKey(actionKey);
+        event.setActionContractHash(actionContractHash);
+        event.setEffectApprovalId(effectApprovalId);
+        event.setEffectApprovalRevision(effectApprovalRevision);
         event.setTitle("NAVIGATE".equals(commandType) ? "Navigate to " + targetPageKey : actionKey);
         event.setArgsJson(json(args));
         event.setTargetPageInstanceId(targetPageInstanceId);
@@ -444,7 +559,41 @@ public class PlatformPageBridgeCommandService {
                                               String identitySource,
                                               String identityTenantId,
                                               String identityUserId,
-                                              String supervisorTraceId) {
+                                               String supervisorTraceId,
+                                               String resumeNavigationRequestId,
+                                               String navigationInteractionId,
+                                               Long effectApprovalId,
+                                               Long effectApprovalRevision,
+                                               String effectCatalogHash) {
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId,
+                                          String resumeNavigationRequestId, String navigationInteractionId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey, args,
+                    confirmRequired, confirmationTimeoutMs, executionTimeoutMs, identitySource, identityTenantId,
+                    identityUserId, supervisorTraceId, resumeNavigationRequestId, navigationInteractionId, null, null, null);
+        }
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId,
+                                          String resumeNavigationRequestId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, supervisorTraceId, resumeNavigationRequestId, null);
+        }
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, supervisorTraceId, null, null);
+        }
         public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
                                           String currentPageKey, String targetPageKey, String targetRoute,
                                           String actionKey, Map<String, Object> args, boolean confirmRequired,
@@ -452,7 +601,7 @@ public class PlatformPageBridgeCommandService {
                                           String identityTenantId, String identityUserId) {
             this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
                     args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
-                    identitySource, identityTenantId, identityUserId, null);
+                    identitySource, identityTenantId, identityUserId, null, null, null);
         }
     }
 

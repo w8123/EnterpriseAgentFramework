@@ -78,7 +78,11 @@ public class BusinessSsoProviderStore {
                 text(config, "projectCode"), text(config, "authorizeUrl"), text(config, "tokenUrl"),
                 text(config, "userInfoUrl"), text(config, "clientId"), text(config, "clientSecret"),
                 text(config, "scope"), text(config, "userIdPath"), text(config, "userNamePath"), headers,
-                BusinessSsoProvider.TYPE.equals(entity.getProviderType()) && ACTIVE.equalsIgnoreCase(entity.getStatus()));
+                BusinessSsoProvider.TYPE.equals(entity.getProviderType()) && ACTIVE.equalsIgnoreCase(entity.getStatus()),
+                text(config, "mode"), new BusinessSsoProvider.PasswordLogin(text(config, "loginContentType"),
+                        text(config, "loginBody"), text(config, "tokenPath"), text(config, "tokenHeader"),
+                        config.get("tokenPrefix") == null ? null : String.valueOf(config.get("tokenPrefix"))),
+                text(config, "defaultRole"), text(config, "employeeToken"));
     }
 
     private String toJson(BusinessSsoProvider provider) {
@@ -93,6 +97,16 @@ public class BusinessSsoProviderStore {
         config.put("userIdPath", provider.userIdPath());
         config.put("userNamePath", provider.userNamePath());
         config.put("extraHeaders", provider.extraHeaders());
+        config.put("mode", provider.mode());
+        config.put("defaultRole", provider.defaultRole());
+        config.put("employeeToken", provider.employeeToken());
+        if (provider.passwordMode()) {
+            config.put("loginContentType", provider.passwordLogin().contentType());
+            config.put("loginBody", provider.passwordLogin().body());
+            config.put("tokenPath", provider.passwordLogin().tokenPath());
+            config.put("tokenHeader", provider.passwordLogin().tokenHeader());
+            config.put("tokenPrefix", provider.passwordLogin().tokenPrefix());
+        }
         try {
             return objectMapper.writeValueAsString(config);
         } catch (JsonProcessingException failure) {

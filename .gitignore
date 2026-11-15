@@ -11,6 +11,7 @@
 *.ear
 *.zip
 !reachai-control-service/src/main/resources/ai-assist/artifacts/go-sdk/reachai-go-sdk-1.0.0.zip
+!reachai-control-service/src/main/resources/ai-assist/artifacts/php-sdk/reachai-php-sdk-1.0.0.zip
 *.tar.gz
 *.rar
 *.pid
@@ -98,6 +99,7 @@ OtherOutstandingProjects/
 
 # ---- Local runtime data (knowledge artifacts etc.) ----
 /data/
+eval-reports/
 
 # Open-source export exclusions (managed by sync-open-source.mjs).
 /reachai-website/

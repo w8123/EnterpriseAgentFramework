@@ -95,7 +95,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
     if (value == null || value === '') return 'java'
     if (typeof value !== 'string') return null
     const language = value.trim().toLowerCase()
-    return ['java', 'csharp', 'python', 'node', 'go'].includes(language)
+    return ['java', 'csharp', 'python', 'node', 'go', 'php'].includes(language)
       ? language as SdkAccessLanguage
       : null
   })
@@ -205,7 +205,7 @@ export function useSdkAccessWizardData(deps: UseSdkAccessWizardDataDeps) {
   const selfCheckVerified = computed(
     () =>
       (deps.accessMode?.value !== 'ai-coding' || detectedSdkLanguage.value !== null)
-      && effectiveSdkLanguage.value !== 'python' && effectiveSdkLanguage.value !== 'node' && effectiveSdkLanguage.value !== 'go'
+      && !['python', 'node', 'go', 'php'].includes(effectiveSdkLanguage.value)
       && selfCheckReadiness.value.length > 0
       && selfCheckReadiness.value.every((item) => item.status === 'PASS')
       && (effectiveSdkLanguage.value === 'java' || instances.value.some(

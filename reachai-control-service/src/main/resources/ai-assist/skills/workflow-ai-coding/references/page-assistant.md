@@ -12,6 +12,8 @@ Use these endpoints only when `workflow.workflowKind=PAGE_ASSISTANT`.
 
 `pageKey` is the single `TARGET` `PAGE` binding. Other allowed pages use `RELATED` bindings. Treat these first-class bindings and the live page-action catalog as authoritative; do not derive page scope from `extraJson` or guess page keys.
 
+For a `PAGE_ACTION` that may run from another page, set `config.routePattern` to the target page's route from its current project page catalog, alongside `pageKey` and `actionKey`. For example, a catalog route of `/personal` is a concrete navigation target. A missing route can work on the target page but prevents cross-document navigation. Routes containing placeholders such as `/orders/{orderNo}` or `/orders/:orderNo` are patterns, not concrete destinations: resolve required parameters from trusted context through a supported flow before navigating; never substitute guessed values, user-provided URLs, or an unrelated page route. If a concrete authorized route is unavailable, report the limitation instead of claiming cross-page support.
+
 ## API-only requests use a separate Workflow
 
 `PAGE_ASSISTANT` is an Agent Tool with page-action risk. It may call a business
@@ -75,6 +77,8 @@ Checks:
 - node `config.pageKey` / `config.actionKey`
 - catalog existence and `ACTIVE` status
 - required args from catalog input schema
+
+These checks do not currently prove that a cross-document target route is present or concrete. Inspect the saved GraphSpec and verify that route separately before claiming cross-page support.
 
 ## Smoke Test
 

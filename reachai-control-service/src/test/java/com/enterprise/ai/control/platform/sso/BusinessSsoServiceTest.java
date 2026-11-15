@@ -38,11 +38,12 @@ class BusinessSsoServiceTest {
     private final EmployeePortalSessionService portal = new EmployeePortalSessionService();
     private final PlatformExternalLoginService consoleLogins = mock(PlatformExternalLoginService.class);
     private final PlatformAuthAuditService audit = mock(PlatformAuthAuditService.class);
+    private final EmployeeBusinessTokens employeeTokens = new EmployeeBusinessTokens(store);
     private BusinessSsoService service;
 
     @BeforeEach
     void setUp() {
-        service = new BusinessSsoService(store, cipher, http, userSync, portal, consoleLogins, audit);
+        service = new BusinessSsoService(store, cipher, http, userSync, portal, consoleLogins, audit, employeeTokens);
         when(consoleLogins.signInBoundAccount(anyString(), anyString(), any(), anyMap())).thenReturn(Optional.empty());
         BusinessSsoProvider yudao = new BusinessSsoProvider("yudao", "芋道 ERP", "yudao-erp",
                 "https://erp.example.com/sso", "https://erp.example.com/admin-api/system/oauth2/token",
@@ -151,5 +152,136 @@ class BusinessSsoServiceTest {
 
     private static String state(String url) {
         return java.net.URI.create(url).getQuery().replaceAll(".*state=([0-9a-f]+).*", "$1");
+    }
+
+    private void passwordProvider(String userInfoUrl, String userIdPath, String defaultRole) {
+        passwordProvider(userInfoUrl, userIdPath, defaultRole, BusinessSsoProvider.EMPLOYEE_TOKEN_OFF);
+    }
+
+    private void passwordProvider(String userInfoUrl, String userIdPath, String defaultRole, String employeeToken) {
+        BusinessSsoProvider mall = new BusinessSsoProvider("mall", "商城后台", "mall",
+                null, "https://mall.example.com/login", userInfoUrl, null, null, null, userIdPath, "data.nickName",
+                Map.of(), true, BusinessSsoProvider.MODE_PASSWORD,
+                new BusinessSsoProvider.PasswordLogin("JSON",
+                        "{\"userName\":\"{{username}}\",\"passwordMd5\":\"{{password_md5}}\"}", "data", "token", ""),
+                defaultRole, employeeToken);
+        when(store.find("mall")).thenReturn(Optional.of(mall));
+        when(store.list()).thenReturn(List.of(mall));
+    }
+
+    @Test
+    void theEmployeesOwnTokenIsKeptOnlyWhenTheEntryAsksForIt() {
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap()))
+                .thenReturn(Map.of("resultCode", 200, "data", "tok-own"));
+        when(userSync.syncKeepingRoles(any())).thenReturn(new SyncedBusinessUser(22L, "default", "local:n", "admin",
+                "mall", "admin", "admin", List.of("ops")));
+
+        passwordProvider(null, null, null);
+        assertThat(service.passwordLogin("mall", "admin", "pw", new MockHttpServletRequest()).error()).isNull();
+        assertThat(employeeTokens.resolve("default", "mall", "admin").mode()).isEqualTo("OFF");
+        assertThat(employeeTokens.resolve("default", "mall", "admin").token()).isNull();
+
+        passwordProvider(null, null, null, BusinessSsoProvider.EMPLOYEE_TOKEN_REQUIRED);
+        // Signed in before the switch was turned on: there is no token, and none is invented.
+        assertThat(employeeTokens.resolve("default", "mall", "admin").token()).isNull();
+        assertThat(service.passwordLogin("mall", "admin", "pw", new MockHttpServletRequest()).error()).isNull();
+        EmployeeBusinessTokens.Resolution own = employeeTokens.resolve("default", "mall", "admin");
+        assertThat(own.mode()).isEqualTo("REQUIRED");
+        assertThat(own.token()).isEqualTo("tok-own");
+        assertThat(own.origins()).containsExactly("https://mall.example.com:443");
+        assertThat(own.toString()).doesNotContain("tok-own");
+        // Another account, another system and the platform's evaluation account never get this token.
+        assertThat(employeeTokens.resolve("default", "mall", "someone-else").token()).isNull();
+        assertThat(employeeTokens.resolve("default", "other", "admin").mode()).isEqualTo("OFF");
+        assertThat(employeeTokens.resolve("default", "mall", "reachai-eval").mode()).isEqualTo("OFF");
+
+        employeeTokens.expired("default", "mall", "admin");
+        assertThat(employeeTokens.resolve("default", "mall", "admin").token()).isNull();
+
+        // Turning the switch off forgets what was kept.
+        assertThat(service.passwordLogin("mall", "admin", "pw", new MockHttpServletRequest()).error()).isNull();
+        passwordProvider(null, null, null);
+        assertThat(employeeTokens.resolve("default", "mall", "admin").token()).isNull();
+        passwordProvider(null, null, null, BusinessSsoProvider.EMPLOYEE_TOKEN_PREFERRED);
+        assertThat(employeeTokens.resolve("default", "mall", "admin").token()).isNull();
+    }
+
+    @Test
+    void anEmployeeOfASystemWithOnlyALoginApiSignsInWithTheirOwnAccount() {
+        passwordProvider("https://mall.example.com/profile", "data.adminUserId", "employee");
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap()))
+                .thenReturn(Map.of("resultCode", 200, "data", "tok-1"));
+        when(http.getJson(eq("https://mall.example.com/profile"), anyMap()))
+                .thenReturn(Map.of("data", Map.of("adminUserId", 3, "nickName", "店长")));
+        when(userSync.syncKeepingRoles(any())).thenReturn(new SyncedBusinessUser(21L, "default", "local:m", "店长",
+                "mall", "3", "店长", List.of()));
+        when(userSync.sync(any())).thenReturn(new SyncedBusinessUser(21L, "default", "local:m", "店长",
+                "mall", "3", "店长", List.of("employee")));
+
+        BusinessSsoService.PasswordOutcome outcome = service.passwordLogin("mall", "admin", "p\"w", new MockHttpServletRequest());
+
+        assertThat(outcome.error()).isNull();
+        assertThat(outcome.location()).startsWith("/my/ai-tools#ticket=");
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(http).postBody(eq("https://mall.example.com/login"), eq("application/json"), body.capture(), anyMap());
+        assertThat(body.getValue()).startsWith("{\"userName\":\"admin\",\"passwordMd5\":\"").doesNotContain("p\"w");
+        ArgumentCaptor<Map<String, String>> headers = ArgumentCaptor.forClass(Map.class);
+        verify(http).getJson(eq("https://mall.example.com/profile"), headers.capture());
+        assertThat(headers.getValue()).containsEntry("token", "tok-1");
+        ArgumentCaptor<AttestedBusinessUser> granted = ArgumentCaptor.forClass(AttestedBusinessUser.class);
+        verify(userSync).sync(granted.capture());
+        assertThat(granted.getValue().roles()).containsExactly("employee");
+    }
+
+    @Test
+    void aWrongPasswordIsRefusedAndRepeatedGuessesAreLockedOut() {
+        passwordProvider(null, null, null);
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap()))
+                .thenReturn(Map.of("resultCode", 500, "message", "登录失败"));
+
+        for (int attempt = 0; attempt < BusinessSsoService.MAX_PASSWORD_FAILURES; attempt++) {
+            assertThat(service.passwordLogin("mall", "admin", "guess", new MockHttpServletRequest()).error())
+                    .isEqualTo("账号或密码不对");
+        }
+        BusinessSsoService.PasswordOutcome locked = service.passwordLogin("mall", "admin", "right", new MockHttpServletRequest());
+
+        assertThat(locked.error()).contains("试错次数太多");
+        verify(http, org.mockito.Mockito.times(BusinessSsoService.MAX_PASSWORD_FAILURES))
+                .postBody(anyString(), anyString(), anyString(), anyMap());
+        verify(userSync, never()).syncKeepingRoles(any());
+    }
+
+    @Test
+    void theLoginNameIsTheAccountWhenTheSystemReturnsNoUserInfo() {
+        passwordProvider(null, null, null);
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap())).thenReturn(Map.of("data", "tok-1"));
+        when(userSync.syncKeepingRoles(any())).thenReturn(new SyncedBusinessUser(22L, "default", "local:n", "admin",
+                "mall", "admin", "admin", List.of("ops")));
+
+        assertThat(service.passwordLogin("mall", " admin ", "pw", new MockHttpServletRequest()).error()).isNull();
+
+        ArgumentCaptor<AttestedBusinessUser> attested = ArgumentCaptor.forClass(AttestedBusinessUser.class);
+        verify(userSync).syncKeepingRoles(attested.capture());
+        assertThat(attested.getValue().externalUserId()).isEqualTo("admin");
+        verify(userSync, never()).sync(any());
+    }
+
+    @Test
+    void anAnswerWithoutALoginTokenNeverSignsAnyoneIn() {
+        passwordProvider(null, null, null);
+        when(http.postBody(anyString(), anyString(), anyString(), anyMap()))
+                .thenReturn(Map.of("resultCode", 200, "data", Map.of("hint", "no token here")));
+
+        assertThat(service.passwordLogin("mall", "admin", "anything", new MockHttpServletRequest()).error())
+                .isEqualTo("账号或密码不对");
+        verify(userSync, never()).syncKeepingRoles(any());
+    }
+
+    @Test
+    void theLoginTemplateEscapesWhatTheEmployeeTyped() {
+        assertThat(BusinessSsoService.render("{\"u\":\"{{username}}\",\"p\":\"{{password}}\"}", "a\"b", "c\\d", false))
+                .isEqualTo("{\"u\":\"a\\\"b\",\"p\":\"c\\\\d\"}");
+        assertThat(BusinessSsoService.render("u={{username}}&p={{password}}", "a&b", "c=d", true))
+                .isEqualTo("u=a%26b&p=c%3Dd");
     }
 }

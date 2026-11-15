@@ -71,9 +71,9 @@ class RuntimeWorkflowManagementPersistenceTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        db = new RuntimeQueryTestDatabase(List.of("runtime_workflow", "runtime_workflow_version", "runtime_workflow_release_event"),
+        db = new RuntimeQueryTestDatabase(List.of("runtime_workflow", "runtime_workflow_version", "runtime_workflow_release_event", "runtime_workflow_resource_binding"),
                 RuntimeWorkflowDefinitionMapper.class, RuntimeWorkflowVersionMapper.class,
-                RuntimeWorkflowReferenceMapper.class, RuntimeWorkflowReleaseEventMapper.class);
+                RuntimeWorkflowReferenceMapper.class, RuntimeWorkflowReleaseEventMapper.class, RuntimeWorkflowResourceBindingMapper.class);
         var table = Pattern.compile("(?ism)CREATE TABLE IF NOT EXISTS `runtime_workflow_capability_reference`\\s*\\(.*?^\\)\\s*ENGINE=[^\\r\\n]*;")
                 .matcher(Files.readString(Path.of("../sql/initV2.sql")));
         assertTrue(table.find());
@@ -87,7 +87,7 @@ class RuntimeWorkflowManagementPersistenceTest {
         var index = transactional(new RuntimeWorkflowReferenceIndex(references, mapper, versions, json));
         definitions = transactional(new RuntimeWorkflowDefinitionService(mapper, versions,
                 mock(RuntimeWorkflowDeletionReferences.class), new RuntimeWorkflowDocumentCanonicalizer(json),
-                mock(RuntimeWorkflowResourceBindingService.class), index));
+                transactional(new RuntimeWorkflowResourceBindingService(db.mapper(RuntimeWorkflowResourceBindingMapper.class))), index));
         validation = mock(RuntimeWorkflowReleaseValidationService.class);
         when(validation.validate(any())).thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
         when(validation.validateProposed(any(), any())).thenReturn(RuntimeWorkflowReleaseValidationResult.builder().build());
@@ -114,6 +114,58 @@ class RuntimeWorkflowManagementPersistenceTest {
 
     @AfterEach
     void close() { if (db != null) db.close(); }
+
+    @Test
+    void studioReviewedDraftAddsTargetIdempotentlyAndPreservesRelatedBindings() throws Exception {
+        var workflow = pageWorkflow();
+        insertBinding(workflow.getId(), "mall-cart", "RELATED");
+        var saved = result(save(workflow.getId(), Map.of("graphSpecJson", reviewedPageGraph("orders", "mall-personal"),
+                "baseRevision", revision(workflow))).andExpect(status().isOk()));
+        var bindings = db.jdbc().queryForList("SELECT resource_key, binding_role FROM runtime_workflow_resource_binding WHERE workflow_id = ? ORDER BY resource_key", workflow.getId());
+        assertEquals(2, bindings.size());
+        assertEquals("RELATED", bindings.get(0).get("binding_role"));
+        assertEquals("mall-personal", bindings.get(1).get("resource_key"));
+        assertEquals("TARGET", bindings.get(1).get("binding_role"));
+        save(workflow.getId(), Map.of("graphSpecJson", reviewedPageGraph("orders", "mall-personal"),
+                "baseRevision", saved.path("revision").asText())).andExpect(status().isOk());
+        assertEquals(2, db.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_workflow_resource_binding WHERE workflow_id = ?", Integer.class, workflow.getId()));
+    }
+
+    @Test
+    void studioReviewedDraftRejectsConflictingTargetAndRollsBackGraph() throws Exception {
+        var workflow = pageWorkflow();
+        insertBinding(workflow.getId(), "other-page", "TARGET");
+        save(workflow.getId(), Map.of("graphSpecJson", reviewedPageGraph("orders", "mall-personal"),
+                "baseRevision", revision(workflow))).andExpect(status().isBadRequest());
+        assertEquals(workflow.getGraphSpecJson(), mapper.selectById(workflow.getId()).getGraphSpecJson());
+        assertEquals("other-page", db.jdbc().queryForObject("SELECT resource_key FROM runtime_workflow_resource_binding WHERE workflow_id = ?", String.class, workflow.getId()));
+    }
+
+    @Test
+    void studioReviewedDraftRejectsDifferentProjectAndRollsBackGraph() throws Exception {
+        var workflow = pageWorkflow();
+        save(workflow.getId(), Map.of("graphSpecJson", reviewedPageGraph("other-project", "mall-personal"),
+                "baseRevision", revision(workflow))).andExpect(status().isBadRequest());
+        assertEquals(workflow.getGraphSpecJson(), mapper.selectById(workflow.getId()).getGraphSpecJson());
+        assertEquals(0, db.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_workflow_resource_binding WHERE workflow_id = ?", Integer.class, workflow.getId()));
+    }
+
+    private RuntimeWorkflowDefinitionEntity pageWorkflow() {
+        var workflow = seed("USER");
+        db.jdbc().update("UPDATE runtime_workflow SET workflow_kind = 'PAGE_ASSISTANT' WHERE id = ?", workflow.getId());
+        return mapper.selectById(workflow.getId());
+    }
+
+    private String reviewedPageGraph(String project, String page) throws Exception {
+        return json.writeValueAsString(Map.of("schemaVersion", 2, "env", Map.of("reachaiTrustedPageDraft", true),
+                "nodes", List.of(Map.of("id", "page", "type", "PAGE_ACTION", "config",
+                        Map.of("projectCode", project, "pageKey", page, "actionKey", "fill"))),
+                "edges", List.of(), "entryNodeId", "page", "exitNodeIds", List.of("page")));
+    }
+
+    private void insertBinding(String id, String page, String role) {
+        db.jdbc().update("INSERT INTO runtime_workflow_resource_binding (workflow_id, project_id, project_code, resource_type, resource_key, binding_role, status, created_at, updated_at) VALUES (?, 7, 'orders', 'PAGE', ?, ?, 'ACTIVE', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)", id, page, role);
+    }
 
     @Test
     void callerCannotAssignThePersistedWorkflowIdentity() throws Exception {

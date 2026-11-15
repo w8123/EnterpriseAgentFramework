@@ -27,6 +27,7 @@ public class AiCodingSensitiveJsonSanitizer {
             "password",
             "tasktoken",
             "activationcode",
+            "claimcode",
             "authorization",
             "clientsecret",
             "privatekey",

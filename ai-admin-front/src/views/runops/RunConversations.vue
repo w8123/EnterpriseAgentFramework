@@ -140,7 +140,8 @@
                   </div>
                   <div v-if="turn.answer" class="bubble bubble--assistant">
                     <div class="bubble__meta"><strong>Agent</strong><time>{{ formatTime(turn.answeredAt) }}</time></div>
-                    <div class="bubble__content"><p>{{ turn.answer }}</p></div>
+                    <!-- renderSafeMarkdown 只保留白名单标签和安全链接，不输出可执行 HTML -->
+                    <div class="bubble__content bubble__markdown" v-html="renderSafeMarkdown(turn.answer)" />
                   </div>
                   <p v-if="runErrorText(turn.run)" class="turn__error">{{ runErrorText(turn.run) }}</p>
                 </li>
@@ -168,6 +169,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound, CopyDocument, Search, WarningFilled } from '@element-plus/icons-vue'
 import PageHeader from '@/components/common/PageHeader.vue'
+import { renderSafeMarkdown } from '@/utils/safeMarkdown'
 import {
   LiquidGlassButton,
   LiquidGlassCard,
@@ -672,6 +674,72 @@ onBeforeUnmount(() => { ++listRequest; ++detailRequest })
   line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.bubble__markdown {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.bubble__markdown :deep(p),
+.bubble__markdown :deep(ul),
+.bubble__markdown :deep(ol),
+.bubble__markdown :deep(pre),
+.bubble__markdown :deep(blockquote),
+.bubble__markdown :deep(table) {
+  margin: 0 0 8px;
+}
+
+.bubble__markdown > :deep(:last-child) {
+  margin-bottom: 0;
+}
+
+.bubble__markdown :deep(ul),
+.bubble__markdown :deep(ol) {
+  padding-left: 20px;
+}
+
+.bubble__markdown :deep(h1),
+.bubble__markdown :deep(h2),
+.bubble__markdown :deep(h3),
+.bubble__markdown :deep(h4) {
+  margin: 4px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.bubble__markdown :deep(code) {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface-glass-selected);
+  font-family: var(--font-family-mono, ui-monospace, monospace);
+  font-size: 0.92em;
+}
+
+.bubble__markdown :deep(pre) {
+  overflow-x: auto;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-glass-selected);
+}
+
+.bubble__markdown :deep(pre code) {
+  padding: 0;
+  background: transparent;
+}
+
+.bubble__markdown :deep(table) {
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.bubble__markdown :deep(th),
+.bubble__markdown :deep(td) {
+  padding: 4px 10px;
+  border: 1px solid var(--border-subtle);
+  text-align: left;
 }
 
 .turn__error {

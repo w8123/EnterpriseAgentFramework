@@ -20,7 +20,7 @@ const { can } = usePlatformCan()
 defineEmits<{ help: [] }>()
 const canManage = computed(() => can(PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE))
 
-const NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{1,127}$/
+const NAME_PATTERN = /^[\p{L}][\p{L}\p{N}_ ()（）-]{1,127}$/u
 
 const router = useRouter()
 const loading = ref(false)
@@ -129,7 +129,7 @@ function openCreate() {
 
 async function submitCreate() {
   if (!nameValid.value) {
-    ElMessage.warning('名称需 2-128 个字符，以字母开头，仅含字母、数字、下划线或连字符')
+    ElMessage.warning('名称要 2 到 128 个字，以文字开头，可以用中文、字母、数字、空格、下划线、连字符和括号')
     return
   }
   submitting.value = true
@@ -290,7 +290,7 @@ onMounted(() => {
         <el-form-item required>
           <template #label>
             服务名称
-            <span class="form-hint">2-128 个字符，以字母开头，仅含字母、数字、下划线或连字符</span>
+            <span class="form-hint">2 到 128 个字，可以用中文，例如「订单系统员工工具」</span>
           </template>
           <el-input v-model="createForm.name" placeholder="例如 finance-tools" />
         </el-form-item>

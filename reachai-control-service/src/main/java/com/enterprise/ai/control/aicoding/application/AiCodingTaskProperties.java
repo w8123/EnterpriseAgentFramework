@@ -15,5 +15,7 @@ public class AiCodingTaskProperties {
     private Duration tokenTtl = Duration.ofHours(72);
     private Duration connectionLease = Duration.ofMinutes(5);
     private int maxActivationAttempts = 5;
+    // Compatibility rollback only. Newly issued MCP codes are never valid on the legacy endpoint.
+    private boolean legacyHandoffEnabled = false;
     private String secretPepper = "";
 }

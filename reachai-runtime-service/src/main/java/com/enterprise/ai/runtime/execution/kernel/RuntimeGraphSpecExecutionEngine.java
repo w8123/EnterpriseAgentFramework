@@ -379,6 +379,21 @@ public final class RuntimeGraphSpecExecutionEngine {
         String entry = executableGraph.executionEntryNodeId();
 
         Map<String, Object> context = RuntimeInitialContext.initialContext(request == null ? Map.of() : request, nodeValueResolver);
+        // Only a Runtime-created marker can enter a live execution. JSON input cannot restore one.
+        context.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CHECKPOINT_KEY);
+        if (!(context.get(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY)
+                instanceof com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution)) {
+            context.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY);
+        }
+        boolean markedDraft = graph.getEnv() != null && graph.getEnv().containsKey("reachaiTrustedPageDraft");
+        Object marker = context.get(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY);
+        if (markedDraft || marker != null) {
+            if (!markedDraft || !Boolean.TRUE.equals(graph.getEnv().get("reachaiTrustedPageDraft"))
+                    || !(marker instanceof com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution trusted)
+                    || !trusted.matchesGraph(graphSpecJson)) {
+                return failure("RUNTIME_PAGE_DRAFT_AUTH_REQUIRED", "受信页面草稿需要匹配的用户确认与发布图", null, null);
+            }
+        }
         context.put(RuntimeInvocationScope.KEY, RuntimeInvocationScope.from(context));
         // Trusted identity is never taken from business maps / model args.
         context.remove(TRUSTED_IDENTITY_CONTEXT_KEY);
@@ -594,6 +609,12 @@ public final class RuntimeGraphSpecExecutionEngine {
         // Correlation markers are only valid in this live Supervisor invocation.
         // A serialized Workflow checkpoint must never restore one from input.
         checkpoint.remove(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY);
+        Object pageDraft = checkpoint.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY);
+        checkpoint.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CHECKPOINT_KEY);
+        if (pageDraft instanceof com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution trustedDraft) {
+            checkpoint.put(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CHECKPOINT_KEY,
+                    trustedDraft.checkpoint());
+        }
         return result.withResumeCheckpoint(checkpoint);
     }
 

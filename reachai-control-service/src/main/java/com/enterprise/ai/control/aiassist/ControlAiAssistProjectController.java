@@ -49,6 +49,7 @@ public class ControlAiAssistProjectController {
         artifacts.add(ControlPythonSdkArtifactSupport.wheelArtifact(baseUrl));
         artifacts.add(ControlNodeSdkArtifactSupport.npmArtifact(baseUrl));
         artifacts.add(ControlGoSdkArtifactSupport.sourceArtifact(baseUrl));
+        artifacts.add(ControlPhpSdkArtifactSupport.composerArtifact(baseUrl));
         return List.copyOf(artifacts);
     }
 
@@ -205,10 +206,11 @@ public class ControlAiAssistProjectController {
         boolean python = "python".equalsIgnoreCase(language.trim());
         boolean node = "node".equalsIgnoreCase(language.trim());
         boolean go = "go".equalsIgnoreCase(language.trim());
-        if (!csharp && !python && !node && !go) {
+        boolean php = "php".equalsIgnoreCase(language.trim());
+        if (!csharp && !python && !node && !go && !php) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "unsupported SDK language");
         }
-        String selectedLanguage = csharp ? "csharp" : python ? "python" : node ? "node" : "go";
+        String selectedLanguage = csharp ? "csharp" : python ? "python" : node ? "node" : go ? "go" : "php";
         List<SdkArtifact> artifacts = manifest.sdkArtifacts().stream()
                 .filter(item -> selectedLanguage.equals(item.language()) || "browser".equals(item.language()))
                 .toList();
@@ -225,7 +227,8 @@ public class ControlAiAssistProjectController {
                 config.projectContextPath(), config.environment());
         return new OnboardingManifestResponse(manifest.schema(), manifest.project(), manifest.aiCodingAccess(),
                 new SdkManifest(csharp ? ControlDotnetSdkArtifactSupport.VERSION : python
-                        ? ControlPythonSdkArtifactSupport.VERSION : node ? ControlNodeSdkArtifactSupport.VERSION : ControlGoSdkArtifactSupport.VERSION,
+                        ? ControlPythonSdkArtifactSupport.VERSION : node ? ControlNodeSdkArtifactSupport.VERSION
+                        : go ? ControlGoSdkArtifactSupport.VERSION : ControlPhpSdkArtifactSupport.VERSION,
                         List.of(), selectedConfig),
                 artifacts, manifest.responseShapes(), checklist,
                 new PlatformEndpoints(endpoints.skillPackageUrl(), languageManifestUrl,

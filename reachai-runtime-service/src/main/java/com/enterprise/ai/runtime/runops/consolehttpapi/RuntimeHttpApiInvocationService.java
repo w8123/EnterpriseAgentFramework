@@ -117,7 +117,7 @@ public class RuntimeHttpApiInvocationService {
                     response.statusCode(), response.durationMs(), result);
         }
         if (Set.of("RUNTIME_HTTP_CREDENTIAL_REVISION_CHANGED", "RUNTIME_HTTP_CREDENTIAL_DENIED",
-                "RUNTIME_HTTP_CREDENTIAL_UNAVAILABLE", "RUNTIME_HTTP_URL_REQUIRED",
+                "RUNTIME_HTTP_CREDENTIAL_UNAVAILABLE", "RUNTIME_HTTP_URL_REQUIRED", "RUNTIME_HTTP_LOGIN_FAILED",
                 "RUNTIME_HTTP_CREDENTIAL_TYPE_UNSUPPORTED").contains(response.code())
                 || (response.code() != null && response.code().startsWith("RUNTIME_HTTP_EGRESS_"))) {
             return finish(claimed, "NOT_DISPATCHED", "NOT_DISPATCHED", "HTTP_API_PRE_DISPATCH_REJECTED",

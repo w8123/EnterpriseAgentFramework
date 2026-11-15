@@ -42,10 +42,21 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
     private final VectorService vectorService;
     private final KnowledgeRetrievalAuthorization authorization;
 
+    private com.enterprise.ai.external.ExternalKnowledgeService external;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setExternalKnowledgeService(com.enterprise.ai.external.ExternalKnowledgeService external) {
+        this.external = external;
+    }
+
     @Value("${rag.default-top-k:5}")
     private int defaultTopK;
     @Value("${rag.score-threshold:0.5}")
     private float defaultScoreThreshold;
+    @Value("${rag.vector-retry-delay-ms:300}")
+    private long vectorRetryDelayMs = 300;
+
+    private static final int VECTOR_RECALL_ATTEMPTS = 2;
 
     /**
      * Production retrieval engine shared by admin retrievalTest and {@link com.enterprise.ai.retrieval.KnowledgeRetrievalCore}.
@@ -65,6 +76,9 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                 knowledgeBases.size() == 1 ? normalizeSearchMode(knowledgeBases.get(0).getSearchMode(), "hybrid") : "hybrid");
 
         List<RetrievalTestResponse.RetrievalItem> allItems = new ArrayList<>();
+        // Passages from external knowledge bases keep the provider's own score and skip local merge/rerank.
+        List<RetrievalTestResponse.RetrievalItem> externalItems = new ArrayList<>();
+        int externalCandidateCount = 0;
         int vectorRawCandidateCount = 0;
         int vectorAcceptedCandidateCount = 0;
         int keywordRawCandidateCount = 0;
@@ -83,18 +97,24 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
             if (accessSnapshot != null && !openBase && (kbAllowedFiles == null || kbAllowedFiles.isEmpty())) {
                 continue;
             }
+            if (com.enterprise.ai.domain.KnowledgeBaseSettings.isExternal(kb)) {
+                try {
+                    if (external == null) throw new IllegalStateException("外部知识库功能未启用");
+                    var hits = external.search(kb, request.getQuery(), kbTopK, threshold);
+                    externalCandidateCount += hits.size();
+                    int rank = 0;
+                    for (var hit : hits) {
+                        externalItems.add(externalItem(kb, hit, rank++));
+                    }
+                } catch (Exception e) {
+                    failedKnowledgeBaseCount++;
+                    log.warn("检索外部知识库 {} 失败: {}", kb.getCode(), e.getMessage());
+                }
+                continue;
+            }
             try {
                 if (!"keyword".equals(searchMode)) {
-                    List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuery());
-                    VectorSearchRequest.VectorSearchRequestBuilder searchBuilder = VectorSearchRequest.builder()
-                            .collectionName(requireVectorCollectionName(kb))
-                            .queryVector(queryVector)
-                            .topK(kbTopK)
-                            .outputFields(List.of("id", "file_id", "content"));
-                    if (!openBase && StringUtils.hasText(request.getFileIdFilterExpression())) {
-                        searchBuilder.filterExpression(request.getFileIdFilterExpression());
-                    }
-                    List<VectorSearchResult> results = vectorService.search(searchBuilder.build());
+                    List<VectorSearchResult> results = vectorRecall(request, kb, kbTopK, openBase);
                     if (results == null) {
                         results = List.of();
                     }
@@ -186,6 +206,8 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                 .filter(item -> item.getScore() != null)
                 .collect(Collectors.toList());
         int scoreAcceptedCandidateCount = allItems.size();
+        // External bases are readable here only when open to this caller (checked above); they join the ranking as-is.
+        allItems.addAll(externalItems);
 
         allItems.sort(Comparator.comparingDouble(RetrievalTestResponse.RetrievalItem::getScore).reversed());
         List<RetrievalTestResponse.RetrievalItem> topItems = allItems.stream()
@@ -194,7 +216,10 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         // 补充文件名和chunkIndex
         enrichRetrievalItems(topItems);
         topItems = authorization.retain(request.getAccessSnapshot(), topItems);
-        if (Boolean.TRUE.equals(request.getRecordHit())) {
+        // A base that failed (model service or vector store not ready yet, e.g. right after a restart)
+        // is not evidence of "no answer": recording it as a miss pollutes the hit log, and callers
+        // reject partial results anyway. Only a complete retrieval is recorded.
+        if (Boolean.TRUE.equals(request.getRecordHit()) && failedKnowledgeBaseCount == 0) {
             if (topItems.isEmpty()) {
                 recordMisses(request, knowledgeBases, searchMode);
             } else {
@@ -205,6 +230,7 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
         Map<String, Object> diagnostics = new LinkedHashMap<>();
         diagnostics.put("knowledgeBaseCount", knowledgeBases.size());
         diagnostics.put("failedKnowledgeBaseCount", failedKnowledgeBaseCount);
+        diagnostics.put("externalCandidateCount", externalCandidateCount);
         diagnostics.put("vectorRawCandidateCount", vectorRawCandidateCount);
         diagnostics.put("vectorAcceptedCandidateCount", vectorAcceptedCandidateCount);
         diagnostics.put("keywordRawCandidateCount", keywordRawCandidateCount);
@@ -236,6 +262,8 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
      */
     private void enrichRetrievalItems(List<RetrievalTestResponse.RetrievalItem> items) {
         if (items == null || items.isEmpty()) return;
+        items = items.stream().filter(item -> item.getExternalProvider() == null).toList();
+        if (items.isEmpty()) return;
         Set<String> fileIds = items.stream()
                 .map(RetrievalTestResponse.RetrievalItem::getFileId)
                 .collect(Collectors.toSet());
@@ -257,6 +285,27 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                 }
             }
         });
+    }
+
+    /** fileId/chunkId are namespaced so they can never collide with, or be mistaken for, local identifiers. */
+    static RetrievalTestResponse.RetrievalItem externalItem(KnowledgeBase kb, com.enterprise.ai.external.ExternalKnowledgeHit hit, int rank) {
+        String provider = kb.getExternalProvider() == null ? "EXTERNAL" : kb.getExternalProvider();
+        String documentId = hit.documentId() == null || hit.documentId().isBlank() ? "doc" : hit.documentId();
+        String hitId = hit.id() == null || hit.id().isBlank() ? documentId + "#" + rank : hit.id();
+        String documentName = hit.documentName() == null || hit.documentName().isBlank() ? "外部文档" : hit.documentName();
+        return RetrievalTestResponse.RetrievalItem.builder()
+                .chunkId("ext:" + kb.getCode() + ":" + hitId)
+                .fileId("ext:" + provider.toLowerCase(Locale.ROOT) + ":" + documentId)
+                .fileName(documentName)
+                .content(hit.content())
+                .score(hit.score())
+                .vectorScore(hit.score())
+                .hitCount(0)
+                .knowledgeBaseCode(kb.getCode())
+                .reason("external " + provider + " (score=" + String.format(Locale.ROOT, "%.3f", hit.score()) + ")")
+                .externalProvider(provider)
+                .externalKnowledgeBaseId(kb.getId())
+                .build();
     }
 
     private RetrievalTestResponse.RetrievalItem buildRetrievalItem(KnowledgeBase kb, Chunk chunk) {
@@ -343,12 +392,67 @@ public class DefaultKnowledgeRetrievalEngine implements KnowledgeRetrievalEngine
                 + ", keyword=" + formatScore(item.getKeywordScore()) + ")";
     }
 
+    /**
+     * Vector recall for one base. The first call after a service restart can hit a cold dependency
+     * (model-service connection, embedding provider, Milvus collection loading); one quick retry
+     * keeps that transient failure from turning a real answer into "knowledge unavailable".
+     */
+    private List<VectorSearchResult> vectorRecall(RetrievalTestRequest request, KnowledgeBase kb,
+                                                  int kbTopK, boolean openBase) {
+        RuntimeException first = null;
+        for (int attempt = 1; attempt <= VECTOR_RECALL_ATTEMPTS; attempt++) {
+            try {
+                List<Float> queryVector = embeddingService.embed(requireEmbeddingModelInstanceId(kb), request.getQuery());
+                VectorSearchRequest.VectorSearchRequestBuilder searchBuilder = VectorSearchRequest.builder()
+                        .collectionName(requireVectorCollectionName(kb))
+                        .queryVector(queryVector)
+                        .topK(kbTopK)
+                        .outputFields(List.of("id", "file_id", "content"));
+                if (!openBase && StringUtils.hasText(request.getFileIdFilterExpression())) {
+                    searchBuilder.filterExpression(request.getFileIdFilterExpression());
+                }
+                return vectorService.search(searchBuilder.build());
+            } catch (IllegalArgumentException misconfigured) {
+                throw misconfigured; // Missing model/collection settings never heal by retrying.
+            } catch (RuntimeException e) {
+                if (first == null) first = e;
+                if (attempt < VECTOR_RECALL_ATTEMPTS) {
+                    log.warn("知识库 {} 向量检索第 {} 次失败，稍后重试: {}", kb.getCode(), attempt, e.getMessage());
+                    sleepBeforeRetry();
+                }
+            }
+        }
+        throw first;
+    }
+
+    private void sleepBeforeRetry() {
+        if (vectorRetryDelayMs <= 0) return;
+        try {
+            Thread.sleep(vectorRetryDelayMs);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private String formatScore(Float score) {
         return score == null ? "0.000" : String.format(Locale.ROOT, "%.3f", score);
     }
 
     private void recordHits(RetrievalTestRequest request, List<RetrievalTestResponse.RetrievalItem> items, String searchMode) {
         for (RetrievalTestResponse.RetrievalItem item : items) {
+            if (item.getExternalProvider() != null && item.getExternalKnowledgeBaseId() != null) {
+                // External passages have no local chunk row; log the hit against the base only.
+                KnowledgeHitLog log = new KnowledgeHitLog();
+                log.setKnowledgeBaseId(item.getExternalKnowledgeBaseId());
+                log.setQueryText(request.getQuery());
+                log.setSearchMode("external");
+                log.setScore(item.getScore());
+                log.setSource(hitSource(request));
+                log.setTraceId(request.getTraceId());
+                log.setUserId(request.getUserId());
+                knowledgeHitLogRepository.insert(log);
+                continue;
+            }
             if (item.getChunkDbId() == null) {
                 continue;
             }

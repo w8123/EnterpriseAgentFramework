@@ -792,6 +792,10 @@ CALL add_col_if_absent('knowledge_base', 'workspace_id', 'VARCHAR(64) NOT NULL D
 CALL add_col_if_absent('knowledge_base', 'project_code', 'VARCHAR(64) DEFAULT NULL COMMENT ''owning ReachAI project code'' AFTER `workspace_id`');
 CALL add_col_if_absent('knowledge_base', 'scope', 'VARCHAR(20) NOT NULL DEFAULT ''WORKSPACE'' COMMENT ''SHARED / WORKSPACE / PROJECT'' AFTER `project_code`');
 CALL add_col_if_absent('knowledge_base', 'access_mode', 'VARCHAR(16) NOT NULL DEFAULT ''ALL_CALLERS'' COMMENT ''谁能检索: ALL_CALLERS 所有调用方 / FILE_GRANTS 仅逐文件授权用户'' AFTER `scope`');
+CALL add_col_if_absent('knowledge_base', 'source_type', 'VARCHAR(16) NOT NULL DEFAULT ''LOCAL'' COMMENT ''来源: LOCAL 本地向量库 / EXTERNAL 外部知识库'' AFTER `access_mode`');
+CALL add_col_if_absent('knowledge_base', 'external_provider', 'VARCHAR(32) DEFAULT NULL COMMENT ''外部提供方: RAGFLOW / IMA / DIFY'' AFTER `source_type`');
+CALL add_col_if_absent('knowledge_base', 'external_config', 'TEXT DEFAULT NULL COMMENT ''外部连接配置 JSON（地址、Client ID、选中的远端库），不含密钥'' AFTER `external_provider`');
+CALL add_col_if_absent('knowledge_base', 'external_secret', 'TEXT DEFAULT NULL COMMENT ''外部系统 API Key（AES-GCM 加密）'' AFTER `external_config`');
 CALL add_col_if_absent('knowledge_base', 'search_mode', 'VARCHAR(20) NOT NULL DEFAULT ''hybrid'' COMMENT ''vector / keyword / hybrid'' AFTER `split_type`');
 CALL add_col_if_absent('knowledge_base', 'top_k', 'INT NOT NULL DEFAULT 5 COMMENT ''default retrieval topK'' AFTER `search_mode`');
 CALL add_col_if_absent('knowledge_base', 'similarity_threshold', 'FLOAT NOT NULL DEFAULT 0.5 COMMENT ''default retrieval threshold'' AFTER `top_k`');
@@ -1530,7 +1534,7 @@ CREATE TABLE IF NOT EXISTS `runtime_agent_config_version` (
     `page_bridge_timeout_ms` INT         NOT NULL DEFAULT 30000,
     `parallel_read_only`    TINYINT(1)   NOT NULL DEFAULT 1,
     `policy_profile`        VARCHAR(64)  NOT NULL DEFAULT 'STANDARD',
-    `tool_catalog_mode`     VARCHAR(32)  NOT NULL DEFAULT 'ALLOW_LIST',
+    `tool_catalog_mode`     VARCHAR(32)  NOT NULL DEFAULT 'ALLOW_LIST' COMMENT 'ALLOW_LIST 只用绑定的 Workflow / PROJECT_CAPABILITIES 另可使用项目已向员工开放的全部能力',
     `session_memory_enabled` TINYINT(1)  NOT NULL DEFAULT 1 COMMENT '会话记忆：同一对话的多轮上下文是否持久化',
     `session_memory_window` INT          NOT NULL DEFAULT 40 COMMENT '会话记忆窗口：保留最近 N 条消息（4-100）',
     `personal_memory_read`  TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否读取用户的个人长期记忆',
@@ -1939,6 +1943,37 @@ CREATE TABLE IF NOT EXISTS `runtime_eval_task` (
   KEY `idx_runtime_eval_task_token` (`lease_token`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='EvalOps MySQL 5.7 兼容租约任务队列';
 
+-- 每个业务系统的自动评测与自动优化设置（upgrade-20261112-project-eval.sql）
+CREATE TABLE IF NOT EXISTS `runtime_project_eval_setting` (
+    `project_code`                VARCHAR(96)  NOT NULL COMMENT '业务系统（项目编码）',
+    `tenant_id`                   VARCHAR(96)  DEFAULT NULL COMMENT '多租户业务系统的租户，可空',
+    `agent_id`                    VARCHAR(64)  DEFAULT NULL COMMENT '评测哪个助手',
+    `eval_user_id`                VARCHAR(128) DEFAULT NULL COMMENT '只读评测账号：业务系统里的员工编号，评测只调用只读能力',
+    `enabled`                     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否每天自动评测',
+    `run_hour`                    INT          NOT NULL DEFAULT 3 COMMENT '每天几点评测（0-23）',
+    `question_count`              INT          NOT NULL DEFAULT 12,
+    `dataset_id`                  BIGINT       DEFAULT NULL COMMENT '自动生成的评测集',
+    `last_generated_at`           DATETIME     DEFAULT NULL,
+    `last_experiment_id`          BIGINT       DEFAULT NULL,
+    `last_run_at`                 DATETIME     DEFAULT NULL,
+    `auto_enable_readonly_flows`  TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '重复的只读请求是否自动启用为直达流程',
+    `updated_by`                  VARCHAR(128) DEFAULT NULL,
+    `updated_at`                  DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`project_code`),
+    KEY `idx_project_eval_schedule` (`enabled`, `run_hour`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='每个业务系统的自动评测与自动优化设置';
+
+-- 平台管理员允许调用的内网主机（upgrade-20261112-http-egress-host.sql）
+CREATE TABLE IF NOT EXISTS `runtime_http_egress_host` (
+    `id`          BIGINT       NOT NULL AUTO_INCREMENT,
+    `host`        VARCHAR(253) NOT NULL COMMENT '主机名或 IP，小写，不带协议和端口',
+    `note`        VARCHAR(200) DEFAULT NULL COMMENT '备注：这是哪个系统',
+    `created_by`  VARCHAR(128) DEFAULT NULL,
+    `created_at`  DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_http_egress_host` (`host`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='平台管理员允许调用的内网主机';
+
 
 CREATE TABLE IF NOT EXISTS `runtime_managed_execution` (
   `id` BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -2335,7 +2370,7 @@ CREATE TABLE IF NOT EXISTS `control_ai_tool_connection` (
     `app_id`           VARCHAR(96)  NOT NULL COMMENT '创建连接时所在的业务系统',
     `external_user_id` VARCHAR(128) NOT NULL COMMENT '创建连接时的业务系统账号',
     `user_name`        VARCHAR(128) DEFAULT NULL,
-    `tool_kind`        VARCHAR(32)  NOT NULL COMMENT 'CLAUDE_CODE / CODEX / OTHER',
+    `tool_kind`        VARCHAR(32)  NOT NULL COMMENT 'CLAUDE_CODE / CODEX / OTHER / ASSISTANT（业务系统内的助手，平台自持、无密钥）',
     `key_prefix`       VARCHAR(16)  NOT NULL COMMENT '连接密钥前缀（展示用）',
     `key_hash`         VARCHAR(128) NOT NULL COMMENT '连接密钥 SHA-256，明文只展示一次',
     `state`            VARCHAR(16)  NOT NULL DEFAULT 'ACTIVE' COMMENT 'ACTIVE/REVOKED/EXPIRED；后两者为终态',
@@ -3572,6 +3607,9 @@ CREATE TABLE IF NOT EXISTS `control_page_action_event` (
     `parent_request_id`       VARCHAR(96)  DEFAULT NULL,
     `node_id`                 VARCHAR(128) DEFAULT NULL,
     `action_key`              VARCHAR(160) DEFAULT NULL,
+    `action_contract_hash`    CHAR(64)     DEFAULT NULL COMMENT '服务端动作目录声明摘要',
+    `effect_approval_id`      BIGINT       DEFAULT NULL COMMENT '受信草稿声明审核编号',
+    `effect_approval_revision` BIGINT      DEFAULT NULL COMMENT '受信草稿声明审核版本',
     `title`                   VARCHAR(256) DEFAULT NULL,
     `args_json`               TEXT         DEFAULT NULL,
     `target_page_instance_id` VARCHAR(128) DEFAULT NULL,
@@ -3593,6 +3631,9 @@ CALL add_col_if_absent('control_page_action_event', 'command_type', 'VARCHAR(32)
 CALL add_col_if_absent('control_page_action_event', 'parent_request_id', 'VARCHAR(96) DEFAULT NULL AFTER `command_type`');
 CALL add_col_if_absent('control_page_action_event', 'target_page_key', 'VARCHAR(160) DEFAULT NULL AFTER `target_page_instance_id`');
 CALL add_col_if_absent('control_page_action_event', 'target_route', 'VARCHAR(512) DEFAULT NULL AFTER `target_page_key`');
+CALL add_col_if_absent('control_page_action_event', 'action_contract_hash', 'CHAR(64) DEFAULT NULL COMMENT ''服务端动作目录声明摘要'' AFTER `action_key`');
+CALL add_col_if_absent('control_page_action_event', 'effect_approval_id', 'BIGINT DEFAULT NULL COMMENT ''受信草稿声明审核编号'' AFTER `action_contract_hash`');
+CALL add_col_if_absent('control_page_action_event', 'effect_approval_revision', 'BIGINT DEFAULT NULL COMMENT ''受信草稿声明审核版本'' AFTER `effect_approval_id`');
 
 CREATE TABLE IF NOT EXISTS `control_project_page` (
     `id`                 BIGINT        NOT NULL AUTO_INCREMENT,
@@ -3666,6 +3707,37 @@ CREATE TABLE IF NOT EXISTS `control_page_action` (
     KEY `idx_control_page_action_lookup` (`project_code`, `page_key`, `action_key`, `status`),
     KEY `idx_control_page_action_project` (`project_id`, `status`, `updated_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='业务页面可执行动作契约';
+
+CREATE TABLE IF NOT EXISTS `control_page_action_effect_generation` (
+    `action_id` BIGINT NOT NULL,
+    `page_id` BIGINT NOT NULL,
+    `revision` BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`action_id`),
+    KEY `idx_page_action_effect_generation_page` (`page_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='页面动作审核失效版本';
+
+CREATE TABLE IF NOT EXISTS `control_page_action_effect_review` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `action_id` BIGINT NOT NULL,
+    `page_id` BIGINT NOT NULL,
+    `project_id` BIGINT NOT NULL,
+    `project_code` VARCHAR(96) NOT NULL,
+    `page_key` VARCHAR(160) NOT NULL,
+    `action_key` VARCHAR(160) NOT NULL,
+    `revision` BIGINT NOT NULL,
+    `decision` VARCHAR(24) NOT NULL,
+    `effect` VARCHAR(32) DEFAULT NULL,
+    `catalog_hash` CHAR(64) DEFAULT NULL,
+    `implementation_version` VARCHAR(1000) DEFAULT NULL,
+    `target_alias` VARCHAR(80) DEFAULT NULL,
+    `field_labels_json` TEXT DEFAULT NULL,
+    `actor_user_id` BIGINT NOT NULL,
+    `actor_session_id` VARCHAR(128) NOT NULL,
+    `created_at` DATETIME NOT NULL,
+    PRIMARY KEY (`id`),
+    KEY `idx_page_action_effect_review_action` (`action_id`, `id`),
+    KEY `idx_page_action_effect_review_project` (`project_code`, `page_key`, `action_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='页面动作管理员效应审核历史';
 
 CREATE TABLE IF NOT EXISTS `control_page_analysis_finding` (
     `id`                       BIGINT        NOT NULL AUTO_INCREMENT,
@@ -3855,6 +3927,64 @@ CREATE TABLE IF NOT EXISTS `control_embed_chat_event` (
     KEY `idx_embed_chat_event_session` (`session_id`, `created_at`),
     KEY `idx_embed_chat_event_trace` (`trace_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='嵌入式对话事件审计';
+
+CREATE TABLE IF NOT EXISTS `control_activity_event` (
+    `id`             BIGINT       NOT NULL AUTO_INCREMENT,
+    `project_code`   VARCHAR(96)  NOT NULL COMMENT '业务系统（项目编码）',
+    `tenant_id`      VARCHAR(96)  DEFAULT NULL,
+    `user_id`        VARCHAR(128) NOT NULL COMMENT '业务系统里的员工；开启隐藏姓名时为不可逆编号',
+    `user_name`      VARCHAR(128) DEFAULT NULL,
+    `event_type`     VARCHAR(16)  NOT NULL COMMENT 'OPERATION / SEARCH',
+    `operation_key`  VARCHAR(300) NOT NULL COMMENT '请求方法 + 接口路径模板',
+    `operation_name` VARCHAR(200) DEFAULT NULL,
+    `page_path`      VARCHAR(300) DEFAULT NULL COMMENT '员工所在页面路径，不含参数',
+    `keyword`        VARCHAR(100) DEFAULT NULL COMMENT '搜索词（已脱敏）',
+    `outcome`        VARCHAR(16)  NOT NULL COMMENT 'SUCCESS / FAILED',
+    `error_message`  VARCHAR(300) DEFAULT NULL COMMENT '失败原因（已脱敏）',
+    `duration_ms`    INT          DEFAULT NULL,
+    `source`         VARCHAR(32)  DEFAULT NULL COMMENT '上报的 SDK',
+    `occurred_at`    DATETIME(3)  NOT NULL,
+    `created_at`     DATETIME     DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_activity_event_project_time` (`project_code`, `occurred_at`),
+    KEY `idx_activity_event_user_time` (`project_code`, `user_id`, `occurred_at`),
+    KEY `idx_activity_event_time` (`occurred_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='主动感知：业务系统里员工的操作和搜索（不含请求内容）';
+
+CREATE TABLE IF NOT EXISTS `control_activity_setting` (
+    `project_code`    VARCHAR(96)  NOT NULL,
+    `enabled`         TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否接收这个业务系统的操作记录',
+    `capture_search`  TINYINT(1)   NOT NULL DEFAULT 1 COMMENT '是否记录搜索词',
+    `hide_user_names` TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否只保存不可逆的员工编号',
+    `retention_days`  INT          NOT NULL DEFAULT 90,
+    `updated_by`      VARCHAR(128) DEFAULT NULL,
+    `updated_at`      DATETIME     DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`project_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='主动感知：每个业务系统的采集设置';
+
+CREATE TABLE IF NOT EXISTS `control_activity_insight` (
+    `id`                BIGINT        NOT NULL AUTO_INCREMENT,
+    `project_code`      VARCHAR(96)   NOT NULL,
+    `kind`              VARCHAR(16)   NOT NULL COMMENT 'FLOW 常用流程 / PITFALL 易错步骤',
+    `fingerprint`       VARCHAR(64)   NOT NULL COMMENT '同一组操作步骤的指纹，重新归纳时保留管理者的选择',
+    `title`             VARCHAR(200)  NOT NULL,
+    `summary`           VARCHAR(1000) DEFAULT NULL,
+    `advice`            VARCHAR(1000) DEFAULT NULL,
+    `shortcut_prompt`   VARCHAR(500)  DEFAULT NULL COMMENT '员工点快捷操作时发给助手的话',
+    `steps_json`        TEXT          DEFAULT NULL,
+    `page_paths_json`   TEXT          DEFAULT NULL,
+    `evidence_json`     TEXT          DEFAULT NULL,
+    `status`            VARCHAR(16)   NOT NULL DEFAULT 'SUGGESTED' COMMENT 'SUGGESTED / RECOMMENDED / DISMISSED',
+    `used_count`        INT           NOT NULL DEFAULT 0,
+    `generated_by`      VARCHAR(16)   NOT NULL DEFAULT 'RULE' COMMENT 'RULE / AI',
+    `model_instance_id` VARCHAR(64)   DEFAULT NULL,
+    `updated_by`        VARCHAR(128)  DEFAULT NULL,
+    `created_at`        DATETIME      DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`        DATETIME      DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_activity_insight_fingerprint` (`project_code`, `kind`, `fingerprint`),
+    KEY `idx_activity_insight_status` (`project_code`, `status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='主动感知：AI 归纳的常用流程、易错步骤和快捷操作';
 
 -- ============================================================================
 -- 个人长期记忆（Control 所有）
@@ -4329,7 +4459,7 @@ WHERE r.role_code = 'DEVELOPER'
                             'workflow:credential:manage',
                             'runops:read', 'automation:read',
                             'knowledge:read', 'knowledge:write', 'model:read',
-                            'skill:read', 'skill:import', 'skill:bind',
+                            'skill:read', 'skill:import', 'skill:review', 'skill:publish', 'skill:bind',
                             'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
                             'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',
                             'a2a-hub:task:operate', 'a2a-hub:conformance:run');
@@ -4346,7 +4476,7 @@ WHERE r.role_code = 'MANAGER'
                             'knowledge:read', 'knowledge:write', 'model:read',
                             'tool-acl:read', 'tool-acl:manage', 'embed:read', 'embed:manage',
                             'identity:business-user:read', 'identity:business-user:manage',
-                            'skill:read', 'skill:import', 'skill:bind',
+                            'skill:read', 'skill:import', 'skill:review', 'skill:publish', 'skill:bind',
                             'mcp-hub:read', 'mcp-hub:publication:manage', 'mcp-hub:credential:manage',
                             'mcp-hub:employee-connection:manage', 'mcp-hub:write-approval:manage',
                             'a2a-hub:read', 'a2a-hub:publication:manage', 'a2a-hub:remote-agent:manage',

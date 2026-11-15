@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,7 @@ public final class ControlJavaSdkArtifactSupport {
     public static final String CAPABILITY_SDK = "reachai-capability-sdk";
     public static final String SPRING_BOOT2_STARTER = "reachai-spring-boot2-starter";
     public static final String CLASS_PATH_DIR = "ai-assist/artifacts/java-sdk/";
-    public static final String SKILL_INSTALLER_RELATIVE_PATH = "scripts/install-java-sdk.ps1";
+    public static final String SKILL_INSTALLER_RELATIVE_PATH = "scripts/install-java-sdk.mjs";
     public static final String SOURCE_POLICY = "platform-artifact-download";
     public static final String INSTALL_WORKING_DIRECTORY =
             "business-backend-maven-module-or-reactor-root";
@@ -89,16 +90,37 @@ public final class ControlJavaSdkArtifactSupport {
             String jarSha256,
             String pomUrl,
             String pomSha256) {
-        return "powershell -NoProfile -ExecutionPolicy Bypass -File "
+        requireShellSafeUrl(jarUrl);
+        requireShellSafeUrl(pomUrl);
+        return "node "
                 + "\"{skillExtractDir}/reachai-onboarding/"
                 + SKILL_INSTALLER_RELATIVE_PATH
-                + "\" -GroupId \"" + GROUP_ID
-                + "\" -ArtifactId \"" + artifactId
-                + "\" -Version \"" + VERSION
-                + "\" -JarUrl \"" + jarUrl
-                + "\" -JarSha256 \"" + nullToEmpty(jarSha256)
-                + "\" -PomUrl \"" + pomUrl
-                + "\" -PomSha256 \"" + nullToEmpty(pomSha256) + "\"";
+                + "\" --group-id \"" + GROUP_ID
+                + "\" --artifact-id \"" + artifactId
+                + "\" --version \"" + VERSION
+                + "\" --jar-url \"" + jarUrl
+                + "\" --jar-sha256 \"" + nullToEmpty(jarSha256)
+                + "\" --pom-url \"" + pomUrl
+                + "\" --pom-sha256 \"" + nullToEmpty(pomSha256) + "\"";
+    }
+
+    // This value is copied into a shell command, not just used as an HTTP URL.
+    private static void requireShellSafeUrl(String value) {
+        try {
+            // Creation snapshots use a relative placeholder and are hydrated with the request origin on read.
+            if (value != null && value.startsWith("/") && !value.startsWith("//")
+                    && value.matches("/[A-Za-z0-9/._~\\-]+")) {
+                return;
+            }
+            URI uri = URI.create(value);
+            if (!("http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme()))
+                    || uri.getHost() == null || uri.getUserInfo() != null || uri.getQuery() != null
+                    || uri.getFragment() != null || !value.matches("[A-Za-z0-9:/._~\\-\\[\\]]+")) {
+                throw new IllegalArgumentException("Unsafe Java SDK artifact URL");
+            }
+        } catch (NullPointerException exception) {
+            throw new IllegalArgumentException("Unsafe Java SDK artifact URL", exception);
+        }
     }
 
     public static String artifactUrl(

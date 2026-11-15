@@ -398,6 +398,155 @@ class WorkflowHttpClientTest {
         assertFalse(String.valueOf(result.traceSummary()).contains("response-body-marker"));
     }
 
+    @Test
+    void signsInForATokenReusesItAndSignsInAgainWhenTheSystemSaysItExpired() throws Exception {
+        WorkflowHttpClient loginClient = new WorkflowHttpClient(objectMapper,
+                WorkflowHttpEgressPolicy.permissiveForTests(host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")}),
+                new RuntimeWorkflowCredentialService(credentialMapper,
+                        new RuntimeWorkflowCredentialCipher("test-secret-for-workflow-http-client-unit"), objectMapper));
+        AtomicInteger logins = new AtomicInteger();
+        AtomicInteger valid = new AtomicInteger(1);
+        server.createContext("/login", exchange -> {
+            assertEquals("{\"userName\":\"admin\",\"password\":\"p\"}",
+                    new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+            respond(exchange, 200, "{\"resultCode\":200,\"data\":\"tok-" + logins.incrementAndGet() + "\"}");
+        });
+        server.createContext("/orders", exchange -> {
+            boolean ok = ("tok-" + valid.get()).equals(exchange.getRequestHeaders().getFirst("token"));
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            respond(exchange, 200, ok ? "{\"resultCode\":200,\"data\":[1]}" : "{\"resultCode\":419,\"message\":\"未登录\"}");
+        });
+        server.start();
+        stubCredential("cred_login", "API_KEY_HEADER", "GLOBAL", null, null, Map.of("headerName", "token",
+                "login", Map.of("url", url("/login"), "body", "{\"userName\":\"admin\",\"password\":\"p\"}")));
+
+        assertTrue(String.valueOf(loginClient.execute(getRequest(url("/orders"), "cred_login")).body()).contains("[1]"));
+        assertTrue(String.valueOf(loginClient.execute(getRequest(url("/orders"), "cred_login")).body()).contains("[1]"));
+        assertEquals(1, logins.get(), "the token is reused while it is valid");
+
+        valid.set(2);
+        var renewed = loginClient.execute(getRequest(url("/orders"), "cred_login"));
+        assertTrue(String.valueOf(renewed.body()).contains("[1]"));
+        assertEquals(2, logins.get());
+    }
+
+    @Test
+    void aFailedSignInIsReportedPlainlyAndNotRepeatedOnEveryCall() throws Exception {
+        WorkflowHttpClient loginClient = new WorkflowHttpClient(objectMapper,
+                WorkflowHttpEgressPolicy.permissiveForTests(host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")}),
+                new RuntimeWorkflowCredentialService(credentialMapper,
+                        new RuntimeWorkflowCredentialCipher("test-secret-for-workflow-http-client-unit"), objectMapper));
+        AtomicInteger logins = new AtomicInteger();
+        AtomicInteger calls = new AtomicInteger();
+        server.createContext("/login", exchange -> {
+            logins.incrementAndGet();
+            respond(exchange, 200, "{\"resultCode\":500,\"message\":\"密码错误\"}");
+        });
+        server.createContext("/orders", exchange -> { calls.incrementAndGet(); respond(exchange, 200, "{}"); });
+        server.start();
+        stubCredential("cred_bad", "BEARER", "GLOBAL", null, null,
+                Map.of("login", Map.of("url", url("/login"), "body", "{}")));
+
+        var first = loginClient.execute(getRequest(url("/orders"), "cred_bad"));
+        var second = loginClient.execute(getRequest(url("/orders"), "cred_bad"));
+
+        assertEquals("RUNTIME_HTTP_LOGIN_FAILED", first.code());
+        assertTrue(first.body().contains("密码错误"));
+        assertEquals("RUNTIME_HTTP_LOGIN_FAILED", second.code());
+        assertEquals(1, logins.get());
+        assertEquals(0, calls.get());
+    }
+
+    @Test
+    void findsTheTokenWhereLoginApisUsuallyPutIt() {
+        assertEquals("a", WorkflowHttpClient.extractLoginToken(Map.of("data", Map.of("accessToken", "a")), ""));
+        assertEquals("b", WorkflowHttpClient.extractLoginToken(Map.of("data", "b"), ""));
+        assertEquals("c", WorkflowHttpClient.extractLoginToken(Map.of("body", Map.of("jwt", "c")), "body.jwt"));
+        assertEquals(null, WorkflowHttpClient.extractLoginToken(Map.of("data", Map.of("user", "x")), ""));
+        assertEquals(null, WorkflowHttpClient.extractLoginToken(Map.of("data", "a\nb"), ""));
+    }
+
+    /** A fake of Control's answer: mode, and the employee's token while there is one. */
+    private static final class FakeEmployeeTokens implements EmployeeBusinessTokenSource {
+        String mode = OFF;
+        String token;
+        List<String> origins = List.of();
+        final AtomicInteger expired = new AtomicInteger();
+
+        @Override
+        public Resolution resolve(WorkflowExecutionIdentity employee) {
+            return new Resolution(mode, origins, token);
+        }
+
+        @Override
+        public void expired(WorkflowExecutionIdentity employee) {
+            expired.incrementAndGet();
+            token = null;
+        }
+    }
+
+    private WorkflowHttpClient.HttpExecutionRequest employeeRequest(String url, String credentialRef,
+                                                                    WorkflowExecutionIdentity identity) {
+        return new WorkflowHttpClient.HttpExecutionRequest(
+                "GET", url, Map.of(), Map.of(), "none", null, 5000, credentialRef, identity);
+    }
+
+    @Test
+    void anEmployeesCallCarriesTheirOwnTokenOnlyWhereTheSystemAsksForIt() throws Exception {
+        FakeEmployeeTokens own = new FakeEmployeeTokens();
+        WorkflowHttpClient employeeClient = new WorkflowHttpClient(objectMapper,
+                WorkflowHttpEgressPolicy.permissiveForTests(host -> new InetAddress[]{InetAddress.getByName("127.0.0.1")}),
+                new RuntimeWorkflowCredentialService(credentialMapper,
+                        new RuntimeWorkflowCredentialCipher("test-secret-for-workflow-http-client-unit"), objectMapper),
+                own);
+        java.util.List<String> seen = new java.util.concurrent.CopyOnWriteArrayList<>();
+        server.createContext("/orders", exchange -> {
+            String auth = String.valueOf(exchange.getRequestHeaders().getFirst("Authorization"));
+            seen.add(auth);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            respond(exchange, 200, "Bearer stale".equals(auth)
+                    ? "{\"code\":401,\"msg\":\"未登录\"}" : "{\"code\":0,\"data\":[1]}");
+        });
+        server.start();
+        stubCredential("cred_shared", "BEARER", "PROJECT", 7L, "mall", Map.of("token", "shared"));
+        WorkflowExecutionIdentity employee = WorkflowExecutionIdentity.fromMcpEmployee(
+                "default", 7L, "mall", "u1", List.of("ops"));
+        String origin = "http://127.0.0.1:" + server.getAddress().getPort();
+
+        // Switched off: the shared credential, as before.
+        assertTrue(employeeClient.execute(employeeRequest(url("/orders"), "cred_shared", employee)).success());
+        // Switched on with a token: the employee's own token.
+        own.mode = EmployeeBusinessTokenSource.PREFERRED;
+        own.origins = List.of(origin);
+        own.token = "mine";
+        assertTrue(employeeClient.execute(employeeRequest(url("/orders"), "cred_shared", employee)).success());
+        // A caller that is not a verified employee never gets anyone's own token.
+        assertTrue(employeeClient.execute(employeeRequest(url("/orders"), "cred_shared",
+                WorkflowExecutionIdentity.fromAgent(7L, "mall"))).success());
+        // An address the login entry does not talk to keeps the shared credential.
+        own.origins = List.of("https://elsewhere.example.com:443");
+        assertTrue(employeeClient.execute(employeeRequest(url("/orders"), "cred_shared", employee)).success());
+        assertEquals(List.of("Bearer shared", "Bearer mine", "Bearer shared", "Bearer shared"), seen);
+
+        // The system refuses an old own token: forget it, and PREFERRED falls back to the shared one.
+        seen.clear();
+        own.origins = List.of(origin);
+        own.token = "stale";
+        var fallback = employeeClient.execute(employeeRequest(url("/orders"), "cred_shared", employee));
+        assertTrue(String.valueOf(fallback.body()).contains("[1]"));
+        assertEquals(List.of("Bearer stale", "Bearer shared"), seen);
+        assertEquals(1, own.expired.get());
+
+        // REQUIRED never uses the shared credential: the employee is told to sign in again.
+        seen.clear();
+        own.mode = EmployeeBusinessTokenSource.REQUIRED;
+        var refused = employeeClient.execute(employeeRequest(url("/orders"), "cred_shared", employee));
+        assertFalse(refused.success());
+        assertEquals("RUNTIME_HTTP_EMPLOYEE_LOGIN_REQUIRED", refused.code());
+        assertTrue(String.valueOf(refused.body()).contains("重新登录"));
+        assertTrue(seen.isEmpty());
+    }
+
     private WorkflowHttpClient.HttpExecutionRequest getRequest(String url, String credentialRef) {
         return new WorkflowHttpClient.HttpExecutionRequest(
                 "GET", url, Map.of(), Map.of(), "none", null, 5000, credentialRef,

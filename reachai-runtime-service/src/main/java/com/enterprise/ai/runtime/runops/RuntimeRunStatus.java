@@ -12,6 +12,8 @@ public enum RuntimeRunStatus {
     TIMED_OUT;
 
     public static RuntimeRunStatus fromResult(boolean success, String code) {
+        // A successful cancellation acknowledgement is still a cancelled execution.
+        if ("RUNTIME_GRAPH_CANCELLED".equalsIgnoreCase(code)) return CANCELLED;
         if (success) return COMPLETED;
         if ("SUPERVISOR_CONFIRMATION_REQUIRED".equalsIgnoreCase(code)
                 || "RUNTIME_GRAPH_INTERACTION_WAITING".equalsIgnoreCase(code)) {

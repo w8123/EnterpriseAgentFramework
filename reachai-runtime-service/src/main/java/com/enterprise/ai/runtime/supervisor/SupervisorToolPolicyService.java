@@ -52,7 +52,7 @@ public class SupervisorToolPolicyService {
             "(?i)(填写|填入|填上|填为|输入|键入|清空|清除|清掉|重置|"
                     + "\\b(?:fill(?:ing)?|enter(?:ing)?|typ(?:e|ing)|clear(?:ing)?|reset(?:ting)?)\\b)");
     private static final Pattern NEGATED_CLAUSE = Pattern.compile(
-            "(?i)(不要|请勿|禁止|无需|无须|不需要|不必|不得|不能|不可|不允许|不想|不愿|不应|不希望|"
+            "(?i)(不要|请勿|禁止|无需|无须|不需要|不必|不得|不能|不可|不许|不允许|不想|不愿|不应|不希望|"
                     + "不在|不向|不对|不把|不将|不让|不再|不会|不用|不是|暂不|未曾|未要求|未授权|没有要求|从不|别|勿|"
                     + "不(?:打开|跳转|进入|操作|读取|查询|查看|填写|填入|填上|输入|键入|清空|清除|清掉|重置)|"
                     + "\\b(?:do\\s+not|don't|must\\s+not|never|not|without)\\b)");
@@ -67,6 +67,11 @@ public class SupervisorToolPolicyService {
                     + "\\b(?:modify|update|edit|delete|remove|create|save|disable|enable|touch)\\b)");
     private static final Pattern HYPOTHETICAL_CLAUSE = Pattern.compile(
             "(?i)(如果|假如|假设|例如|比如|\\b(?:if|for\\s+example)\\b)");
+    // Explaining an operation is not authorization to perform it. Check this
+    // before both the explicit-page and current-page intent shortcuts.
+    private static final Pattern PAGE_ADVICE_CLAUSE = Pattern.compile(
+            "(?i)(请(?:先)?(?:解释|介绍|说明|讲解)|(?:怎么|如何|怎样|什么方法|步骤|教程|是什么意思|什么含义)|"
+                    + "\\b(?:how\\s+(?:do|can|to)|explain|describe|instructions\\s+for)\\b)");
 
     private final RuntimeGuardDecisionWriter guardDecisions;
     private final SupervisorApprovalInteractionService approvalService;
@@ -138,7 +143,7 @@ public class SupervisorToolPolicyService {
         }
 
         if ("PAGE_ACTION".equals(riskLevel) && !explicitPageIntent(input)) {
-            PolicyDecision denied = deny("PAGE_ACTION requires an explicit user request to open, navigate, or operate a page");
+            PolicyDecision denied = deny("PAGE_ACTION cannot verify that the request authorizes the entire Workflow; this Workflow was not executed");
             trace(denied, trace, agent, input, tool, metadata, trustedIdentity);
             return denied;
         }
@@ -167,6 +172,58 @@ public class SupervisorToolPolicyService {
                 : "Configured Workflow tool passed project, tenant, role, permission, and risk policy checks";
         PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", reason, null, null);
         trace(allowed, trace, agent, input, tool, metadata, trustedIdentity);
+        return allowed;
+    }
+
+    /** Package-only entry: the caller must have revalidated the published graph and Control declaration. */
+    PolicyDecision evaluateTrustedPageDraft(SupervisorExecutionTraceService.TraceHandle trace,
+                                            RuntimeAgentView agent, RuntimeAgentConfigSnapshot config,
+                                            RuntimeAgentWorkflowToolSnapshot tool, Map<String, Object> input,
+                                            Map<String, Object> args, PolicyApprovalGrant grant,
+                                            WorkflowExecutionIdentity identity, RuntimeEvalExecutionContext eval,
+                                            Map<String, Object> verifiedPin) {
+        String risk = normalizeRisk(tool);
+        String permission = text(tool.getPermissionKey());
+        String profile = firstText(config.getPolicyProfile(), "STANDARD").toUpperCase(Locale.ROOT);
+        ParsedPolicy parsed = policy(config.getConfigJson());
+        Map<String, Object> metadata = metadata(profile, risk, permission, tool, input, args);
+        PolicyDecision denied = structuralChecks(agent, config, tool, input, profile, parsed, metadata);
+        if (denied == null && (identity == null || identity.source() != WorkflowExecutionIdentity.Source.EMBED_SESSION
+                || !identity.canResolveUserAcl())) denied = deny("Trusted page draft requires a verified Embed user");
+        if (denied == null && (eval != null && eval.isEvaluation())) denied = evalSideEffectDenied("Eval cannot execute page drafts");
+        if (denied == null && (!StringUtils.hasText(permission) || !StringUtils.hasText(tool.getToolName())))
+            denied = deny("页面草稿缺少 Workflow 工具名称或权限标识，请管理员检查 Agent 绑定配置");
+        if (denied == null && (!"PAGE_ACTION".equals(risk) || verifiedPin == null || verifiedPin.isEmpty())) {
+            denied = deny("Trusted page draft declaration is missing");
+        }
+        if (denied != null) {
+            trace(denied, trace, agent, input, tool, metadata, identity);
+            return denied;
+        }
+        if (!approved(permission, tool.getToolName(), args, grant)) {
+            String reason = "执行页面草稿动作前需要用户确认";
+            ApprovalRequest request = approvalService.createTrustedPageDraft(
+                    trace, agent, config, tool, input, args, reason, identity, verifiedPin);
+            PolicyDecision required = new PolicyDecision(false, true, "REQUIRE_CONFIRMATION", reason,
+                    request.interactionId(), request.uiRequest());
+            trace(required, trace, agent, input, tool, metadata, identity);
+            return required;
+        }
+        try {
+            if (grant.approvedPagePin() == null || grant.approvedPagePin().isEmpty()
+                    || !objectMapper.readTree(objectMapper.writeValueAsString(grant.approvedPagePin()))
+                            .equals(objectMapper.readTree(objectMapper.writeValueAsString(verifiedPin)))) {
+                denied = deny("Page draft declaration changed after confirmation");
+                trace(denied, trace, agent, input, tool, metadata, identity);
+                return denied;
+            }
+        } catch (Exception invalid) {
+            denied = deny("Page draft declaration cannot be verified");
+            trace(denied, trace, agent, input, tool, metadata, identity);
+            return denied;
+        }
+        PolicyDecision allowed = new PolicyDecision(true, false, "ALLOW", "Confirmed page draft declaration matched", null, null);
+        trace(allowed, trace, agent, input, tool, metadata, identity);
         return allowed;
     }
 
@@ -228,8 +285,8 @@ public class SupervisorToolPolicyService {
         String deniedReason = null;
         if (binding == null || !parsedPolicy.valid()) {
             deniedReason = "Supervisor A2A policy configuration is invalid";
-        } else if (!"ALLOW_LIST".equalsIgnoreCase(config.getToolCatalogMode())) {
-            deniedReason = "Supervisor toolCatalogMode must be ALLOW_LIST";
+        } else if (!com.enterprise.ai.runtime.agent.RuntimeAgentToolCatalogMode.supported(config.getToolCatalogMode())) {
+            deniedReason = "Supervisor toolCatalogMode is not supported";
         } else if (!Boolean.TRUE.equals(binding.getEnabled())) {
             deniedReason = "A2A remote Agent tool is disabled in the active Agent configuration";
         } else if (!Set.of("READ", "WRITE", "IRREVERSIBLE").contains(riskLevel)) {
@@ -313,8 +370,8 @@ public class SupervisorToolPolicyService {
             return deny("Supervisor policy configuration is invalid");
         }
         Map<String, Object> policy = parsedPolicy.values();
-        if (!"ALLOW_LIST".equalsIgnoreCase(config.getToolCatalogMode())) {
-            return deny("Supervisor toolCatalogMode must be ALLOW_LIST");
+        if (!com.enterprise.ai.runtime.agent.RuntimeAgentToolCatalogMode.supported(config.getToolCatalogMode())) {
+            return deny("Supervisor toolCatalogMode is not supported");
         }
         if (!Boolean.TRUE.equals(tool.getEnabled())) {
             return deny("Workflow tool is disabled in the active Agent configuration");
@@ -468,7 +525,8 @@ public class SupervisorToolPolicyService {
         }
         for (String clause : clauses) {
             if (!StringUtils.hasText(clause) || NEGATED_CLAUSE.matcher(clause).find()
-                    || HYPOTHETICAL_CLAUSE.matcher(clause).find()) continue;
+                    || HYPOTHETICAL_CLAUSE.matcher(clause).find()
+                    || PAGE_ADVICE_CLAUSE.matcher(clause).find()) continue;
             if (EXPLICIT_PAGE_INTENT.matcher(clause).find()) return true;
             if (!StringUtils.hasText(contextText(input, "pageKey"))) continue;
             if (PAGE_CONTROL.matcher(clause).find() && PAGE_CONTROL_OPERATION.matcher(clause).find()) return true;

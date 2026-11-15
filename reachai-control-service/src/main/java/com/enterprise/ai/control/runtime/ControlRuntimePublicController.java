@@ -60,6 +60,13 @@ public class ControlRuntimePublicController {
     private RuntimePageAssistantAttachmentGateway pageAssistantAttachmentGateway;
     private ControlPageAssistantSmokeGateway pageAssistantSmokeGateway;
 
+    private com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService employeeProtocol;
+
+    @Autowired(required = false)
+    void setEmployeeProtocol(com.enterprise.ai.control.mcp.application.employee.McpEmployeeProtocolService service) {
+        this.employeeProtocol = service;
+    }
+
     @Autowired
     void setPageAssistantSmokeGateway(ControlPageAssistantSmokeGateway gateway) {
         this.pageAssistantSmokeGateway = gateway;
@@ -1246,6 +1253,253 @@ public class ControlRuntimePublicController {
         runtimeBody.put("modelInstanceId", normalizedText(body == null ? null : body.get("modelInstanceId")));
         runtimeBody.put("publishedBy", normalizedText(body == null ? null : body.get("publishedBy")));
         return runtimeProxyClient.attachKnowledgeQaWorkflow(agentId, runtimeBody);
+    }
+
+    /**
+     * Reasoning → fixed flow. Requests this Agent keeps answering by reasoning to one read-only
+     * capability; a person can turn one into a direct-flow Workflow draft and then enable it.
+     */
+    @GetMapping("/api/agents/{agentId}/learned-flows")
+    public ResponseEntity<Object> listLearnedFlows(@PathVariable String agentId,
+                                                   @RequestParam(required = false) Integer days) {
+        requireLearnedFlowAccess(agentId, PlatformPermissions.AGENT_READ, null);
+        return runtimeProxyClient.listLearnedFlows(agentId, days);
+    }
+
+    /** 待确认流程：所有助手里重复出现、还没变成流程的只读请求。只返回当前用户能看的业务系统。 */
+    @GetMapping("/api/learned-flows/pending")
+    public ResponseEntity<Object> listPendingLearnedFlows(@RequestParam(required = false) String projectCode,
+                                                          @RequestParam(required = false) Integer days) {
+        String code = normalizedText(projectCode);
+        PlatformAuthenticatedSession session = code == null
+                ? requireRuntimePermission(PlatformPermissions.AGENT_READ)
+                : requireRuntimeProject(PlatformPermissions.AGENT_READ, null, code);
+        ResponseEntity<Object> response = runtimeProxyClient.listPendingLearnedFlows(code, days);
+        if (runtimeManagementAccess == null || response == null || !(response.getBody() instanceof Collection<?> rows)) {
+            return response;
+        }
+        List<Object> visible = new ArrayList<>();
+        for (Object row : rows) {
+            String rowProject = row instanceof Map<?, ?> map ? normalizedText(map.get("projectCode")) : null;
+            if (runtimeManagementAccess.allowsProject(session, PlatformPermissions.AGENT_READ, rowProject)) {
+                visible.add(row);
+            }
+        }
+        return ResponseEntity.status(response.getStatusCode()).body(visible);
+    }
+
+    @PostMapping("/api/agents/{agentId}/learned-flows/draft")
+    public ResponseEntity<Object> draftLearnedFlow(@PathVariable String agentId,
+                                                   @RequestBody Map<String, Object> body) {
+        requireLearnedFlowAccess(agentId, PlatformPermissions.AGENT_WRITE, PlatformPermissions.WORKFLOW_WRITE);
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("sourceRef", normalizedText(body == null ? null : body.get("sourceRef")));
+        return runtimeProxyClient.draftLearnedFlow(agentId, runtimeBody);
+    }
+
+    /** The person's confirmation: publishes the flow and the Agent with it, so it needs both publish rights. */
+    @PostMapping("/api/agents/{agentId}/learned-flows/enable")
+    public ResponseEntity<Object> enableLearnedFlow(@PathVariable String agentId,
+                                                    @RequestBody Map<String, Object> body) {
+        requireLearnedFlowAccess(agentId, PlatformPermissions.AGENT_PUBLISH, PlatformPermissions.WORKFLOW_PUBLISH);
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("sourceRef", normalizedText(body == null ? null : body.get("sourceRef")));
+        runtimeBody.put("publishedBy", normalizedText(body == null ? null : body.get("publishedBy")));
+        return runtimeProxyClient.enableLearnedFlow(agentId, runtimeBody);
+    }
+
+    /**
+     * Wraps accepted HTTP APIs of one project as single-call Workflows (optionally published) so they can
+     * be added to the employee publication and used by the assistant.
+     */
+    @PostMapping("/api/workflows/http-api-flows")
+    public ResponseEntity<Object> generateHttpApiFlows(@RequestBody Map<String, Object> body) {
+        Map<String, Object> safeBody = body == null ? Map.of() : body;
+        Long projectId = safeBody.get("projectId") instanceof Number number ? number.longValue() : null;
+        String projectCode = normalizedText(safeBody.get("projectCode"));
+        boolean publish = Boolean.TRUE.equals(safeBody.get("publish"));
+        PlatformAuthenticatedSession session = requireRuntimeProject(PlatformPermissions.WORKFLOW_WRITE, projectId, projectCode);
+        if (session == null || session.user() == null || !StringUtils.hasText(session.user().getUsername())) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "platform session is required");
+        }
+        if (publish) {
+            requireRuntimeProject(PlatformPermissions.WORKFLOW_PUBLISH, projectId, projectCode);
+        }
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("projectId", projectId);
+        runtimeBody.put("projectCode", projectCode);
+        runtimeBody.put("apis", safeBody.get("apis"));
+        runtimeBody.put("publish", publish);
+        runtimeBody.put("publishedBy", session.user().getUsername().trim());
+        return runtimeProxyClient.generateHttpApiFlows(runtimeBody);
+    }
+
+    /**
+     * 每个业务系统的自动评测汇总：最近几次的通过率、耗时和最近一次没通过的问题。只返回当前用户能评测的系统。
+     */
+    @GetMapping("/api/runtime/project-evals")
+    public ResponseEntity<Map<String, Object>> projectEvalSummary(@RequestParam(required = false) String projectCode) {
+        String code = normalizedText(projectCode);
+        PlatformAuthenticatedSession session = code == null
+                ? requireRuntimePermission(PlatformPermissions.AGENT_EVALUATE)
+                : requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, code);
+        ResponseEntity<Map<String, Object>> response = runtimeProxyClient.projectEvalSummary(code);
+        if (runtimeManagementAccess == null || response == null || response.getBody() == null
+                || !(response.getBody().get("projects") instanceof Collection<?> rows)) {
+            return response;
+        }
+        List<Object> visible = new ArrayList<>();
+        for (Object row : rows) {
+            Object setting = row instanceof Map<?, ?> map ? map.get("setting") : null;
+            String rowProject = setting instanceof Map<?, ?> values ? normalizedText(values.get("projectCode")) : null;
+            if (runtimeManagementAccess.allowsProject(session, PlatformPermissions.AGENT_EVALUATE, rowProject)) {
+                visible.add(row);
+            }
+        }
+        Map<String, Object> body = new LinkedHashMap<>(response.getBody());
+        body.put("projects", visible);
+        return ResponseEntity.status(response.getStatusCode()).body(body);
+    }
+
+    @GetMapping("/api/runtime/project-evals/{projectCode}/setting")
+    public ResponseEntity<Object> projectEvalSetting(@PathVariable String projectCode) {
+        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, projectCode);
+        return runtimeProxyClient.projectEvalSetting(projectCode);
+    }
+
+    /** 选择评测的助手和只读评测账号要能改助手，也要能评测。 */
+    @PutMapping("/api/runtime/project-evals/{projectCode}/setting")
+    public ResponseEntity<Object> saveProjectEvalSetting(HttpServletRequest request, @PathVariable String projectCode,
+                                                         @RequestBody Map<String, Object> body) {
+        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, projectCode);
+        requireRuntimeProject(PlatformPermissions.AGENT_WRITE, null, projectCode);
+        Map<String, Object> safe = new LinkedHashMap<>();
+        Map<String, Object> source = body == null ? Map.of() : body;
+        if (Boolean.TRUE.equals(source.get("autoEnableReadonlyFlows"))) {
+            // Auto-enabling publishes flows and the assistant with them, the same rights as enabling one by hand.
+            requireRuntimeProject(PlatformPermissions.AGENT_PUBLISH, null, projectCode);
+            requireRuntimeProject(PlatformPermissions.WORKFLOW_PUBLISH, null, projectCode);
+        }
+        for (String field : List.of("agentId", "evalUserId", "tenantId", "enabled", "runHour", "questionCount",
+                "autoEnableReadonlyFlows")) {
+            if (source.containsKey(field)) safe.put(field, source.get(field));
+        }
+        safe.put("updatedBy", consoleActor(request));
+        return runtimeProxyClient.saveProjectEvalSetting(projectCode, safe);
+    }
+
+    @PostMapping("/api/runtime/project-evals/{projectCode}/questions")
+    public ResponseEntity<Object> generateProjectEvalQuestions(HttpServletRequest request,
+                                                               @PathVariable String projectCode) {
+        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, projectCode);
+        return runtimeProxyClient.generateProjectEvalQuestions(projectCode, Map.of("actor", consoleActor(request)));
+    }
+
+    @PostMapping("/api/runtime/project-evals/{projectCode}/runs")
+    public ResponseEntity<Object> runProjectEval(HttpServletRequest request, @PathVariable String projectCode) {
+        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, projectCode);
+        return runtimeProxyClient.runProjectEval(projectCode, Map.of("actor", consoleActor(request)));
+    }
+
+    /**
+     * 给没有员工账号同步过来的系统（只通过 HTTP API 接入的系统）创建平台评测账号，并设为这个系统的评测账号。
+     * 这个账号只能调用系统发布给员工的只读能力。
+     */
+    @PostMapping("/api/runtime/project-evals/{projectCode}/platform-account")
+    public ResponseEntity<Object> createProjectEvalPlatformAccount(HttpServletRequest request,
+                                                                   @PathVariable String projectCode) {
+        requireRuntimeProject(PlatformPermissions.AGENT_EVALUATE, null, projectCode);
+        requireRuntimeProject(PlatformPermissions.AGENT_WRITE, null, projectCode);
+        if (employeeProtocol == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "员工能力服务不可用");
+        }
+        String account;
+        try {
+            account = employeeProtocol.ensurePlatformEvalAccount("default", projectCode);
+        } catch (com.enterprise.ai.control.mcp.domain.McpDomainException refused) {
+            return ResponseEntity.badRequest().body(Map.of("code", refused.code(), "message", refused.getMessage()));
+        }
+        Map<String, Object> safe = new LinkedHashMap<>();
+        safe.put("evalUserId", account);
+        safe.put("tenantId", "");
+        safe.put("updatedBy", consoleActor(request));
+        return runtimeProxyClient.saveProjectEvalSetting(projectCode, safe);
+    }
+
+    /** Intranet hosts the platform may call. Opening the internal network is a platform administrator's decision. */
+    @GetMapping("/api/platform/http-egress-hosts")
+    public ResponseEntity<Object> listHttpEgressHosts() {
+        requireRuntimePermission(PlatformPermissions.PLATFORM_ADMIN);
+        return runtimeProxyClient.listHttpEgressHosts();
+    }
+
+    @PostMapping("/api/platform/http-egress-hosts")
+    public ResponseEntity<Object> addHttpEgressHost(HttpServletRequest request, @RequestBody Map<String, Object> body) {
+        requireRuntimePermission(PlatformPermissions.PLATFORM_ADMIN);
+        Map<String, Object> safe = new LinkedHashMap<>();
+        safe.put("host", body == null ? null : body.get("host"));
+        safe.put("note", body == null ? null : body.get("note"));
+        safe.put("createdBy", consoleActor(request));
+        return runtimeProxyClient.addHttpEgressHost(safe);
+    }
+
+    @DeleteMapping("/api/platform/http-egress-hosts/{id}")
+    public ResponseEntity<Object> removeHttpEgressHost(@PathVariable Long id) {
+        requireRuntimePermission(PlatformPermissions.PLATFORM_ADMIN);
+        return runtimeProxyClient.removeHttpEgressHost(id);
+    }
+
+    private String consoleActor(HttpServletRequest request) {
+        Object candidate = request == null ? null
+                : request.getAttribute(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE);
+        if (!(candidate instanceof PlatformAuthenticatedSession session) || session.user() == null) {
+            return "platform:unknown";
+        }
+        PlatformPrincipal user = session.user();
+        return "platform:" + user.getId() + ":" + (StringUtils.hasText(user.getUsername())
+                ? user.getUsername().trim() : "unknown");
+    }
+
+    /** 凭据更新后，让这个系统已发布的只读流程用上新凭据；写入流程仍需重新发布。 */
+    @PostMapping("/api/workflows/http-api-flows/credential-refresh")
+    public ResponseEntity<Object> refreshHttpApiFlowCredential(@RequestBody Map<String, Object> body) {
+        Map<String, Object> safeBody = body == null ? Map.of() : body;
+        Long projectId = safeBody.get("projectId") instanceof Number number ? number.longValue() : null;
+        String projectCode = normalizedText(safeBody.get("projectCode"));
+        if (projectId == null || projectCode == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "projectId 和 projectCode 必填");
+        }
+        requireRuntimeProject(PlatformPermissions.WORKFLOW_CREDENTIAL_MANAGE, projectId, projectCode);
+        requireRuntimeProject(PlatformPermissions.WORKFLOW_PUBLISH, projectId, projectCode);
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("projectId", projectId);
+        runtimeBody.put("projectCode", projectCode);
+        return runtimeProxyClient.refreshHttpApiFlowCredential(runtimeBody);
+    }
+
+    /** 用这个系统助手的模型给 API 起中文名，只返回建议，不创建任何东西。 */
+    @PostMapping("/api/workflows/http-api-flows/names")
+    public ResponseEntity<Object> suggestHttpApiFlowNames(@RequestBody Map<String, Object> body) {
+        Map<String, Object> safeBody = body == null ? Map.of() : body;
+        Long projectId = safeBody.get("projectId") instanceof Number number ? number.longValue() : null;
+        String projectCode = normalizedText(safeBody.get("projectCode"));
+        requireRuntimeProject(PlatformPermissions.WORKFLOW_WRITE, projectId, projectCode);
+        Map<String, Object> runtimeBody = new LinkedHashMap<>();
+        runtimeBody.put("projectCode", projectCode);
+        runtimeBody.put("apiIds", safeBody.get("apiIds"));
+        return runtimeProxyClient.suggestHttpApiFlowNames(runtimeBody);
+    }
+
+    private void requireLearnedFlowAccess(String agentId, String agentPermission, String workflowPermission) {
+        if (runtimeManagementAccess == null) {
+            return;
+        }
+        PlatformAuthenticatedSession session = requireRuntimePermission(agentPermission);
+        ResponseEntity<Object> agent = runtimeProxyClient.getAgent(agentId);
+        requireRuntimeResponseProject(session, agentPermission, agent);
+        if (workflowPermission != null) {
+            requireRuntimeResponseProject(session, workflowPermission, agent);
+        }
     }
 
     /**

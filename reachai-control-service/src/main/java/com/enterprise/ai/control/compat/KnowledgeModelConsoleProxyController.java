@@ -58,6 +58,7 @@ public class KnowledgeModelConsoleProxyController {
     private static final java.util.regex.Pattern MODEL_CONNECTION_CREATE_PATH = java.util.regex.Pattern.compile("/model/instances/[^/]+/connection-models");
     private static final java.util.regex.Pattern MODEL_FROM_TEMPLATE_PATH = java.util.regex.Pattern.compile("/model/instances/from-template/[^/]+");
     private static final java.util.regex.Pattern KNOWLEDGE_BASE_PATH = java.util.regex.Pattern.compile("/ai/knowledge/base/([^/]+)");
+    private static final java.util.regex.Pattern KNOWLEDGE_EXTERNAL_PATH = java.util.regex.Pattern.compile("/ai/knowledge/base/([^/]+)/external");
     private static final java.util.regex.Pattern KNOWLEDGE_FILE_PATH = java.util.regex.Pattern.compile("/ai/file/([^/]+)");
     private static final java.util.Set<String> RETRIEVAL_FIELDS = java.util.Set.of("query", "knowledgeBaseCodes", "topK", "scoreThreshold",
             "searchMode", "rerankEnabled", "vectorWeight", "keywordWeight", "recordHit");
@@ -277,6 +278,9 @@ public class KnowledgeModelConsoleProxyController {
         String method = requestMethod.toUpperCase(java.util.Locale.ROOT);
         try {
             if ("POST".equals(method) && "/ai/knowledge/base".equals(path)) return knowledgeCreateDenied(session, body);
+            var externalBase = KNOWLEDGE_EXTERNAL_PATH.matcher(path);
+            if ("PUT".equals(method) && externalBase.matches()) return scopeDenied(chunkScope.baseForWrite(session, decode(externalBase.group(1))));
+            if ("POST".equals(method) && "/ai/knowledge/external/test".equals(path)) return externalTestDenied(session, body);
             var base = KNOWLEDGE_BASE_PATH.matcher(path);
             if ("DELETE".equals(method) && base.matches()) return scopeDenied(chunkScope.baseForWrite(session, decode(base.group(1))));
             var file = KNOWLEDGE_FILE_PATH.matcher(path);
@@ -300,6 +304,18 @@ public class KnowledgeModelConsoleProxyController {
         if (!List.of("SHARED", "WORKSPACE", "PROJECT").contains(scope) || "PROJECT".equals(scope) && project == null) return HttpStatus.BAD_REQUEST;
         return session.hasResourcePermission(com.enterprise.ai.control.identity.PlatformPermissions.KNOWLEDGE_WRITE, scope, workspace,
                 "PROJECT".equals(scope) ? project : null) ? null : HttpStatus.FORBIDDEN;
+    }
+
+    /**
+     * Testing an external connection reaches out with a key: re-using the saved key of an existing base needs knowledge
+     * write on that base; a fresh draft needs the same permission as creating a base in the scope it names.
+     */
+    private HttpStatus externalTestDenied(PlatformAuthenticatedSession session, byte[] body) {
+        var request = readObject(body);
+        if (request == null) return HttpStatus.BAD_REQUEST;
+        String kbCode = textOr(request.get("kbCode"), null);
+        if (kbCode != null) return scopeDenied(chunkScope.baseForWrite(session, kbCode));
+        return knowledgeCreateDenied(session, body);
     }
 
     /** A retrieval test reads every named knowledge base, with only the options the console sends. */

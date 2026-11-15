@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { embedChatDevMiddleware } from './embed-chat-dev-middleware.mjs'
+import { browserBundleVersion } from './embed-chat-browser-bundle.mjs'
 
 test('development SDK route serves browser assets and rejects missing or unsafe paths', async () => {
   const root = await mkdtemp(join(tmpdir(), 'reachai-sdk-route-'))
@@ -25,6 +26,17 @@ test('development SDK route serves browser assets and rejects missing or unsafe 
     assert.equal(style.status, 200)
     assert.match(style.headers.get('content-type'), /text\/css/)
     assert.equal((await fetch(`${base}/sdk/embed-chat/assets/picture.webp`)).status, 200)
+    const version = browserBundleVersion(root)
+    const manifest = await fetch(`${base}/sdk/embed-chat/manifest.json`)
+    assert.deepEqual(await manifest.json(), { version })
+    assert.equal(manifest.headers.get('access-control-allow-origin'), '*')
+    assert.equal((await fetch(`${base}/sdk/embed-chat/versions/${version}/style.css`)).status, 200)
+    assert.equal((await fetch(`${base}/sdk/embed-chat/versions/${version}/reachai-chat-embed.umd.js`)).status, 200)
+    assert.equal((await fetch(`${base}/sdk/embed-chat/versions/${version}/assets/picture.webp`)).status, 200)
+    assert.equal((await fetch(`${base}/sdk/embed-chat/versions/${'0'.repeat(64)}/style.css`)).status, 404)
+    await writeFile(join(root, 'assets', 'picture.webp'), 'updated image')
+    assert.notEqual(browserBundleVersion(root), version)
+    assert.equal((await fetch(`${base}/sdk/embed-chat/versions/${version}/style.css`)).status, 404)
     assert.equal((await fetch(`${base}/sdk/embed-chat/missing.js`)).status, 404)
     assert.equal((await fetch(`${base}/sdk/embed-chat/%2e%2e%2fsecret.webp`)).status, 404)
     assert.equal((await fetch(`${base}/sdk/embed-chat/style.css`, { method: 'POST' })).status, 405)

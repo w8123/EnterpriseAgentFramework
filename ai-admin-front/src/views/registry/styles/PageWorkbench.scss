@@ -8726,7 +8726,9 @@
     padding: 14px;
   }
 
-  .page-detail-stage-heading {
+  .page-detail-stage-heading,
+  .page-detail-stage-heading.is-retarget,
+  .page-detail-stage-heading.is-locked {
     min-height: 0;
     flex-basis: auto;
     align-items: flex-start;

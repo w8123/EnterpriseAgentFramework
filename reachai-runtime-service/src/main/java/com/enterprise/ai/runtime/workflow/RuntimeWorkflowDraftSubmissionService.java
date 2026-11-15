@@ -92,6 +92,18 @@ public class RuntimeWorkflowDraftSubmissionService {
         return applied.value();
     }
 
+    /** A missing receipt is inconclusive while a write may still be in flight. */
+    @Transactional(readOnly = true)
+    public java.util.Optional<RuntimeWorkflowDefinitionEntity> findApplied(Scope scope) {
+        Objects.requireNonNull(scope, "scope");
+        String workflowId = digest(scope).substring(0, 32);
+        if (submissions.latestApplied(workflowId) == null) return java.util.Optional.empty();
+        return workflows.findById(workflowId).filter(workflow -> {
+            requireScope(workflow, scope);
+            return true;
+        });
+    }
+
     private void requireScope(RuntimeWorkflowDefinitionEntity workflow, Scope scope) {
         if (!Objects.equals(workflow.getProjectId(), scope.projectId())
                 || !scope.projectCode().equalsIgnoreCase(workflow.getProjectCode())) {

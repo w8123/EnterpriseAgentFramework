@@ -84,7 +84,7 @@ public class RuntimeHttpApiConsoleGateway {
                 if (status == 409 && java.util.Set.of("RUNTIME_HTTP_EGRESS_SCHEME_DENIED",
                         "RUNTIME_HTTP_EGRESS_HOST_DENIED", "RUNTIME_HTTP_EGRESS_DNS_DENIED",
                         "RUNTIME_HTTP_EGRESS_REDIRECT_DENIED").contains(code)) {
-                    message = "服务地址被 HTTP 出站策略拒绝，请由管理员核对目标主机白名单；连接未保存";
+                    message = "服务地址是内网或本机地址，被出站策略拒绝，连接未保存。请平台管理员在「接口鉴权」里点「内网地址白名单」，把这个主机加进去，再保存一次";
                 }
                 return ResponseEntity.status(status).body(Map.of("success", false, "code", code,
                         "message", message));

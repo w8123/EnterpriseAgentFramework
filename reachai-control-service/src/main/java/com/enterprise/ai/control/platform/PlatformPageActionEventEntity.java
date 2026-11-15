@@ -22,6 +22,9 @@ public class PlatformPageActionEventEntity {
     private String parentRequestId;
     private String nodeId;
     private String actionKey;
+    private String actionContractHash;
+    private Long effectApprovalId;
+    private Long effectApprovalRevision;
     private String title;
     private String argsJson;
     private String targetPageInstanceId;

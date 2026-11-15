@@ -13,6 +13,8 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 import static com.enterprise.ai.common.util.Texts.firstText;
@@ -48,6 +50,34 @@ public class RuntimeEvalTaskWorker {
     @Value("${reachai.runtime.eval.worker-batch-size:2}")
     private int batchSize = 2;
 
+    @Value("${reachai.runtime.eval.worker-concurrency:3}")
+    private int concurrency = 1;
+
+    private volatile java.util.concurrent.ExecutorService pool;
+
+    private java.util.concurrent.ExecutorService pool() {
+        java.util.concurrent.ExecutorService current = pool;
+        if (current == null) {
+            synchronized (this) {
+                if (pool == null) {
+                    java.util.concurrent.atomic.AtomicInteger number = new java.util.concurrent.atomic.AtomicInteger();
+                    pool = java.util.concurrent.Executors.newFixedThreadPool(8, task -> {
+                        Thread thread = new Thread(task, "eval-task-" + number.incrementAndGet());
+                        thread.setDaemon(true);
+                        return thread;
+                    });
+                }
+                current = pool;
+            }
+        }
+        return current;
+    }
+
+    @jakarta.annotation.PreDestroy
+    void shutdown() {
+        if (pool != null) pool.shutdownNow();
+    }
+
     @Value("${reachai.runtime.eval.worker-lease-seconds:600}")
     private int leaseSeconds = 600;
 
@@ -57,10 +87,31 @@ public class RuntimeEvalTaskWorker {
     public void processAvailableTasks() {
         int processed = 0;
         try {
-            for (; processed < Math.max(1, Math.min(20, batchSize)); processed++) {
-                ClaimedTask claimed = claimNext();
-                if (claimed == null) break;
-                process(claimed);
+            // Questions wait on the model, not on this machine, so a few run side by side: a dozen
+            // questions take a few minutes instead of ten or more.
+            int parallel = Math.max(1, Math.min(8, concurrency));
+            for (; processed < Math.max(1, Math.min(20, Math.max(batchSize, parallel))); ) {
+                List<ClaimedTask> round = new ArrayList<>();
+                while (round.size() < parallel) {
+                    ClaimedTask claimed = claimNext();
+                    if (claimed == null) break;
+                    round.add(claimed);
+                }
+                if (round.isEmpty()) break;
+                processed += round.size();
+                if (round.size() == 1) {
+                    process(round.get(0));
+                    continue;
+                }
+                List<java.util.concurrent.Future<?>> running = new ArrayList<>();
+                for (ClaimedTask claimed : round) running.add(pool().submit(() -> process(claimed)));
+                for (java.util.concurrent.Future<?> one : running) {
+                    try {
+                        one.get();
+                    } catch (java.util.concurrent.ExecutionException failed) {
+                        log.error("Eval task failed outside its own handling: {}", safeMessage(failed.getCause() instanceof Exception cause ? cause : failed));
+                    }
+                }
             }
             experimentService.refreshOpenExperiments(20);
         } catch (Exception ex) {

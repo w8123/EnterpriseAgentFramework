@@ -122,11 +122,11 @@ export function graphConfigToNodeData(
     const pageActionConfig = {
       projectCode: stringValue(config.projectCode),
       pageKey: stringValue(config.pageKey),
-      routePattern: stringValue(config.routePattern),
+      routePattern: stringValue(config.routePattern) || stringValue(config.route),
       actionKey: stringValue(config.actionKey),
       title: stringValue(config.title) || label,
       confirm: config.confirm === true,
-      args: stringRecord(config.args),
+      args: stringRecord(config.args || config.inputMapping),
       outputAlias,
       metadata: objectRecordValue(config.metadata),
     } satisfies PageActionNodeConfig
@@ -249,6 +249,9 @@ export function graphConfigToNodeData(
       ...common,
       answerConfig: {
         template,
+        ...(config.directAnswer === true || objectRecordValue(config.answerConfig).directAnswer === true
+          ? { directAnswer: true }
+          : {}),
       },
       template,
       writeToAnswer: true,
@@ -340,6 +343,18 @@ export function graphConfigToNodeData(
         approvers: arrayValue(config.approvers),
         timeoutSeconds: numberValue(config.timeoutSeconds, 3600),
         defaultRoute: stringValue(config.defaultRoute) || 'approved',
+        approverMode: (stringValue(config.approverMode).toUpperCase() === 'ASSIGNED' ? 'ASSIGNED' : 'RUNNER') as 'ASSIGNED' | 'RUNNER',
+        approverUsers: (Array.isArray(config.approverUsers) ? config.approverUsers : [])
+          .map((item: unknown) => {
+            if (item && typeof item === 'object') {
+              const record = item as Record<string, unknown>
+              return { username: stringValue(record.username), displayName: stringValue(record.displayName) || undefined }
+            }
+            return { username: stringValue(item), displayName: undefined }
+          })
+          .filter((item) => item.username),
+        approverRoles: arrayValue(config.approverRoles).map((role) => stringValue(role)).filter(Boolean),
+        allowRunnerApprove: config.allowRunnerApprove === true,
       },
     }
   }

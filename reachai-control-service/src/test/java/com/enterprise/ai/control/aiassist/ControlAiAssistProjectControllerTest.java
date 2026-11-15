@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
@@ -31,6 +32,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ControlAiAssistProjectControllerTest {
+
+    @Test
+    void rejectsShellMetacharactersInJavaArtifactCommandUrls() {
+        assertThrows(IllegalArgumentException.class,
+                () -> ControlJavaSdkArtifactSupport.mavenArtifacts("https://example.test/$(touch-payload)"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ControlJavaSdkArtifactSupport.mavenArtifacts("https://example.test/%PATH%"));
+        assertEquals(2, ControlJavaSdkArtifactSupport.mavenArtifacts("http://localhost:18603").size());
+        assertEquals(2, ControlJavaSdkArtifactSupport.mavenArtifacts(null).size());
+    }
 
     @Test
     void explicitCsharpManifestDoesNotExposeMavenDependenciesAsItsSdk() {
@@ -139,7 +150,7 @@ class ControlAiAssistProjectControllerTest {
         assertEquals(64, response.getBody().sdkArtifacts().get(0).integritySha256().length());
         assertEquals(64, response.getBody().sdkArtifacts().get(0).pomIntegritySha256().length());
         assertTrue(response.getBody().sdkArtifacts().get(0).installCommandTemplate()
-                .contains("scripts/install-java-sdk.ps1"));
+                .contains("scripts/install-java-sdk.mjs"));
         assertEquals("@reachai/embed-chat@1.0.0-SNAPSHOT",
                 response.getBody().sdkArtifacts().get(2).coordinates());
         assertEquals("platform-artifact-tarball",

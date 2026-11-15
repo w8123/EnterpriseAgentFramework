@@ -12,6 +12,8 @@ Never place `appSecret`, project `aiCodingKey`, task token, or activation code i
 
 Project-level `aiCodingKey` and `provisionAgentUrl` belong to independently authenticated AI coding tools, local shell scripts, or server-side onboarding only. A PROJECT_ONBOARDING task uses the authenticated platform MCP connection and its bound task tools; browser runtime must not call onboarding manifests, provisioning endpoints, or task protocol endpoints.
 
+A one-use MCP claim code may be given directly to the authorized AI coding client so it can invoke the task claim tool. Do not echo, log, persist, or include that code in task events, artifacts, or reports. It is distinct from a legacy handoff activation code.
+
 Use the manifest field `sdk.config.appSecretEnv` and write configuration like:
 
 ```yaml

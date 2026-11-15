@@ -20,6 +20,66 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class PlatformPageBridgeCommandServiceTest {
 
     @Test
+    void documentNavigationWaitsForAReadyBoundTargetBeforeAnyPageAction() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setAppId("app"); session.setProjectCode("erp"); session.setAgentId("bot");
+        session.setPageKey("orders"); session.setPageInstanceId("source"); session.setStatus("ACTIVE");
+        session.setBridgeActionsJson("[\"__reachai.document-navigation.v1\"]");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+        when(events.insert(any())).thenAnswer(invocation -> {
+            PlatformPageActionEventEntity event = invocation.getArgument(0);
+            event.setId((long) created.size() + 1); created.add(event); return 1;
+        });
+        var catalog = activeCatalog();
+        when(catalog.findAction("erp", "products", "change").orElseThrow().confirmRequired()).thenReturn(true);
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog);
+        var waiting = service.execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), false,
+                2_000, 30_000, "EMBED_SESSION", "tenant-a", "user-a", "a".repeat(32), null, "wfi_" + "b".repeat(32)));
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_REQUIRED", waiting.code());
+        assertEquals(1, created.size());
+        var navigation = created.get(0);
+        assertEquals("NAVIGATE", navigation.getCommandType());
+        assertTrue(navigation.getConfirmRequired());
+        when(events.selectOne(any())).thenReturn(navigation);
+        var resume = new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), false,
+                2_000, 30_000, "EMBED_SESSION", "tenant-a", "user-a", null, navigation.getRequestId(), "wfi_" + "b".repeat(32));
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", service.execute(resume).code());
+        assertEquals(1, created.size());
+        navigation.setStatus("SUCCESS");
+        navigation.setResultJson("{\"data\":{\"ready\":true,\"pageKey\":\"products\",\"pageInstanceId\":\"target\",\"route\":\"/products\"}}");
+        session.setPageKey("products"); session.setPageInstanceId("target"); session.setRoute("/products");
+        navigation.setSessionId("EMBED-1");
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", service.execute(resume).code());
+        navigation.setSessionId("embed-1");
+        var wrongInteraction = new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "products", "/products", "change", Map.of(), false,
+                2_000, 30_000, "EMBED_SESSION", "tenant-a", "user-a", null, navigation.getRequestId(), "wfi_" + "c".repeat(32));
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", service.execute(wrongInteraction).code());
+        navigation.setRequestedAt(java.time.LocalDateTime.now().minusSeconds(121));
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", service.execute(resume).code());
+        navigation.setRequestedAt(java.time.LocalDateTime.now());
+        var declaration = catalog.findAction("erp", "products", "change").orElseThrow();
+        when(declaration.implementationRef()).thenReturn("different-build");
+        assertEquals("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", service.execute(resume).code());
+        assertEquals(1, created.size());
+        when(declaration.implementationRef()).thenReturn(null);
+        when(events.selectById(any())).thenAnswer(invocation -> {
+            var action = created.get(created.size() - 1); action.setStatus("USER_CANCELLED"); return action;
+        });
+        var result = service.execute(resume);
+        assertEquals("USER_CANCELLED", result.status());
+        assertEquals(2, created.size());
+        assertEquals("PAGE_ACTION", created.get(1).getCommandType());
+        assertTrue(created.get(1).getConfirmRequired());
+    }
+
+    @Test
     void legacyRuntimeRequestWithoutTraceRemainsReadable() throws Exception {
         var request = new ObjectMapper().readValue("""
                 {"sessionId":"s1","projectCode":"erp","agentId":"bot","targetPageKey":"orders",
@@ -99,6 +159,141 @@ class PlatformPageBridgeCommandServiceTest {
                 assertEquals("USER_CANCELLED", result.status());
             }
         }
+    }
+
+    @Test
+    void writeRiskRequiresConfirmationEvenWhenDeclarationAndGraphOmitIt() {
+        for (String risk : List.of("WRITE", "IRREVERSIBLE")) {
+            var sessions = mock(PlatformEmbedSessionMapper.class);
+            var events = mock(PlatformPageActionEventMapper.class);
+            var session = new PlatformEmbedSessionEntity();
+            session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+            session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+            session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+            when(sessions.selectOne(any())).thenReturn(session);
+            var catalog = activeCatalog();
+            when(catalog.findAction("erp", "orders", "change").orElseThrow().riskLevel()).thenReturn(risk);
+            var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+            when(events.insert(any())).thenAnswer(invocation -> {
+                var event = (PlatformPageActionEventEntity) invocation.getArgument(0);
+                created.add(event); event.setId(1L); event.setStatus("USER_CANCELLED"); return 1;
+            });
+            when(events.selectById(1L)).thenAnswer(invocation -> created.get(0));
+            new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog)
+                    .execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                            "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                            false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a"));
+            assertEquals(1, created.size());
+            assertEquals(Boolean.TRUE, created.get(0).getConfirmRequired(), risk);
+        }
+    }
+
+    @Test
+    void sdkReportedReadDoesNotSilentlyRemoveConfirmation() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var catalog = activeCatalog();
+        when(catalog.findAction("erp", "orders", "change").orElseThrow().sourceType()).thenReturn("SDK");
+        var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+        when(events.insert(any())).thenAnswer(invocation -> {
+            var event = (PlatformPageActionEventEntity) invocation.getArgument(0);
+            created.add(event); event.setId(1L); event.setStatus("USER_CANCELLED"); return 1;
+        });
+        when(events.selectById(1L)).thenAnswer(invocation -> created.get(0));
+        new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog)
+                .execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                        "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                        false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a"));
+        assertEquals(Boolean.TRUE, created.get(0).getConfirmRequired());
+    }
+
+    @Test
+    void missingOrUnknownRiskIsNotDispatched() {
+        for (String risk : java.util.Arrays.asList(null, "", "CUSTOM")) {
+            var sessions = mock(PlatformEmbedSessionMapper.class);
+            var events = mock(PlatformPageActionEventMapper.class);
+            var session = new PlatformEmbedSessionEntity();
+            session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+            session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+            session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+            when(sessions.selectOne(any())).thenReturn(session);
+            var catalog = activeCatalog();
+            when(catalog.findAction("erp", "orders", "change").orElseThrow().riskLevel()).thenReturn(risk);
+            var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog)
+                    .execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                            "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                            false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a"));
+            assertEquals("PAGE_BRIDGE_RISK_UNVERIFIED", result.code());
+            verifyNoInteractions(events);
+        }
+    }
+
+    @Test
+    void trustedDraftPinsReviewedEffectAndAlwaysRequiresConfirmation() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var catalog = activeCatalog();
+        var action = catalog.findAction("erp", "orders", "change").orElseThrow();
+        var page = catalog.findPageForAction(1L).orElseThrow();
+        String hash = PageActionContractFingerprint.of(action, page, new ObjectMapper());
+        var effects = mock(PageActionEffectReviewService.class);
+        var review = mock(PageActionEffectReviewService.ActiveApproval.class);
+        when(review.active()).thenReturn(true); when(review.effect()).thenReturn("PAGE_LOCAL_DRAFT");
+        when(review.approvalId()).thenReturn(7L); when(review.revision()).thenReturn(3L);
+        when(review.catalogHash()).thenReturn(hash);
+        when(effects.resolveApproved("erp", "orders", "change")).thenReturn(java.util.Optional.of(review));
+        var created = new java.util.ArrayList<PlatformPageActionEventEntity>();
+        when(events.insert(any())).thenAnswer(invocation -> {
+            var event = (PlatformPageActionEventEntity) invocation.getArgument(0);
+            created.add(event); event.setId(1L); event.setStatus("USER_CANCELLED"); return 1;
+        });
+        when(events.selectById(1L)).thenAnswer(invocation -> created.get(0));
+        var service = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog);
+        service.setEffectReviews(effects);
+        var request = new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of("nickname", "Alice"),
+                false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a", null, null, null, 7L, 3L, hash);
+        assertEquals("USER_CANCELLED", service.execute(request).status());
+        assertEquals(Boolean.TRUE, created.get(0).getConfirmRequired());
+        assertEquals(7L, created.get(0).getEffectApprovalId());
+        assertEquals(3L, created.get(0).getEffectApprovalRevision());
+        when(effects.resolveApproved("erp", "orders", "change")).thenReturn(java.util.Optional.empty());
+        assertEquals("PAGE_BRIDGE_EFFECT_UNVERIFIED", service.execute(request).code());
+        assertEquals(1, created.size());
+    }
+
+    @Test
+    void refusesDispatchWhenActionDeclarationChangesBetweenLookups() {
+        var sessions = mock(PlatformEmbedSessionMapper.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setTenantId("tenant-a"); session.setExternalUserId("user-a");
+        session.setProjectCode("erp"); session.setAgentId("bot"); session.setPageKey("orders");
+        session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(sessions.selectOne(any())).thenReturn(session);
+        var catalog = activeCatalog();
+        var original = catalog.findAction("erp", "orders", "change").orElseThrow();
+        var changed = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView.class);
+        when(changed.id()).thenReturn(1L); when(changed.pageId()).thenReturn(1L); when(changed.status()).thenReturn("ACTIVE");
+        when(changed.implementationRef()).thenReturn("new-build");
+        when(catalog.findAction("erp", "orders", "change"))
+                .thenReturn(java.util.Optional.of(original), java.util.Optional.of(changed));
+        var result = new PlatformPageBridgeCommandService(sessions, events, new ObjectMapper(), catalog)
+                .execute(new PlatformPageBridgeCommandService.PageBridgeExecutionRequest(
+                        "embed-1", "erp", "bot", "orders", "orders", "/orders", "change", Map.of(),
+                        false, 2_000, 2_000, "EMBED_SESSION", "tenant-a", "user-a"));
+        assertEquals("PAGE_BRIDGE_ACTION_CHANGED", result.code());
+        verifyNoInteractions(events);
     }
 
     @Test
@@ -483,6 +678,9 @@ class PlatformPageBridgeCommandServiceTest {
         var action = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView.class);
         var page = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView.class);
         when(action.id()).thenReturn(1L);
+        when(action.pageId()).thenReturn(1L); when(page.id()).thenReturn(1L);
+        when(action.riskLevel()).thenReturn("READ");
+        when(action.sourceType()).thenReturn("MANUAL");
         when(action.status()).thenReturn("ACTIVE");
         when(page.lifecycleStatus()).thenReturn("ACTIVE");
         when(catalog.findAction(any(), any(), any())).thenReturn(java.util.Optional.of(action));

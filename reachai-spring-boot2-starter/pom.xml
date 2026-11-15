@@ -17,6 +17,8 @@
     <properties>
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
+        <!-- Fixed timestamp makes the downloadable jar byte-for-byte reproducible, so the committed sha256 matches every build. -->
+        <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
         <spring-boot2.version>2.7.18</spring-boot2.version>
     </properties>
 

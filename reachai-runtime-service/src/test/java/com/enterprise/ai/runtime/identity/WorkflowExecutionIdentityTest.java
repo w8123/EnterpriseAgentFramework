@@ -36,6 +36,26 @@ import static org.mockito.Mockito.when;
 class WorkflowExecutionIdentityTest {
 
     @Test
+    void automationEmployeeKeepsTheUserOnlyForItsOwnBusinessSystemAndNeverFromASnapshot() {
+        var employee = WorkflowExecutionIdentity.fromAutomationEmployee("default", 41L, "orders", "staff01",
+                java.util.List.of("sales"));
+        assertTrue(employee.canResolveUserAcl());
+        var agent = WorkflowExecutionIdentity.forAgentExecution(41L, "orders", employee);
+        assertEquals(WorkflowExecutionIdentity.Source.AUTOMATION_EMPLOYEE, agent.source());
+        assertEquals("staff01", agent.userId());
+        assertEquals(java.util.List.of("sales"), agent.roles());
+        assertTrue(agent.canResolveUserAcl());
+        assertThrows(IllegalArgumentException.class,
+                () -> WorkflowExecutionIdentity.forAgentExecution(42L, "other", employee));
+        assertThrows(IllegalArgumentException.class, () -> WorkflowExecutionIdentity.fromAutomationEmployee(
+                "default", null, null, "staff01", java.util.List.of()));
+        var restored = WorkflowExecutionIdentity.restoreFromContextMap(Map.of(
+                "source", "AUTOMATION_EMPLOYEE", "projectCode", "orders", "userId", "staff01", "userTrusted", true));
+        assertEquals(WorkflowExecutionIdentity.Source.AUTOMATION, restored.source());
+        assertFalse(restored.canResolveUserAcl());
+    }
+
+    @Test
     void agentExecutionCannotOverwriteAnAttestedBusinessSystem() {
         var employee = WorkflowExecutionIdentity.fromMcpEmployee("tenant", 41L, "orders", "1");
         var matched = WorkflowExecutionIdentity.forAgentExecution(41L, "ORDERS", employee);

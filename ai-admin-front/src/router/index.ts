@@ -682,7 +682,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'me/ai-approvals',
         name: 'MyAiApprovals',
         component: () => import('@/views/me/AiApprovals.vue'),
-        meta: { breadcrumb: [{ title: '我的' }, { title: 'AI 操作审核' }], title: 'AI 操作审核', layoutMode: 'standard' },
+        meta: { breadcrumb: [{ title: '我的' }, { title: '待办与审核' }], title: '待办与审核', layoutMode: 'standard' },
       },
       {
         path: 'me/memories',

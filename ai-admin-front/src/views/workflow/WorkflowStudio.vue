@@ -11,6 +11,7 @@
       :save-badge-text="saveBadgeText"
       :read-only="studioReadOnly"
       :view-only="!canWriteWorkflow"
+      :trusted-page-draft="trustedPageDraftActive"
       :hide-run="!canDebugWorkflow"
       :debug-loading="debugLoading"
       :read-only-trial="hasReadOnlyTrialTarget"
@@ -28,13 +29,16 @@
       @publish="publishWorkflow"
     />
 
+    <el-alert v-if="trustedPageDraftActive" type="info" :closable="false" show-icon
+      title="受限页面草稿：节点与字段只读；如需改用其他动作，请从更多操作退出受限草稿后重新构建。保存后仍需校验、发布并绑定 Agent；该标识本身不授予执行权限。" />
+
     <div
       class="studio-body"
       :class="{ 'property-collapsed': propertyPanelCollapsed }"
       :style="{ '--studio-property-width': `${propertyPanelWidth}px` }"
     >
       <StudioPalette
-        :read-only="studioReadOnly"
+        :read-only="canvasReadOnly"
         @open-search="nodeSearchOpen = true"
       />
 
@@ -49,9 +53,9 @@
           :default-edge-options="defaultEdgeOptions"
           :connection-line-options="connectionLineOptions"
           :elevate-edges-on-select="true"
-          :delete-key-code="['Delete', 'Backspace']"
+          :delete-key-code="canvasReadOnly ? [] : ['Delete', 'Backspace']"
           :nodes-draggable="!studioReadOnly"
-          :nodes-connectable="!studioReadOnly"
+          :nodes-connectable="!canvasReadOnly"
           class="studio-canvas"
           @connect="onConnect"
           @node-click="onNodeClick"
@@ -78,7 +82,7 @@
 
         <StudioCanvasToolbar
           v-if="!canvasOperatorCollapsed"
-          :read-only="studioReadOnly"
+          :read-only="canvasReadOnly"
           :can-undo="canUndo"
           :can-redo="canRedo"
           :can-copy="canCopySelectedNode"
@@ -101,7 +105,7 @@
           v-if="canWriteWorkflow && !aiEditMinimized"
           v-model:instruction="aiEditInstruction"
           v-model:model-instance-id="aiModelInstanceId"
-          :read-only="studioReadOnly"
+          :read-only="canvasReadOnly"
           :loading="aiEditLoading"
           :debug-open="debugOpen"
           :preview="aiEditPreview"
@@ -173,8 +177,8 @@
         v-model:tab="propertyPanelTab"
         v-model:debug-message="nodeDebugMessage"
         v-model:debug-state-text="nodeDebugStateText"
-        :read-only="studioReadOnly"
-        :read-only-reason="canWriteWorkflow ? '' : '你的角色只能查看这个 Workflow，不能编辑或发布。'"
+        :read-only="canvasReadOnly"
+        :read-only-reason="trustedPageDraftActive ? '受限页面草稿的节点由已审核动作确定；如需修改，请重新构建。' : (canWriteWorkflow ? '' : '你的角色只能查看这个 Workflow，不能编辑或发布。')"
         :node="selectedNode"
         :edge="selectedEdge"
         :edge-label="edgeDisplayLabel(selectedEdge?.condition || selectedEdge?.label, selectedEdge) || ''"
@@ -422,7 +426,7 @@
       v-model:active-tab="activeTab"
       v-model:graph-spec-source="graphSpecSourceBuffer"
       v-model:canvas-source="canvasSourceBuffer"
-      :read-only="studioReadOnly"
+      :read-only="canvasReadOnly"
       :applying="jsonApplying"
       :changed="sourceBufferChanged"
       @reset="resetSourceBuffer"
@@ -472,7 +476,9 @@ import { useWorkflowStudioTraceProjection } from '@/views/workflow/composables/u
 import { debugWaitingOutput } from '@/views/workflow/composables/workflowStudioTrace'
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { previewPageActionEffect } from '@/api/pageActionEffectReview'
+import { buildTrustedPageDraft } from './trustedPageDraft'
 import {
   ArrowDown,
   ArrowRight,
@@ -768,6 +774,11 @@ const studioReadOnly = computed(() => {
   return !canWriteWorkflow.value
     || authority === 'SDK' || authority === 'SYSTEM' || creationChannel === 'AI_QUICK_ACCESS'
 })
+const trustedPageDraftActive = computed(() => {
+  try { return JSON.parse(graphSpecJson.value || '{}')?.env?.reachaiTrustedPageDraft === true }
+  catch { return false }
+})
+const canvasReadOnly = computed(() => studioReadOnly.value || trustedPageDraftActive.value)
 
 const selectedAiEditModelLabel = computed(() =>
   selectedAiEditModel.value ? modelOptionLabel(selectedAiEditModel.value) : '',
@@ -1219,7 +1230,7 @@ const {
   edgeDisplayLabel,
   stripTransientNodeClasses,
 } = useWorkflowStudioCanvasActions({
-  studioReadOnly,
+  studioReadOnly: canvasReadOnly,
   nodes,
   edges,
   selectedNodeId,
@@ -2250,6 +2261,14 @@ function normalizeCanvasKind(type: string): CanvasNodeKind {
 
 
 function handleHeaderCommand(command: string | number | object) {
+  if (command === 'exit-reviewed-page-draft') {
+    void exitReviewedPageDraft()
+    return
+  }
+  if (command === 'reviewed-page-draft') {
+    void buildReviewedPageDraft()
+    return
+  }
   if (command === 'eval') {
     void openWorkflowEval()
     return
@@ -2311,11 +2330,78 @@ function exportWorkflowFile() {
 const envDialogOpen = ref(false)
 const shortcutsDialogOpen = ref(false)
 
+async function exitReviewedPageDraft() {
+  if (studioReadOnly.value || !trustedPageDraftActive.value) return
+  try {
+    await ElMessageBox.confirm('退出后当前草稿不再使用受限页面动作保护。后续画布编辑可能改变字段约束；如需再次使用，请重新选择已审核动作构建。',
+      '退出受限页面草稿', { confirmButtonText: '退出', cancelButtonText: '取消', type: 'warning' })
+  } catch { return }
+  try {
+    const graph = JSON.parse(graphSpecJson.value || '{}')
+    if (graph?.env?.reachaiTrustedPageDraft !== true) return
+    delete graph.env.reachaiTrustedPageDraft
+    if (!Object.keys(graph.env).length) delete graph.env
+    graphSpecJson.value = formatJson(JSON.stringify(graph))
+    markCanvasDirty()
+    ElMessage.info('已退出受限页面草稿；保存后生效')
+  } catch { ElMessage.error('Workflow 源码格式不正确，无法退出受限草稿') }
+}
+
+async function buildReviewedPageDraft() {
+  if (studioReadOnly.value || !canWriteWorkflow.value) return
+  if (!isPageAssistantWorkflow.value) {
+    ElMessage.warning('请在页面副驾驶类型的 Workflow 中使用此功能')
+    return
+  }
+  const selected = selectedNode.value
+  const action = selected?.data.kind === 'pageAction' ? selected.data.pageActionConfig : undefined
+  const project = studio.value?.projectCode || ''
+  if (!selected || !action?.pageKey || !action.actionKey || !project || action.projectCode !== project) {
+    ElMessage.warning('请先在画布选中本项目已登记的页面动作节点')
+    return
+  }
+  const nodeId = selected.id
+  const generation = editGeneration.value
+  const pageKey = action.pageKey
+  const actionKey = action.actionKey
+  try {
+    const response = await previewPageActionEffect(project, pageKey, actionKey)
+    if (generation !== editGeneration.value || studio.value?.projectCode !== project || selectedNode.value?.id !== nodeId
+        || selectedNode.value?.data.pageActionConfig?.pageKey !== pageKey
+        || selectedNode.value?.data.pageActionConfig?.actionKey !== actionKey) {
+      ElMessage.warning('画布或项目已变化，请重新选择页面动作')
+      return
+    }
+    const graph = buildTrustedPageDraft(response.data, project, workflowEnv.value)
+    try {
+      await ElMessageBox.confirm(
+        `将使用“${response.data.actionTitle || actionKey}”及其当前审核字段替换整个画布。此操作不会发布或绑定 Agent；已有未保存流程将被替换。继续吗？`,
+        '构建受限页面草稿', { confirmButtonText: '替换画布', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch { return }
+    if (generation !== editGeneration.value || studio.value?.projectCode !== project || selectedNode.value?.id !== nodeId
+        || selectedNode.value?.data.pageActionConfig?.pageKey !== pageKey
+        || selectedNode.value?.data.pageActionConfig?.actionKey !== actionKey) {
+      ElMessage.warning('画布或项目已变化，请重新选择页面动作')
+      return
+    }
+    graphSpecJson.value = formatJson(JSON.stringify(graph))
+    canvasJson.value = emptyWorkspaceCanvas
+    refreshCanvasFromJson()
+    markCanvasDirty()
+    resetHistorySnapshot()
+    ElMessage.success('已构建草稿；请保存、校验并发布，再绑定 Agent')
+  } catch (error) {
+    ElMessage.error((error as Error).message || '无法读取页面动作审核，请检查权限或重新审核')
+  }
+}
+
 /** Workflow-level constants live in GraphSpec.env, so they are versioned and published with the graph. */
 const workflowEnv = computed<Record<string, string>>(() => {
   try {
     const parsed = JSON.parse(graphSpecJson.value || '{}')
-    return parsed && typeof parsed.env === 'object' && !Array.isArray(parsed.env) ? parsed.env : {}
+    const env = parsed && typeof parsed.env === 'object' && !Array.isArray(parsed.env) ? parsed.env : {}
+    return Object.fromEntries(Object.entries(env).filter(([key]) => key !== 'reachaiTrustedPageDraft')) as Record<string, string>
   } catch {
     return {}
   }
@@ -2329,9 +2415,13 @@ function applyWorkflowEnv(env: Record<string, string>) {
     ElMessage.error('Workflow 源码格式不正确，无法保存环境变量')
     return
   }
-  if (Object.keys(env).length) parsed.env = env
+  const priorEnv = parsed.env && typeof parsed.env === 'object' && !Array.isArray(parsed.env)
+    ? parsed.env as Record<string, unknown> : {}
+  const nextEnv = { ...env, ...(priorEnv.reachaiTrustedPageDraft === true ? { reachaiTrustedPageDraft: true } : {}) }
+  if (Object.keys(nextEnv).length) parsed.env = nextEnv
   else delete parsed.env
   graphSpecJson.value = formatJson(JSON.stringify(parsed))
+  markCanvasDirty()
   visualDirty.value = true
   ElMessage.success('环境变量已更新，保存后生效')
 }

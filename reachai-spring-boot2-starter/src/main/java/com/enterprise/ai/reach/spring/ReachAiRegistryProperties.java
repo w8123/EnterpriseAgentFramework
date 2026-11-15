@@ -13,6 +13,7 @@ public class ReachAiRegistryProperties {
     private final Capability capability = new Capability();
     private final Embed embed = new Embed();
     private final AgentGraph agentGraph = new AgentGraph();
+    private final Activity activity = new Activity();
 
     public Registry getRegistry() {
         return registry;
@@ -32,6 +33,10 @@ public class ReachAiRegistryProperties {
 
     public AgentGraph getAgentGraph() {
         return agentGraph;
+    }
+
+    public Activity getActivity() {
+        return activity;
     }
 
     public static class Registry {
@@ -277,5 +282,44 @@ public class ReachAiRegistryProperties {
         public void setSyncOnStartup(boolean syncOnStartup) {
             this.syncOnStartup = syncOnStartup;
         }
+    }
+
+    /**
+     * 主动感知: record which operations and searches logged-in employees make in this system, so ReachAI can show
+     * managers the common operations and problems and recommend shortcuts. Off by default; request bodies and
+     * responses are never sent.
+     */
+    public static class Activity {
+        private boolean enabled = false;
+        /** GET parameters whose value is treated as a search word. */
+        private List<String> searchParameters = new ArrayList<String>(java.util.Arrays.asList(
+                "keyword", "keywords", "q", "query", "search", "searchKey", "name", "title", "code", "no"));
+        /** Ant-style paths never recorded (ReachAI's own endpoints, health checks…). */
+        private List<String> excludePaths = new ArrayList<String>(java.util.Arrays.asList(
+                "/reachai/**", "/actuator/**", "/error", "/favicon.ico"));
+        /** Values of a response body's {@code code} field that mean success (e.g. 芋道 CommonResult uses 0). */
+        private List<Integer> successCodes = new ArrayList<Integer>(java.util.Arrays.asList(0, 200));
+        /** Only record requests sent by a browser page (Referer or Origin header), not scripts or server calls. */
+        private boolean browserRequestsOnly = true;
+        private int maxQueueSize = 2000;
+        private int batchSize = 200;
+        private long flushIntervalMs = 10000L;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+        public List<String> getSearchParameters() { return searchParameters; }
+        public void setSearchParameters(List<String> value) { searchParameters = value == null ? new ArrayList<String>() : value; }
+        public List<String> getExcludePaths() { return excludePaths; }
+        public void setExcludePaths(List<String> value) { excludePaths = value == null ? new ArrayList<String>() : value; }
+        public List<Integer> getSuccessCodes() { return successCodes; }
+        public void setSuccessCodes(List<Integer> value) { successCodes = value == null ? new ArrayList<Integer>() : value; }
+        public boolean isBrowserRequestsOnly() { return browserRequestsOnly; }
+        public void setBrowserRequestsOnly(boolean value) { browserRequestsOnly = value; }
+        public int getMaxQueueSize() { return maxQueueSize; }
+        public void setMaxQueueSize(int value) { maxQueueSize = Math.max(10, value); }
+        public int getBatchSize() { return batchSize; }
+        public void setBatchSize(int value) { batchSize = Math.max(1, Math.min(500, value)); }
+        public long getFlushIntervalMs() { return flushIntervalMs; }
+        public void setFlushIntervalMs(long value) { flushIntervalMs = Math.max(1000L, value); }
     }
 }

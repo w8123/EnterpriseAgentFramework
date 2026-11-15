@@ -31,6 +31,11 @@ public class KnowledgeBaseVO {
     private Float vectorWeight;
     private Float keywordWeight;
     private Integer status;
+    /** LOCAL / EXTERNAL */
+    private String sourceType;
+    private String externalProvider;
+    /** 外部连接摘要（不含密钥）；本地知识库为空。 */
+    private ExternalKnowledgeView external;
     private Integer fileCount;
     private Integer chunkCount;
     private Integer hitCount;

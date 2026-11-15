@@ -26,7 +26,7 @@ public final class AiToolSetupInstructions {
                             + "url = \"" + url + "\"\n"
                             + "http_headers = { \"Authorization\" = \"Bearer " + secret + "\" }\n",
                     "粘贴到 ~/.codex/config.toml 末尾，然后重新打开 Codex。");
-            case OTHER -> new Setup(url, "CONFIG",
+            case OTHER, ASSISTANT -> new Setup(url, "CONFIG",
                     "{\n  \"mcpServers\": {\n    \"" + SERVER_NAME + "\": {\n"
                             + "      \"type\": \"http\",\n"
                             + "      \"url\": \"" + url + "\",\n"

@@ -115,6 +115,30 @@ class SupervisorToolPolicyServiceTest {
     }
 
     @Test
+    void pageAdviceDoesNotAuthorizeWorkflow() {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("PAGE_ACTION", "team:read", false);
+        for (String message : List.of(
+                "请解释怎么修改客户资料",
+                "页面上填写表单是什么意思",
+                "告诉我如何打开订单页面",
+                "Explain how to open the customer page",
+                "打开页面，不许删除页面数据",
+                "open the page, do not delete the page")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "example.current");
+            assertFalse(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+        for (String message : List.of(
+                "请打开客户资料页面",
+                "请在页面上填写订单编号",
+                "请解释如何查询，然后打开客户资料页面")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "example.current");
+            assertTrue(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+    }
+
+    @Test
     void recognizesPositiveControlOperationsWithoutTreatingNegatedCommandsAsConsent() {
         RuntimeAgentWorkflowToolSnapshot tool = tool("PAGE_ACTION", "team:read", false);
         for (String message : List.of(
@@ -162,6 +186,59 @@ class SupervisorToolPolicyServiceTest {
         unauthorized.put("pageKey", "mall-home");
         unauthorized.put("tenantId", "other-tenant");
         assertFalse(service.evaluate(trace, agent, config, tool, unauthorized, Map.of(), null).allowed());
+    }
+
+    @Test
+    void recognizesExplicitPersonalProfileChangesInBoundPageWithoutGrantingNegatedRequests() {
+        RuntimeAgentWorkflowToolSnapshot tool = tool("PAGE_ACTION", "team:read", false);
+        for (String message : List.of(
+                "帮我改一下个人信息\n昵称 演示用户\n个性签名 快乐生活\n地址 示例街道",
+                "请帮我更改我的个人资料",
+                "更新个人信息里的昵称")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "mall-home");
+            assertTrue(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+        for (String message : List.of(
+                "不要改我的个人信息，然后查订单",
+                "请勿修改个人资料，查询订单",
+                "如果我要更改个人信息，需要怎么做？",
+                "请解释怎么修改个人资料")) {
+            var request = new LinkedHashMap<>(input(message));
+            request.put("pageKey", "mall-home");
+            assertFalse(service.evaluate(trace, agent, config, tool, request, Map.of(), null).allowed(), message);
+        }
+        assertFalse(service.evaluate(trace, agent, config, tool,
+                input("帮我改一下个人信息"), Map.of(), null).allowed());
+    }
+
+    @Test
+    void trustedDraftRequiresConfirmationAndRejectsChangedPin() {
+        var tool = tool("PAGE_ACTION", "team:read", false);
+        var identity = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "qmssmp", "user-a");
+        Map<String, Object> args = Map.of("nickname", "小黑");
+        Map<String, Object> pin = Map.of("declaration", Map.of("approvalId", 7, "revision", 1));
+        when(approvalService.createTrustedPageDraft(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new SupervisorApprovalInteractionService.ApprovalRequest("spv-draft", Map.of("type", "CONFIRM")));
+        var waiting = service.evaluateTrustedPageDraft(trace, agent, config, tool,
+                input("帮我改一下个人信息，昵称小黑"), args, null, identity, RuntimeEvalExecutionContext.none(), pin);
+        assertFalse(waiting.allowed());
+        assertTrue(waiting.confirmationRequired());
+        var grant = new PolicyApprovalGrant("spv-draft", "team:read", tool.getToolName(), args, "user-a", pin);
+        assertTrue(service.evaluateTrustedPageDraft(trace, agent, config, tool,
+                input("帮我改一下个人信息，昵称小黑"), args, grant, identity, RuntimeEvalExecutionContext.none(), pin).allowed());
+        Map<String, Object> changed = Map.of("declaration", Map.of("approvalId", 7, "revision", 2));
+        assertFalse(service.evaluateTrustedPageDraft(trace, agent, config, tool,
+                input("帮我改一下个人信息，昵称小黑"), args, grant, identity, RuntimeEvalExecutionContext.none(), changed).allowed());
+        assertFalse(service.evaluateTrustedPageDraft(trace, agent, config, tool,
+                input("帮我改一下个人信息，昵称小黑"), args, grant, identity, RuntimeEvalExecutionContext.none(), null).allowed());
+        var mislabeled = tool("READ", "team:read", true);
+        assertFalse(service.evaluateTrustedPageDraft(trace, agent, config, mislabeled,
+                input("帮我改一下个人信息，昵称小黑"), args, null, identity, RuntimeEvalExecutionContext.none(), pin).allowed());
+        var missingPermission = tool("PAGE_ACTION", null, false);
+        var missingDecision = service.evaluateTrustedPageDraft(trace, agent, config, missingPermission,
+                input("帮我改一下个人信息，昵称小黑"), args, null, identity, RuntimeEvalExecutionContext.none(), pin);
+        assertFalse(missingDecision.allowed()); assertFalse(missingDecision.confirmationRequired());
     }
 
     @Test

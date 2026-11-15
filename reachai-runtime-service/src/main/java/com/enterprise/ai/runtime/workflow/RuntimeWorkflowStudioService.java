@@ -52,7 +52,42 @@ public class RuntimeWorkflowStudioService {
                         .defaultModelInstanceId(command.defaultModelInstanceId())
                         .defaultResourceConfigJson(command.defaultResourceConfigJson()).extraJson(command.extraJson())
                         .baseRevision(command.baseRevision()).build());
+        String reviewedPage = reviewedPageTarget(graphSpecJson, saved);
+        if (reviewedPage != null) workflowManagementService.ensureReviewedPageTarget(workflowId, reviewedPage);
         return toWorkingCopyState(saved);
+    }
+
+    /** A draft marker never grants approval; release and invocation still recheck Control. */
+    private String reviewedPageTarget(String json, RuntimeWorkflowDefinitionView workflow) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode marker = root.path("env").path("reachaiTrustedPageDraft");
+            if (!marker.isBoolean() || !marker.booleanValue()) return null;
+            if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())) {
+                throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿只能用于页面副驾驶 Workflow");
+            }
+            JsonNode nodes = root.path("nodes");
+            if (!nodes.isArray()) throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿缺少目标页面动作");
+            JsonNode action = null;
+            for (JsonNode node : nodes) {
+                if ("PAGE_ACTION".equals(node.path("type").asText())) {
+                    if (action != null) throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿只能包含一个目标页面动作");
+                    action = node;
+                }
+            }
+            if (action == null || !action.path("config").path("pageKey").isTextual()) {
+                throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿缺少目标页面");
+            }
+            String page = action.path("config").path("pageKey").textValue();
+            String project = action.path("config").path("projectCode").asText("");
+            if (!StringUtils.hasText(page) || !page.equals(page.trim()) || page.contains("${")
+                    || page.contains("#{") || page.contains("{{") || page.contains("}}") || page.contains("*")
+                    || !project.equals(workflow.getProjectCode())) {
+                throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿的项目或目标页面不匹配");
+            }
+            return page;
+        } catch (IllegalArgumentException ex) { throw ex; }
+        catch (Exception ex) { throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿格式无效"); }
     }
 
     private WorkflowWorkingCopyState toWorkingCopyState(RuntimeWorkflowDefinitionView workflow) {

@@ -133,6 +133,8 @@ export interface EafPageBridge {
   readonly route?: string
   /** Whether this bridge can handle platform-requested cross-page navigation. */
   readonly supportsNavigation?: boolean
+  /** Opt in only when navigation replaces the whole document. */
+  readonly documentNavigation?: boolean
   readonly registeredActions: string[]
   readonly actionDefinitions: EafPageActionDefinition[]
   registerAction(actionKey: string, handler: PageActionHandler, options?: PageActionRegisterOptions): () => void
@@ -147,6 +149,8 @@ export interface EafPageBridgeOptions {
   confirmAction?: PageActionConfirm
   /** Handles platform-approved cross-route navigation for this SPA page. */
   onNavigate?: EafPageNavigationHandler
+  /** Requests a persisted checkpoint before a whole-document navigation. */
+  documentNavigation?: boolean
   actionTimeoutMs?: number
 }
 
@@ -179,6 +183,7 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
     pageInstanceId,
     route: options.route,
     supportsNavigation: typeof options.onNavigate === 'function',
+    documentNavigation: options.documentNavigation === true && typeof options.onNavigate === 'function',
     get registeredActions() {
       return Array.from(handlers.keys())
     },
@@ -199,8 +204,28 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         emitDefinitionsChange()
       }
     },
-    async handleEvent(event, executionOptions) {
-      if (!isPageActionRequest(event)) return null
+    async handleEvent(incomingEvent, executionOptions) {
+      if (!isPageActionRequest(incomingEvent)) return null
+      let event = incomingEvent
+      let confirmedArgsJson: string | undefined
+      // The default confirmation must show the same JSON values that reach the
+      // action even if the caller mutates its original object while it is open.
+      // Custom confirmation callbacks own their own display/approval contract.
+      if (event.confirm && !options.confirmAction) {
+        try {
+          confirmedArgsJson = serializeJsonValue(event.args ?? {})
+          const args = deepFreezeJson(JSON.parse(confirmedArgsJson)) as Record<string, unknown>
+          const metadata = event.metadata == null ? undefined
+            : deepFreezeJson(JSON.parse(serializeJsonValue(event.metadata))) as Record<string, unknown>
+          const target = event.target == null ? undefined
+            : deepFreezeJson(JSON.parse(serializeJsonValue(event.target))) as PageActionRequest['target']
+          event = Object.freeze({ ...event, args, metadata, target })
+        } catch {
+          const result = resultOf(event, 'FAILED', undefined, undefined, 'Page action arguments cannot be displayed safely')
+          emit(result)
+          return result
+        }
+      }
       const targetPageInstanceId = event.target?.pageInstanceId
       if (targetPageInstanceId && targetPageInstanceId !== pageInstanceId) return null
       if (event.actionKey === EAF_PAGE_NAVIGATE_ACTION) {
@@ -279,7 +304,9 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
         return result
       }
       try {
-        const data = await withTimeout(handler(event.args || {}, event), actionTimeoutMs)
+        const actionArgs = confirmedArgsJson === undefined ? event.args || {} : JSON.parse(confirmedArgsJson)
+        const handlerEvent = confirmedArgsJson === undefined ? event : { ...event, args: actionArgs }
+        const data = await withTimeout(handler(actionArgs, handlerEvent), actionTimeoutMs)
         if (executionOptions?.isActive?.() === false) return null
         const result = resultFromHandler(event, data)
         if (userConfirmed.confirmed) result.userConfirmed = true
@@ -308,6 +335,51 @@ export function createEafPageBridge(options: EafPageBridgeOptions = {}): EafPage
       return () => definitionListeners.delete(listener)
     },
   }
+}
+
+/** Reject values JSON would silently omit or change before asking for consent. */
+function serializeJsonValue(value: unknown): string {
+  const ancestors = new Set<object>()
+  function validate(item: unknown): void {
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') return
+    if (typeof item === 'number' && Number.isFinite(item)) return
+    if (typeof item !== 'object') throw new Error('Non-JSON value')
+    const object = item as object
+    const prototype = Object.getPrototypeOf(object)
+    if (Array.isArray(object) ? prototype !== Array.prototype : prototype !== Object.prototype && prototype !== null) {
+      throw new Error('Non-JSON object')
+    }
+    if (ancestors.has(object)) throw new Error('Circular JSON value')
+    ancestors.add(object)
+    const descriptors = Object.getOwnPropertyDescriptors(object)
+    if (Object.getOwnPropertySymbols(object).length) throw new Error('Non-JSON key')
+    if (Array.isArray(object)) {
+      for (let index = 0; index < object.length; index += 1) {
+        const descriptor = descriptors[String(index)]
+        if (!descriptor || !('value' in descriptor) || !descriptor.enumerable) throw new Error('Non-JSON array')
+        validate(descriptor.value)
+      }
+      if (Object.keys(descriptors).length !== object.length + 1) throw new Error('Non-JSON array property')
+    } else {
+      for (const descriptor of Object.values(descriptors)) {
+        if (!('value' in descriptor) || !descriptor.enumerable) throw new Error('Non-JSON property')
+        validate(descriptor.value)
+      }
+    }
+    ancestors.delete(object)
+  }
+  validate(value)
+  const serialized = JSON.stringify(value)
+  if (typeof serialized !== 'string') throw new Error('Non-JSON value')
+  return serialized
+}
+
+function deepFreezeJson(value: unknown): unknown {
+  if (value && typeof value === 'object') {
+    for (const child of Object.values(value)) deepFreezeJson(child)
+    Object.freeze(value)
+  }
+  return value
 }
 
 async function executionAllowed(
@@ -414,6 +486,7 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
   cancelActiveConfirmation?.()
 
   return new Promise((resolve) => {
+    const returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined
     const backdrop = document.createElement('div')
     backdrop.dataset.reachaiPageActionConfirm = request.requestId
     backdrop.setAttribute('role', 'presentation')
@@ -435,6 +508,11 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
     dialog.setAttribute('aria-describedby', `reachai-confirm-message-${request.requestId}`)
     Object.assign(dialog.style, {
       width: 'min(440px, calc(100vw - 48px))',
+      maxHeight: 'calc(100vh - 48px)',
+      boxSizing: 'border-box',
+      display: 'flex',
+      flexDirection: 'column',
+      overflow: 'auto',
       borderRadius: '16px',
       padding: '22px',
       color: '#172033',
@@ -465,10 +543,50 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
     message.id = `reachai-confirm-message-${request.requestId}`
     message.textContent = '此操作会修改当前业务页面数据。确认后 ReachAI 才会领取请求并调用页面动作。'
     Object.assign(message.style, {
-      margin: '0 0 20px',
+      margin: '0 0 12px',
       color: '#52605f',
       fontSize: '14px',
       lineHeight: '1.7',
+    })
+
+    const actionLabel = document.createElement('p')
+    actionLabel.textContent = request.actionKey === EAF_PAGE_NAVIGATE_ACTION
+      ? `动作：${request.actionKey}\n目标页面：${text(request.metadata?.pageKey) || '-'}\n目标路径：${text(request.metadata?.route) || '-'}`
+      : `动作：${request.actionKey}`
+    Object.assign(actionLabel.style, {
+      margin: '0 0 8px',
+      fontSize: '13px',
+      overflowWrap: 'anywhere',
+      whiteSpace: 'pre-wrap',
+    })
+
+    const argsLabel = document.createElement('p')
+    argsLabel.textContent = '操作内容'
+    Object.assign(argsLabel.style, { margin: '0 0 6px', fontSize: '13px', fontWeight: '700' })
+    const args = document.createElement('pre')
+    args.setAttribute('aria-label', '操作内容')
+    args.tabIndex = 0
+    let argsDisplayable = true
+    try {
+      const serialized = JSON.stringify(request.args || {}, null, 2)
+      if (typeof serialized !== 'string') throw new Error('Unserializable page action arguments')
+      args.textContent = serialized
+    } catch {
+      argsDisplayable = false
+      args.textContent = '操作内容无法显示，请取消并重试。'
+    }
+    Object.assign(args.style, {
+      minHeight: '0',
+      maxHeight: 'min(40vh, 320px)',
+      overflow: 'auto',
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'anywhere',
+      margin: '0 0 16px',
+      padding: '10px',
+      borderRadius: '8px',
+      background: '#f4f7f6',
+      color: '#172033',
+      font: '13px/1.55 ui-monospace, monospace',
     })
 
     const actions = document.createElement('div')
@@ -480,8 +598,9 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
 
     const cancel = confirmationButton('取消', false)
     const confirm = confirmationButton('确认执行', true)
+    confirm.disabled = !argsDisplayable
     actions.append(cancel, confirm)
-    dialog.append(eyebrow, title, message, actions)
+    dialog.append(eyebrow, title, message, actionLabel, argsLabel, args, actions)
     backdrop.append(dialog)
     document.body.append(backdrop)
 
@@ -493,13 +612,23 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
       signal?.removeEventListener('abort', onAbort)
       if (cancelActiveConfirmation === onAbort) cancelActiveConfirmation = undefined
       backdrop.remove()
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
       resolve(accepted)
     }
     const onAbort = () => finish(false)
     const onKeydown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      finish(false)
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        finish(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const focusable: HTMLElement[] = [args, cancel, confirm].filter(element => !(element instanceof HTMLButtonElement && element.disabled))
+      const index = focusable.indexOf(document.activeElement as HTMLElement)
+      if (index < 0 || (event.shiftKey && index === 0) || (!event.shiftKey && index === focusable.length - 1)) {
+        event.preventDefault()
+        ;(event.shiftKey ? focusable[focusable.length - 1] : focusable[0]).focus()
+      }
     }
     cancel.addEventListener('click', () => finish(false), { once: true })
     confirm.addEventListener('click', () => finish(true), { once: true })
@@ -507,7 +636,7 @@ function showReachAiPageActionConfirmation(request: PageActionRequest, signal?: 
     signal?.addEventListener('abort', onAbort, { once: true })
     cancelActiveConfirmation = onAbort
     if (signal?.aborted) { onAbort(); return }
-    confirm.focus()
+    ;(argsDisplayable ? confirm : cancel).focus()
   })
 }
 

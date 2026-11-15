@@ -352,14 +352,19 @@ public class RuntimeEvalExperimentService {
                                                   String tenantId,
                                                   String actor) {
         List<Map<String, Object>> requested = json.mapList(request == null ? null : request.get("variants"));
-        if (requested.isEmpty()) {
+        // A scheduled check of one Agent's current config: one baseline, nothing to compare against.
+        boolean single = booleanValue(request == null ? null : request.get("singleVariant"), false);
+        if (single) {
+            requested = List.of(json.ordered("key", "current", "displayName", "当前版本", "role", "BASELINE",
+                    "configVersionId", optionalLong(request == null ? null : request.get("baselineConfigVersionId"))));
+        } else if (requested.isEmpty()) {
             requested = List.of(
                     json.ordered("key", "baseline", "displayName", "Baseline", "role", "BASELINE",
                             "configVersionId", optionalLong(request == null ? null : request.get("baselineConfigVersionId"))),
                     json.ordered("key", "candidate", "displayName", "Candidate", "role", "CANDIDATE",
                             "configVersionId", optionalLong(firstValue(request, "candidateConfigVersionId", "configVersionId"))));
         }
-        if (requested.size() < 2 || requested.size() > MAX_VARIANTS) {
+        if ((!single && requested.size() < 2) || requested.size() > MAX_VARIANTS) {
             throw new IllegalArgumentException("Eval experiment requires 2 to " + MAX_VARIANTS + " variants");
         }
         Set<String> keys = new HashSet<>();
@@ -389,6 +394,9 @@ public class RuntimeEvalExperimentService {
                 throw new IllegalArgumentException("Eval variants resolved to different Agent targets: " + key);
             }
             result.add(new PreparedVariant(key, defaultText(value, "displayName", key), role, target));
+        }
+        if (single) {
+            return List.copyOf(result);
         }
         if (baselineCount != 1 || result.stream().noneMatch(value -> "CANDIDATE".equals(value.role()))) {
             throw new IllegalArgumentException("Eval experiment requires exactly one baseline and at least one candidate");
@@ -443,6 +451,9 @@ public class RuntimeEvalExperimentService {
                     "p95LatencyRegressionRatio", latencyRatio,
                     "failedExecutionDelta", candidate.failedExecutions() - base.failedExecutions(),
                     "checks", json.ordered("score", scorePass, "latency", latencyPass, "failures", failurePass)));
+        }
+        if (comparisons.isEmpty()) {
+            passed = base.averageScore() >= minimum;
         }
         return json.ordered("status", passed ? "PASSED" : "FAILED", "config", config,
                 "baselineVariantId", baseline.getId(), "comparisons", comparisons);

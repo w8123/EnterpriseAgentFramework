@@ -92,6 +92,16 @@ class PageWorkbenchTaskProviderTest {
     }
 
     @Test
+    void onlyBrowserAcceptanceAllowsSelectingATraceAfterApplyingTheReport() {
+        assertTrue(provider(PageWorkbenchTaskProvider.BROWSER_ACCEPTANCE,
+                "browser-acceptance-report-v1").allowsAcceptanceTraceSelection());
+        assertFalse(provider(PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING,
+                "workflow-engineering-report-v1").allowsAcceptanceTraceSelection());
+        assertFalse(provider(PageWorkbenchTaskProvider.CODE_IMPLEMENTATION,
+                "code-implementation-report-v1").allowsAcceptanceTraceSelection());
+    }
+
+    @Test
     void workflowEngineeringCreatesDraftButStillRequiresReachAiAcceptance() {
         PageWorkbenchTaskProvider provider = provider(
                 PageWorkbenchTaskProvider.WORKFLOW_ENGINEERING,

@@ -356,6 +356,76 @@ class AgentScopeSupervisorRuntimeAdapterTest {
     }
 
     @Test
+    void trustedDraftNaturalRequestPausesAndPinsReviewedWorkflowBeforeExecution() throws Exception {
+        var tool = pageActionTool("wf-profile-draft", "fill_profile");
+        stubWorkflow(tool);
+        workflowTargets.get(tool.getWorkflowId()).setProjectCode("qmssmp");
+        Map<String, Object> schema = Map.of("type", "object", "properties", Map.of(
+                "nickname", Map.of("type", "string", "title", "昵称"), "address", Map.of("type", "string", "title", "地址")));
+        var version = workflowVersions.get(tool.getWorkflowVersionId());
+        version.setGraphSpecSnapshotJson(objectMapper.writeValueAsString(Map.of(
+                "entryNodeId", "input", "exitNodeIds", List.of("fill"), "inputSchema", schema,
+                "env", Map.of("reachaiTrustedPageDraft", true),
+                "nodes", List.of(Map.of("id", "input", "type", "USER_INPUT", "config", Map.of(
+                                "outputAlias", "params", "fields", List.of(
+                                        Map.of("name", "nickname", "type", "string", "required", false, "source", "input.nickname"),
+                                        Map.of("name", "address", "type", "string", "required", false, "source", "input.address")))),
+                        Map.of("id", "fill", "type", "PAGE_ACTION", "config", Map.of(
+                        "pageKey", "profile", "actionKey", "fill", "route", "/profile",
+                        "inputMapping", Map.of("nickname", "params.nickname", "address", "params.address")))),
+                "edges", List.of(Map.of("from", "input", "to", "fill")))));
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.resolvePageEffect(any())).thenReturn(new RuntimeControlCatalogClient.TrustedPageEffectApproval(
+                7L, 3L, 1L, 2L, "qmssmp", "profile", "fill", "PAGE_LOCAL_DRAFT", "a".repeat(64),
+                "build-1", "个人信息", "填写资料", "填写指定资料字段", "/profile", schema,
+                Map.of("nickname", "昵称", "address", "地址"), true));
+        when(approvalService.createTrustedPageDraft(any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new SupervisorApprovalInteractionService.ApprovalRequest("spv-draft", Map.of("type", "CONFIRM")));
+        var responses = List.of(calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "资料", "steps", List.of("填写"), "workflowToolNames", List.of("fill_profile")))),
+                calls(call("draft", "fill_profile", Map.of("nickname", "小黑"))));
+        var runtime = adapter(model(responses), control);
+        var identity = WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "qmssmp", "user-a");
+        var request = new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "帮我改一下个人信息，昵称小黑", "sessionId", "s-draft"), null, null, null, identity);
+        var pending = runtime.execute(request);
+        assertEquals("SUPERVISOR_CONFIRMATION_REQUIRED", pending.code());
+        verifyNoInteractions(graphExecutor);
+        @SuppressWarnings("unchecked") var pin = org.mockito.ArgumentCaptor.forClass(Map.class);
+        verify(approvalService).createTrustedPageDraft(any(), any(), any(), any(), any(), any(), any(), any(), pin.capture());
+        assertEquals(7L, ((Number) ((Map<?, ?>) pin.getValue().get("declaration")).get("approvalId")).longValue());
+
+        String verifiedResult = "页面动作已执行；本次请求填写的字段：昵称。未列出的内容未处理；业务方声明此动作不会主动提交，但业务页面可能自动保存，请检查。";
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(success(verifiedResult));
+        var grant = new com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv-draft", tool.getPermissionKey(), tool.getToolName(), Map.of("nickname", "小黑"), "user-a", pin.getValue());
+        var resumedInput = Map.<String, Object>of("message", "帮我改一下个人信息，昵称小黑，电话17888888008", "sessionId", "s-draft",
+                "__supervisorContinuation", Map.of("planNo", 1, "recordedPlan", Map.of("workflowToolNames", List.of("fill_profile")),
+                        "plannedWorkflowToolNames", List.of("fill_profile"), "plannedWorkflowCursor", 0, "completedWorkflowToolNames", List.of()));
+        var resumed = adapter(model(List.of(text("全部资料和电话都已保存"))), control).execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool), resumedInput, grant, null, null, identity));
+        assertTrue(resumed.success(), resumed.code());
+        assertEquals(verifiedResult, resumed.answer());
+        assertFalse(resumed.answer().contains("电话都已保存"));
+
+        // A revoked review must not become an ordinary legacy page action, even when the
+        // user's wording explicitly mentions a page (which legacy policy could otherwise allow).
+        org.mockito.Mockito.reset(approvalService, control, graphExecutor);
+        var explicit = new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool),
+                Map.of("message", "帮我在页面上修改个人信息，昵称小黑", "sessionId", "s-revoked"), null, null, null, identity);
+        var revokedResponses = new ArrayList<>(responses);
+        revokedResponses.add(calls(call("replan", "record_supervisor_plan", Map.of("summary", "审核已失效", "steps", List.of("说明未执行"),
+                "workflowToolNames", List.of(), "reason", "审核不可用"))));
+        revokedResponses.add(calls(call("final", "begin_final_answer", Map.of())));
+        revokedResponses.add(text("页面操作未执行，请联系管理员检查审核。"));
+        revokedResponses.add(text("页面操作未执行，请联系管理员检查审核。"));
+        var rejected = adapter(model(revokedResponses), control).execute(explicit);
+        assertEquals(1, rejected.metadata().get("guardDenyCount"));
+        verifyNoInteractions(graphExecutor);
+        verifyNoInteractions(approvalService);
+    }
+
+    @Test
     void persistentTurnNeverLoadsAnonymousDefaultAgentState() {
         var memoryService = mock(RuntimeSessionMemoryService.class);
         var key = new com.enterprise.ai.runtime.memory.RuntimeSessionMemoryKey(
@@ -806,6 +876,77 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         assertTrue(events.stream().noneMatch("message.delta"::equals)
                         || "buffered_direct".equals(result.metadata().get("streamMode")),
                 "DIRECT response must not depend on a forced PUBLIC_FINAL stream");
+    }
+
+    @Test
+    void directPageRequestCannotClaimExecutionWithoutAnyToolEvenWhenAskingAQuestion() {
+        for (String falseClaim : List.of(
+                "个人中心资料的填写流程已经在页面上启动，目前处于等待你操作的步骤。请确认。",
+                "页面操作正在执行，请提供昵称？")) {
+            var runtime = adapter(model(List.of(text(falseClaim))));
+            List<String> emitted = new ArrayList<>();
+            var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config(false), List.of(), Map.of(
+                    "message", "请在商城个人中心页面填写昵称虚构演示用户，只填写，不要保存。",
+                    "sessionId", "s-direct-false-claim", "projectCode", "qmssmp"), null,
+                    (event, data) -> emitted.add(event + ":" + data)));
+            assertFalse(result.success(), String.valueOf(result.metadata()));
+            assertEquals("SUPERVISOR_PAGE_ACTION_NOT_EXECUTED", result.code());
+            assertFalse(String.valueOf(result.answer()).contains(falseClaim));
+            assertTrue(emitted.stream().noneMatch(event -> event.contains(falseClaim)));
+        }
+    }
+
+    @Test
+    void naturalBusinessChangeCannotBeClaimedWithoutExecutingAnyTool() {
+        for (String request : List.of("帮我改一下个人信息，昵称小黑", "请更新客户名称为示例")) {
+            var runtime = adapter(model(List.of(text("已成功修改并保存。"))));
+            var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config(false), List.of(), Map.of("message", request, "sessionId", "s-false-change"),
+                    null, null, null, WorkflowExecutionIdentity.fromEmbedSession(7L, "qmssmp", "user-a")));
+            assertFalse(result.success(), request);
+            assertEquals("SUPERVISOR_PAGE_ACTION_NOT_EXECUTED", result.code());
+            assertFalse(result.answer().contains("成功修改"));
+        }
+        var advice = adapter(model(List.of(text("可以在个人中心找到修改入口。")))).execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(), Map.of("message", "请问如何修改个人信息", "sessionId", "s-change-advice"),
+                null, null, null, WorkflowExecutionIdentity.fromEmbedSession(7L, "qmssmp", "user-a")));
+        assertTrue(advice.success());
+    }
+
+    @Test
+    void finalAnswerToolCannotStreamAnUnexecutedPageActionAsSuccess() throws Exception {
+        var runtime = adapter(model(List.of(
+                calls(call("final", "begin_final_answer", Map.of())),
+                text("个人资料页面操作已经启动，请按提示确认。"))));
+        List<String> emitted = new ArrayList<>();
+        var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                agent(), config(false), List.of(), Map.of(
+                "message", "请打开个人资料页面并填写昵称", "sessionId", "s-final-page-no-tool",
+                "projectCode", "qmssmp"), null,
+                (event, data) -> emitted.add(event + ":" + data)));
+        assertFalse(result.success(), String.valueOf(result.metadata()));
+        assertFalse(String.valueOf(result.answer()).contains("已经启动"));
+        assertTrue(emitted.stream().noneMatch(event -> event.contains("已经启动")));
+    }
+
+    @Test
+    void directPageClarificationAndNonActionQuestionsRemainAvailable() {
+        List<Map<String, String>> examples = List.of(
+                Map.of("input", "请打开个人资料页面", "answer", "请提供需要填写的昵称？"),
+                Map.of("input", "请告诉我怎么填写个人资料", "answer", "打开个人中心后填写表单。"),
+                Map.of("input", "你能解释如何操作页面吗", "answer", "可以先选择页面上的表单。"),
+                Map.of("input", "不要打开个人资料页面", "answer", "好的，我不会打开。"),
+                Map.of("input", "如果我打开个人资料页面会怎样", "answer", "可以查看资料。"),
+                Map.of("input", "你好", "answer", "你好，有什么可以帮你？"));
+        for (Map<String, String> example : examples) {
+            var runtime = adapter(model(List.of(text(example.get("answer")))));
+            var result = runtime.execute(new SupervisorRuntimeAdapter.SupervisorRequest(
+                    agent(), config(false), List.of(), Map.of("message", example.get("input"),
+                    "sessionId", "s-direct-question", "projectCode", "qmssmp")));
+            assertTrue(result.success(), example.get("input") + ": " + result.code());
+            assertEquals(example.get("answer"), result.answer());
+        }
     }
 
     @Test
@@ -1591,7 +1732,7 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
                 new SupervisorRuntimeAdapter.SupervisorRequest(
                         agent(), config(false), List.of(tool, alternative), Map.of(
-                        "message", "请在当前页面停用班组",
+                        "message", "请打开当前页面并停用班组",
                         "sessionId", "s-side-effect-timeout",
                         "projectCode", "qmssmp")));
 
@@ -1599,6 +1740,43 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         assertEquals("PAGE_BRIDGE_RESULT_UNCONFIRMED", result.code());
         assertEquals(1, execution.get());
         assertEquals(1, result.metadata().get("workflowCallCount"));
+    }
+
+    @Test
+    void pageActionPreconditionFailureStopsBeforeModelCanClaimSuccessOrCallAnotherTool() throws Exception {
+        RuntimeAgentWorkflowToolSnapshot tool = pageActionTool("wf-page-first", "fill_profile_on_page");
+        RuntimeAgentWorkflowToolSnapshot alternative = pageActionTool("wf-page-second", "fill_profile_alternate");
+        stubWorkflow(tool);
+        stubWorkflow(alternative);
+        AtomicInteger execution = new AtomicInteger();
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            execution.incrementAndGet();
+            return new RuntimeGraphSpecExecutionResult(false, "PAGE_BRIDGE_PRECONDITION_FAILED",
+                    "页面操作未执行，请核对输入后重试。", null, "PAGE_ACTION", List.of(), Map.of());
+        });
+        AgentScopeSupervisorRuntimeAdapter adapter = adapter(model(List.of(
+                calls(call("plan", "record_supervisor_plan", Map.of(
+                        "summary", "填写页面资料", "steps", List.of("填写表单"),
+                        "workflowToolNames", List.of("fill_profile_on_page")))),
+                calls(call("first", "fill_profile_on_page", Map.of())),
+                calls(call("retry-plan", "record_supervisor_plan", Map.of(
+                        "summary", "重试", "steps", List.of("再次填写"),
+                        "workflowToolNames", List.of("fill_profile_alternate"), "reason", "失败"))),
+                calls(call("alternate", "fill_profile_alternate", Map.of())),
+                text("个人信息已填写成功"))));
+        List<String> emitted = new ArrayList<>();
+
+        SupervisorRuntimeAdapter.SupervisorResult result = adapter.execute(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), config(false), List.of(tool, alternative),
+                        Map.of("message", "请在当前个人页面填写资料", "sessionId", "s-page-precondition",
+                                "projectCode", "qmssmp"), null,
+                        (event, data) -> emitted.add(event + ":" + String.valueOf(data))));
+
+        assertFalse(result.success(), String.valueOf(result.metadata()));
+        assertEquals("PAGE_BRIDGE_PRECONDITION_FAILED", result.code());
+        assertEquals(1, execution.get());
+        assertFalse(String.valueOf(result.answer()).contains("已填写成功"));
+        assertTrue(emitted.stream().noneMatch(event -> event.contains("个人信息已填写成功")));
     }
 
     @Test
@@ -1739,6 +1917,137 @@ class AgentScopeSupervisorRuntimeAdapterTest {
         assertEquals("班组已停用", result.answer());
         assertEquals(2, result.metadata().get("workflowCallCount"));
         assertEquals(2, result.metadata().get("plannedWorkflowCursor"));
+    }
+
+    @Test
+    void rememberedDirectFlowRunsWithoutTheToolChoosingModelRound() throws Exception {
+        var flow = tool("wf-order-flow", "order_flow");
+        stubWorkflow(flow);
+        workflowVersions.get(flow.getWorkflowVersionId()).setGraphSpecSnapshotJson(
+                "{\"inputSchema\":{\"type\":\"object\",\"properties\":{\"question\":{\"type\":\"string\"}},\"required\":[\"question\"],\"additionalProperties\":false},"
+                        + "\"nodes\":[{\"id\":\"answer\",\"type\":\"ANSWER\",\"config\":{\"directAnswer\":true}}],\"edges\":[]}");
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(
+                new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED", "共 2 张订单",
+                        "answer", "ANSWER", new ArrayList<>(), Map.of(), Map.of()));
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenReturn(true);
+        AtomicInteger modelCalls = new AtomicInteger();
+        var scripted = model(List.of(calls(call("flow-1", "order_flow", Map.of("question", "查一下最近的销售订单")))));
+        RuntimeModelServiceClient counting = request -> {
+            modelCalls.incrementAndGet();
+            return scripted.chat(request);
+        };
+        var adapter = adapter(counting);
+        adapter.setRepeatableReadPolicy(policy);
+        adapter.setDirectFlowRouteMemory(new SupervisorDirectFlowRouteMemory());
+
+        var identity = WorkflowExecutionIdentity.fromAgent(7L, "qmssmp", "user-1");
+        var stateless = config(false).toBuilder().sessionMemoryEnabled(false).build();
+        var first = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                Map.of("message", "查一下最近的销售订单", "sessionId", "s-flow-1"), null, null, null, identity));
+        assertTrue(first.success(), first.code() + " " + first.metadata());
+        assertEquals("共 2 张订单", first.answer());
+        assertEquals(true, first.metadata().get("directFlowDelivered"));
+        int modelCallsAfterFirst = modelCalls.get();
+
+        var second = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                Map.of("message", "查一下最近的销售订单", "sessionId", "s-flow-1"), null, null, null, identity));
+        assertTrue(second.success(), second.code() + " " + second.metadata());
+        assertEquals("共 2 张订单", second.answer());
+        assertEquals("REMEMBERED_DIRECT_FLOW", ((Map<?, ?>) second.metadata().get("model")).get("route"));
+        assertEquals(true, second.metadata().get("directFlowDelivered"));
+        assertEquals(modelCallsAfterFirst, modelCalls.get());
+        verify(graphExecutor, org.mockito.Mockito.times(2)).execute(any(), any(), any(), any(), any());
+
+        // a different question still goes to the model (no scripted reply left, so it cannot succeed as a flow)
+        var third = adapter.execute(new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                Map.of("message", "华东科技有哪些销售订单", "sessionId", "s-flow-1"), null, null, null, identity));
+        assertTrue(modelCalls.get() > modelCallsAfterFirst);
+        assertTrue(!(third.metadata().get("model") instanceof Map<?, ?> model3)
+                || !"REMEMBERED_DIRECT_FLOW".equals(model3.get("route")));
+    }
+
+    @Test
+    void rememberedFlowWithOptionalBusinessInputStillUsesModelToFillIt() throws Exception {
+        var flow = tool("wf-customer-flow", "customer_flow");
+        stubWorkflow(flow);
+        workflowVersions.get(flow.getWorkflowVersionId()).setGraphSpecSnapshotJson("""
+                {"inputSchema":{"type":"object","properties":{"question":{"type":"string"},
+                  "customerId":{"type":"integer"}},"required":["question"],"additionalProperties":false},
+                 "nodes":[{"id":"answer","type":"ANSWER","config":{"directAnswer":true}}],"edges":[]}
+                """);
+        List<Map<String, Object>> workflowInputs = new ArrayList<>();
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+            workflowInputs.add(invocation.getArgument(1));
+            return new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED", "found",
+                    "answer", "ANSWER", new ArrayList<>(), Map.of(), Map.of());
+        });
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenReturn(true);
+        var scripted = model(List.of(
+                calls(call("first", "customer_flow", Map.of("question", "customer 10", "customerId", 10))),
+                calls(call("second", "customer_flow", Map.of("question", "customer 10", "customerId", 10)))));
+        AtomicInteger modelCalls = new AtomicInteger();
+        var adapter = adapter(request -> {
+            modelCalls.incrementAndGet();
+            return scripted.chat(request);
+        });
+        adapter.setRepeatableReadPolicy(policy);
+        adapter.setDirectFlowRouteMemory(new SupervisorDirectFlowRouteMemory());
+        var identity = WorkflowExecutionIdentity.fromAgent(7L, "qmssmp", "user-1");
+        var stateless = config(false).toBuilder().sessionMemoryEnabled(false).build();
+        var request = new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                Map.of("message", "customer 10", "sessionId", "customer-session"), null, null, null, identity);
+        assertTrue(adapter.execute(request).success());
+        assertTrue(adapter.execute(request).success());
+        assertEquals(2, modelCalls.get());
+        assertEquals(2, workflowInputs.size());
+        assertEquals(10, ((Map<?, ?>) workflowInputs.get(1).get("params")).get("customerId"));
+    }
+
+    @Test
+    void rememberedFlowIsIsolatedByUserSessionAndRequestContext() throws Exception {
+        var flow = tool("wf-isolated-flow", "isolated_flow");
+        stubWorkflow(flow);
+        workflowVersions.get(flow.getWorkflowVersionId()).setGraphSpecSnapshotJson("""
+                {"inputSchema":{"type":"object","properties":{"question":{"type":"string"}},
+                  "required":["question"],"additionalProperties":false},
+                 "nodes":[{"id":"answer","type":"ANSWER","config":{"directAnswer":true}}],"edges":[]}
+                """);
+        when(graphExecutor.execute(any(), any(), any(), any(), any())).thenReturn(
+                new RuntimeGraphSpecExecutionResult(true, "RUNTIME_GRAPH_EXECUTED", "found",
+                        "answer", "ANSWER", new ArrayList<>(), Map.of(), Map.of()));
+        var policy = mock(SupervisorRepeatableReadPolicy.class);
+        when(policy.isRepeatable(any(), any())).thenReturn(true);
+        var scripted = model(List.of(
+                calls(call("one", "isolated_flow", Map.of("question", "查询销售订单"))),
+                calls(call("two", "isolated_flow", Map.of("question", "查询销售订单"))),
+                calls(call("three", "isolated_flow", Map.of("question", "查询销售订单"))),
+                calls(call("four", "isolated_flow", Map.of("question", "查询销售订单"))),
+                calls(call("five", "isolated_flow", Map.of("question", "查询这个"))),
+                calls(call("six", "isolated_flow", Map.of("question", "查询这个")))));
+        AtomicInteger modelCalls = new AtomicInteger();
+        var adapter = adapter(request -> { modelCalls.incrementAndGet(); return scripted.chat(request); });
+        adapter.setRepeatableReadPolicy(policy);
+        adapter.setDirectFlowRouteMemory(new SupervisorDirectFlowRouteMemory());
+        var user1 = WorkflowExecutionIdentity.fromAgent(7L, "qmssmp", "user-1");
+        var user2 = WorkflowExecutionIdentity.fromAgent(7L, "qmssmp", "user-2");
+        var stateless = config(false).toBuilder().sessionMemoryEnabled(false).build();
+        var requests = List.of(
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询销售订单", "sessionId", "s1"), null, null, null, user1),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询销售订单", "sessionId", "s1"), null, null, null, user2),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询销售订单", "sessionId", "s2"), null, null, null, user1),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询销售订单", "sessionId", "s1", "pageKey", "other"), null, null, null, user1),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询这个", "sessionId", "s1"), null, null, null, user1),
+                new SupervisorRuntimeAdapter.SupervisorRequest(agent(), stateless, List.of(flow),
+                        Map.of("message", "查询这个", "sessionId", "s1"), null, null, null, user1));
+        for (var request : requests) assertTrue(adapter.execute(request).success());
+        assertEquals(requests.size(), modelCalls.get());
     }
 
     @Test

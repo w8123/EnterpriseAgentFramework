@@ -63,7 +63,7 @@ const stateTones: Record<string, 'success' | 'info' | 'warning' | 'danger' | 'pr
   REJECTED: 'info',
   EXPIRED: 'info',
 }
-const toolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具' }
+const toolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具', ASSISTANT: '业务系统内的助手' }
 const errorLabels: Record<string, string> = {
   MCP_APPROVAL_CONNECTION_INACTIVE: '员工的 AI 工具连接已断开或过期',
   MCP_APPROVAL_SYSTEM_UNAVAILABLE: '员工在该系统已不可用',

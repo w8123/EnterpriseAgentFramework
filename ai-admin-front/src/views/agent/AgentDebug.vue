@@ -92,6 +92,7 @@
           :snapshot="conversationSnapshot"
           :resolve-status-hint="resolveAssistantStatusHint"
           :resolve-thinking-presentation="resolveAssistantThinkingPresentation"
+          :fetch-approval-status="controller.approvalStatus"
           hide-composer
           @stop="stopExecution"
           @interaction-submit="handleInteractionSubmit"

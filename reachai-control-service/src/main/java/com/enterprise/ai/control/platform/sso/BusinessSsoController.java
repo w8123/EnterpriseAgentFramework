@@ -49,6 +49,31 @@ public class BusinessSsoController {
         return redirect(outcome.location(), outcome.cookies());
     }
 
+    /** 账号密码验证: answers JSON so the login page can show the reason in place. */
+    @org.springframework.web.bind.annotation.PostMapping("/api/platform/auth/sso/{code}/password")
+    public ResponseEntity<java.util.Map<String, Object>> password(
+            @PathVariable String code,
+            @org.springframework.web.bind.annotation.RequestBody(required = false) PasswordLoginRequest body,
+            HttpServletRequest request) {
+        BusinessSsoService.PasswordOutcome outcome = service.passwordLogin(code,
+                body == null ? null : body.username(), body == null ? null : body.password(), request);
+        // Always 200: a refusal is an answer the login page shows, not a lost console session.
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .header("Referrer-Policy", "no-referrer");
+        if (!outcome.cookies().isEmpty()) response.header(HttpHeaders.SET_COOKIE, outcome.cookies().toArray(new String[0]));
+        return response.body(outcome.error() == null
+                ? java.util.Map.of("location", outcome.location())
+                : java.util.Map.of("message", outcome.error()));
+    }
+
+    public record PasswordLoginRequest(String username, String password) {
+        @Override
+        public String toString() {
+            return "PasswordLoginRequest[username=" + username + "]";
+        }
+    }
+
     private static ResponseEntity<Void> redirect(String location, List<String> cookies) {
         ResponseEntity.BodyBuilder response = ResponseEntity.status(HttpStatus.FOUND)
                 .header(HttpHeaders.LOCATION, location)

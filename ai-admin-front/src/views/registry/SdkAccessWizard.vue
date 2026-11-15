@@ -143,6 +143,14 @@
               <CodeSnippetBlock variant="guide" title="FastAPI 接入示例" :code="pythonStartupSnippet" @copy="copyText" />
             </section>
             </template>
+            <template v-else-if="sdkLanguage === 'php'">
+            <section class="config-section">
+              <h3>配置业务服务和身份桥</h3>
+              <p>PHP-FPM 没有常驻后台：请求只处理 /reachai/* 三个接口，注册和心跳由命令行完成（cron 每分钟一次，或常驻 heartbeat --loop）。员工身份只从业务登录会话取得，业务系统继续校验角色、租户和数据权限。Laravel / ThinkPHP 的接法见 SDK 包内 README。</p>
+              <CodeSnippetBlock variant="guide" title="reachai.php（原生 PHP 接入示例）" :code="phpStartupSnippet" @copy="copyText" />
+              <CodeSnippetBlock variant="guide" title="注册与心跳" :code="phpLifecycleSnippet" @copy="copyText" />
+            </section>
+            </template>
             <template v-else-if="sdkLanguage === 'node'">
             <section class="config-section">
               <h3>配置业务服务和身份桥</h3>
@@ -524,19 +532,24 @@
         :detail="onboardingTaskDetail"
         :loading="taskActionBusy"
         :busy="taskActionBusy"
-        :handoff-enabled="false"
         @refresh="handleOnboardingTaskRefresh"
         @answer="handleOnboardingTaskAnswer"
+        @reissue="handleOnboardingTaskReissue"
         @verify="handleOnboardingTaskVerification"
         @acceptance="handleOnboardingTaskAcceptance"
         @cancel="handleOnboardingTaskCancel"
       />
     </AppDrawer>
+    <AiHandoffDialog v-model="claimDialogVisible" scenario="ai-coding-task"
+      :context="{ taskId: onboardingClaim?.taskId, claimCode: onboardingClaim?.activationCode }" />
   </div>
 </template>
 
 <script setup lang="ts">
 import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
+import AiHandoffDialog from '@/components/ai-access/AiHandoffDialog.vue'
+import { issueAiCodingHandoff } from '@/api/aiCodingTasks'
+import type { AiCodingHandoffPackage } from '@/types/aiCodingTask'
 import AppDrawer from '@/components/common/AppDrawer.vue'
 import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
@@ -571,6 +584,7 @@ import { useSdkAccessWizardCsharpSnippets } from '@/views/registry/composables/u
 import { useSdkAccessWizardPythonSnippets } from '@/views/registry/composables/useSdkAccessWizardPythonSnippets'
 import { useSdkAccessWizardNodeSnippets } from '@/views/registry/composables/useSdkAccessWizardNodeSnippets'
 import { useSdkAccessWizardGoSnippets } from '@/views/registry/composables/useSdkAccessWizardGoSnippets'
+import { useSdkAccessWizardPhpSnippets } from '@/views/registry/composables/useSdkAccessWizardPhpSnippets'
 import { useSdkAccessWizardLanguage } from '@/views/registry/composables/useSdkAccessWizardLanguage'
 import { sdkAccessLanguageOptions, useSdkAccessWizardUiState } from '@/views/registry/composables/useSdkAccessWizardUiState'
 import {
@@ -661,7 +675,7 @@ const detectedSdkLanguageLabel = computed(() => sdkAccessLanguageOptions.find(
 )?.label || '')
 
 const { csharpManifest, csharpLoading, pythonManifest, pythonLoading,
-  nodeManifest, nodeLoading, goManifest, goLoading } =
+  nodeManifest, nodeLoading, goManifest, goLoading, phpManifest, phpLoading } =
   useSdkAccessWizardLanguage(sdkLanguage, project)
 const selectedSdkManifest = computed(() => ({
   java: aiOnboardingManifest.value,
@@ -669,6 +683,7 @@ const selectedSdkManifest = computed(() => ({
   python: pythonManifest.value,
   node: nodeManifest.value,
   go: goManifest.value,
+  php: phpManifest.value,
 }[sdkLanguage.value] ?? aiOnboardingManifest.value))
 const selectedSdkLoading = computed(() => ({
   java: false,
@@ -676,6 +691,7 @@ const selectedSdkLoading = computed(() => ({
   python: pythonLoading.value,
   node: nodeLoading.value,
   go: goLoading.value,
+  php: phpLoading.value,
 }[sdkLanguage.value]))
 
 watch([sdkLanguage, projectCode], resetManualChecks)
@@ -745,6 +761,7 @@ const {
 const { startup: pythonStartupSnippet } = useSdkAccessWizardPythonSnippets(project, pythonManifest)
 const { startup: nodeStartupSnippet } = useSdkAccessWizardNodeSnippets(project, nodeManifest)
 const { startup: goStartupSnippet } = useSdkAccessWizardGoSnippets(project, goManifest)
+const { startup: phpStartupSnippet, lifecycle: phpLifecycleSnippet } = useSdkAccessWizardPhpSnippets(project, phpManifest)
 
 const {
   goPrev,
@@ -760,13 +777,16 @@ const { copyText } = useSdkAccessWizardActions()
 
 const taskDrawerVisible = ref(false)
 const taskActionBusy = ref(false)
+const claimDialogVisible = ref(false)
+const onboardingClaim = ref<AiCodingHandoffPackage | null>(null)
+let claimScopeGeneration = 0
 
 useSdkAccessWizardTaskRefresh({
   accessMode,
   projectCode,
   activeProjectCode: computed(() => project.value?.projectCode),
   paused: computed(() => loading.value || checking.value || taskLoading.value
-    || taskDrawerVisible.value || taskActionBusy.value),
+    || taskDrawerVisible.value || claimDialogVisible.value || taskActionBusy.value),
   refresh: refreshOnboardingTaskInBackground,
 })
 
@@ -823,11 +843,27 @@ watch(taskDrawerVisible, (visible) => {
   if (!visible) pendingTaskAction = null
 })
 
+watch(claimDialogVisible, (visible) => {
+  if (!visible) onboardingClaim.value = null
+})
+
 async function handleOnboardingTaskRefresh() {
   await runTaskAction(
     () => refreshOnboardingTask(),
     '刷新任务详情失败',
   )
+}
+
+async function handleOnboardingTaskReissue(taskId: string) {
+  const originProjectCode = projectCode.value
+  const scopeGeneration = claimScopeGeneration
+  onboardingClaim.value = null
+  const response = await runTaskAction(() => issueAiCodingHandoff(taskId), '生成领取码失败')
+  if (!response || scopeGeneration !== claimScopeGeneration || originProjectCode !== projectCode.value
+      || onboardingTaskDetail.value?.task.taskId !== taskId) return
+  onboardingClaim.value = response.data
+  taskDrawerVisible.value = false
+  claimDialogVisible.value = true
 }
 
 async function handleOnboardingTaskAnswer(
@@ -928,7 +964,13 @@ function readinessSource(item: { evidence?: unknown }) {
   return `${scope} · ${timeLabel} ${formatTaskTime(evidence.observedAt)}`
 }
 
-watch(projectCode, () => { void loadAll() })
+watch(projectCode, () => {
+  claimScopeGeneration += 1
+  onboardingClaim.value = null
+  claimDialogVisible.value = false
+  taskDrawerVisible.value = false
+  void loadAll()
+}, { flush: 'sync' })
 onMounted(loadAll)
 </script>
 

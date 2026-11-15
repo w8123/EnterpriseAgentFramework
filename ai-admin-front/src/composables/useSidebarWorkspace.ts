@@ -54,7 +54,7 @@ const currentWorkspace = computed<SidebarWorkspace>(() => {
   return available.find(workspace => workspace.key === key) ?? defaultSidebarWorkspace(roles.value, permissions.value)
 })
 
-/** 当前工作台的菜单。AI 工具接入让自己的 AI 工具代表本人使用平台，没有任何平台权限时它和 AI 操作审核都不显示。 */
+/** 当前工作台的菜单。AI 工具接入让自己的 AI 工具代表本人使用平台，没有任何平台权限时它和待办与审核都不显示。 */
 const PLATFORM_AI_PATHS = new Set([PLATFORM_AI_CONNECTIONS_PATH, AI_APPROVALS_PATH])
 const visibleMenu = computed(() => filterSidebarMenu(currentWorkspace.value.menu, permissions.value)
   .filter(entry => entry.kind !== 'item' || !PLATFORM_AI_PATHS.has(entry.index) || permissions.value.length > 0))

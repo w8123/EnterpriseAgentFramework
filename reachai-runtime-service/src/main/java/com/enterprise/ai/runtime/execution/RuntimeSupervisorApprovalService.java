@@ -208,6 +208,11 @@ public class RuntimeSupervisorApprovalService implements RuntimeSupervisorApprov
             expire(row);
             throw new ApprovalExpiredException(interactionId.trim());
         }
+        if (confirmed && (!SupervisorApprovalPresentation.complete(checkpoint.get("args"), readMap(row.getUiRequestJson()))
+                || !SupervisorApprovalPresentation.pageDeclarationComplete(
+                        checkpoint.get("pageApprovalPin"), readMap(row.getUiRequestJson())))) {
+            throw new IllegalArgumentException("SUPERVISOR_APPROVAL_CONTENT_INCOMPLETE: 操作内容未能完整展示，不能确认执行；请缩小操作范围或在业务页面核对并操作。");
+        }
 
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime resumeDeadline = now.plusSeconds(resumeTimeoutSeconds);
@@ -383,7 +388,7 @@ public class RuntimeSupervisorApprovalService implements RuntimeSupervisorApprov
         String permissionKey = text(state.get("permissionKey"));
         PolicyApprovalGrant grant = new PolicyApprovalGrant(
                 row.getId(), permissionKey, text(state.get("toolName")), mapValue(state.get("args")),
-                firstText(submittedUserId, row.getUserId(), "anonymous"));
+                firstText(submittedUserId, row.getUserId(), "anonymous"), mapValue(state.get("pageApprovalPin")));
         return new ResumeDecision(true, false, agentId(row, state), configVersion(state), originalInput, grant,
                 "审批已通过，继续执行原请求", idempotencyKey, submittedPayload, null);
     }

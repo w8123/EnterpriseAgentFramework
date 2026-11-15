@@ -30,7 +30,11 @@ public class PlatformEmbedStreamRelay {
 
     public void streamMessage(PlatformEmbedSessionEntity session,
                               Map<String, Object> runtimeBody,
-                              OutputStream outputStream) throws IOException {
+                              OutputStream outputStream,
+                              PlatformEmbedTurnLeaseService.TurnAdmission admission,
+                              PlatformEmbedTurnLeaseService leases) throws IOException {
+        java.util.concurrent.atomic.AtomicReference<String> pendingUi = new java.util.concurrent.atomic.AtomicReference<>();
+        try {
         String trustedUserId = firstText(session.getExternalUserId(), session.getGlobalUserId());
         if (StringUtils.hasText(trustedUserId) && trustedExecutionGateway != null) {
             trustedExecutionGateway.streamTrusted(
@@ -41,19 +45,26 @@ public class PlatformEmbedStreamRelay {
                     com.enterprise.ai.control.memory.PersonalMemoryIdentityResolver.PersonalMemoryPrincipal.business(
                             session.getTenantId(), trustedUserId, session.getProjectCode()),
                     outputStream,
-                    (eventName, data, downstream) -> relayRuntimeEvent(session, eventName, data, downstream));
+                    (eventName, data, downstream) -> relayRuntimeEvent(session, eventName, data, downstream, admission, leases, pendingUi));
             return;
         }
         // Fail closed without verified Embed claims userId: public stream stays userTrusted=false.
         runtimeStreamProxy.streamAgentExecute(runtimeBody, outputStream, (eventName, data, downstream) -> {
-            relayRuntimeEvent(session, eventName, data, downstream);
+            relayRuntimeEvent(session, eventName, data, downstream, admission, leases, pendingUi);
         });
+        } finally {
+            // No-op after a committed completion; an interrupted or ambiguous run remains non-idle.
+            leases.unknown(session, admission);
+        }
     }
 
     private void relayRuntimeEvent(PlatformEmbedSessionEntity session,
                                    String eventName,
                                    String data,
-                                   OutputStream downstream) throws IOException {
+                                   OutputStream downstream,
+                                   PlatformEmbedTurnLeaseService.TurnAdmission admission,
+                                   PlatformEmbedTurnLeaseService leases,
+                                   java.util.concurrent.atomic.AtomicReference<String> pendingUi) throws IOException {
         String normalized = eventName == null ? "" : eventName.trim();
         if ("supervisor.step".equals(normalized)) {
             Map<String, Object> progress = publicProgress(parseJsonMap(data));
@@ -64,7 +75,11 @@ public class PlatformEmbedStreamRelay {
         }
         if ("execution.completed".equals(normalized)) {
             Map<String, Object> payload = parseJsonMap(data);
-            recordCompletion(session, payload);
+            if (!recordCompletion(session, payload, admission, leases)) {
+                throw new IOException("Embed turn changed before completion");
+            }
+            String bufferedUi = pendingUi.getAndSet(null);
+            if (bufferedUi != null) SseStreamRelay.writeFrame(downstream, "ui.requested", bufferedUi);
             SseStreamRelay.writeFrame(downstream, "message.completed", toJson(buildEmbedResponse(session, payload)));
             return;
         }
@@ -79,9 +94,14 @@ public class PlatformEmbedStreamRelay {
                     "message", PlatformEmbedPublicController.safeRuntimeFailureMessage(code))));
             return;
         }
+        // Wait for the authoritative terminal frame before exposing a card:
+        // read-only cards are not necessarily blocking interactions.
+        if ("ui.requested".equals(normalized)) {
+            pendingUi.set(data);
+            return;
+        }
         // Embed 公共协议允许的实时事件（不含 supervisor / reasoning / debug）
         if ("message.delta".equals(normalized)
-                || "ui.requested".equals(normalized)
                 || "page.action.requested".equals(normalized)) {
             SseStreamRelay.writeFrame(downstream, normalized, data);
         }
@@ -105,6 +125,14 @@ public class PlatformEmbedStreamRelay {
                 case "cancelled" -> "操作已取消";
                 default -> "正在调用业务能力";
             };
+            case "capability_search" -> "completed".equals(state)
+                    ? "已找到可用的业务能力"
+                    : "failed".equals(state) ? "没有找到可用的业务能力" : "正在查找可用的业务能力";
+            case "capability" -> switch (state) {
+                case "completed" -> "业务能力调用完成，正在整理结果";
+                case "failed" -> "业务能力调用未完成";
+                default -> "正在调用业务能力";
+            };
             case "policy" -> "waiting".equals(state)
                     ? "正在等待必要的安全确认"
                     : "正在执行安全校验";
@@ -123,14 +151,28 @@ public class PlatformEmbedStreamRelay {
         return result;
     }
 
-    private void recordCompletion(PlatformEmbedSessionEntity session, Map<String, Object> payload) {
+    private boolean recordCompletion(PlatformEmbedSessionEntity session, Map<String, Object> payload,
+                                     PlatformEmbedTurnLeaseService.TurnAdmission admission,
+                                     PlatformEmbedTurnLeaseService leases) {
         if (payload == null || payload.isEmpty()) {
-            return;
+            return false;
         }
         Map<String, Object> metadata = mapValue(payload.get("metadata"));
         String answer = text(payload.get("answer"));
         long auditStart = System.nanoTime();
-        chatEventService.recordAssistantMessage(session, answer, payload, text(metadata.get("traceId")));
+        Map<String, Object> uiRequest = mapValue(payload.get("uiRequest"));
+        String code = text(metadata.get("code"));
+        boolean waiting = "RUNTIME_GRAPH_INTERACTION_WAITING".equals(code)
+                || "SUPERVISOR_CONFIRMATION_REQUIRED".equals(code);
+        boolean recorded;
+        if (waiting) {
+            String interactionId = text(uiRequest.get("interactionId"));
+            recorded = interactionId != null && leases.waiting(session, admission, interactionId)
+                    && leases.recordWaitingAnswer(session, admission, answer, payload, text(metadata.get("traceId")));
+        } else {
+            recorded = leases.completeAndRecord(session, admission, answer, payload, text(metadata.get("traceId")));
+        }
+        if (!recorded) return false;
         long assistantAuditMs = Math.max(0L, (System.nanoTime() - auditStart) / 1_000_000L);
         // Observability only — never mutate the already-persisted assistant content.
         if (payload.get("metadata") instanceof Map<?, ?> raw) {
@@ -138,6 +180,7 @@ public class PlatformEmbedStreamRelay {
             Map<String, Object> mutable = (Map<String, Object>) raw;
             mutable.put("control.assistantAuditMs", assistantAuditMs);
         }
+        return true;
     }
 
     private PlatformEmbedPublicController.EmbedChatMessageResponse buildEmbedResponse(

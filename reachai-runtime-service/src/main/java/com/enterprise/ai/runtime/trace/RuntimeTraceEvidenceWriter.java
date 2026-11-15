@@ -13,7 +13,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class RuntimeTraceEvidenceWriter {
     private static final Set<String> CHILD_TYPES = Set.of("PLAN", "REPLAN", "SKILL_CONTEXT", "WORKFLOW_TOOL",
-            "WORKFLOW_NODE", "A2A_DELEGATION", "MANAGED_EXECUTOR");
+            "WORKFLOW_NODE", "A2A_DELEGATION", "MANAGED_EXECUTOR", "PROJECT_CAPABILITY");
     private final RuntimeTraceSpanMapper spans;
     private final RuntimeToolCallLogMapper tools;
 

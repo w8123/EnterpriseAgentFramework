@@ -34,8 +34,8 @@
             ref="importInputRef"
             class="workflow-import-input"
             type="file"
-            accept=".json,application/json"
-            aria-label="导入工作流文件"
+            accept=".json,.yml,.yaml,application/json"
+            aria-label="导入工作流文件（ReachAI、Dify DSL 或 n8n）"
             @change="handleImportFile"
           />
           <LiquidGlassButton source="wallpaper"
@@ -216,7 +216,17 @@
       <el-form label-position="top" class="create-form">
         <div v-if="importedFile" class="create-import-summary">
           <strong>导入：{{ importedFile.workflow.name || importedFile.workflow.keySlug || '工作流文件' }}</strong>
-          <span>会创建为一个新草稿，原来的模型选择已清空，用工作流默认模型。</span>
+          <span v-if="importReport">
+            来自 {{ importReport.sourceLabel }}：{{ importReport.converted }} 个节点已转换<template v-if="importReport.placeholders">，{{ importReport.placeholders }} 个需要你补上</template>。会创建为一个新草稿，模型用工作流默认模型。
+          </span>
+          <span v-else>会创建为一个新草稿，原来的模型选择已清空，用工作流默认模型。</span>
+          <ul v-if="importReport" class="create-import-notes" aria-label="节点转换结果">
+            <li v-for="(note, index) in importReport.notes" :key="`${note.node}-${index}`" :class="`is-${note.level}`">
+              <em>{{ note.level === 'todo' ? '要补' : note.level === 'review' ? '请看' : '已转' }}</em>
+              <b>{{ note.node }}</b>：{{ note.result }}
+            </li>
+            <li v-for="remark in importReport.remarks" :key="remark" class="is-review"><em>说明</em>{{ remark }}</li>
+          </ul>
           <ul v-if="importDependencyLines.length">
             <li v-for="line in importDependencyLines" :key="line">{{ line }}</li>
           </ul>
@@ -356,7 +366,8 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Plus, Upload } from '@element-plus/icons-vue'
 import { WORKFLOW_TEMPLATES, templateDocuments } from '@/utils/workflowTemplates'
-import { parseWorkflowFile, stripEnvironmentBindings, type WorkflowFile } from '@/utils/workflowExchange'
+import { WORKFLOW_FILE_FORMAT, WORKFLOW_FILE_VERSION, parseWorkflowFile, stripEnvironmentBindings, workflowDependencies, type WorkflowFile } from '@/utils/workflowExchange'
+import { convertForeignWorkflow, type ForeignImportReport } from '@/utils/workflowForeignImport'
 import CollapsibleHeaderRegion from '@/components/common/CollapsibleHeaderRegion.vue'
 import MetricStrip from '@/components/common/MetricStrip.vue'
 import type { MetricStripItem } from '@/components/common/glassWorkbench'
@@ -504,6 +515,7 @@ const createForm = reactive<{
 })
 const importInputRef = ref<HTMLInputElement | null>(null)
 const importedFile = ref<WorkflowFile | null>(null)
+const importReport = ref<ForeignImportReport | null>(null)
 const selectedTemplate = computed(() => WORKFLOW_TEMPLATES.find((item) => item.key === createForm.templateKey) || null)
 const importDependencyLines = computed(() => {
   const deps = importedFile.value?.dependencies
@@ -532,8 +544,21 @@ async function handleImportFile(event: Event) {
   input.value = ''
   if (!file) return
   try {
-    const parsed = parseWorkflowFile(await file.text())
-    openCreateDialog(parsed)
+    const content = await file.text()
+    const foreign = convertForeignWorkflow(content, file.name)
+    if (foreign) {
+      openCreateDialog({
+        format: WORKFLOW_FILE_FORMAT,
+        version: WORKFLOW_FILE_VERSION,
+        exportedAt: '',
+        workflow: { name: foreign.name, keySlug: foreign.keySlug, description: foreign.description || null, workflowKind: 'GENERAL' },
+        graphSpec: foreign.graphSpec,
+        canvas: foreign.canvas,
+        dependencies: workflowDependencies(foreign.graphSpec),
+      }, foreign.report)
+      return
+    }
+    openCreateDialog(parseWorkflowFile(content))
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '导入失败')
   }
@@ -1111,7 +1136,7 @@ async function retryCreateCatalog() {
   }
 }
 
-function openCreateDialog(imported: WorkflowFile | null = null) {
+function openCreateDialog(imported: WorkflowFile | null = null, report: ForeignImportReport | null = null) {
   if (!canCreateWorkflowInCurrentScope.value) return
   const resolution = pageProjectScope.resolution.value
   const reference = pageProjectScope.reference.value
@@ -1133,8 +1158,9 @@ function openCreateDialog(imported: WorkflowFile | null = null) {
   createForm.description = imported?.workflow.description || ''
   createForm.templateKey = ''
   importedFile.value = imported
+  importReport.value = imported ? report : null
   if (imported) {
-    createForm.name = imported.workflow.name ? `${imported.workflow.name}（导入）` : ''
+    createForm.name = imported.workflow.name ? (report ? imported.workflow.name : `${imported.workflow.name}（导入）`) : ''
     createForm.keySlug = imported.workflow.keySlug ? `${imported.workflow.keySlug}-import`.slice(0, 128) : ''
   }
   createDialogVisible.value = true
@@ -1755,6 +1781,40 @@ function workflowStatusClass(status?: string | null) {
   ul {
     margin: 2px 0;
     padding-left: 18px;
+  }
+
+  .create-import-notes {
+    max-height: 240px;
+    overflow: auto;
+    padding-left: 0;
+    list-style: none;
+
+    li {
+      padding: 2px 0;
+      line-height: 1.5;
+    }
+
+    em {
+      display: inline-block;
+      min-width: 34px;
+      margin-right: 6px;
+      font-style: normal;
+      font-weight: 600;
+      color: var(--el-color-success);
+    }
+
+    .is-review em {
+      color: var(--el-color-warning);
+    }
+
+    .is-todo em {
+      color: var(--el-color-danger);
+    }
+
+    b {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
   }
 }
 </style>

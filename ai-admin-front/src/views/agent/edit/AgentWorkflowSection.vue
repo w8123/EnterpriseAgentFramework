@@ -11,9 +11,21 @@
         添加 Workflow
       </el-button>
     </template>
-    <div v-if="!generalWorkflowEntries.length" class="capability-empty-state">
+    <section class="project-capability-switch" :class="{ 'is-on': useProjectCapabilities }">
+      <div class="project-capability-switch__copy">
+        <strong>可使用本项目全部已接入能力</strong>
+        <p>
+          打开后，助手会按员工的需求查找并调用这个业务系统已向员工开放的能力，不用逐个配置 Workflow。
+          查询直接执行，写入先走「写操作审批」，权限与员工本人一致。下面配置的 Workflow 仍然优先使用。
+        </p>
+      </div>
+      <el-switch v-model="useProjectCapabilities" aria-label="可使用本项目全部已接入能力" />
+    </section>
+    <AgentLearnedFlowPanel v-if="!isNew && useProjectCapabilities" :agent-id="agentId" @enabled="reloadAfterLearnedFlow" />
+    <div v-if="!generalWorkflowEntries.length" class="capability-empty-state" :class="{ 'is-compact': useProjectCapabilities }">
       <span class="capability-empty-state__icon"><el-icon><Document /></el-icon></span>
       <strong>暂未添加 Workflow</strong>
+      <small v-if="useProjectCapabilities">不添加也可以：助手会直接使用项目已接入的能力。常用的固定做法再做成 Workflow。</small>
     </div>
     <div v-else class="config-asset-list">
       <article v-for="({ row }, position) in generalWorkflowEntries" :key="row.workflowId" class="config-asset-card">
@@ -194,6 +206,15 @@ import { Check, Document, MoreFilled, Plus, Rank, Search } from '@element-plus/i
 import AppDialog from '@/components/common/AppDialog.vue'
 import WorkbenchPanel from '@/components/common/WorkbenchPanel.vue'
 import { useAgentEditorContext } from './useAgentEditor'
+import AgentLearnedFlowPanel from './AgentLearnedFlowPanel.vue'
+import { useRoute } from 'vue-router'
+
+const agentId = String(useRoute().params.id || '')
+
+/** 启用直达流程会在服务端发布助手的新版本，重新载入页面以免继续编辑旧版本。 */
+function reloadAfterLearnedFlow() {
+  window.location.reload()
+}
 
 const {
   workflowPickerVisible,
@@ -208,6 +229,7 @@ const {
   isNew,
   activeConfigSection,
   generalWorkflowEntries,
+  useProjectCapabilities,
   newerWorkflowVersion,
   riskLabel,
   riskToneClass,
@@ -232,6 +254,47 @@ const {
 <style scoped lang="scss">
 .wide {
   grid-column: span 2;
+}
+
+.project-capability-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-divider);
+  border-radius: 12px;
+
+  &.is-on {
+    border-color: var(--el-color-primary-light-5);
+  }
+
+  &__copy {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+
+    strong {
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.6;
+    }
+  }
+}
+
+.capability-empty-state.is-compact {
+  min-height: 140px;
+
+  small {
+    color: var(--text-secondary);
+  }
 }
 
 .capability-empty-state {

@@ -36,7 +36,8 @@ public class AiAuditExportService {
             "结果", "审批人", "审批时间", "错误", "Token", "运行编号");
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final Map<String, String> TOOL_LABELS = Map.of(
-            "CLAUDE_CODE", "Claude Code", "CODEX", "Codex", "OTHER", "其他 AI 工具");
+            "CLAUDE_CODE", "Claude Code", "CODEX", "Codex", "OTHER", "其他 AI 工具",
+            "ASSISTANT", "业务系统内的助手");
     private static final Map<String, String> ENTRY_LABELS = Map.of(
             "EMBED", "业务系统内对话", "AUTOMATION", "自动化任务", "API", "开放 API", "GATEWAY", "开放 API",
             "A2A", "智能体互联", "AI_CODING_TASK", "AI 编程任务");

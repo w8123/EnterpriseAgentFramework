@@ -1330,8 +1330,8 @@ public class RuntimeAgentConfigService {
         if (!StringUtils.hasText(target.getModelInstanceId())) {
             throw new IllegalArgumentException("发布前请先为 Agent 选择模型");
         }
-        if (!"ALLOW_LIST".equalsIgnoreCase(target.getToolCatalogMode())) {
-            throw new IllegalArgumentException("Agent toolCatalogMode must be ALLOW_LIST");
+        if (!RuntimeAgentToolCatalogMode.supported(target.getToolCatalogMode())) {
+            throw new IllegalArgumentException("Agent toolCatalogMode must be ALLOW_LIST or PROJECT_CAPABILITIES");
         }
         validateConfigJson(target.getConfigJson());
     }

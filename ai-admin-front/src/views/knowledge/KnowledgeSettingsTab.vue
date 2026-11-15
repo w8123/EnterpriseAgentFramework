@@ -14,7 +14,7 @@
         <el-form-item label="说明" prop="description">
           <el-input v-model="basicForm.description" type="textarea" :rows="3" placeholder="简要说明知识范围或用途（可选）" />
         </el-form-item>
-        <el-form-item v-for="field in modelFields" :key="field.key" :label="field.label" :required="field.type !== 'RERANKER'" :error="basicErrors[field.key]">
+        <el-form-item v-for="field in (isExternal ? [] : modelFields)" :key="field.key" :label="field.label" :required="field.type !== 'RERANKER'" :error="basicErrors[field.key]">
           <el-select
             v-model="basicForm[field.key]"
             filterable
@@ -41,14 +41,30 @@
             </template>
           </el-select>
         </el-form-item>
-        <el-form-item>
+        <el-form-item v-if="!isExternal">
           <div class="field-hint">更换向量模型后，需要重新解析已有文件。</div>
         </el-form-item>
       </el-form>
     </WorkbenchPanel>
 
     <el-form :model="form" label-width="120px" class="knowledge-settings-tab" :disabled="!kb || saving || loadingContext || !hasLoadedContext">
-      <WorkbenchPanel class="glass-workspace-adaptive" title="谁能检索" density="compact">
+      <WorkbenchPanel v-if="isExternal" class="glass-workspace-adaptive" title="检索" density="compact">
+        <el-row :gutter="16">
+          <el-col :xs="24" :sm="24" :md="12">
+            <el-form-item label="返回条数">
+              <el-input-number v-model="form.topK" :min="1" :max="20" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :xs="24" :sm="24" :md="12">
+            <el-form-item label="相似度下限">
+              <el-slider v-model="form.similarityThreshold" :min="0" :max="1" :step="0.05" show-input />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <div class="panel-hint">外部知识库对所有调用方开放检索。相似度下限会传给外部系统（ima 不返回相似度，按它自己的排序给分）；切分、向量模型等在外部系统里设置。</div>
+      </WorkbenchPanel>
+
+      <WorkbenchPanel v-if="!isExternal" class="glass-workspace-adaptive" title="谁能检索" density="compact">
         <el-form-item label="检索范围">
           <el-radio-group v-model="form.accessMode">
             <el-radio value="ALL_CALLERS">所有调用方</el-radio>
@@ -58,7 +74,7 @@
         </el-form-item>
       </WorkbenchPanel>
 
-      <WorkbenchPanel class="glass-workspace-adaptive" title="切分" density="compact">
+      <WorkbenchPanel v-if="!isExternal" class="glass-workspace-adaptive" title="切分" density="compact">
         <el-row :gutter="16">
           <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="切分方式">
@@ -83,7 +99,7 @@
         <div class="panel-hint">Markdown 和 Word 总是先按标题切；改动只对之后上传或重新解析的文件生效。</div>
       </WorkbenchPanel>
 
-      <WorkbenchPanel class="glass-workspace-adaptive" title="检索" density="compact">
+      <WorkbenchPanel v-if="!isExternal" class="glass-workspace-adaptive" title="检索" density="compact">
         <el-row :gutter="16">
           <el-col :xs="24" :sm="24" :md="12" :lg="8">
             <el-form-item label="检索方式">
@@ -158,6 +174,7 @@ const emit = defineEmits<{
   saved: []
 }>()
 
+const isExternal = computed(() => props.kb?.sourceType === 'EXTERNAL')
 const searchModeOptions = [{ label: '混合', value: 'hybrid' }, { label: '语义', value: 'vector' }, { label: '关键词', value: 'keyword' }]
 const saving = ref(false)
 const loadingContext = ref(false)
@@ -172,8 +189,8 @@ const basicForm = reactive<KnowledgeBaseForm>({
 })
 const basicErrors = computed(() => ({
   name: basicValidationAttempted.value && !basicForm.name.trim() ? '请输入知识库名称' : '',
-  embeddingModelInstanceId: basicValidationAttempted.value && !basicForm.embeddingModelInstanceId ? '请选择向量模型' : '',
-  llmModelInstanceId: basicValidationAttempted.value && !basicForm.llmModelInstanceId ? '请选择回答模型' : '',
+  embeddingModelInstanceId: basicValidationAttempted.value && !isExternal.value && !basicForm.embeddingModelInstanceId ? '请选择向量模型' : '',
+  llmModelInstanceId: basicValidationAttempted.value && !isExternal.value && !basicForm.llmModelInstanceId ? '请选择回答模型' : '',
   rerankModelInstanceId: '',
 }))
 const modelFields = [
@@ -273,7 +290,9 @@ async function handleSave() {
   basicForm.name = basicForm.name.trim()
   basicValidationAttempted.value = true
   if (Object.values(basicErrors.value).some(Boolean)) return
-  const changes = {
+  const changes = isExternal.value ? {
+    name: basicForm.name, description: basicForm.description, topK: form.topK, similarityThreshold: form.similarityThreshold,
+  } : {
     name: basicForm.name, description: basicForm.description,
     embeddingModelInstanceId: basicForm.embeddingModelInstanceId, llmModelInstanceId: basicForm.llmModelInstanceId,
     rerankModelInstanceId: basicForm.rerankModelInstanceId || null,

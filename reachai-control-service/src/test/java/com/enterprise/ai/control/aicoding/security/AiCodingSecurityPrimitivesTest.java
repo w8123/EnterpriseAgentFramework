@@ -59,6 +59,7 @@ class AiCodingSecurityPrimitivesTest {
                   "registry_app_secret":"secret",
                   "nested":{
                     "activationCode":"code",
+                    "claim_code":"fixture",
                     "safe":"visible",
                     "embedToken":"embed-token",
                     "providerSecret":"provider-secret",
@@ -75,6 +76,7 @@ class AiCodingSecurityPrimitivesTest {
         assertEquals("secret", source.path("registry_app_secret").asText());
         assertFalse(sanitized.has("registry_app_secret"));
         assertFalse(sanitized.path("nested").has("activationCode"));
+        assertFalse(sanitized.path("nested").has("claim_code"));
         assertFalse(sanitized.path("nested").has("embedToken"));
         assertFalse(sanitized.path("nested").has("providerSecret"));
         assertFalse(sanitized.path("nested").has("apiKey"));

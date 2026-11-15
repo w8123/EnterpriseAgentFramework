@@ -1,5 +1,7 @@
 ﻿/// <reference types="vite/client" />
 
+declare const __REACHAI_EMBED_BROWSER_VERSION__: string
+
 interface ImportMetaEnv {
   /** 管理端生成「业务系统配置示例」时 eaf.registry.url 指向 ReachAI Control public API 根地址（含端口），例如 http://localhost:18603 */
   readonly VITE_REACHAI_CONTROL_SERVICE_URL?: string

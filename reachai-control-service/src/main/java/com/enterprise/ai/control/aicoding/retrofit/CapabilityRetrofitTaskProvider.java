@@ -411,13 +411,13 @@ public class CapabilityRetrofitTaskProvider implements AiCodingTaskKindProvider 
 
     private static String normalizeLanguage(String language) {
         String value = language == null ? "" : language.trim().toLowerCase(Locale.ROOT);
-        return Set.of("java", "csharp", "python", "node", "go").contains(value) ? value : "unknown";
+        return Set.of("java", "csharp", "python", "node", "go", "php").contains(value) ? value : "unknown";
     }
 
     private ObjectNode declarationGuide(String language) {
         ObjectNode guide = objectMapper.createObjectNode();
         guide.put("language", language);
-        guide.put("reference", "Skill 里的 references/declarations.md 有五种语言的完整写法。");
+        guide.put("reference", "Skill 里的 references/declarations.md 有六种语言的完整写法。");
         switch (language) {
             case "csharp" -> guide.put("example",
                     "[ReachCapability(\"erp.receivable.page\", Title = \"查询应收款\", SideEffect = ReachSideEffect.Read, BusinessIdentityRequired = true)]\n"
@@ -432,6 +432,9 @@ public class CapabilityRetrofitTaskProvider implements AiCodingTaskKindProvider 
             case "go" -> guide.put("example",
                     "c.RegisterCapability(reachai.Capability{Name: \"erp.receivable.page\", Title: \"查询应收款\", SideEffect: \"READ\", BusinessIdentityRequired: true,\n"
                             + "  InputSchema: input, Handler: func(ctx context.Context, args map[string]any) (any, error) { ... }})");
+            case "php" -> guide.put("example",
+                    "$reach->capability('erp.receivable.page', [$receivables, 'page'], ['title' => '查询应收款', 'sideEffect' => 'READ',\n"
+                            + "  'businessIdentityRequired' => true, 'parameters' => ['customerName' => ['type' => 'string', 'description' => '客户名称']]]);");
             default -> guide.put("example",
                     "@ReachCapability(name = \"erpReceivablePage\", title = \"查询应收款\", description = \"按客户和日期分页查询应收款\", sideEffect = ReachSideEffectLevel.READ, businessIdentityRequired = true)\n"
                             + "public PageResult<ReceivableRespVO> page(@ReachParam(name = \"customerName\", description = \"客户名称\") String customerName, ...)");

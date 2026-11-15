@@ -6,13 +6,8 @@ name: images
 # 标签：dev 分支 → dev、sha-<短提交号>；打 v* 标签 → 版本号和 latest。
 # 第一次发布后需要在 GitHub 的 Packages 页面把两个镜像设成 Public，别人才能免登录下载。
 
+# 只手动运行：账号没有自动 Actions 额度了（2026-11-10）。需要发布镜像时在 Actions 页面选分支或标签后点 Run workflow。
 on:
-  push:
-    branches: [dev]
-    tags: ["v*"]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
   workflow_dispatch:
 
 permissions:

@@ -1,0 +1,31 @@
+{
+    "name": "reachai/php-sdk",
+    "description": "ReachAI business-system integration for PHP (native PHP, Laravel, ThinkPHP)",
+    "type": "library",
+    "version": "1.0.0",
+    "license": "MIT",
+    "keywords": ["reachai", "ai", "agent", "laravel", "thinkphp"],
+    "require": {
+        "php": ">=7.4 <8.5",
+        "ext-curl": "*",
+        "ext-json": "*",
+        "ext-openssl": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "ReachAI\\": "src/"
+        }
+    },
+    "bin": ["bin/reachai"],
+    "extra": {
+        "laravel": {
+            "providers": ["ReachAI\\Laravel\\ReachAIServiceProvider"]
+        },
+        "think": {
+            "services": ["ReachAI\\ThinkPHP\\ReachAIService"],
+            "config": {
+                "reachai": "config/reachai.php"
+            }
+        }
+    }
+}

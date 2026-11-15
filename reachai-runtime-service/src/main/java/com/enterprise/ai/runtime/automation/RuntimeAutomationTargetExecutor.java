@@ -52,18 +52,21 @@ final class RuntimeAutomationTargetExecutor {
     private final RuntimeAutomationInteractionTerminationService interactionTerminationService;
     private final RuntimeAutomationJsonSupport json;
     private final ScheduledExecutorService runtimeAutomationTimeoutScheduler;
+    private final RuntimeAutomationRunAs runAs;
 
     ExecutionOutcome execute(RuntimeAutomationEntity automation,
                              RuntimeAutomationVersionEntity version,
                              RuntimeAutomationOccurrenceEntity occurrence,
                              String traceId,
                              Map<String, Object> input) {
-        WorkflowExecutionIdentity identity = WorkflowExecutionIdentity.fromAutomation(
-                automation.getTenantId(), automation.getProjectId(), automation.getProjectCode(),
-                version.getPrincipalId());
-        return "AGENT".equals(version.getTargetType())
+        RuntimeAutomationRunAs.Decision decision = runAs.decide(automation, version);
+        log.info("[Automation] {} occurrence {} runs as {} ({})", automation.getAutomationKey(),
+                occurrence == null ? null : occurrence.getId(), decision.mode(), decision.reason());
+        WorkflowExecutionIdentity identity = decision.identity();
+        ExecutionOutcome outcome = "AGENT".equals(version.getTargetType())
                 ? executeAgent(version, traceId, input, identity)
                 : executeWorkflow(version, traceId, input, identity);
+        return outcome.withRunAs(decision);
     }
 
     private ExecutionOutcome executeAgent(RuntimeAutomationVersionEntity version,
@@ -355,6 +358,28 @@ final class RuntimeAutomationTargetExecutor {
 
         static ExecutionOutcome failure(String traceId, String code, String message, boolean retryable) {
             return new ExecutionOutcome(false, false, traceId, code, message, Map.of(), retryable);
+        }
+
+        /**
+         * Records who the run acted as and, when a service-account run was refused for lacking an
+         * employee identity, tells the reader how to give the Automation one.
+         */
+        ExecutionOutcome withRunAs(RuntimeAutomationRunAs.Decision decision) {
+            Map<String, Object> merged = new LinkedHashMap<>(metadata == null ? Map.of() : metadata);
+            merged.put("automationRunAs", decision.mode());
+            merged.put("automationRunAsReason", decision.reason());
+            String text = message;
+            if (!success && RuntimeAutomationRunAs.SERVICE_ACCOUNT.equals(decision.mode()) && identityRefused()) {
+                text = RuntimeAutomationRunAs.serviceAccountHint(decision.reason())
+                        + (StringUtils.hasText(message) ? "（原始错误：" + message + "）" : "");
+            }
+            return new ExecutionOutcome(success, interactionRequired, traceId, code, text, merged, retryable);
+        }
+
+        private boolean identityRefused() {
+            String haystack = (code == null ? "" : code) + " " + (message == null ? "" : message);
+            return haystack.contains("BUSINESS_IDENTITY_REQUIRED") || haystack.contains("IDENTITY_REQUIRED")
+                    || haystack.contains("业务用户身份");
         }
     }
 

@@ -145,6 +145,7 @@ public class DocumentImportJobServiceImpl implements DocumentImportJobService {
         DocumentImportAccessContext verifiedAccess = requireAccessContext(accessContext);
         requireScopeAssertion(knowledgeBase, verifiedAccess);
         com.enterprise.ai.domain.KnowledgeBaseSettings.requireVectorCollectionName(knowledgeBase);
+        com.enterprise.ai.domain.KnowledgeBaseSettings.requireLocal(knowledgeBase);
         String normalizedChunkStrategy = normalizeChunkStrategy(chunkStrategy);
         int normalizedChunkSize = normalizeChunkSize(chunkSize);
         int normalizedChunkOverlap = normalizeChunkOverlap(chunkOverlap, normalizedChunkSize);

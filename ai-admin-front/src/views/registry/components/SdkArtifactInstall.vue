@@ -20,6 +20,7 @@ const packageInstructions = {
   python: '在业务项目的 Python 环境中执行安装命令，将命令中的 wheel 路径替换为下载并核验后的实际路径。',
   node: '在业务项目中执行安装命令，将命令中的 npm 包路径替换为下载并核验后的实际路径。',
   go: '将核验后的 ZIP 解压，把其中的 reachai-go 目录放到业务项目的 third_party/ 下，再执行安装命令。',
+  php: '将核验后的 ZIP 原样放到业务项目的 third_party/reachai/ 目录（不要解压），再在项目根目录执行安装命令；没有 Composer 的项目可解压后 require reachai-php/autoload.php。',
 }
 const sha256 = /^[a-f0-9]{64}$/i
 const selectedArtifacts = computed(() => props.artifacts.filter((item) => item.language === props.language))
@@ -46,8 +47,8 @@ const javaPom = computed(() => javaArtifacts.value.map((item) => `<!-- ${item.ar
     <template v-if="language === 'java' && javaReady">
       <div class="sdk-install-group">
         <el-link :href="packageUrl" :icon="Download" type="primary" download>下载接入工具包</el-link>
-        <p>解压后把 <code>{skillExtractDir}</code> 替换为解压目录。按顺序安装 Capability SDK 和 Starter，脚本会校验 JAR 和 POM 的摘要。</p>
-        <CodeSnippetBlock variant="guide" title="PowerShell · 安装 Java SDK" :code="javaInstall" @copy="copyText" />
+        <p>安装 Node.js 18 或更高版本、JDK 和 Maven；解压后把 <code>{skillExtractDir}</code> 替换为解压目录。在 Windows、macOS 或 Linux 的终端按顺序执行，脚本会校验 JAR 和 POM 的摘要。</p>
+        <CodeSnippetBlock variant="guide" title="安装 Java SDK" :code="javaInstall" @copy="copyText" />
       </div>
       <div class="sdk-install-group">
         <p>将以下依赖放入对应 Maven 模块。多模块项目在声明注解的模块引入 Capability SDK，在启动模块引入 Starter。</p>

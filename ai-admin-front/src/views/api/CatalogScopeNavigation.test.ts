@@ -10,6 +10,8 @@ import { BUSINESS_METHOD_CATALOG_PATH, HTTP_API_CATALOG_PATH } from '@/views/cap
 import { businessMethodFixture } from '@/test/fixtures/businessMethod'
 
 const mocks = vi.hoisted(() => ({ list: vi.fn(), methods: vi.fn(), classifications: vi.fn(), store: null as any, auth: null as any }))
+// 接入进度自己读一遍接口数，这里测的是目录的导航，所以换成空组件。
+vi.mock('@/views/api/components/ProjectOnboardingGuide.vue', () => ({ default: { name: 'ProjectOnboardingGuide', render: () => null } }))
 vi.mock('@/api/httpApi', () => ({ listHttpApis: mocks.list }))
 vi.mock('@/api/businessMethod', () => ({ getBusinessMethods: mocks.methods, getBusinessMethod: vi.fn() }))
 vi.mock('@/api/semanticDoc', () => ({ getCatalogClassificationIndex: mocks.classifications }))

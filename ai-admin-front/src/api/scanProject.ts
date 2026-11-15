@@ -64,7 +64,7 @@ export function runSdkAccessCheck(id: number) {
   return controlRequest.post<SdkAccessCheckResponse>(`/api/scan-projects/${id}/sdk-access-check`, {})
 }
 
-export function getAiOnboardingManifest(id: number, language?: 'csharp' | 'python' | 'node' | 'go') {
+export function getAiOnboardingManifest(id: number, language?: 'csharp' | 'python' | 'node' | 'go' | 'php') {
   return controlRequest.get<AiOnboardingManifest>(`/api/ai-assist/projects/${id}/onboarding-manifest`, {
     params: language ? { language } : undefined,
   })

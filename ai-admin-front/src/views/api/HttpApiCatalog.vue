@@ -27,9 +27,13 @@
       <template #actions><el-button link type="primary" @click="load">重新加载</el-button></template>
     </LiquidGlassNotice>
 
+    <ProjectOnboardingGuide v-if="scopeReady && projectId && currentProject?.projectCode" :project-id="currentProject.id"
+      :project-code="currentProject.projectCode" :can-write="canWriteProject" :refresh-key="onboardingRefresh"
+      @add="addDialog = true" @accept="showUnaccepted" @auth="authDialog = true" @publish="publishFlowsDialog = true" />
     <div v-if="scopeReady && projectId && currentProject" class="api-catalog-actions">
       <span class="api-catalog-actions-label">{{ currentProject.name }}</span>
       <el-button :disabled="!rows.length" @click="authDialog = true">接口鉴权</el-button>
+      <el-button v-if="canWriteProject" :disabled="!rows.length" @click="publishFlowsDialog = true">发布给员工和助手</el-button>
       <AiHandoffButton scenario="http-api-import" size="small" :context="{ projectCode: currentProject.projectCode }" missing-hint="当前项目还没有设置项目编码。" />
       <el-button v-if="canWriteProject" type="primary" @click="addDialog = true">添加 API</el-button>
     </div>
@@ -149,7 +153,10 @@
       :project-code="currentProject?.projectCode || undefined" :groups="classification.index.value?.groups || []"
       :group="classificationEditorGroup" :mode="classificationEditorMode" :subject="classificationEditorSubject || undefined" :subjects="classificationEditorSubjects"
       @updated="refreshClassifiedCatalog" @close-auto-focus="restoreClassificationFocus" />
-    <HttpApiAddDialog v-if="currentProject" v-model="addDialog" :project="currentProject" :can-write="canWriteProject" @saved="apiAdded" />
+    <HttpApiAddDialog v-if="currentProject" v-model="addDialog" :project="currentProject" :can-write="canWriteProject"
+      :import-targets="importTargets" :can-configure-auth="canWriteProject" @saved="apiAdded" @configure-auth="configureImportedAuth" />
+    <HttpApiPublishFlowsDialog v-if="currentProject && currentProject.projectCode && publishFlowsDialog" v-model="publishFlowsDialog"
+      :project-id="currentProject.id" :project-code="currentProject.projectCode" />
     <ProjectApiAuthDialog v-if="currentProject && currentProject.projectCode" v-model="authDialog" :project-id="currentProject.id"
       :project-code="currentProject.projectCode" :base-url="currentProject.baseUrl" :sample-api-id="rows[0]?.id ?? null"
       :can-write="canWriteProject" :can-manage-credential="canManageCredential" />
@@ -159,7 +166,7 @@
 <script setup lang="ts">
 import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { ElSelect } from 'element-plus'
+import { ElMessage, type ElSelect } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import { LiquidGlassInput, LiquidGlassSelect, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { ArrowRight, Search } from '@element-plus/icons-vue'
@@ -173,6 +180,8 @@ import type { CatalogClassificationGroup, CatalogClassificationSubjectType } fro
 import ProjectScopeState from '@/components/common/ProjectScopeState.vue'
 import HttpApiAddDialog from './components/HttpApiAddDialog.vue'
 import ProjectApiAuthDialog from './components/ProjectApiAuthDialog.vue'
+import ProjectOnboardingGuide from './components/ProjectOnboardingGuide.vue'
+import HttpApiPublishFlowsDialog from './components/HttpApiPublishFlowsDialog.vue'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { useCatalogQuery } from '@/composables/useCatalogQuery'
 import { BUSINESS_CAPABILITY_SCOPE_QUERY_KEYS, HTTP_API_CATALOG_PATH, catalogQueryMatchesProject, httpApiDetailLocation, projectCapabilityWorkspaceLocation } from '@/views/capability/businessCapabilityRoutes'
@@ -223,6 +232,30 @@ const canManageCredential = computed(() => !!currentProject.value?.projectCode &
 const allProjects = computed(() => scope?.readableProjects.value || [])
 const addDialog = ref(false)
 const authDialog = ref(false)
+const publishFlowsDialog = ref(false)
+/** 接入进度：加了接口、关掉鉴权或发布弹窗后重新读一遍，因为这些弹窗里都可能做完了一步。 */
+const onboardingRefresh = ref(0)
+watch([addDialog, authDialog, publishFlowsDialog], (now, before) => {
+  if (before.some((wasOpen, index) => wasOpen && !now[index])) onboardingRefresh.value += 1
+})
+function showUnaccepted() {
+  draft.sourceStatus = 'DISCOVERED'
+  void query.applyField('sourceStatus')
+}
+/** 批量导入可以选的「所属系统」：当前用户有写权限的项目 */
+const importTargets = computed(() => allProjects.value.filter(project => !!project.projectCode && hasPlatformResourcePermission(
+  platformSessionUser.value?.permissionGrants, PLATFORM_PERMISSION_WRITE, 'PROJECT', null, project.projectCode))
+  .map(project => ({ id: project.id, name: project.name, contextPath: project.contextPath, projectCode: project.projectCode,
+    canManageCredential: hasPlatformResourcePermission(platformSessionUser.value?.permissionGrants,
+      PLATFORM_PERMISSION_WORKFLOW_CREDENTIAL_MANAGE, 'PROJECT', null, project.projectCode) })))
+async function configureImportedAuth(targetId: number) {
+  if (targetId !== projectId.value) {
+    ElMessage.info('接口已导入到另一个项目，切换到那个项目后点「接口鉴权」配置')
+    return
+  }
+  await load()
+  if (rows.value.length) authDialog.value = true
+}
 function apiAdded(result: { apiId?: number; imported?: boolean }) {
   if (result.apiId) void router.push(detailLocation(result.apiId))
   else { void load(); void classification.refresh() }

@@ -2,6 +2,7 @@ import type { ConversationEventEnvelope } from './conversationEvents'
 import { createEvent, isDebugEventType } from './conversationEvents'
 import { conversationReducer, initialConversationState, type ConversationAction } from './conversationReducer'
 import type {
+  ApprovalStatusView,
   ConversationTransport,
   ConversationTurnInput,
 } from '../transports/transportTypes'
@@ -26,6 +27,8 @@ export interface ConversationController {
   cancel(): Promise<void>
   clearSession(): Promise<void>
   restore(): Promise<Snapshot | null>
+  /** 有值时会话支持查询「指定审批人」的审批进度。 */
+  readonly approvalStatus?: (interactionId: string) => Promise<ApprovalStatusView | null>
   dispose(): void
 }
 
@@ -374,6 +377,10 @@ export function createConversationController(options: ConversationControllerOpti
       emittedPageActionKeys.clear()
       dispatch({ type: 'reset', sessionId: undefined })
     },
+
+    approvalStatus: transport.approvalStatus
+      ? (interactionId: string) => (disposed ? Promise.resolve(null) : transport.approvalStatus!(interactionId))
+      : undefined,
 
     async restore() {
       const snapshot = await transport.restoreSession?.()

@@ -18,6 +18,9 @@ export interface SidebarWorkspace {
 
 export const PLATFORM_ADMIN_ROLE = 'PLATFORM_ADMIN'
 export const PLATFORM_AI_CONNECTIONS_PATH = '/me/ai-connections'
+/** 「待办与审核」：指派给我的工作流人工确认，以及 AI 申请的写操作（自己平台 AI 的，管理人员还有员工的）。 */
+export const AI_APPROVALS_PATH = '/me/ai-approvals'
+
 const aiConnectionsEntry: SidebarEntry = { kind: 'item', index: PLATFORM_AI_CONNECTIONS_PATH, label: 'AI 工具接入', icon: Monitor }
 
 /** 完整菜单也提供个人 AI 连接入口，放在概览之后。 */
@@ -90,6 +93,7 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
       entry('/dashboard'),
       aiConnectionsEntry,
       group('使用与审批'),
+      { kind: 'item', index: AI_APPROVALS_PATH, label: '待办与审核', icon: DocumentChecked },
       entry('/usage'),
       entry('/mcp-hub', '员工连接与审批'),
       entry('/run-center'),
@@ -97,6 +101,7 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
       group('智能体'),
       entry('/agent'),
       entry('/workflows'),
+      entry('/skills'),
       entry('/knowledge'),
       group('员工与权限'),
       entry('/settings/business-users'),
@@ -113,9 +118,6 @@ export const sidebarWorkspaces: SidebarWorkspace[] = [
   },
 ]
 
-/** 「AI 操作审核」：审核 AI 申请的写操作（自己平台 AI 的，管理人员还有员工的）。 */
-export const AI_APPROVALS_PATH = '/me/ai-approvals'
-
 /** 人人都有的「我的」：普通用户的个人空间，也是没有管理端角色的账号的落脚点。 */
 export const mySidebarWorkspace: SidebarWorkspace = {
   key: 'my',
@@ -126,7 +128,7 @@ export const mySidebarWorkspace: SidebarWorkspace = {
   menu: [
     { kind: 'item', index: '/me', label: '我的首页', icon: House },
     aiConnectionsEntry,
-    { kind: 'item', index: AI_APPROVALS_PATH, label: 'AI 操作审核', icon: DocumentChecked },
+    { kind: 'item', index: AI_APPROVALS_PATH, label: '待办与审核', icon: DocumentChecked },
     { kind: 'item', index: '/me/memories', label: '我的记忆', icon: Memo },
   ],
 }

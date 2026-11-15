@@ -88,6 +88,9 @@ export function useAiCodingTask() {
   async function createTask(data: AiCodingTaskCreateRequest, issuedBy?: string) {
     const currentStateGeneration = stateGeneration
     const created = (await createAiCodingTask(data)).data
+    if (currentStateGeneration !== stateGeneration) {
+      return { task: created, handoff: null }
+    }
     if (currentStateGeneration === stateGeneration) {
       upsertTask(created)
     }

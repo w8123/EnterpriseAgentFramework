@@ -46,6 +46,26 @@ public class WorkflowHttpEgressPolicy {
         this.dnsResolver = dnsResolver == null ? new JdkWorkflowDnsResolver() : dnsResolver;
     }
 
+    /** Hosts an administrator allowed from the console, read on every check so a change applies at once. */
+    private java.util.function.Supplier<Set<String>> consoleAllowlist = Set::of;
+
+    @Autowired(required = false)
+    public void setConsoleAllowlist(RuntimeHttpEgressHostService hosts) {
+        if (hosts != null) this.consoleAllowlist = hosts::hosts;
+    }
+
+    void setConsoleAllowlist(java.util.function.Supplier<Set<String>> hosts) {
+        this.consoleAllowlist = hosts == null ? Set::of : hosts;
+    }
+
+    public boolean allowsPrivateNetworks() {
+        return allowPrivateNetworks;
+    }
+
+    public Set<String> environmentAllowlist() {
+        return java.util.Collections.unmodifiableSet(hostAllowlist);
+    }
+
     public static WorkflowHttpEgressPolicy permissiveForTests() {
         return new WorkflowHttpEgressPolicy(true, "localhost,127.0.0.1", 3, new JdkWorkflowDnsResolver());
     }
@@ -114,8 +134,10 @@ public class WorkflowHttpEgressPolicy {
             throw new WorkflowHttpEgressException(ERROR_DNS, "HTTP target host DNS resolution returned empty");
         }
         if (!hostAllowlist.contains(normalizedHost)) {
+            // A console-allowed host may be private or loopback, but never metadata or link-local.
+            boolean consoleAllowed = consoleAllowlist.get().contains(normalizedHost);
             for (InetAddress address : addresses) {
-                if (isDeniedAddress(address)) {
+                if (consoleAllowed ? isAlwaysDeniedAddress(address) : isDeniedAddress(address)) {
                     throw new WorkflowHttpEgressException(
                             redirect ? ERROR_REDIRECT : ERROR_DNS,
                             "HTTP target address is denied by egress policy");
@@ -123,6 +145,16 @@ public class WorkflowHttpEgressPolicy {
             }
         }
         return new ResolvedHost(uri, addresses);
+    }
+
+    private static boolean isAlwaysDeniedAddress(InetAddress address) {
+        if (address == null || address.isAnyLocalAddress() || address.isLinkLocalAddress()
+                || address.isMulticastAddress() || address.getHostAddress() == null) {
+            return true;
+        }
+        String ip = address.getHostAddress().toLowerCase(Locale.ROOT);
+        return ip.startsWith("169.254.") || ip.startsWith("fe80:") || "0.0.0.0".equals(ip) || "::".equals(ip)
+                || isMetadataIp(ip);
     }
 
     private boolean isDeniedAddress(InetAddress address) {

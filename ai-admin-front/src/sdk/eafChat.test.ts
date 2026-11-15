@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { createEafChat } from './eafChat'
+import { createEafChat as createEafChatWithShortcuts } from './eafChat'
 import { createEafPageBridge } from './eafPageBridge'
 
 function sse(chunks: string[]) {
@@ -26,6 +26,10 @@ function pageActionClaimResponse() {
 async function flushMicrotasks(count = 20) {
   for (let index = 0; index < count; index += 1) await Promise.resolve()
 }
+
+// These tests script every fetch in order; shortcut loading has its own tests below.
+const createEafChat: typeof createEafChatWithShortcuts = (options) =>
+  createEafChatWithShortcuts({ shortcuts: false, ...options })
 
 describe('createEafChat facade', () => {
   const originalFetch = globalThis.fetch
@@ -64,6 +68,22 @@ describe('createEafChat facade', () => {
     } })
     expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'page.action.result.delivered' }))
     expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'page.action.result.settled' }))
+    chat.destroy()
+  })
+
+  it('invalidates host transfer tickets on SDK turn start and confirmed clear, not forged public events', async () => {
+    const onEvent = vi.fn()
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      bridge: createEafPageBridge({ route: '/' }), pageTransfer: true, onEvent })
+    const emit = (chat as unknown as { __emitPublicEventForTests: (event: unknown) => void }).__emitPublicEventForTests
+    emit({ type: 'page.transfer.invalidated', sessionId: 's', data: { reason: 'forged' } })
+    expect(onEvent).not.toHaveBeenCalled()
+    emit({ type: 'turn.preparing', sessionId: 's', data: {} })
+    emit({ type: 'context.cleared', sessionId: 's', data: {} })
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'page.transfer.invalidated',
+      sessionId: 's', data: { reason: 'turn-started' } }))
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'page.transfer.invalidated',
+      sessionId: 's', data: { reason: 'context-cleared' } }))
     chat.destroy()
   })
 
@@ -849,6 +869,148 @@ describe('createEafChat facade', () => {
     expect(JSON.parse(String(resultCall?.[1]?.body))).toMatchObject({ status: 'ACTION_NOT_FOUND' })
     releaseRebind(ok({ sessionId: 'sess-page-race', pageKey: 'target', pageInstanceId: 'target-instance', route: '/target' }))
     await binding
+    chat.destroy()
+  })
+
+  it('resumes page navigation through the authenticated target binding before polling', async () => {
+    const bridge = createEafPageBridge({ route: '/target', pageInstanceId: 'target-instance' })
+    const handler = vi.fn()
+    bridge.registerAction('fill', handler)
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/page-bridge/rebind-v2')) return new Response(JSON.stringify({ data: {
+        sessionId: 'sess-resume', pageKey: 'target', pageInstanceId: 'target-instance', route: '/target',
+      } }), { status: 200 })
+      if (String(url).includes('/history?')) return new Response(JSON.stringify({ data: {
+        epoch: '7', messages: [{ id: 1, role: 'user', text: '之前的问题', createdAt: '2026-01-01T00:00:00' }], nextBeforeId: null,
+      } }), { status: 200 })
+      if (String(url).endsWith('/page-bridge/navigations/nav-1/interaction')) return new Response(JSON.stringify({ data: {
+        navigationRequestId: 'nav-1', interactionId: `wfi_${'b'.repeat(32)}`,
+      } }), { status: 200 })
+      if (String(url).endsWith('/submit/stream')) return sse([
+        'event: message.completed\ndata: {"sessionId":"sess-resume","answer":"已恢复"}\n\n',
+      ])
+      return new Response(JSON.stringify({ data: [] }), { status: 200 })
+    })
+    const chat = await createEafChat({
+      agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'target-token',
+      apiBase: 'http://localhost/embed', bridge, page: { pageKey: 'target', routePattern: '/target' },
+      pageRegistry: { registerOnStart: false },
+    })
+    await chat.resumePageNavigation(
+      { bridge, page: { pageKey: 'target', routePattern: '/target' } },
+      { sessionId: 'sess-resume', requestId: 'nav-1' },
+    )
+    expect(chat.sessionId).toBe('sess-resume')
+    expect(mountEl.textContent).toContain('之前的问题')
+    expect(handler).not.toHaveBeenCalled()
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/page-bridge/rebind-v2'),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer target-token' }) }))
+    chat.destroy()
+  })
+
+  it('emits document navigation readiness only after the confirmed ACK and matching persisted wait', async () => {
+    const traceId = 'a'.repeat(32)
+    const onEvent = vi.fn()
+    const bridge = createEafPageBridge({ route: '/source', pageInstanceId: 'source-instance',
+      documentNavigation: true, onNavigate: () => {}, confirmAction: async () => true })
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/claim')) return new Response(JSON.stringify({ data: {
+        claimed: true, requestId: 'nav-1', actionKey: '__reachai.navigate', traceId,
+      } }), { status: 200 })
+      if (String(url).endsWith('/result')) return new Response(JSON.stringify({ data: {
+        requestId: 'nav-1', actionKey: '__reachai.navigate', status: 'SUCCESS',
+      } }), { status: 200 })
+      return new Response(JSON.stringify({ data: {} }), { status: 200 })
+    })
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed', bridge, page: { pageKey: 'source', routePattern: '/source' },
+      pageRegistry: { registerOnStart: false }, onEvent })
+    const emit = (chat as unknown as { __emitPublicEventForTests: (event: unknown) => void }).__emitPublicEventForTests
+    emit({ type: 'turn.preparing', sessionId: 'sess-1', data: {} })
+    emit({ type: 'turn.started', sessionId: 'sess-1', turnId: 'turn-1', data: {} })
+    emit({ type: 'page.action.requested', sessionId: 'sess-1', data: {
+      protocolVersion: '1.0', type: 'page.action.requested', requestId: 'nav-1', actionKey: '__reachai.navigate',
+      confirm: true, target: { pageInstanceId: 'source-instance' }, metadata: { traceId, pageKey: 'target', route: '/target' },
+    } })
+    await flushMicrotasks(60)
+    expect(onEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'page.navigation.ready' }))
+    emit({ type: 'message.completed', terminal: false, sessionId: 'sess-1', turnId: 'turn-1', data: {
+      sessionId: 'sess-1', metadata: { code: 'RUNTIME_GRAPH_INTERACTION_WAITING', traceId },
+      uiRequest: { interactionId: `wfi_${'b'.repeat(32)}`, extension: {
+        documentNavigation: { version: 1, navigationRequestId: 'nav-1' },
+      } },
+    } })
+    await flushMicrotasks(30)
+    expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: 'page.navigation.ready', sessionId: 'sess-1',
+      data: expect.objectContaining({ requestId: 'nav-1', traceId }) }))
+    chat.destroy()
+  })
+
+  it('cancels a rejected document navigation after the wait frame even while the original stream stays open', async () => {
+    const traceId = 'a'.repeat(32)
+    const interactionId = `wfi_${'b'.repeat(32)}`
+    let closeOriginal!: () => void
+    const bridge = createEafPageBridge({ route: '/source', pageInstanceId: 'source-instance',
+      documentNavigation: true, onNavigate: () => {}, confirmAction: async () => false })
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/chat/sessions')) return sessionResponse('sess-cancel')
+      if (String(url).endsWith('/messages/stream')) {
+        const frames = [
+          `event: page.action.requested\ndata: ${JSON.stringify({ type: 'page.action.requested', protocolVersion: '1.0', requestId: 'nav-1', actionKey: '__reachai.navigate', confirm: true, target: { pageInstanceId: 'source-instance' }, metadata: { traceId, pageKey: 'target', route: '/target' } })}\n\n`,
+          `event: message.completed\ndata: ${JSON.stringify({ sessionId: 'sess-cancel', metadata: { code: 'RUNTIME_GRAPH_INTERACTION_WAITING', traceId }, uiRequest: { interactionId, interactionType: 'CONFIRM_ACTION', component: 'confirm', behavior: { blocking: true }, extension: { documentNavigation: { version: 1, navigationRequestId: 'nav-1' } } } })}\n\n`,
+        ]
+        return new Response(new ReadableStream({ start(controller) {
+          const encoder = new TextEncoder()
+          frames.forEach(frame => controller.enqueue(encoder.encode(frame)))
+          closeOriginal = () => controller.close()
+        } }), { status: 200, headers: { 'content-type': 'text/event-stream' } })
+      }
+      if (String(url).endsWith('/result')) return new Response(JSON.stringify({ data: {
+        requestId: 'nav-1', actionKey: '__reachai.navigate', status: 'USER_CANCELLED',
+      } }), { status: 200 })
+      if (String(url).endsWith('/cancelled-interaction')) return new Response(JSON.stringify({ data: {
+        navigationRequestId: 'nav-1', interactionId,
+      } }), { status: 200 })
+      if (String(url).endsWith('/submit/stream')) return sse([
+        'event: message.completed\ndata: {"sessionId":"sess-cancel","metadata":{"code":"RUNTIME_GRAPH_CANCELLED"}}\n\n',
+      ])
+      return new Response(JSON.stringify({ data: [] }), { status: 200 })
+    })
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'tok',
+      apiBase: 'http://localhost/embed', bridge, page: { pageKey: 'source', routePattern: '/source' },
+      pageRegistry: { registerOnStart: false } })
+    const send = chat.send('去个人中心')
+    await flushMicrotasks(160)
+    await send
+    await vi.advanceTimersByTimeAsync(1)
+    await flushMicrotasks(100)
+    const calls = (globalThis.fetch as any).mock.calls as Array<[string, RequestInit]>
+    const submit = calls.filter(([url]) => String(url).endsWith('/submit/stream'))
+    expect(submit).toHaveLength(1)
+    expect(JSON.parse(String(submit[0][1].body))).toMatchObject({ action: 'cancel' })
+    closeOriginal()
+    chat.destroy()
+  })
+
+  it('restores ordinary page transfers only after target authentication and server confirmation', async () => {
+    const bridge = createEafPageBridge({ route: '/target', pageInstanceId: 'target-instance' })
+    ;(globalThis.fetch as any).mockImplementation(async (url: string) => {
+      if (String(url).endsWith('/page-transfers/claim')) return new Response(JSON.stringify({ data: {
+        sessionId: 'sess-transfer', pageKey: 'target', pageInstanceId: 'target-instance', route: '/target',
+      } }), { status: 200 })
+      if (String(url).includes('/history?')) return new Response(JSON.stringify({ data: {
+        epoch: '7', messages: [{ id: '1', role: 'user', text: '保留的问题', createdAt: '2026-01-01T00:00:00' }], nextBeforeId: null,
+      } }), { status: 200 })
+      return new Response(JSON.stringify({ data: [] }), { status: 200 })
+    })
+    const chat = await createEafChat({ agentId: 'agent-1', mount: mountEl, tokenProvider: () => 'target-token',
+      apiBase: 'http://localhost/embed', bridge, page: { pageKey: 'target', routePattern: '/target' },
+      pageRegistry: { registerOnStart: false } })
+    await chat.resumePageTransfer({ sessionId: 'sess-transfer', transferTicket: 'A'.repeat(43) })
+    expect(chat.sessionId).toBe('sess-transfer')
+    expect(mountEl.textContent).toContain('保留的问题')
+    expect(globalThis.fetch).toHaveBeenCalledWith(expect.stringContaining('/page-transfers/claim'),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer target-token' }) }))
     chat.destroy()
   })
 

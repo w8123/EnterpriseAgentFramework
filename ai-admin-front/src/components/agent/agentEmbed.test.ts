@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   frontendSnippet,
   nextAllowedAgentIds,
@@ -56,5 +56,17 @@ describe('agent embed helpers', () => {
     expect(snippet).toContain('https://reachai.w8123.com/sdk/embed-chat/reachai-chat-embed.umd.js')
     expect(snippet).toContain("agentId: 'erp-assistant'")
     expect(snippet).not.toContain('appSecret')
+  })
+
+  it('pins script and stylesheet to the same browser bundle version', () => {
+    vi.stubGlobal('__REACHAI_EMBED_BROWSER_VERSION__', 'a'.repeat(64))
+    try {
+      const snippet = frontendSnippet({ reachAiBase: 'https://reachai.example.com', agentId: 'erp-assistant' })
+      const bundle = `https://reachai.example.com/sdk/embed-chat/versions/${'a'.repeat(64)}`
+      expect(snippet).toContain(`${bundle}/style.css`)
+      expect(snippet).toContain(`${bundle}/reachai-chat-embed.umd.js`)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

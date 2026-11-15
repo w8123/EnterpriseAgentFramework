@@ -15,7 +15,7 @@
 1. 构建与验证对应制品，记录版本和配置；命令见[开发](development.md)。
 2. 准备 MySQL 及按需开启的依赖（Milvus 用于知识库向量检索，Docling 用于文档解析，Redis 用于 Runtime 生产多实例会话状态，对象存储用于多实例知识库制品），完成本环境适用升级。
 3. 启动 Model、Knowledge、Capability、Runtime、Control，核对进程归属、端口、制品新鲜度与健康。
-4. 发布前端，代理管理端 `/api/**`、受保护 `/ai/**` 和 `/model/**` 到 Control，不暴露内部服务。
+4. 发布前端，代理管理端 `/api/**`、受保护 `/ai/**` 和 `/model/**` 到 Control，不暴露内部服务。浏览器 Embed SDK 的 `sdk/embed-chat/versions/<摘要>/` 是按构建内容固定的资源，升级时先将新版本目录完整发布，再切换管理端；必须保留旧版本目录供已嵌入的业务页面使用，不要以删除目标多余文件的方式同步该目录。默认 Docker Compose 使用 `reachai-embed-versions` 卷保留各版本，升级和迁移时不要删除该卷；自建容器需把 `/var/lib/reachai/embed-versions` 接到持久存储。旧版固定路径继续提供兼容，但脚本与样式应一起升级；自建静态服务器应让固定路径和 `manifest.json` 每次重新验证缓存，只有版本目录可配置长期不可变缓存。
 5. 用真实角色、业务系统和外部客户端执行验收，再决定具体能力是否开启。
 
 ```powershell
@@ -33,6 +33,8 @@ node scripts/check-physical-service-smoke.mjs
 | Embed / 员工工具 | 白名单、用户/租户隔离、页面就绪、个人连接、写审批、真实业务操作人及同一 Trace |
 | MCP / A2A | 实际协议客户端、固定发布、作用域拒绝、吊销、暂停、信任、取消与审计；不能只测管理接口 |
 | 评测 | 同一目标版本、数据集版本、评分、发布门禁及 Trace；夹具与真实执行分别说明 |
+
+内嵌助手有一套可重复执行的走查评测：`node scripts/assistant-eval.mjs` 会登录业务系统，在各业务页面向助手提出 [assistant-walkthrough-v1.json](evals/assistant-walkthrough-v1.json) 里的问题，按预期词和禁用词判定回答，并记录每个任务的耗时，报告写到 `eval-reports/`。地址和账号用 `EVAL_BASE_URL`、`EVAL_USERNAME`、`EVAL_PASSWORD` 指定。每个任务都会真实调用模型；发版后跑一次并和上一次报告对比通过率与耗时，token 用量在「用量与成本 → 推理与流程」查看。
 
 `BUILD SUCCESS`、HTTP 200 和 health UP 不能单独证明以上业务结果。需要逐 token 输出的入口检查浏览器 Network 的实际增量，不只看 Content-Type。
 

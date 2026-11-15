@@ -163,6 +163,13 @@ public class AiCodingTaskConsoleController {
                         taskId, interactionId, command, actorUserId(request)));
     }
 
+    @PostMapping("/{taskId}/claim-codes")
+    public ResponseEntity<?> issueClaimCode(@PathVariable String taskId, HttpServletRequest request) {
+        requireTask(request, taskId, true);
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore())
+                .body(handoffService.issueClaimCode(taskId, session(request).user().getUsername()));
+    }
+
     @PostMapping("/{taskId}/handoffs")
     public ResponseEntity<?> issueHandoff(
             @PathVariable String taskId,

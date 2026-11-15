@@ -85,10 +85,9 @@ const loadErrorState = read(
   'src/views/registry/components/ProjectWorkbenchLoadErrorState.vue',
 )
 const api = read('src/api/pageWorkbench.ts')
-const handoffPromptFactory = read(
-  'reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingHandoffPromptFactory.java',
-  repositoryRoot,
-)
+const mcpPagePrompt = read('src/components/ai-access/prompts/page-workbench.ts')
+const mcpTaskRules = read('src/components/ai-access/promptHelpers.ts')
+const taskApi = read('src/api/aiCodingTasks.ts')
 const pageMapProvider = read(
   'reachai-control-service/src/main/java/com/enterprise/ai/control/pageworkbench/application/PageMapScanTaskProvider.java',
   repositoryRoot,
@@ -184,7 +183,7 @@ expectIncludes(wizard, "type AiCodingDialogStage = 'FORM' | 'HANDOFF'", 'PageAss
 expectIncludes(wizard, "sourceDialogStage.value = 'HANDOFF'", 'PageAssistantWizard')
 expectIncludes(wizard, "taskDialogStage.value = 'HANDOFF'", 'PageAssistantWizard')
 expectIncludes(wizard, 'AiCodingHandoffPanel', 'PageAssistantWizard')
-expectIncludes(wizard, '创建并生成交接包', 'PageAssistantWizard')
+expectIncludes(wizard, '创建并生成领取码', 'PageAssistantWizard')
 expectMatches(
   wizard,
   /setTaskHandoff\(result\.handoff\)\s*sourceDialogStage\.value = 'HANDOFF'/,
@@ -200,10 +199,10 @@ expectIncludes(wizard, '@submit="submitManualPage"', 'PageAssistantWizard')
 expectIncludes(manualPageForm, 'v-model="form.pageKey"', 'PageWorkbenchManualPageForm')
 expectIncludes(manualPageForm, '页面操作', 'PageWorkbenchManualPageForm')
 expectIncludes(manualPageForm, 'sourceType === \'MANUAL\'', 'PageWorkbenchManualPageForm')
-expectIncludes(handoffPanel, '任务已创建', 'AiCodingHandoffPanel')
-expectIncludes(handoffPanel, '一次性交接包', 'AiCodingHandoffPanel')
+expectIncludes(handoffPanel, '任务领取码已生成', 'AiCodingHandoffPanel')
+expectIncludes(handoffPanel, '一次性领取码', 'AiCodingHandoffPanel')
 expectIncludes(handoffPanel, 'activationExpiresAt', 'AiCodingHandoffPanel')
-expectIncludes(handoffPanel, 'aiCodingProviderLabel', 'AiCodingHandoffPanel')
+expectIncludes(handoffPanel, '平台 AI 连接领取任务', 'AiCodingHandoffPanel')
 expectExcludes(wizard, '<div class="handoff-heading">', 'PageAssistantWizard')
 expectExcludes(wizard, 'page-source-options', 'PageAssistantWizard')
 for (const redundantSourceDetail of [
@@ -294,7 +293,10 @@ expectMatches(
   /\.task-section\s*>\s*\.task-list\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?flex:\s*1;[\s\S]*?overflow-y:\s*auto;/,
   'AI coding task list internal scrolling',
 )
-expectIncludes(wizard, '复制交接包', 'PageAssistantWizard')
+expectIncludes(wizard, 'scenario="page-workbench"', 'PageAssistantWizard')
+expectIncludes(wizard, 'claimCode: handoffPackage?.activationCode', 'PageAssistantWizard')
+expectIncludes(taskApi, '/claim-codes', 'AI Coding task API')
+expectExcludes(wizard, '复制交接包', 'PageAssistantWizard')
 expectIncludes(wizard, 'answerQuestion', 'PageAssistantWizard')
 expectExcludes(wizard, '@create-task="openFindingDetail"', 'PageAssistantWizard')
 expectIncludes(wizard, '@accept="startPublishedAcceptance"', 'PageAssistantWizard')
@@ -360,7 +362,10 @@ expectMatches(
 expectExcludes(pageDetail, 'target-source-column__mask', 'PageWorkbenchPageDetail blur mask removed')
 expectIncludes(styles, '.target-source-locked', 'PageWorkbench locked goal empty state styles')
 expectExcludes(styles, '.target-source-column__mask', 'PageWorkbench blur mask styles removed')
-expectIncludes(pageDetail, '查看 AI 实施进度', 'PageWorkbenchPageDetail locked goals')
+expectIncludes(pageDetail, '查看接入进度', 'PageWorkbenchPageDetail locked goals')
+expectExcludes(pageDetail, '右上角绿色编辑图标', 'PageWorkbenchPageDetail no invisible edit affordance')
+expectIncludes(pageDetail, 'goalLockMessage', 'PageWorkbenchPageDetail state-aware goal guidance')
+expectIncludes(wizard, ':implementation-task="selectedPageImplementationTask"', 'PageWorkbench goal and current task separation')
 expectIncludes(pageDetail, 'goalsLocked', 'PageWorkbenchPageDetail locked goals')
 expectIncludes(pageDetail, 'target-selection-workspace', 'PageWorkbenchPageDetail unified goals layout')
 expectExcludes(pageDetail, 'journey-target-review-shell', 'PageWorkbenchPageDetail removed snapshot page')
@@ -767,20 +772,11 @@ for (const forbidden of ['setInterval(', 'setTimeout(', 'mock', '模拟数据'])
   expectExcludes(composable, forbidden, 'useBusinessPageWorkbench')
 }
 
-for (const required of [
-  '不扫描无关模块',
-  '`READY` / `RUNNING`：写回 `STARTED`',
-  '`WAITING_USER`：用 `Get-ReachAiQuestions` 获取问题',
-  '`RESULT_APPLIED`：不要写 `STARTED`',
-  '完成任务要求的测试和真实浏览器自检',
-  '现在可以回到 ReachAI，在浏览器里验收。',
-  '不安装 ReachAI Runner、常驻程序、后台进程、额外 npm 包或系统软件',
-  '名称、标题、描述、说明、System Prompt、进度、问题、结果和验收材料',
-]) {
-  expectIncludes(handoffPromptFactory, required, 'AiCodingHandoffPromptFactory')
+for (const required of ['reachai_ai_coding_task_claim', 'reachai_ai_coding_task_context', 'AI_CODING_TASK_RULES']) {
+  expectIncludes(mcpPagePrompt, required, 'MCP page task prompt')
 }
-for (const forbidden of ['npm install', 'Start-Process', '启动常驻']) {
-  expectExcludes(handoffPromptFactory, forbidden, 'AiCodingHandoffPromptFactory')
+for (const required of ['requiredBeforeEditing=true', 'WAITING_USER', 'RESULT_APPLIED', 'artifactKey', '每两分钟', '不安装常驻程序']) {
+  expectIncludes(mcpTaskRules, required, 'MCP task recovery and evidence rules')
 }
 expectIncludes(
   pageMapProvider,
@@ -841,7 +837,8 @@ expectIncludes(
 expectIncludes(taskDetailPanel, "acceptance: [taskId: string, passed: boolean, message: string]", 'AiCodingTaskDetailPanel')
 expectIncludes(taskDetailPanel, "answer: [taskId: string, questionId: string, answer: string]", 'AiCodingTaskDetailPanel')
 expectIncludes(taskDetailPanel, 'AiCodingArtifactEvidence', 'AiCodingTaskDetailPanel')
-expectIncludes(taskDetailPanel, '复制恢复命令', 'AiCodingTaskDetailPanel')
+expectIncludes(taskDetailPanel, '重新生成领取码', 'AiCodingTaskDetailPanel')
+expectExcludes(taskDetailPanel, '复制恢复命令', 'AiCodingTaskDetailPanel')
 expectIncludes(taskDetailPanel, "variant?: 'drawer' | 'inline'", 'AiCodingTaskDetailPanel')
 expectIncludes(taskDetailPanel, '取消任务', 'AiCodingTaskDetailPanel')
 expectIncludes(taskDetailPanel, 'canCancelInline', 'AiCodingTaskDetailPanel inline actions')
@@ -874,7 +871,7 @@ expectMatches(
   'PageAssistantWizard task drawer header refresh',
 )
 expectIncludes(taskDetailPanel, "RESULT_APPLIED: '结果已应用'", 'AiCodingTaskDetailPanel')
-expectIncludes(taskDetailPanel, '$env:LOCALAPPDATA\\\\ReachAI\\\\ai-coding-sessions', 'AiCodingTaskDetailPanel')
+expectExcludes(taskDetailPanel, '$env:LOCALAPPDATA\\\\ReachAI\\\\ai-coding-sessions', 'AiCodingTaskDetailPanel')
 expectIncludes(artifactEvidence, '真实浏览器材料', 'AiCodingArtifactEvidence')
 expectIncludes(artifactEvidence, 'AI 报告通过', 'AiCodingArtifactEvidence')
 expectIncludes(artifactEvidence, '不能据此判断页面入口或交互已完成', 'AiCodingArtifactEvidence')

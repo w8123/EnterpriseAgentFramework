@@ -20,6 +20,12 @@ public final class WorkflowCredentialTypes {
     public static final String API_KEY_QUERY = "API_KEY_QUERY";
     public static final String CUSTOM_HEADERS = "CUSTOM_HEADERS";
 
+    /** Key of the optional sign-in block inside a BEARER or API_KEY_HEADER secret. */
+    public static final String LOGIN = "login";
+    public static final String LOGIN_JSON = "application/json";
+    public static final String LOGIN_FORM = "application/x-www-form-urlencoded";
+    private static final Pattern LOGIN_TOKEN_PATH = Pattern.compile("^[A-Za-z0-9_-]{1,64}(\\.[A-Za-z0-9_-]{1,64}){0,7}$");
+
     private static final Set<String> CANONICAL = Set.of(
             BEARER, BASIC, API_KEY_HEADER, API_KEY_QUERY, CUSTOM_HEADERS);
 
@@ -56,6 +62,10 @@ public final class WorkflowCredentialTypes {
         return switch (canonicalType) {
             case BEARER -> {
                 String token = firstText(source, "token", "accessToken", "value");
+                Map<String, Object> login = normalizeLogin(source.get(LOGIN));
+                if (login != null) {
+                    yield Map.of("token", "", LOGIN, login);
+                }
                 if (!StringUtils.hasText(token)) {
                     throw new IllegalArgumentException("BEARER secret requires token");
                 }
@@ -86,10 +96,14 @@ public final class WorkflowCredentialTypes {
                 if (PROTECTED_HEADERS.contains(headerName.toLowerCase(Locale.ROOT))) {
                     throw new IllegalArgumentException("API_KEY_HEADER headerName is protected: " + headerName);
                 }
+                rejectInjection(headerName, "headerName");
+                Map<String, Object> login = normalizeLogin(source.get(LOGIN));
+                if (login != null) {
+                    yield Map.of("headerName", headerName, "apiKey", "", LOGIN, login);
+                }
                 if (!StringUtils.hasText(apiKey)) {
                     throw new IllegalArgumentException("API_KEY_HEADER secret requires apiKey");
                 }
-                rejectInjection(headerName, "headerName");
                 rejectInjection(apiKey, "apiKey");
                 yield Map.of("headerName", headerName, "apiKey", apiKey);
             }
@@ -132,6 +146,71 @@ public final class WorkflowCredentialTypes {
             }
             default -> throw new IllegalArgumentException("Unsupported credential type: " + canonicalType);
         };
+    }
+
+    /**
+     * The sign-in a BEARER or API_KEY_HEADER credential uses to get its token, or null for a fixed token.
+     * Many business systems only hand out short-lived tokens from a login call, so a fixed token stops
+     * working after hours or days; with this the platform signs in again by itself.
+     */
+    public static Map<String, Object> login(Map<String, Object> secret) {
+        return secret != null && secret.get(LOGIN) instanceof Map<?, ?> ? normalizeLogin(secret.get(LOGIN)) : null;
+    }
+
+    private static Map<String, Object> normalizeLogin(Object raw) {
+        if (!(raw instanceof Map<?, ?> rawMap) || rawMap.isEmpty()) return null;
+        Map<String, Object> source = new LinkedHashMap<>();
+        rawMap.forEach((key, value) -> source.put(String.valueOf(key), value));
+        String url = firstText(source, "url");
+        if (!StringUtils.hasText(url)) throw new IllegalArgumentException("登录地址必填");
+        rejectInjection(url, "login url");
+        java.net.URI uri;
+        try {
+            uri = java.net.URI.create(url);
+        } catch (Exception invalid) {
+            throw new IllegalArgumentException("登录地址格式不对");
+        }
+        String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+        if (!Set.of("http", "https").contains(scheme) || !StringUtils.hasText(uri.getHost())
+                || uri.getRawUserInfo() != null || url.length() > 500) {
+            throw new IllegalArgumentException("登录地址要以 http:// 或 https:// 开头，不要带账号密码");
+        }
+        String method = firstText(source, "method");
+        method = method == null ? "POST" : method.toUpperCase(Locale.ROOT);
+        if (!Set.of("POST", "GET").contains(method)) throw new IllegalArgumentException("登录请求只支持 POST 或 GET");
+        String contentType = firstText(source, "contentType");
+        contentType = contentType == null ? LOGIN_JSON : contentType.toLowerCase(Locale.ROOT);
+        if (!Set.of(LOGIN_JSON, LOGIN_FORM).contains(contentType)) {
+            throw new IllegalArgumentException("登录请求格式只支持 JSON 或表单");
+        }
+        String body = source.get("body") == null ? "" : String.valueOf(source.get("body"));
+        if (body.length() > 4000) throw new IllegalArgumentException("登录请求内容不能超过 4000 个字符");
+        String tokenPath = firstText(source, "tokenPath");
+        if (tokenPath != null && !LOGIN_TOKEN_PATH.matcher(tokenPath).matches()) {
+            throw new IllegalArgumentException("令牌位置只能写成 data.token 这样用点分隔的字段名");
+        }
+        String prefix = source.get("prefix") == null ? "" : String.valueOf(source.get("prefix"));
+        rejectInjection(prefix, "prefix");
+        if (prefix.length() > 32) throw new IllegalArgumentException("令牌前缀不能超过 32 个字符");
+        int ttlMinutes = 30;
+        Object ttl = source.get("ttlMinutes");
+        if (ttl != null && StringUtils.hasText(String.valueOf(ttl))) {
+            try {
+                ttlMinutes = (int) Double.parseDouble(String.valueOf(ttl));
+            } catch (NumberFormatException invalid) {
+                throw new IllegalArgumentException("令牌有效时间要填分钟数");
+            }
+        }
+        if (ttlMinutes < 1 || ttlMinutes > 10080) throw new IllegalArgumentException("令牌有效时间要在 1 分钟到 7 天之间");
+        Map<String, Object> login = new LinkedHashMap<>();
+        login.put("url", url);
+        login.put("method", method);
+        login.put("contentType", contentType);
+        login.put("body", body);
+        login.put("tokenPath", tokenPath == null ? "" : tokenPath);
+        login.put("prefix", prefix);
+        login.put("ttlMinutes", ttlMinutes);
+        return login;
     }
 
     public static Set<String> sensitiveHeaderNames(Map<String, Object> secret, String canonicalType) {

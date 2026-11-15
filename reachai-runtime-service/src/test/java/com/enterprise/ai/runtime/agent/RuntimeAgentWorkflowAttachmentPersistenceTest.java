@@ -324,7 +324,7 @@ class RuntimeAgentWorkflowAttachmentPersistenceTest {
         database.jdbc().update("UPDATE runtime_agent SET key_slug = 'custom-agent' WHERE id = 'agent-1'");
         var result = attachments.attach(7L, new AttachRequest("workflow_one", null, null, "model-1", "Codex"));
         var created = agents.selectById(result.agent().id());
-        assertEquals("orders 页面副驾驶 Agent", created.getName());
+        assertEquals("orders 助手", created.getName());
         assertTrue(versions.selectById(result.activeConfig().id()).getSystemPrompt().contains("名称、说明和回复默认使用简体中文"));
         assertEquals(0, database.jdbc().queryForObject("SELECT COUNT(*) FROM runtime_agent_config_version WHERE agent_id = ? AND status = 'DRAFT'", Integer.class, created.getId()));
     }

@@ -331,20 +331,13 @@
 
     <AppDialog
       v-model="candidateHandoffVisible"
-      title="Workflow 候选 AI Coding 交接包"
+      title="交给我的 AI"
       width="860px"
     >
       <LiquidGlassNotice
         type="info"
-        title="将下方交接包复制到所选 AI 编程工具"
-        description="重复点击同一轨迹会复用未终态任务；同一任务的 Runtime 草稿也会幂等复用。"
-      />
-      <el-input
-        class="candidate-prompt"
-        :model-value="candidateHandoffPrompt"
-        type="textarea"
-        :rows="20"
-        readonly
+        title="使用平台 AI 连接领取候选任务"
+        description="领取码只能使用一次；重复点击同一轨迹会复用未终态任务。"
       />
       <template #footer>
         <LiquidGlassButton @click="candidateHandoffVisible = false">关闭</LiquidGlassButton>
@@ -354,7 +347,8 @@
         >
           查看任务闭环
         </LiquidGlassButton>
-        <LiquidGlassButton type="primary" @click="copyCandidateHandoff">复制交接包</LiquidGlassButton>
+        <AiHandoffButton scenario="ai-coding-task" type="primary"
+          :context="{ taskId: candidateTaskId, claimCode: candidateClaimCode }" />
       </template>
     </AppDialog>
 
@@ -398,7 +392,7 @@ import AppDrawer from '@/components/common/AppDrawer.vue'
 import AiCodingTaskDetailPanel from '@/components/ai-coding/AiCodingTaskDetailPanel.vue'
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { CopyDocument, MoreFilled, Refresh, VideoPlay } from '@element-plus/icons-vue'
 import { LiquidGlassButton, LiquidGlassEmptyState, LiquidGlassNotice } from '@/components/common/liquid-glass'
 import PageHeader from '@/components/common/PageHeader.vue'
@@ -418,6 +412,7 @@ import {
   replayRunOpsTrace,
 } from '@/api/runops'
 import { issueAiCodingHandoff } from '@/api/aiCodingTasks'
+import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
 import { useAiCodingTask } from '@/composables/useAiCodingTask'
 import { formatRuntimeTypeLabel } from '@/utils/registryLabels'
 import type { AiCodingExecutorProvider } from '@/types/aiCodingTask'
@@ -477,7 +472,7 @@ const candidateTaskDrawerVisible = ref(false)
 const candidateTaskId = ref('')
 const candidateEligibility = ref<TraceWorkflowCandidateEligibility | null>(null)
 const candidateProvider = ref<AiCodingExecutorProvider>('CODEX')
-const candidateHandoffPrompt = ref('')
+const candidateClaimCode = ref('')
 const candidateTaskKernel = useAiCodingTask()
 const candidateTaskDetail = candidateTaskKernel.selectedTaskDetail
 const detail = ref<RunDetail | null>(null)
@@ -712,7 +707,7 @@ async function loadDetail() {
   loading.value = true
   candidateTaskKernel.reset()
   candidateTaskId.value = ''
-  candidateHandoffPrompt.value = ''
+  candidateClaimCode.value = ''
   candidateTaskDrawerVisible.value = false
   candidateHandoffVisible.value = false
   try {
@@ -760,14 +755,29 @@ function handleMoreCommand(command: RunOpsMoreCommand) {
 
 async function createCandidateTask() {
   if (!candidateEligibility.value?.eligible) return
+  const originTraceId = traceId.value
   candidateTaskBusy.value = true
   try {
-    const { data } = await createTraceWorkflowCandidateTask(traceId.value, {
+    const { data } = await createTraceWorkflowCandidateTask(originTraceId, {
       executorProvider: candidateProvider.value,
     })
-    const handoff = (await issueAiCodingHandoff(data.task.taskId)).data
+    if (originTraceId !== traceId.value) return
     candidateTaskId.value = data.task.taskId
-    candidateHandoffPrompt.value = handoff.prompt
+    if (!data.created) {
+      try {
+        await ElMessageBox.confirm('已存在未完成的候选任务。生成新领取码会撤销原连接的任务权限，确定继续吗？',
+          '重新领取候选任务', { type: 'warning', confirmButtonText: '生成领取码', cancelButtonText: '查看任务' })
+      } catch {
+        if (originTraceId !== traceId.value) return
+        candidateDialogVisible.value = false
+        await openCandidateTaskDetail()
+        return
+      }
+    }
+    if (originTraceId !== traceId.value) return
+    const handoff = (await issueAiCodingHandoff(data.task.taskId)).data
+    if (originTraceId !== traceId.value) return
+    candidateClaimCode.value = handoff.activationCode
     candidateDialogVisible.value = false
     candidateHandoffVisible.value = true
     ElMessage.success(data.created ? '候选任务已创建' : '已复用该轨迹的未完成候选任务')
@@ -820,12 +830,13 @@ async function answerCandidateTaskQuestion(
 }
 
 async function reissueCandidateTaskHandoff(taskId: string) {
+  const originTraceId = traceId.value
   const handoff = await runCandidateTaskAction(
     () => candidateTaskKernel.reissueHandoff(taskId),
-    '重新生成交接包失败',
+    '重新生成领取码失败',
   )
-  if (!handoff) return
-  candidateHandoffPrompt.value = handoff.prompt
+  if (!handoff || originTraceId !== traceId.value) return
+  candidateClaimCode.value = handoff.activationCode
   candidateTaskDrawerVisible.value = false
   candidateHandoffVisible.value = true
 }
@@ -865,16 +876,6 @@ async function cancelCandidateTask(taskId: string) {
     '取消候选任务失败',
   )
   if (result) ElMessage.success('候选任务已取消')
-}
-
-async function copyCandidateHandoff() {
-  if (!candidateHandoffPrompt.value) return
-  try {
-    await navigator.clipboard.writeText(candidateHandoffPrompt.value)
-    ElMessage.success('交接包已复制')
-  } catch {
-    ElMessage.error('复制失败，请手动复制')
-  }
 }
 
 async function loadComparison() {

@@ -61,4 +61,36 @@ public interface RuntimeModelUsageMapper extends BaseMapper<RuntimeModelUsageEnt
     List<RuntimeAuditRunRow> selectAuditRuns(@Param("since") LocalDateTime since,
                                              @Param("projectCode") String projectCode,
                                              @Param("limit") int limit);
+
+    /**
+     * How the in-system assistant answered: REASONING (the model found and called business capabilities),
+     * FLOW (a fixed Workflow ran) or CHAT (no business call). Counts, time and tokens only.
+     */
+    @Select("""
+            <script>
+            SELECT t.route AS route, COUNT(*) AS runs,
+                   COALESCE(ROUND(AVG(t.latencyMs)), 0) AS avgLatencyMs,
+                   COALESCE(ROUND(AVG(t.tokens)), 0) AS avgTokens,
+                   COALESCE(SUM(t.tokens), 0) AS totalTokens
+            FROM (
+              SELECT CASE
+                       WHEN EXISTS (SELECT 1 FROM runtime_trace_span s WHERE s.trace_id = r.trace_id
+                                    AND s.span_type = 'PROJECT_CAPABILITY'
+                                    AND s.tool_name &lt;&gt; 'find_business_capabilities') THEN 'REASONING'
+                       WHEN r.workflow_call_count &gt; 0 THEN 'FLOW'
+                       ELSE 'CHAT'
+                     END AS route,
+                     r.latency_ms AS latencyMs,
+                     (SELECT COALESCE(SUM(u.input_tokens + u.output_tokens), 0) FROM runtime_model_usage u
+                       WHERE u.trace_id = r.trace_id) AS tokens
+              FROM runtime_run r
+              WHERE r.run_type = 'AGENT' AND r.entry_type = 'EMBED' AND r.status = 'COMPLETED'
+                AND r.started_at &gt;= #{since}
+                <if test="projectCode != null">AND r.project_code = #{projectCode}</if>
+            ) t
+            GROUP BY t.route
+            </script>
+            """)
+    List<java.util.Map<String, Object>> selectDecisionRoutes(@Param("since") LocalDateTime since,
+                                                             @Param("projectCode") String projectCode);
 }

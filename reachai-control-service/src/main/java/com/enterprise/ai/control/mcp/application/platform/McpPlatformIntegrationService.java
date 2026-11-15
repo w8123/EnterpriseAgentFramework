@@ -47,7 +47,8 @@ public class McpPlatformIntegrationService {
             "sdk-csharp", "C#（ASP.NET Core）后端接入",
             "sdk-python", "Python（FastAPI）后端接入",
             "sdk-node", "Node.js（Express）后端接入",
-            "sdk-go", "Go（net/http）后端接入");
+            "sdk-go", "Go（net/http）后端接入",
+            "sdk-php", "PHP（原生 PHP / Laravel / ThinkPHP）后端接入");
 
     private static final Set<String> ONLINE = Set.of("UP", "ONLINE", "HEALTHY", "RUNNING", "ACTIVE");
 
@@ -177,7 +178,7 @@ public class McpPlatformIntegrationService {
     /** What the coding agent should check inside the business repository; ReachAI cannot see those files. */
     private static List<Map<String, String>> localChecks(String projectCode) {
         return List.of(
-                Map.of("key", "SDK_DEPENDENCY", "how", "在业务仓库里确认已引入 ReachAI SDK（Java: reachai-spring-boot2-starter；C#: ReachAI.AspNetCore；Python: reachai-fastapi；Node: @reachai/node-sdk；Go: reachai-go），版本与接入清单一致"),
+                Map.of("key", "SDK_DEPENDENCY", "how", "在业务仓库里确认已引入 ReachAI SDK（Java: reachai-spring-boot2-starter；C#: ReachAI.AspNetCore；Python: reachai-fastapi；Node: @reachai/node-sdk；Go: reachai-go；PHP: reachai/php-sdk），版本与接入清单一致"),
                 Map.of("key", "SDK_CONFIG", "how", "确认 SDK 配置里的项目编码是「" + projectCode + "」，平台地址是你连接 MCP 用的 ReachAI 地址，BaseUrl 是 ReachAI 能访问到的业务系统地址"),
                 Map.of("key", "SECRETS", "how", "确认注册凭据、AppSecret 只来自环境变量或密钥管理器（只检查是否存在，不要打印值），没有写进代码、配置文件或前端"),
                 Map.of("key", "EMBED_TOKEN", "how", "确认业务后端提供嵌入换票接口（Java 默认 /api/reachai/embed-token，其他语言 /reachai/embed/token），并处在业务登录保护之下"),

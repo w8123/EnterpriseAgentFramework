@@ -15,6 +15,7 @@ import com.enterprise.ai.control.mcp.domain.McpDomainException;
 import com.enterprise.ai.control.mcp.domain.employee.AiToolConnection;
 import com.enterprise.ai.control.mcp.domain.employee.AiToolConnection.ConnectedSystem;
 import com.enterprise.ai.control.mcp.domain.employee.AiToolConnectionStatus;
+import com.enterprise.ai.control.mcp.domain.employee.AiToolKind;
 import com.enterprise.ai.control.mcp.domain.employee.McpEmployeeAccess;
 import com.enterprise.ai.control.mcp.domain.employee.McpWriteApproval;
 import com.enterprise.ai.control.mcp.domain.employee.McpWriteApprovalStatus;
@@ -38,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * MCP protocol semantics for an employee's personal AI-tool connection. The
@@ -138,6 +140,72 @@ public class McpEmployeeProtocolService {
         }
         connectionRepository.touchLastUsed(connection.id(), now);
         return new EmployeeSession(connection, systems, exposedNames(systems));
+    }
+
+    /**
+     * The assistant embedded in a business system, acting for the employee who is chatting with it.
+     * It gets what that employee's own AI tool would get in this one system: the same published
+     * capabilities, call permission, write approval and audit. ReachAI keeps the connection itself,
+     * so there is no key, and an account the business system has not synced gets nothing.
+     */
+    /**
+     * Why {@link #assistantSession} found nothing, said the way an admin can act on it; null when a
+     * session would open. Used where an admin chose the account, such as a system's evaluation account.
+     */
+    public String assistantSessionProblem(String tenantId, String projectCode, String externalUserId) {
+        if (projectCode == null || projectCode.isBlank() || externalUserId == null || externalUserId.isBlank()) {
+            return "缺少业务系统或账号";
+        }
+        String tenant = tenantId == null || tenantId.isBlank() ? "default" : tenantId.trim().toLowerCase(Locale.ROOT);
+        String system = projectCode.trim();
+        if (accessRepository.findByProjectCode(system).filter(McpEmployeeAccess::enabled).isEmpty()) {
+            return "业务系统 " + system + " 还没有打开「员工使用」：请在「MCP 互联中心」发布该系统的能力并打开员工使用。";
+        }
+        if (businessUserSyncService.activeBusinessUserId(tenant, system, externalUserId.trim()).isEmpty()) {
+            return "账号 " + externalUserId.trim() + "（租户 " + tenant + "）还没有同步到 ReachAI："
+                    + "请用这个账号登录业务系统，打开一次页面里的 AI 助手，ReachAI 就会认识它。"
+                    + "也请确认填的是业务系统里的用户编号和租户编号。";
+        }
+        return null;
+    }
+
+    public Optional<EmployeeSession> assistantSession(String tenantId, String projectCode, String externalUserId) {
+        if (projectCode == null || projectCode.isBlank() || externalUserId == null || externalUserId.isBlank()) {
+            return Optional.empty();
+        }
+        String tenant = tenantId == null || tenantId.isBlank() ? "default" : tenantId.trim().toLowerCase(Locale.ROOT);
+        String system = projectCode.trim();
+        String account = externalUserId.trim();
+        Optional<McpEmployeeAccess> access = accessRepository.findByProjectCode(system)
+                .filter(McpEmployeeAccess::enabled);
+        Optional<Long> businessUserId = businessUserSyncService.activeBusinessUserId(tenant, system, account);
+        if (access.isEmpty() || businessUserId.isEmpty()) {
+            return Optional.empty();
+        }
+        LocalDateTime now = LocalDateTime.now();
+        ConnectedSystem connected = new ConnectedSystem(system, access.get().publicationId());
+        AiToolConnection connection = connectionRepository.findByOwner(tenant, businessUserId.get()).stream()
+                .filter(found -> found.toolKind() == AiToolKind.ASSISTANT && found.usable(now)
+                        && system.equals(found.appId()) && account.equals(found.externalUserId())
+                        && found.systems().stream().anyMatch(item -> system.equals(item.projectCode())))
+                .findFirst()
+                .orElseGet(() -> {
+                    String userName = businessUserSyncService.activeAccount(tenant, businessUserId.get(), system)
+                            .map(BusinessSystemAccount::userName).orElse(null);
+                    // The hash is of a secret nobody ever receives, so this connection cannot be used as a key.
+                    String unusableKeyHash = AiToolConnectionService.sha256Hex(
+                            "assistant:" + UUID.randomUUID() + ":" + UUID.randomUUID());
+                    return connectionRepository.create(new AiToolConnection(null, tenant, businessUserId.get(),
+                            system, account, userName, AiToolKind.ASSISTANT, "assistant",
+                            AiToolConnectionStatus.ACTIVE, null, null, now, List.of(connected)), unusableKeyHash);
+                });
+        Optional<SystemSession> session = usableSystem(connection, connected);
+        if (session.isEmpty()) {
+            return Optional.empty();
+        }
+        connectionRepository.touchLastUsed(connection.id(), now);
+        List<SystemSession> systems = List.of(session.get());
+        return Optional.of(new EmployeeSession(connection, systems, exposedNames(systems)));
     }
 
     /**
@@ -244,6 +312,10 @@ public class McpEmployeeProtocolService {
                     "MCP 服务的风险契约需要重新发布后才能调用");
         }
         SystemSession system = target.system();
+        if (platformEvalAccount(system.account()) && !"READ".equals(riskLevel(target.tool()))) {
+            // The platform evaluation account exists only to read; it never writes, with or without approval.
+            throw new McpDomainException("MCP_TOOL_ACL_DENIED", "平台评测账号只能调用只读能力");
+        }
         requireAllowed(system, target.tool());
         if (needsApproval(target)) {
             return new EmployeeCallResult(submitForApproval(session, toolName.trim(), target, arguments), system);
@@ -302,7 +374,41 @@ public class McpEmployeeProtocolService {
                 result.runId(), result.traceId());
     }
 
+    /**
+     * The account an administrator created so a system with no employees synced (one connected only
+     * through its HTTP APIs) can still be evaluated. It is not a person in the business system.
+     */
+    public static final String PLATFORM_EVAL_USER = "reachai-eval";
+    public static final String PLATFORM_EVAL_ROLE = "reachai_eval";
+
+    static boolean platformEvalAccount(BusinessSystemAccount account) {
+        return account != null && PLATFORM_EVAL_USER.equals(account.externalUserId())
+                && account.roles() != null && account.roles().contains(PLATFORM_EVAL_ROLE);
+    }
+
+    /**
+     * Creates (or returns) the platform evaluation account of a system. It may call every read-only
+     * capability the system publishes to employees and nothing else, so it needs no call-permission rule.
+     */
+    public String ensurePlatformEvalAccount(String tenantId, String projectCode) {
+        if (projectCode == null || projectCode.isBlank()) {
+            throw new McpDomainException("MCP_PROJECT_REQUIRED", "projectCode is required");
+        }
+        String system = projectCode.trim();
+        if (accessRepository.findByProjectCode(system).filter(McpEmployeeAccess::enabled).isEmpty()) {
+            throw new McpDomainException("MCP_EMPLOYEE_ACCESS_DISABLED",
+                    "业务系统 " + system + " 还没有打开「员工使用」：请先在「MCP 互联中心」发布该系统的能力并打开员工使用。");
+        }
+        String tenant = tenantId == null || tenantId.isBlank() ? "default" : tenantId.trim().toLowerCase(Locale.ROOT);
+        businessUserSyncService.sync(new BusinessUserSyncService.AttestedBusinessUser(
+                tenant, system, PLATFORM_EVAL_USER, null, "ReachAI 评测账号", List.of(PLATFORM_EVAL_ROLE)));
+        return PLATFORM_EVAL_USER;
+    }
+
     private void requireAllowed(SystemSession system, McpToolProjection tool) {
+        if (platformEvalAccount(system.account()) && "READ".equals(riskLevel(tool))) {
+            return;
+        }
         String decision = aclDecisionService.decide(system.account().roles(), system.access().projectId(),
                 system.access().projectCode(), "TOOL", tool.sourceRef());
         if (!ControlToolAclDecisionService.DECISION_ALLOW.equals(decision)) {

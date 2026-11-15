@@ -3,7 +3,7 @@ import type { ConversationEventEnvelope } from '../core/conversationEvents'
 import { createEvent } from '../core/conversationEvents'
 import { adaptAgentStreamEvent, expandAgentAdapted } from '../core/adapters/adaptAgentStreamEvent'
 import { parseSseStream, isAbortError } from '../core/parseSseStream'
-import type { ConversationTransport, ConversationTurnInput } from './transportTypes'
+import type { ApprovalStatusView, ConversationTransport, ConversationTurnInput } from './transportTypes'
 
 export interface AgentDebugTransportOptions {
   agentId: string
@@ -126,6 +126,22 @@ export function createAgentDebugTransport(options: AgentDebugTransportOptions): 
         interactionId,
         uiSubmit: { action, values },
       }, signal)
+    },
+
+    async approvalStatus(interactionId: string): Promise<ApprovalStatusView | null> {
+      const sessionId = options.getSessionId()
+      if (!sessionId || !interactionId || disposed) return null
+      try {
+        const response = await fetchImpl(
+          `/api/me/workflow-approvals/runner-status/${encodeURIComponent(interactionId)}?sessionId=${encodeURIComponent(sessionId)}`,
+          { method: 'GET', headers: platformCsrfHeaders({ Accept: 'application/json' }), credentials: 'same-origin' },
+        )
+        if (!response.ok) return null
+        const view = await response.json() as ApprovalStatusView
+        return view && typeof view.status === 'string' ? view : null
+      } catch {
+        return null
+      }
     },
 
     async clearSession() {

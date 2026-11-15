@@ -41,7 +41,8 @@ const query = reactive({
   publicationId: undefined as number | undefined,
   clientId: undefined as number | undefined,
   connectionId: (Number.isFinite(routeConnectionId) && routeConnectionId > 0 ? routeConnectionId : undefined) as number | undefined,
-  method: '',
+  // 从「AI 使用情况」查看某位员工的调用时，只看真正的工具调用，不看握手等协议行。
+  method: Number.isFinite(routeConnectionId) && routeConnectionId > 0 ? 'tools/call' : '',
   toolName: '',
   success: '' as '' | 'true' | 'false',
   errorCategory: '',

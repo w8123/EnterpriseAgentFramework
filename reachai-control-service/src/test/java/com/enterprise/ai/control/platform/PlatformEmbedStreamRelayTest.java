@@ -22,6 +22,75 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 class PlatformEmbedStreamRelayTest {
+    private static PlatformEmbedTurnLeaseService.TurnAdmission admission(long epoch) {
+        return new PlatformEmbedTurnLeaseService.TurnAdmission(epoch, 1L, 1L);
+    }
+    private static PlatformEmbedTurnLeaseService leases() {
+        return mock(PlatformEmbedTurnLeaseService.class, invocation ->
+                invocation.getMethod().getReturnType() == boolean.class ? true
+                        : org.mockito.Answers.RETURNS_DEFAULTS.answer(invocation));
+    }
+
+    @Test
+    void readOnlyUiCardDoesNotMarkTheTurnWaiting() throws Exception {
+        var proxy = mock(RuntimeAgentStreamProxy.class);
+        var lease = leases();
+        var relay = new PlatformEmbedStreamRelay(proxy, mock(RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedChatEventService.class), new ObjectMapper());
+        var session = new PlatformEmbedSessionEntity(); session.setSessionId("embed-1");
+        var body = Map.<String, Object>of("agentId", "bot");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
+            ByteArrayOutputStream downstream = invocation.getArgument(1);
+            handler.handle("ui.requested", "{\"component\":\"table\",\"interactionId\":\"display-1\"}", downstream);
+            handler.handle("execution.completed", "{\"answer\":\"ok\",\"metadata\":{\"code\":\"SUPERVISOR_COMPLETED\"}}", downstream);
+            return null;
+        }).when(proxy).streamAgentExecute(eq(body), any(), any());
+        var output = new ByteArrayOutputStream();
+        relay.streamMessage(session, body, output, admission(7), lease);
+        verify(lease, org.mockito.Mockito.never()).waiting(any(), any(), any());
+        assertTrue(output.toString(StandardCharsets.UTF_8).contains("event: ui.requested"));
+    }
+
+    @Test
+    void bindsRuntimeInteractionToTheAdmittedTurnEpoch() throws Exception {
+        var proxy = mock(RuntimeAgentStreamProxy.class);
+        var events = mock(PlatformEmbedChatEventService.class);
+        var leases = leases();
+        var relay = new PlatformEmbedStreamRelay(proxy, mock(RuntimeTrustedAgentExecutionGateway.class), events, new ObjectMapper());
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1");
+        var body = Map.<String, Object>of("agentId", "bot");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
+            ByteArrayOutputStream downstream = invocation.getArgument(1);
+            handler.handle("execution.completed", "{\"metadata\":{\"code\":\"RUNTIME_GRAPH_INTERACTION_WAITING\"},\"uiRequest\":{\"interactionId\":\"interaction-1\"}}", downstream);
+            return null;
+        }).when(proxy).streamAgentExecute(eq(body), any(), any());
+        relay.streamMessage(session, body, new ByteArrayOutputStream(), admission(42L), leases);
+        verify(leases).waiting(session, admission(42L), "interaction-1");
+    }
+
+    @Test
+    void bindsInteractionBeforeForwardingTheWaitingEvent() throws Exception {
+        var proxy = mock(RuntimeAgentStreamProxy.class);
+        var events = mock(PlatformEmbedChatEventService.class);
+        var leases = leases();
+        var relay = new PlatformEmbedStreamRelay(proxy, mock(RuntimeTrustedAgentExecutionGateway.class), events, new ObjectMapper());
+        var session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1");
+        var body = Map.<String, Object>of("agentId", "bot");
+        doAnswer(invocation -> {
+            SseStreamRelay.FrameHandler handler = invocation.getArgument(2);
+            var output = new java.io.OutputStream() {
+                @Override public void write(int b) { verify(leases).waiting(session, admission(42L), "interaction-1"); }
+            };
+            handler.handle("ui.requested", "{\"interactionId\":\"interaction-1\"}", output);
+            handler.handle("execution.completed", "{\"metadata\":{\"code\":\"RUNTIME_GRAPH_INTERACTION_WAITING\"},\"uiRequest\":{\"interactionId\":\"interaction-1\"}}", output);
+            return null;
+        }).when(proxy).streamAgentExecute(eq(body), any(), any());
+        relay.streamMessage(session, body, new ByteArrayOutputStream(), admission(42L), leases);
+    }
 
     @Test
     void knownIncompleteAndUnknownWriteErrorsDoNotEncourageBlindRetry() throws Exception {
@@ -39,7 +108,7 @@ class PlatformEmbedStreamRelayTest {
             return null;
         }).when(proxy).streamAgentExecute(eq(body), any(), any());
         var output = new ByteArrayOutputStream();
-        relay.streamMessage(session, body, output);
+        relay.streamMessage(session, body, output, admission(0L), leases());
         String streamed = output.toString(StandardCharsets.UTF_8);
         assertTrue(streamed.contains("请先核对已执行的操作"));
         assertTrue(streamed.contains("请先核对业务记录，避免重复提交"));
@@ -51,6 +120,7 @@ class PlatformEmbedStreamRelayTest {
     void mapsRuntimeCompletionToEmbedMessageCompletedAndRecordsAssistantAudit() throws Exception {
         RuntimeAgentStreamProxy streamProxy = mock(RuntimeAgentStreamProxy.class);
         PlatformEmbedChatEventService chatEventService = mock(PlatformEmbedChatEventService.class);
+        var leases = leases();
         PlatformEmbedStreamRelay relay = new PlatformEmbedStreamRelay(
                 streamProxy, mock(RuntimeTrustedAgentExecutionGateway.class), chatEventService, new ObjectMapper());
         PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
@@ -74,7 +144,7 @@ class PlatformEmbedStreamRelayTest {
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(42L), leases);
         String streamed = output.toString(StandardCharsets.UTF_8);
 
         assertTrue(streamed.contains("event: message.delta"));
@@ -86,8 +156,9 @@ class PlatformEmbedStreamRelayTest {
         assertTrue(streamed.contains("control.assistantAuditMs"));
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> completion = ArgumentCaptor.forClass(Map.class);
-        verify(chatEventService, times(1)).recordAssistantMessage(
+        verify(leases, times(1)).completeAndRecord(
                 eq(session),
+                eq(admission(42L)),
                 eq("订单已找到"),
                 completion.capture(),
                 eq("trace-1"));
@@ -120,7 +191,7 @@ class PlatformEmbedStreamRelayTest {
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(0L), leases());
 
         String streamed = output.toString(StandardCharsets.UTF_8);
         assertTrue(streamed.contains("event: error"));
@@ -152,7 +223,7 @@ class PlatformEmbedStreamRelayTest {
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(0L), leases());
         String streamed = output.toString(StandardCharsets.UTF_8);
 
         assertTrue(streamed.contains("event: page.action.requested"));
@@ -178,11 +249,12 @@ class PlatformEmbedStreamRelayTest {
             handler.handle("reasoning.delta", "{\"text\":\"think\"}", downstream);
             handler.handle("debug.trace", "{\"id\":\"t1\"}", downstream);
             handler.handle("ui.requested", "{\"uiRequest\":{\"interactionId\":\"ix-1\"}}", downstream);
+            handler.handle("execution.completed", "{\"answer\":\"done\",\"metadata\":{\"code\":\"SUPERVISOR_COMPLETED\"}}", downstream);
             return null;
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(0L), leases());
         String streamed = output.toString(StandardCharsets.UTF_8);
 
         assertFalse(streamed.contains("supervisor.step"));
@@ -212,7 +284,7 @@ class PlatformEmbedStreamRelayTest {
         }).when(streamProxy).streamAgentExecute(eq(runtimeBody), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(0L), leases());
         String streamed = output.toString(StandardCharsets.UTF_8);
 
         assertTrue(streamed.contains("event: turn.progress"));
@@ -243,7 +315,7 @@ class PlatformEmbedStreamRelayTest {
         }).when(gateway).streamTrusted(any(), eq("EMBED_SESSION"), eq("default"), eq("user-1"), any(), any(), any());
 
         ByteArrayOutputStream output = new ByteArrayOutputStream();
-        relay.streamMessage(session, runtimeBody, output);
+        relay.streamMessage(session, runtimeBody, output, admission(0L), leases());
         assertTrue(output.toString(StandardCharsets.UTF_8).contains("event: message.completed"));
         verify(gateway).streamTrusted(eq(runtimeBody), eq("EMBED_SESSION"), eq("default"), eq("user-1"), any(), any(), any());
     }

@@ -51,7 +51,7 @@ try {
         -Uri "$platformRoot/api/ai-assist/skills/reachai-onboarding/latest.zip" `
         -OutFile $skillZip
     Expand-Archive -LiteralPath $skillZip -DestinationPath $skillExtract
-    $installer = Join-Path $skillExtract 'reachai-onboarding/scripts/install-java-sdk.ps1'
+    $installer = Join-Path $skillExtract 'reachai-onboarding/scripts/install-java-sdk.mjs'
     if (-not (Test-Path -LiteralPath $installer)) {
         throw "Onboarding Skill does not contain its Java SDK installer: $installer"
     }
@@ -64,16 +64,16 @@ try {
         $artifactRoot = "$platformRoot/api/ai-assist/artifacts/java-sdk/$artifactId/$version"
         $jarSha256 = (Invoke-WebRequest -UseBasicParsing -Uri "$artifactRoot.jar.sha256").Content.Trim()
         $pomSha256 = (Invoke-WebRequest -UseBasicParsing -Uri "$artifactRoot.pom.sha256").Content.Trim()
-        & $installer `
-            -GroupId 'com.enterprise.ai' `
-            -ArtifactId $artifactId `
-            -Version $version `
-            -JarUrl "$artifactRoot.jar" `
-            -JarSha256 $jarSha256 `
-            -PomUrl "$artifactRoot.pom" `
-            -PomSha256 $pomSha256 `
-            -MavenExecutable $MavenExecutable `
-            -MavenLocalRepository $mavenRepository
+        & node $installer `
+            --group-id 'com.enterprise.ai' `
+            --artifact-id $artifactId `
+            --version $version `
+            --jar-url "$artifactRoot.jar" `
+            --jar-sha256 $jarSha256 `
+            --pom-url "$artifactRoot.pom" `
+            --pom-sha256 $pomSha256 `
+            --maven-executable $MavenExecutable `
+            --maven-local-repository $mavenRepository
         if ($LASTEXITCODE -ne 0) {
             throw "Java SDK installer failed for $artifactId"
         }

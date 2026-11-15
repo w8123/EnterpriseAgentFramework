@@ -49,6 +49,8 @@ public class KnowledgeSettingsService {
         if (base == null || !code.equals(base.getCode())) throw changed();
         requireRevision(base, revision);
         var after = changed(settings(base), changes);
+        // An external base stores no files, so per-file grants could never match anything.
+        if (com.enterprise.ai.domain.KnowledgeBaseSettings.isExternal(base) && "FILE_GRANTS".equals(after.get("accessMode"))) throw invalid();
         var update = new UpdateWrapper<KnowledgeBase>().eq("id", base.getId()).eq("code", code)
                 .eq("vector_collection_name", base.getVectorCollectionName());
         // The field whitelist owns column names; caller keys cannot introduce SQL or identity fields.

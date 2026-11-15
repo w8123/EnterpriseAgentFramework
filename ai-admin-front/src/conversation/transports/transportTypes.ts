@@ -16,6 +16,18 @@ export interface ConversationTransportCapabilities {
   pageActions: boolean
 }
 
+export interface ApprovalStatusView {
+  interactionId: string
+  /** PENDING / APPROVED / REJECTED / CONTINUED_APPROVED / CONTINUED_REJECTED / WITHDRAWN / EXPIRED */
+  status: string
+  sessionStatus?: string
+  assignees?: string
+  approverName?: string
+  comment?: string
+  decidedAt?: string
+  expiresAt?: string
+}
+
 export type ConversationTransportKind = 'agent-debug' | 'workflow-working-copy' | 'embed'
 
 export interface ConversationTransport {
@@ -33,6 +45,9 @@ export interface ConversationTransport {
     values: Record<string, unknown>,
     signal?: AbortSignal,
   ): AsyncIterable<ConversationEventEnvelope>
+
+  /** 指定审批人的人工确认：查询审批进度（谁来批、是否已批）。不支持时不提供。 */
+  approvalStatus?(interactionId: string): Promise<ApprovalStatusView | null>
 
   restoreSession?(): Promise<ConversationSnapshot | null>
   cancelTurn?(): Promise<void>

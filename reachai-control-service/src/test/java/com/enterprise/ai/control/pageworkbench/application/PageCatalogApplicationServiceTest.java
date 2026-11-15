@@ -28,6 +28,73 @@ import static org.mockito.Mockito.when;
 class PageCatalogApplicationServiceTest {
 
     @Test
+    void reviewedGenerationChangesForRouteAbaButNotIdenticalSdkReports() {
+        var pages = mock(ProjectPageMapper.class);
+        var actions = mock(PageActionMapper.class);
+        var resources = mock(PageResourceMapper.class);
+        var generations = mock(com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectGenerationMapper.class);
+        var service = new PageCatalogApplicationService(pages, resources, actions, new ObjectMapper(), mock(PageWorkbenchProjectPort.class));
+        service.setEffectGenerations(generations);
+        var page = new ProjectPageEntity();
+        page.setId(1L); page.setProjectId(7L); page.setProjectCode("mall"); page.setPageKey("profile");
+        page.setName("Profile"); page.setRoutePattern("/a"); page.setSourceType("SDK"); page.setLifecycleStatus("ACTIVE");
+        var action = new PageActionEntity();
+        action.setId(2L); action.setPageId(1L); action.setProjectId(7L); action.setProjectCode("mall"); action.setPageKey("profile");
+        action.setActionKey("fill"); action.setTitle("Fill"); action.setActionType("PAGE_ACTION"); action.setRiskLevel("READ");
+        action.setConfirmRequired(false); action.setSourceType("SDK"); action.setStatus("ACTIVE");
+        action.setInputSchemaJson("{}"); action.setOutputSchemaJson("{}"); action.setSampleArgsJson("{}"); action.setAllowedAgentIdsJson("[]");
+        when(pages.selectOne(any())).thenReturn(page);
+        when(actions.selectOne(any())).thenReturn(action);
+        when(actions.selectList(any())).thenReturn(List.of(action));
+        when(resources.selectList(any())).thenReturn(List.of());
+        var input = new ActionInput("fill", "Fill", null, "PAGE_ACTION", "READ", false,
+                null, null, null, null, List.of(), null, null);
+        for (String route : List.of("/a", "/b", "/a")) {
+            service.upsertPageCatalog(7L, "mall", new PageReport("profile", null, null, "Profile", null,
+                    route, null, null, null, List.of(input)), com.enterprise.ai.control.pageworkbench.domain.PageWorkbenchValues.PageSource.SDK, false);
+        }
+        verify(generations, org.mockito.Mockito.times(2)).invalidatePage(1L);
+        verify(generations, never()).invalidateAction(2L);
+    }
+
+    @Test
+    void actionLookupRejectsCaseFoldedOrInconsistentDatabaseRows() {
+        var pages = mock(ProjectPageMapper.class);
+        var actions = mock(PageActionMapper.class);
+        var service = new PageCatalogApplicationService(pages, mock(PageResourceMapper.class), actions,
+                new ObjectMapper(), mock(PageWorkbenchProjectPort.class));
+        var page = new ProjectPageEntity();
+        page.setId(1L); page.setProjectCode("mall"); page.setPageKey("profile"); page.setLifecycleStatus("ACTIVE");
+        var action = new PageActionEntity();
+        action.setPageId(1L); action.setProjectCode("mall"); action.setPageKey("profile");
+        action.setActionKey("profile.fill"); action.setStatus("ACTIVE");
+        when(pages.selectOne(any())).thenReturn(page);
+        when(pages.selectById(1L)).thenReturn(page);
+        when(actions.selectOne(any())).thenReturn(action);
+        assertEquals(true, service.findAction(" mall ", " profile ", " profile.fill ").isPresent());
+        assertEquals(true, service.findActiveActionForUpdate(" mall ", " profile ", " profile.fill ").isPresent());
+        for (List<String> mismatched : List.of(
+                List.of("MALL", "profile", "profile.fill"),
+                List.of("mall", "PROFILE", "profile.fill"),
+                List.of("mall", "profile", "PROFILE.FILL"),
+                List.of("other-project", "profile", "profile.fill"))) {
+            assertEquals(true, service.findAction(mismatched.get(0), mismatched.get(1), mismatched.get(2)).isEmpty());
+            assertEquals(true, service.findActiveActionForUpdate(mismatched.get(0), mismatched.get(1), mismatched.get(2)).isEmpty());
+        }
+        action.setProjectCode("MALL");
+        assertEquals(true, service.findActiveActionForUpdate("mall", "profile", "profile.fill").isEmpty());
+        action.setProjectCode("mall"); action.setPageKey("PROFILE");
+        assertEquals(true, service.findActiveActionForUpdate("mall", "profile", "profile.fill").isEmpty());
+        action.setPageKey("profile"); action.setPageId(2L);
+        assertEquals(true, service.findAction("mall", "profile", "profile.fill").isEmpty());
+        assertEquals(true, service.findActiveActionForUpdate("mall", "profile", "profile.fill").isEmpty());
+        action.setPageId(1L); page.setProjectCode("MALL");
+        assertEquals(true, service.findAction("mall", "profile", "profile.fill").isEmpty());
+        page.setProjectCode("mall"); page.setPageKey("PROFILE");
+        assertEquals(true, service.findAction("mall", "profile", "profile.fill").isEmpty());
+    }
+
+    @Test
     void sdkReportsCannotClearOrEraseAnExistingConfirmationFloor() {
         var pageMapper = mock(ProjectPageMapper.class);
         var resources = mock(PageResourceMapper.class);

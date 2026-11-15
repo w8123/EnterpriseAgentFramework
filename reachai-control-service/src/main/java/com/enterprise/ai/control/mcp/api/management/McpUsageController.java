@@ -89,6 +89,38 @@ public class McpUsageController {
         return costService.report(days, projectCode, readsRuns(session, projectCode));
     }
 
+    private com.enterprise.ai.control.client.runtime.RuntimeProxyClient runtimeClient;
+    private com.enterprise.ai.control.mcp.infrastructure.runtime.RuntimeUsageRequestSigner runtimeSigner;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRuntimeUsage(com.enterprise.ai.control.client.runtime.RuntimeProxyClient runtimeClient,
+                                com.enterprise.ai.control.mcp.infrastructure.runtime.RuntimeUsageRequestSigner signer) {
+        this.runtimeClient = runtimeClient;
+        this.runtimeSigner = signer;
+    }
+
+    /**
+     * 推理与流程：业务系统内的助手有多少次靠推理完成、多少次走固定流程，各自的平均耗时和 Token。
+     * 数据来自运行记录，所以同样要能看运行记录；看不了时返回空。
+     */
+    @GetMapping("/routes")
+    public java.util.List<Map<String, Object>> routes(HttpServletRequest request,
+                                                      @RequestParam(required = false) Integer days,
+                                                      @RequestParam(required = false) String projectCode) {
+        PlatformAuthenticatedSession session = access.require(request, McpHubManagementAccess.READ);
+        if (runtimeClient == null || runtimeSigner == null || !readsRuns(session, projectCode)) {
+            return java.util.List.of();
+        }
+        int window = days == null || days <= 0 ? 30 : Math.min(days, 90);
+        ResponseEntity<java.util.List<Map<String, Object>>> response = runtimeClient.runOpsDecisionRoutes(
+                runtimeSigner.headers("/internal/runtime/usage/decision-routes"),
+                StringUtils.hasText(projectCode) ? projectCode.trim() : null, window);
+        if (response == null || !response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "运行记录暂时读取不到");
+        }
+        return response.getBody();
+    }
+
     @GetMapping
     public AiUsageService.Report report(HttpServletRequest request,
                                         @RequestParam(required = false) Integer days,

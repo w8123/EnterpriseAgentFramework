@@ -25,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -36,6 +37,56 @@ import static org.mockito.Mockito.when;
 
 class PlatformEmbedPublicControllerTest {
 
+    private static PlatformEmbedPublicController testController(
+            PlatformEmbedTokenService tokens, PlatformEmbedSessionService sessions, PlatformEmbedChatEventService events,
+            CapabilityProxyClient capability, RuntimeProxyClient runtime,
+            com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway trusted,
+            PlatformEmbedStreamRelay relay, PlatformPageActionEventMapper pageEvents) {
+        var controller = new PlatformEmbedPublicController(tokens, sessions, events, capability, runtime, trusted, relay, pageEvents);
+        var leases = mock(PlatformEmbedTurnLeaseService.class);
+        when(leases.admitMessage(any(), any())).thenAnswer(call -> {
+            long epoch = events.recordUserMessage(call.getArgument(0), call.getArgument(1));
+            return new PlatformEmbedTurnLeaseService.TurnAdmission(epoch, 1, 1);
+        });
+        when(leases.resumeInteraction(any(), any())).thenAnswer(call -> {
+            long epoch = events.admitInteraction(call.getArgument(0), call.getArgument(1));
+            return new PlatformEmbedTurnLeaseService.TurnAdmission(epoch, 1, 1);
+        });
+        when(leases.completeAndRecord(any(), any(), any(), any(), any())).thenAnswer(call -> {
+            PlatformEmbedTurnLeaseService.TurnAdmission a = call.getArgument(1);
+            events.recordAssistantMessage(call.getArgument(0), call.getArgument(2), call.getArgument(3), call.getArgument(4), a.epoch());
+            return true;
+        });
+        when(leases.waiting(any(), any(), any())).thenAnswer(call -> {
+            PlatformEmbedTurnLeaseService.TurnAdmission a = call.getArgument(1);
+            events.bindInteraction(call.getArgument(0), call.getArgument(2), a.epoch());
+            return true;
+        });
+        when(leases.recordWaitingAnswer(any(), any(), any(), any(), any())).thenAnswer(call -> {
+            PlatformEmbedTurnLeaseService.TurnAdmission a = call.getArgument(1);
+            events.recordAssistantMessage(call.getArgument(0), call.getArgument(2), call.getArgument(3), call.getArgument(4), a.epoch());
+            return true;
+        });
+        controller.setTurnLeaseService(leases);
+        controller.setContextClearService(mock(PlatformEmbedContextClearService.class));
+        if (org.mockito.Mockito.mockingDetails(sessions).isMock()) {
+            org.mockito.Mockito.doAnswer(call -> sessions.requireActiveSession(call.getArgument(0), call.getArgument(1)))
+                    .when(sessions).requireActiveSessionForNavigationRebind(any(), any());
+        }
+        return controller;
+    }
+
+    @Test
+    void routeParametersMatchOneNonemptySegmentWithoutRegexExpansion() {
+        assertTrue(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}", "/goods/detail/10161"));
+        assertTrue(PlatformEmbedPublicController.routeMatches("/goods/detail/:goodsId", "/goods/detail/10161/"));
+        assertFalse(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}", "/goods/detail/"));
+        assertFalse(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}", "/goods/detail/10161/extra"));
+        assertFalse(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}", "/goods/detail/10161/extra/"));
+        assertFalse(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}.html", "/goods/detail/10161xhtml"));
+        assertFalse(PlatformEmbedPublicController.routeMatches("/goods/detail/{goodsId}", "/other/detail/10161"));
+    }
+
     @Test
     void embedContextClearUsesVerifiedSessionOwnerAndPropagatesRuntimeFailure() {
         var properties = new PlatformEmbedTokenProperties();
@@ -43,7 +94,7 @@ class PlatformEmbedPublicControllerTest {
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
         var sessions = mock(PlatformEmbedSessionService.class);
         var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
-        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+        var controller = testController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
         String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -72,7 +123,7 @@ class PlatformEmbedPublicControllerTest {
                 java.time.Clock.fixed(java.time.Instant.ofEpochSecond(1000), java.time.ZoneOffset.UTC));
         var capability = mock(CapabilityProxyClient.class);
         var runtime = mock(RuntimeProxyClient.class);
-        var controller = new PlatformEmbedPublicController(tokens, mock(PlatformEmbedSessionService.class),
+        var controller = testController(tokens, mock(PlatformEmbedSessionService.class),
                 mock(PlatformEmbedChatEventService.class), capability, runtime,
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
@@ -94,7 +145,7 @@ class PlatformEmbedPublicControllerTest {
     void exchangeDistinguishesPolicyDenialFromUnavailableDependencies() {
         var capability = mock(CapabilityProxyClient.class);
         var runtime = mock(RuntimeProxyClient.class);
-        var controller = new PlatformEmbedPublicController(mock(PlatformEmbedTokenService.class),
+        var controller = testController(mock(PlatformEmbedTokenService.class),
                 mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class), capability, runtime,
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
@@ -135,7 +186,7 @@ class PlatformEmbedPublicControllerTest {
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
         var capability = mock(CapabilityProxyClient.class);
         var runtime = mock(RuntimeProxyClient.class);
-        var controller = new PlatformEmbedPublicController(tokens, mock(PlatformEmbedSessionService.class),
+        var controller = testController(tokens, mock(PlatformEmbedSessionService.class),
                 mock(PlatformEmbedChatEventService.class), capability, runtime,
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
@@ -157,7 +208,7 @@ class PlatformEmbedPublicControllerTest {
         var revocation = mock(PlatformEmbedBusinessSessionRevocation.class);
         var properties = new PlatformEmbedTokenProperties();
         properties.setSecret("test-embed-token-secret");
-        var controller = new PlatformEmbedPublicController(new PlatformEmbedTokenService(new ObjectMapper(), properties),
+        var controller = testController(new PlatformEmbedTokenService(new ObjectMapper(), properties),
                 mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
@@ -192,7 +243,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedSessionService sessions = mock(PlatformEmbedSessionService.class);
         PlatformEmbedChatEventService events = mock(PlatformEmbedChatEventService.class);
         var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(tokens, sessions, events,
+        PlatformEmbedPublicController controller = testController(tokens, sessions, events,
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
         String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -230,6 +281,10 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("操作结果尚未确认，请先核对业务记录，避免重复提交。", unconfirmed.getBody().getMessage());
         assertEquals("操作结果尚未确认，请先核对业务记录，避免重复提交。",
                 PlatformEmbedPublicController.safeRuntimeFailureMessage("PAGE_BRIDGE_RESULT_UNCONFIRMED"));
+        assertEquals("页面操作条件不满足，本次未完成，请检查输入后重试。",
+                PlatformEmbedPublicController.safeRuntimeFailureMessage("PAGE_BRIDGE_PRECONDITION_FAILED"));
+        assertEquals("本轮没有执行页面操作，请确认所需信息后重试。",
+                PlatformEmbedPublicController.safeRuntimeFailureMessage("SUPERVISOR_PAGE_ACTION_NOT_EXECUTED"));
         when(gateway.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any()))
                 .thenReturn(ResponseEntity.ok(Map.of("success", false,
                         "answer", "internal detail", "metadata", Map.of("code", "SUPERVISOR_PLAN_INCOMPLETE"))));
@@ -237,7 +292,7 @@ class PlatformEmbedPublicControllerTest {
                 new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
         assertEquals("请求未能全部完成，请先核对已执行的操作，再调整条件重试。", incomplete.getBody().getMessage());
         verify(events).recordUserMessage(session, "你好");
-        verify(events, never()).recordAssistantMessage(any(), any(), any(), any());
+        verify(events, never()).recordAssistantMessage(any(), any(), any(), any(), anyLong());
     }
 
     @Test
@@ -248,7 +303,7 @@ class PlatformEmbedPublicControllerTest {
         var sessions = mock(PlatformEmbedSessionService.class);
         var events = mock(PlatformEmbedChatEventService.class);
         var gateway = mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
-        var controller = new PlatformEmbedPublicController(tokens, sessions, events,
+        var controller = testController(tokens, sessions, events,
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class), gateway,
                 mock(PlatformEmbedStreamRelay.class), mock(PlatformPageActionEventMapper.class));
         String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
@@ -295,7 +350,7 @@ class PlatformEmbedPublicControllerTest {
                 new PlatformEmbedPublicController.EmbedInteractionSubmitRequest("confirm", Map.of()));
         assertEquals(HttpStatus.CONFLICT, conflict.getStatusCode());
         assertEquals("确认请求无效或已结束，请刷新对话查看结果", conflict.getBody().getMessage());
-        verify(events, times(3)).recordAssistantMessage(eq(session), any(), any(), any());
+        verify(events, times(3)).recordAssistantMessage(eq(session), any(), any(), any(), anyLong());
     }
 
     @Test
@@ -304,7 +359,7 @@ class PlatformEmbedPublicControllerTest {
         CapabilityProxyClient capability = mock(CapabilityProxyClient.class);
         PlatformEmbedTokenProperties properties = new PlatformEmbedTokenProperties();
         properties.setSecret("test-embed-token-secret");
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 new PlatformEmbedTokenService(new ObjectMapper(), properties),
                 mock(PlatformEmbedSessionService.class), mock(PlatformEmbedChatEventService.class),
                 capability, mock(RuntimeProxyClient.class),
@@ -334,7 +389,7 @@ class PlatformEmbedPublicControllerTest {
         tokenProperties.setSecret("test-embed-token-secret");
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = new PlatformEmbedSessionService(sessionMapper, objectMapper);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -394,7 +449,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         CapabilityProxyClient capabilityProxyClient = mock(CapabilityProxyClient.class);
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 mock(PlatformEmbedSessionService.class),
                 mock(PlatformEmbedChatEventService.class),
@@ -483,7 +538,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenProperties tokenProperties = new PlatformEmbedTokenProperties();
         tokenProperties.setSecret("test-embed-token-secret");
         CapabilityProxyClient capabilityProxyClient = mock(CapabilityProxyClient.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 new PlatformEmbedTokenService(new ObjectMapper(), tokenProperties),
                 mock(PlatformEmbedSessionService.class),
                 mock(PlatformEmbedChatEventService.class),
@@ -542,7 +597,7 @@ class PlatformEmbedPublicControllerTest {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 chatEventService,
@@ -581,6 +636,14 @@ class PlatformEmbedPublicControllerTest {
         session.setOrigin("http://localhost:5173");
         session.setStatus("ACTIVE");
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
+        PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
+        chatEventService.setSessionMapper(sessionMapper);
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(chatEventMapper.insert(any())).thenAnswer(invocation -> {
+            PlatformEmbedChatEventEntity event = invocation.getArgument(0);
+            event.setId(1L);
+            return 1;
+        });
         when(trustedExecutionClient.executeTrusted(any(), eq("EMBED_SESSION"), any(), eq("user-1"), any())).thenReturn(ResponseEntity.ok(Map.of(
                 "success", true,
                 "sessionId", "embed-1",
@@ -607,7 +670,7 @@ class PlatformEmbedPublicControllerTest {
                         && Map.of("deptId", "dept-1", "deptName", "Operations", "region", "east")
                         .equals(body.get("attributes"))),
                 eq("EMBED_SESSION"), any(), eq("user-1"), any());
-        verify(chatEventMapper, times(2)).insert(any());
+        verify(chatEventMapper, times(3)).insert(any());
         verify(chatEventMapper).insert(argThat(event ->
                 "MESSAGE".equals(event.getEventType())
                         && "user".equals(event.getRole())
@@ -629,7 +692,7 @@ class PlatformEmbedPublicControllerTest {
         RuntimeProxyClient runtimeProxyClient = mock(RuntimeProxyClient.class);
         com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway trustedExecutionClient =
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -691,7 +754,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedChatEventMapper chatEventMapper = mock(PlatformEmbedChatEventMapper.class);
         PlatformEmbedChatEventService chatEventService = new PlatformEmbedChatEventService(chatEventMapper, objectMapper);
         PlatformEmbedStreamRelay embedStreamRelay = mock(PlatformEmbedStreamRelay.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 chatEventService,
@@ -718,6 +781,14 @@ class PlatformEmbedPublicControllerTest {
                 .build()).token();
         PlatformEmbedSessionEntity session = activeSession();
         when(sessionService.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
+        PlatformEmbedSessionMapper sessionMapper = mock(PlatformEmbedSessionMapper.class);
+        chatEventService.setSessionMapper(sessionMapper);
+        when(sessionMapper.selectOne(any())).thenReturn(session);
+        when(chatEventMapper.insert(any())).thenAnswer(invocation -> {
+            PlatformEmbedChatEventEntity event = invocation.getArgument(0);
+            event.setId(1L);
+            return 1;
+        });
 
         ResponseEntity<StreamingResponseBody> response = controller.streamMessage(
                 "embed-1",
@@ -745,7 +816,7 @@ class PlatformEmbedPublicControllerTest {
             return map.get("control.sessionLookupMs") instanceof Number
                     && map.get("control.userMessageAuditMs") instanceof Number
                     && map.get("control.preRuntimeMs") instanceof Number;
-        }), eq(output));
+        }), eq(output), argThat(admission -> admission.epoch() == 1L), any(PlatformEmbedTurnLeaseService.class));
         verify(chatEventMapper).insert(argThat(event ->
                 "MESSAGE".equals(event.getEventType())
                         && "user".equals(event.getRole())
@@ -760,7 +831,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformEmbedStreamRelay embedStreamRelay = mock(PlatformEmbedStreamRelay.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -786,7 +857,8 @@ class PlatformEmbedPublicControllerTest {
         verify(embedStreamRelay).streamMessage(eq(session), argThat(body ->
                 "spv_1".equals(body.get("interactionId"))
                         && "EMBED_INTERACTION_RESUME".equals(body.get("intentHint"))
-                        && "EMBED".equals(body.get("entryType"))), eq(output));
+                        && "EMBED".equals(body.get("entryType"))), eq(output),
+                argThat(admission -> admission.epoch() == 0L), any(PlatformEmbedTurnLeaseService.class));
     }
 
     @Test
@@ -797,7 +869,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -845,7 +917,7 @@ class PlatformEmbedPublicControllerTest {
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
         var sessions = mock(PlatformEmbedSessionService.class);
         var events = mock(PlatformPageActionEventMapper.class);
-        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+        var controller = testController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), events);
@@ -876,7 +948,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -925,7 +997,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
@@ -939,11 +1011,18 @@ class PlatformEmbedPublicControllerTest {
         event.setActionKey("orders.enable");
         event.setParentRequestId("bridge-t1-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         event.setTargetPageKey("orders.list");
+        event.setTargetPageInstanceId("page-1");
         event.setStatus("REQUESTED");
         var catalog = mock(PageCatalogApplicationService.class);
         var action = mock(ActionView.class);
-        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
-                .thenReturn(java.util.Optional.of(action));
+        var page = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView.class);
+        when(action.id()).thenReturn(1L); when(action.pageId()).thenReturn(1L); when(page.id()).thenReturn(1L);
+        when(action.riskLevel()).thenReturn("READ");
+        when(action.sourceType()).thenReturn("MANUAL");
+        when(catalog.findPageForAction(1L)).thenReturn(java.util.Optional.of(page));
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, objectMapper));
+        when(catalog.findActiveActionAndPageForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(new PageCatalogApplicationService.LockedPageAction(page, action)));
         controller.setPageCatalog(catalog);
         when(pageActionEventMapper.selectOne(any())).thenReturn(event);
         when(pageActionEventMapper.update(any(), any())).thenReturn(1);
@@ -959,9 +1038,18 @@ class PlatformEmbedPublicControllerTest {
         assertEquals("EXECUTING", response.getBody().getData().status());
         assertEquals("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", response.getBody().getData().traceId());
 
+        // A buggy or stale producer cannot suppress confirmation for SDK-reported READ.
+        when(action.sourceType()).thenReturn("SDK");
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, objectMapper));
+        event.setConfirmRequired(false);
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
+        when(action.sourceType()).thenReturn("MANUAL");
+
         // A request dispatched with the current confirmation floor remains claimable.
         event.setConfirmRequired(true);
         when(action.confirmRequired()).thenReturn(true);
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, objectMapper));
         assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
                 new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
         event.setParentRequestId("bridge-00000000-0000-0000-0000-000000000000");
@@ -969,6 +1057,23 @@ class PlatformEmbedPublicControllerTest {
                 new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable"));
         assertEquals(HttpStatus.OK, legacy.getStatusCode());
         assertEquals(null, legacy.getBody().getData().traceId());
+
+        // A draft declaration is checked again after the confirmation wait.
+        var effects = mock(PageActionEffectReviewService.class);
+        var review = mock(PageActionEffectReviewService.ActiveApproval.class);
+        when(review.active()).thenReturn(true); when(review.effect()).thenReturn("PAGE_LOCAL_DRAFT");
+        when(review.approvalId()).thenReturn(7L); when(review.revision()).thenReturn(3L);
+        when(review.catalogHash()).thenReturn(event.getActionContractHash());
+        when(effects.resolveApprovedForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(review));
+        controller.setPageActionEffectReviews(effects);
+        event.setEffectApprovalId(7L); event.setEffectApprovalRevision(3L);
+        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
+        when(effects.resolveApprovedForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.empty());
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-claim", "Bearer " + token,
+                new PlatformEmbedPublicController.PageActionClaimRequest("req-claim", "orders.enable")).getStatusCode());
     }
 
     @Test
@@ -980,7 +1085,12 @@ class PlatformEmbedPublicControllerTest {
         var events = mock(PlatformPageActionEventMapper.class);
         var catalog = mock(PageCatalogApplicationService.class);
         var action = mock(ActionView.class);
-        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+        var page = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView.class);
+        when(action.id()).thenReturn(1L); when(action.pageId()).thenReturn(1L); when(page.id()).thenReturn(1L);
+        when(action.riskLevel()).thenReturn("READ");
+        when(action.sourceType()).thenReturn("MANUAL");
+        when(catalog.findPageForAction(1L)).thenReturn(java.util.Optional.of(page));
+        var controller = testController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), events);
@@ -990,9 +1100,11 @@ class PlatformEmbedPublicControllerTest {
         event.setId(42L); event.setSessionId("embed-1"); bindEvent(event);
         event.setRequestId("req-1"); event.setActionKey("orders.enable");
         event.setTargetPageKey("orders.list"); event.setStatus("REQUESTED");
+        event.setTargetPageInstanceId("page-1");
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, new ObjectMapper()));
         when(events.selectOne(any())).thenReturn(event);
-        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
-                .thenReturn(java.util.Optional.of(action));
+        when(catalog.findActiveActionAndPageForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(new PageCatalogApplicationService.LockedPageAction(page, action)));
         var auth = "Bearer " + embedToken(tokens);
         var claim = new PlatformEmbedPublicController.PageActionClaimRequest("req-1", "orders.enable");
 
@@ -1005,20 +1117,20 @@ class PlatformEmbedPublicControllerTest {
         when(action.allowedAgentIds()).thenReturn(List.of("different-agent"));
         assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-1", auth, claim).getStatusCode());
         // An inactive/missing action or page is returned as empty by the locked lookup.
-        when(catalog.findActiveActionForUpdate("bzjs12", "orders.list", "orders.enable"))
+        when(catalog.findActiveActionAndPageForUpdate("bzjs12", "orders.list", "orders.enable"))
                 .thenReturn(java.util.Optional.empty());
         assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "req-1", auth, claim).getStatusCode());
         verify(events, never()).update(any(), any());
     }
 
     @Test
-    void platformNavigationDoesNotRequireABusinessActionCatalogEntry() {
+    void legacyNavigationWithoutActionDeclarationCannotBeClaimed() {
         var properties = new PlatformEmbedTokenProperties();
         properties.setSecret("test-embed-token-secret");
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
         var sessions = mock(PlatformEmbedSessionService.class);
         var events = mock(PlatformPageActionEventMapper.class);
-        var controller = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+        var controller = testController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
                 mock(PlatformEmbedStreamRelay.class), events);
@@ -1029,9 +1141,55 @@ class PlatformEmbedPublicControllerTest {
         event.setActionKey(PlatformPageBridgeCommandService.NAVIGATE_ACTION); event.setStatus("REQUESTED");
         when(events.selectOne(any())).thenReturn(event);
         when(events.update(any(), any())).thenReturn(1);
-        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "nav-1", "Bearer " + embedToken(tokens),
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "nav-1", "Bearer " + embedToken(tokens),
                 new PlatformEmbedPublicController.PageActionClaimRequest("nav-1",
                         PlatformPageBridgeCommandService.NAVIGATE_ACTION)).getStatusCode());
+    }
+
+    @Test
+    void claimExpiresOnlyDocumentNavigationAndFailsClosedWithoutTimestamp() {
+        var properties = new PlatformEmbedTokenProperties();
+        properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        var sessions = mock(PlatformEmbedSessionService.class);
+        var events = mock(PlatformPageActionEventMapper.class);
+        var controller = testController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+                mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
+                mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
+                mock(PlatformEmbedStreamRelay.class), events);
+        when(sessions.requireActiveSession(eq("embed-1"), any())).thenReturn(activeSession());
+        var event = new PlatformPageActionEventEntity();
+        event.setId(42L); event.setSessionId("embed-1"); bindEvent(event);
+        event.setRequestId("nav-1"); event.setCommandType("NAVIGATE");
+        event.setActionKey(PlatformPageBridgeCommandService.NAVIGATE_ACTION); event.setStatus("REQUESTED");
+        event.setTargetPageKey("orders.list");
+        event.setTargetPageInstanceId("page-1");
+        event.setArgsJson("{\"documentNavigation\":true,\"resumeActionKey\":\"orders.enable\"}");
+        var catalog = mock(PageCatalogApplicationService.class);
+        var action = mock(ActionView.class);
+        var page = mock(com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView.class);
+        when(action.id()).thenReturn(1L); when(action.pageId()).thenReturn(1L); when(page.id()).thenReturn(1L);
+        when(action.riskLevel()).thenReturn("READ");
+        when(action.sourceType()).thenReturn("MANUAL");
+        when(catalog.findPageForAction(1L)).thenReturn(java.util.Optional.of(page));
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, new ObjectMapper()));
+        when(catalog.findActiveActionAndPageForUpdate("bzjs12", "orders.list", "orders.enable"))
+                .thenReturn(java.util.Optional.of(new PageCatalogApplicationService.LockedPageAction(page, action)));
+        controller.setPageCatalog(catalog);
+        when(events.selectOne(any())).thenReturn(event);
+        when(events.update(any(), any())).thenReturn(1);
+        String authorization = "Bearer " + embedToken(tokens);
+        var claim = new PlatformEmbedPublicController.PageActionClaimRequest("nav-1", PlatformPageBridgeCommandService.NAVIGATE_ACTION);
+        event.setRequestedAt(java.time.LocalDateTime.now().minusSeconds(121));
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "nav-1", authorization, claim).getStatusCode());
+        event.setRequestedAt(null);
+        assertEquals(HttpStatus.CONFLICT, controller.claimPageAction("embed-1", "nav-1", authorization, claim).getStatusCode());
+        verify(events, never()).update(any(), any());
+        event.setRequestedAt(java.time.LocalDateTime.now().minusSeconds(30));
+        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "nav-1", authorization, claim).getStatusCode());
+        event.setArgsJson("{\"resumeActionKey\":\"orders.enable\"}");
+        event.setRequestedAt(java.time.LocalDateTime.now().minusDays(1));
+        assertEquals(HttpStatus.OK, controller.claimPageAction("embed-1", "nav-1", authorization, claim).getStatusCode());
     }
 
     @Test
@@ -1042,7 +1200,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
@@ -1076,7 +1234,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),
@@ -1113,7 +1271,7 @@ class PlatformEmbedPublicControllerTest {
         // component has registered its Page Bridge. The target rebind remains
         // valid while the navigation event is already SUCCESS.
         navigation.setStatus("SUCCESS");
-        when(sessionService.requireActiveSessionForNavigationRebind(eq("embed-1"), any())).thenReturn(session);
+        org.mockito.Mockito.doReturn(session).when(sessionService).requireActiveSessionForNavigationRebind(eq("embed-1"), any());
         when(pageActionEventMapper.selectOne(any())).thenReturn(navigation);
         when(pageActionEventMapper.updateById(any(PlatformPageActionEventEntity.class))).thenReturn(1);
 
@@ -1147,7 +1305,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService, sessionService, mock(PlatformEmbedChatEventService.class),
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(com.enterprise.ai.control.runtime.RuntimeTrustedAgentExecutionGateway.class),
@@ -1173,7 +1331,7 @@ class PlatformEmbedPublicControllerTest {
         navigation.setTargetPageInstanceId("page-1");
         navigation.setTargetRoute("/team-build/cycle-management/audit/:depart/:cycle");
         navigation.setStatus("EXECUTING");
-        when(sessionService.requireActiveSessionForNavigationRebind(eq("embed-1"), any())).thenReturn(session);
+        org.mockito.Mockito.doReturn(session).when(sessionService).requireActiveSessionForNavigationRebind(eq("embed-1"), any());
         when(pageActionEventMapper.selectOne(any())).thenReturn(navigation);
         when(pageActionEventMapper.updateById(any(PlatformPageActionEventEntity.class))).thenReturn(1);
 
@@ -1194,7 +1352,7 @@ class PlatformEmbedPublicControllerTest {
         PlatformEmbedTokenService tokenService = new PlatformEmbedTokenService(objectMapper, tokenProperties);
         PlatformEmbedSessionService sessionService = mock(PlatformEmbedSessionService.class);
         PlatformPageActionEventMapper pageActionEventMapper = mock(PlatformPageActionEventMapper.class);
-        PlatformEmbedPublicController controller = new PlatformEmbedPublicController(
+        PlatformEmbedPublicController controller = testController(
                 tokenService,
                 sessionService,
                 mock(PlatformEmbedChatEventService.class),

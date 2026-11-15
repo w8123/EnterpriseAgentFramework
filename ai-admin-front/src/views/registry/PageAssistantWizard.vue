@@ -5,7 +5,6 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Check,
   Connection,
-  CopyDocument,
   Document,
   MagicStick,
   Plus,
@@ -60,17 +59,14 @@ import type {
   PublishedPageWorkflow,
   WorkflowEngineeringDraftResult,
 } from '@/types/pageWorkbench'
-import {
-  aiCodingExecutionIsTerminal,
-  aiCodingProviderLabel,
-} from '@/utils/aiCodingPresentation'
+import { aiCodingProviderLabel } from '@/utils/aiCodingPresentation'
 import {
   buildPageImplementationGoalSelection,
   pageImplementationObjective,
   readPageImplementationGoalSelection,
 } from '@/utils/aiCodingGoalSelection'
-import { copyAiCodingText } from '@/utils/aiCodingClipboard'
 import { normalizeBusinessPageUrl } from '@/utils/businessPageUrl'
+import { getPageActiveTasks, getPageImplementationTask } from '@/utils/pageWorkbenchGoals'
 import {
   pageWorkbenchHumanText,
   pageWorkbenchPageName,
@@ -96,7 +92,6 @@ const scanSubmitting = ref(false)
 const taskSubmitting = ref(false)
 const taskDetailLoading = ref(false)
 const implementationTaskDetailLoading = ref(false)
-const handoffCopied = ref(false)
 const handoffPackage = ref<AiCodingHandoffPackage | null>(null)
 const selectedFinding = ref<PageAnalysisFinding | null>(null)
 const manualPage = ref<ProjectPage | null>(null)
@@ -104,6 +99,7 @@ const readinessPage = ref<ProjectPage | null>(null)
 const readinessResult = ref<PageIntegrationReadiness | null>(null)
 const readinessLoading = ref(false)
 const journeyBusy = ref(false)
+const retargetConfirming = ref(false)
 const analysisRecommendationVisible = ref(false)
 const pageInfoVisible = ref(false)
 const detailCapabilityWorkspace = ref<PageDetailCapabilityWorkspace>('goals')
@@ -160,20 +156,27 @@ const selectedPageFindings = computed(
 )
 
 const selectedPageTask = computed(
-  () => {
-    const activeTask = tasks.value.find((item) => item.taskId === selectedJourney.value?.activeTaskId)
-    if (activeTask?.taskKind === 'CODE_IMPLEMENTATION') return activeTask
-
-    return tasks.value
-      .filter((item) => (
-        item.taskKind === 'CODE_IMPLEMENTATION'
-        && taskPageKey(item) === selectedPage.value?.pageKey
-      ))
-      .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
-      || activeTask
-      || null
-  },
+  () => tasks.value.find((item) => item.taskId === selectedJourney.value?.activeTaskId)
+    || (selectedTaskDetail.value?.task.taskId === selectedJourney.value?.activeTaskId
+      ? selectedTaskDetail.value?.task
+      : null)
+    || null,
 )
+
+const availableGoalTasks = computed(() => selectedPageTask.value
+  && !tasks.value.some((task) => task.taskId === selectedPageTask.value?.taskId)
+  ? [...tasks.value, selectedPageTask.value]
+  : tasks.value)
+
+const selectedPageImplementationTask = computed(() => selectedPage.value
+  ? getPageImplementationTask(availableGoalTasks.value, selectedPage.value.pageKey)
+  : null)
+
+const selectedPageTasksLoadError = computed(() => tasksLoadError.value || (
+  selectedJourney.value?.activeTaskId && !selectedPageTask.value && !tasksLoading.value
+    ? '当前活动记录不完整，请刷新后再调整接入目标'
+    : ''
+))
 
 const selectedPageTaskDetail = computed(() => (
   selectedTaskDetail.value?.task.taskId === selectedJourney.value?.activeTaskId
@@ -497,9 +500,11 @@ async function syncImplementationGoalStatuses(
 }
 
 async function createJourneyActivity(command: PageAiCodingTaskCommand) {
+  const originProjectCode = projectCode.value
   journeyBusy.value = true
   try {
     const result = await createTask(command)
+    if (originProjectCode !== projectCode.value) return
     if (result.handoff) {
       showTaskHandoff(result.handoff)
     } else {
@@ -525,7 +530,7 @@ async function createAcceptanceActivity(
         '开始真实业务验收',
         {
           type: 'warning',
-          confirmButtonText: '确认并生成验收交接包',
+          confirmButtonText: '确认并生成领取码',
           cancelButtonText: '取消',
         },
       )
@@ -706,27 +711,21 @@ async function handleImplementationRetarget(
   _journey: PageAccessJourney,
   draft: PageImplementationGoalDraft,
 ) {
-  const currentTask = tasks.value
-    .filter((item) => (
-      item.taskKind === 'CODE_IMPLEMENTATION'
-      && taskPageKey(item) === page.pageKey
-    ))
-    .sort((left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt))[0]
-  if (!currentTask) {
-    ElMessage.error('当前 AI 实施活动不可用，请刷新页面状态后重试')
-    return
-  }
+  if (journeyBusy.value || retargetConfirming.value || tasksLoading.value || selectedPageTasksLoadError.value || _journey.status === 'UNAVAILABLE') return
+  const originProjectCode = projectCode.value
+  const currentTask = getPageImplementationTask(availableGoalTasks.value, page.pageKey)
+  const activeTasks = getPageActiveTasks(availableGoalTasks.value, page.pageKey)
   const goalSelection = implementationGoalSelection(page, draft)
   if (!goalSelection.items.length) {
     ElMessage.warning('请至少保留一个接入目标')
     return
   }
-  const currentTaskActive = !aiCodingExecutionIsTerminal(currentTask.executionStatus)
+  retargetConfirming.value = true
   try {
     await ElMessageBox.confirm(
-      currentTaskActive
-        ? `将取消当前 AI 实施活动，并按调整后的 ${goalSelection.items.length} 个目标创建新活动。原活动和目标快照会继续保留。`
-        : `将按调整后的 ${goalSelection.items.length} 个目标创建新的 AI 实施活动。原活动和目标快照会继续保留。`,
+      `${activeTasks.length
+        ? `将取消当前页面仍在进行的 ${activeTasks.length} 个活动（${activeTasks.map((task) => task.title).join('、')}），再`
+        : '将'}按调整后的 ${goalSelection.items.length} 个目标创建新的代码实施活动。原活动记录继续保留；已发布版本需重新发布和验收后才会更新。`,
       '确认调整接入目标',
       {
         type: 'warning',
@@ -736,19 +735,37 @@ async function handleImplementationRetarget(
     )
   } catch {
     return
+  } finally {
+    retargetConfirming.value = false
   }
+
+  if (originProjectCode !== projectCode.value || selectedPageId.value !== page.id) return
 
   journeyBusy.value = true
   try {
-    if (currentTaskActive) await cancelTask(currentTask.taskId)
+    await refreshTasks()
+    if (originProjectCode !== projectCode.value || selectedPageId.value !== page.id) return
+    if (selectedPageTasksLoadError.value) throw new Error(selectedPageTasksLoadError.value)
+    const latestActiveTasks = getPageActiveTasks(availableGoalTasks.value, page.pageKey)
+    if (getPageImplementationTask(availableGoalTasks.value, page.pageKey)?.taskId !== currentTask?.taskId
+      || latestActiveTasks.some((task) => !activeTasks.some((previous) => previous.taskId === task.taskId))) {
+      ElMessage.warning('当前页面活动已变化，请重新确认接入目标')
+      return
+    }
+    for (const task of latestActiveTasks) {
+      if (originProjectCode !== projectCode.value || selectedPageId.value !== page.id) return
+      await cancelTask(task.taskId)
+    }
+    if (originProjectCode !== projectCode.value || selectedPageId.value !== page.id) return
     const result = await createTask({
       page,
       taskKind: 'CODE_IMPLEMENTATION',
-      executorProvider: currentTask.executorProvider,
+      executorProvider: currentTask?.executorProvider || 'CODEX',
       title: `重新接入：${pageWorkbenchPageName(page)}`,
       objective: pageImplementationObjective(goalSelection),
       goalSelection,
     })
+    if (originProjectCode !== projectCode.value || selectedPageId.value !== page.id) return
     if (result.handoff) {
       showTaskHandoff(result.handoff)
     } else {
@@ -964,7 +981,6 @@ async function confirmWorkflowDelivery(
 
 function setTaskHandoff(handoff: AiCodingHandoffPackage) {
   handoffPackage.value = handoff
-  handoffCopied.value = false
 }
 
 function showTaskHandoff(handoff: AiCodingHandoffPackage) {
@@ -978,6 +994,7 @@ async function submitPageMapScan() {
     return
   }
 
+  const originProjectCode = projectCode.value
   scanSubmitting.value = true
   try {
     const result = await createTask({
@@ -987,6 +1004,7 @@ async function submitPageMapScan() {
       title: scanTaskForm.title.trim() || '扫描项目并建立页面地图',
       objective: scanTaskForm.objective.trim(),
     })
+    if (originProjectCode !== projectCode.value) return
     if (result.handoff) {
       setTaskHandoff(result.handoff)
       sourceDialogStage.value = 'HANDOFF'
@@ -1014,6 +1032,7 @@ async function submitTask() {
     return
   }
 
+  const originProjectCode = projectCode.value
   taskSubmitting.value = true
   try {
     const result = await createTask({
@@ -1028,6 +1047,7 @@ async function submitTask() {
           ? taskForm.workflow
           : null,
     })
+    if (originProjectCode !== projectCode.value) return
     if (result.handoff) {
       setTaskHandoff(result.handoff)
       taskDialogStage.value = 'HANDOFF'
@@ -1043,29 +1063,15 @@ async function submitTask() {
   }
 }
 
-async function copyHandoffPrompt() {
-  const prompt = handoffPackage.value?.prompt
-  if (!prompt) {
-    ElMessage.error('当前任务没有可复制的交接包，请重新生成')
-    return
-  }
-  const copied = await copyAiCodingText(prompt)
-  if (copied.copied) {
-    handoffCopied.value = true
-    ElMessage.success('交接包已复制，等待 AI 编程工具激活当前任务')
-    return
-  }
-  handoffCopied.value = false
-  ElMessage.warning('无法自动复制，交接包仍保留在文本框中，请手动选择全部内容后复制。')
-}
-
 async function reopenTaskHandoff(taskId: string) {
+  const originProjectCode = projectCode.value
   try {
     const result = await loadHandoffPrompt(taskId)
+    if (originProjectCode !== projectCode.value) return
     taskDrawerVisible.value = false
     showTaskHandoff(result)
   } catch (error) {
-    ElMessage.error((error as Error).message || '加载任务交接包失败')
+    ElMessage.error((error as Error).message || '生成任务领取码失败')
   }
 }
 
@@ -1200,6 +1206,9 @@ async function refreshWorkbenchStatus() {
       : pages.value.find((page) => page.id === detailPageId.value) || null
     if (currentDetailPage) {
       selectedPageId.value = currentDetailPage.id
+      if (selectedJourney.value?.activeTaskId && !selectedPageTask.value) {
+        await loadImplementationTaskDetail(selectedJourney.value.activeTaskId)
+      }
       await loadPageReadiness(currentDetailPage)
     }
     ElMessage.success('已刷新当前项目的真实状态')
@@ -1249,7 +1258,13 @@ function jsonText(value: unknown) {
   return JSON.stringify(value, null, 2)
 }
 
-watch(projectCode, loadAll, { immediate: true })
+watch(projectCode, () => {
+  handoffPackage.value = null
+  handoffDialogVisible.value = false
+  taskDialogVisible.value = false
+  sourceDialogVisible.value = false
+  void loadAll()
+}, { immediate: true })
 </script>
 
 <template>
@@ -1293,9 +1308,12 @@ watch(projectCode, loadAll, { immediate: true })
         :journey="selectedJourney"
         :findings="selectedPageFindings"
         :task="selectedPageTask"
+        :implementation-task="selectedPageImplementationTask"
         :task-detail="selectedPageTaskDetail"
         :task-detail-loading="implementationTaskDetailLoading"
         :tasks="selectedPageTasks"
+        :tasks-loading="tasksLoading"
+        :tasks-load-error="selectedPageTasksLoadError"
         :workflow="selectedPageWorkflow"
         :readiness="selectedPageReadiness"
         :readiness-loading="readinessLoading"
@@ -1304,7 +1322,7 @@ watch(projectCode, loadAll, { immediate: true })
         :business-page-url="selectedBusinessPageUrl"
         :runtime-available="accessCenter.runtimeAvailable"
         :runtime-message="accessCenter.runtimeMessage"
-        :busy="journeyBusy || taskDetailLoading || implementationTaskDetailLoading"
+        :busy="journeyBusy || retargetConfirming || taskDetailLoading || implementationTaskDetailLoading"
         @back="closePageDetail"
         @edit-page="editPageFromDetail"
         @page-info="openPageInformation"
@@ -1396,7 +1414,7 @@ watch(projectCode, loadAll, { immediate: true })
       :title="sourceDialogStage === 'FORM' ? '扫描 / 添加页面' : '交给 AI 编程工具'"
       width="min(820px, calc(100vw - 32px))"
       class="page-workbench-dialog page-source-dialog"
-      :close-on-click-modal="sourceDialogStage === 'FORM' || handoffCopied"
+      :close-on-click-modal="sourceDialogStage === 'FORM'"
       destroy-on-close
     >
       <section
@@ -1405,24 +1423,17 @@ watch(projectCode, loadAll, { immediate: true })
       >
         <AiCodingHandoffPanel :handoff="handoffPackage" />
         <footer class="page-source-pane__footer">
-          <p>交接包仅能激活一次；稍后可从任务详情重新生成。</p>
+          <p>领取码仅能使用一次；稍后可从任务详情重新生成。</p>
           <div class="page-source-pane__actions">
             <el-button @click="sourceDialogVisible = false">
-              {{ handoffCopied ? '完成' : '稍后处理' }}
+              稍后处理
             </el-button>
             <AiHandoffButton
               scenario="page-workbench"
               type="primary"
-              label="交给我的 AI（推荐）"
+              label="交给我的 AI"
               :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
             />
-            <el-button
-              :icon="handoffCopied ? Check : CopyDocument"
-              :disabled="handoffCopied"
-              @click="copyHandoffPrompt"
-            >
-              {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
-            </el-button>
           </div>
         </footer>
       </section>
@@ -1484,7 +1495,7 @@ watch(projectCode, loadAll, { immediate: true })
                     进度、审批和独立校验后的证据会回到当前任务。
                   </template>
                   <template v-else>
-                    创建后复制一次性交接包到
+                    创建后通过平台 AI 连接将任务交给
                     {{ aiCodingProviderLabel(scanTaskForm.provider) }}。
                     会话激活后，进度、问题和结果会回到当前任务。
                   </template>
@@ -1503,7 +1514,7 @@ watch(projectCode, loadAll, { immediate: true })
                 >
                   {{ scanTaskForm.executionMode === 'MANAGED_SANDBOX'
                     ? '创建并启动隔离执行'
-                    : '创建并生成交接包' }}
+                    : '创建并生成领取码' }}
                 </el-button>
               </div>
             </footer>
@@ -1535,7 +1546,7 @@ watch(projectCode, loadAll, { immediate: true })
       :title="taskDialogStage === 'FORM' ? '新建 AI 编程任务' : '交给 AI 编程工具'"
       width="760px"
       class="page-workbench-dialog task-editor-dialog"
-      :close-on-click-modal="taskDialogStage === 'FORM' || handoffCopied"
+      :close-on-click-modal="taskDialogStage === 'FORM'"
     >
       <AiCodingHandoffPanel
         v-if="taskDialogStage === 'HANDOFF'"
@@ -1649,7 +1660,7 @@ watch(projectCode, loadAll, { immediate: true })
               命令审批、补丁、测试报告与证据清单会回到当前任务。
             </template>
             <template v-else>
-              创建后复制一次性交接包到
+              创建后通过平台 AI 连接将任务交给
               {{ aiCodingProviderLabel(taskForm.provider) }}。
               会话激活后，进度、问题、结果和验收材料会通过当前任务接口回到 ReachAI。
             </template>
@@ -1662,26 +1673,19 @@ watch(projectCode, loadAll, { immediate: true })
           <LiquidGlassButton type="primary" :loading="taskSubmitting" @click="submitTask">
             {{ taskForm.executionMode === 'MANAGED_SANDBOX'
               ? '创建并启动隔离执行'
-              : '创建并生成交接包' }}
+              : '创建并生成领取码' }}
           </LiquidGlassButton>
         </template>
         <template v-else>
           <LiquidGlassButton @click="taskDialogVisible = false">
-            {{ handoffCopied ? '完成' : '稍后处理' }}
+            稍后处理
           </LiquidGlassButton>
           <AiHandoffButton
             scenario="page-workbench"
             type="primary"
-            label="交给我的 AI（推荐）"
+            label="交给我的 AI"
             :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
           />
-          <LiquidGlassButton
-            :icon="handoffCopied ? Check : CopyDocument"
-            :disabled="handoffCopied"
-            @click="copyHandoffPrompt"
-          >
-            {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
-          </LiquidGlassButton>
         </template>
       </template>
     </AppDialog>
@@ -1691,26 +1695,19 @@ watch(projectCode, loadAll, { immediate: true })
       title="交给 AI 编程工具"
       width="760px"
       class="page-workbench-dialog handoff-dialog"
-      :close-on-click-modal="handoffCopied"
+      :close-on-click-modal="false"
     >
       <AiCodingHandoffPanel :handoff="handoffPackage" />
       <template #footer>
         <LiquidGlassButton @click="handoffDialogVisible = false">
-          {{ handoffCopied ? '完成' : '稍后处理' }}
+          稍后处理
         </LiquidGlassButton>
         <AiHandoffButton
           scenario="page-workbench"
           type="primary"
-          label="交给我的 AI（推荐）"
+          label="交给我的 AI"
           :context="{ projectCode, taskId: handoffPackage?.taskId, claimCode: handoffPackage?.activationCode }"
         />
-        <LiquidGlassButton
-          :icon="handoffCopied ? Check : CopyDocument"
-          :disabled="handoffCopied"
-          @click="copyHandoffPrompt"
-        >
-          {{ handoffCopied ? '已复制，等待对接' : '备用：复制交接包' }}
-        </LiquidGlassButton>
       </template>
     </AppDialog>
 

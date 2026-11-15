@@ -16,13 +16,13 @@ public record McpPublication(
         LocalDateTime createdAt,
         LocalDateTime updatedAt) {
 
-    private static final Pattern NAME_PATTERN = Pattern.compile("[A-Za-z][A-Za-z0-9_-]{1,127}");
+    private static final Pattern NAME_PATTERN = Pattern.compile("[\\p{L}][\\p{L}\\p{N}_ ()（）-]{1,127}");
 
     public McpPublication {
         name = McpDomainText.requireText(name, "name");
         if (!NAME_PATTERN.matcher(name).matches()) {
             throw new McpDomainException("MCP_PUBLICATION_NAME_INVALID",
-                    "name must use 2-128 letters, digits, underscores, or hyphens and start with a letter");
+                    "名称要 2 到 128 个字，以文字开头，可以用中文、字母、数字、空格、下划线、连字符和括号");
         }
         description = McpDomainText.optionalText(description);
         if (state == null) {

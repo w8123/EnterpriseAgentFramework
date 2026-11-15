@@ -25,6 +25,17 @@ describe('business-system one-click login', () => {
     expect(() => parseHeaderLines('no colon')).toThrow()
   })
 
+  it('offers account-and-password verification for systems that only have a login API', () => {
+    const values = businessSsoPresets.password.fill('https://mall.example.com/')
+    expect(values.mode).toBe('PASSWORD')
+    expect(values.tokenUrl).toBe('https://mall.example.com/login')
+    expect(values.loginBody).toContain('{{username}}')
+    expect(values.loginBody).toContain('{{password}}')
+    const login = readFileSync(resolve(process.cwd(), 'src/views/Login.vue'), 'utf8')
+    expect(login).toContain("item.mode === 'PASSWORD'")
+    expect(login).toContain('businessPasswordLogin(')
+  })
+
   it('starts the sign-in through a full-page navigation to Control', () => {
     expect(businessLoginStartUrl('yudao')).toBe('/api/platform/auth/sso/yudao/start')
     const login = readFileSync(resolve(process.cwd(), 'src/views/Login.vue'), 'utf8')

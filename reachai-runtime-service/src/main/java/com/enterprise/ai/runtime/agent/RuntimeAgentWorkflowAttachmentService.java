@@ -23,7 +23,7 @@ import static com.enterprise.ai.common.util.Texts.firstText;
 public class RuntimeAgentWorkflowAttachmentService {
     private static final Pattern UNSAFE_KEY_CHARS = Pattern.compile("[^A-Za-z0-9_-]+");
     private static final String DEFAULT_PAGE_COPILOT_DESCRIPTION =
-            "项目页面副驾驶 Agent，用于嵌入式对话、页面理解和 Workflow 路由。";
+            "这个系统的 AI 助手，帮员工查询和办理系统里的业务。";
     private static final String DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT =
             "你是当前项目的页面副驾驶 Supervisor。理解用户请求并制定计划，"
                     + "从允许的 Workflow 中选择一个或多个作为 Tool 执行。"
@@ -118,7 +118,7 @@ public class RuntimeAgentWorkflowAttachmentService {
         entity.setProjectId(project.projectId());
         entity.setProjectCode(project.projectCode());
         entity.setKeySlug(keySlug);
-        entity.setName(project.projectCode() + " 页面副驾驶 Agent");
+        entity.setName(project.projectCode() + " 助手");
         entity.setDescription(DEFAULT_PAGE_COPILOT_DESCRIPTION);
         entity.setVisibility(firstText(stringValue(project.visibility()), "PROJECT"));
         entity.setEnabled(true);

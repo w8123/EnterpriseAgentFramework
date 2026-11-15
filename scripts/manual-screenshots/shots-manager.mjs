@@ -82,9 +82,9 @@ export const managerShots = [
   }),
   {
     name: 'manager-skill-publish',
-    title: '平台管理员评审并发布 Skill',
+    title: '评审并发布 Skill',
     async run({ page, context, env }) {
-      await openAs(page, context, env, '/skills', 'admin')
+      await openAs(page, context, env, '/skills')
       await page.getByText('在芋道 ERP 中查询产品库存').first().click()
       await settle(page, 2000)
       await mark(page.getByText('治理', { exact: true }).last(), '评审通过 → 发布')

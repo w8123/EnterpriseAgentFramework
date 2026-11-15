@@ -149,6 +149,49 @@ class AiCodingTaskDeliveryPersistenceTest {
                 jdbc.queryForList("SELECT event_type FROM control_ai_coding_task_event ORDER BY id", String.class));
     }
 
+    @Test
+    void appliedBrowserReportCanSelectTraceWithoutChangingTheEvidence() throws Exception {
+        when(provider.allowsAcceptanceTraceSelection()).thenReturn(true);
+        when(provider.applyArtifact(any(), any())).thenReturn(new ArtifactApplyResult(
+                true, "Applied", ArtifactNextAction.STAY_APPLIED,
+                json.createObjectNode().put("recordId", "domain-1")));
+        delivery.submitArtifact("task-1", envelope("event-1", "result-1", "{\"summary\":\"verified\",\"traceId\":null}"));
+
+        assertThrows(IllegalStateException.class, () -> delivery.submitArtifact("task-1",
+                envelope("event-2", "result-2", "{\"summary\":\"different\",\"traceId\":\"trace-1\"}")));
+        assertEquals("RESULT_APPLIED", tasks.selectById("task-1").getExecutionStatus());
+        var revised = delivery.submitArtifact("task-1", envelope("event-3", "result-3",
+                "{\"summary\":\"verified\",\"traceId\":\"trace-1\"}"));
+        assertEquals("RESULT_APPLIED", revised.task().getExecutionStatus());
+        assertEquals("trace-1", json.readTree(revised.artifact().getContentJson()).path("traceId").asText());
+        assertEquals(2L, artifacts.selectCount(null));
+        verify(provider, times(2)).applyArtifact(any(), any());
+    }
+
+    @Test
+    void appliedNonBrowserReportCannotBeRevisedEvenToSelectTrace() throws Exception {
+        delivery.submitArtifact("task-1", envelope("event-1", "result-1", "{\"summary\":\"verified\"}"));
+        assertThrows(IllegalStateException.class, () -> delivery.submitArtifact("task-1",
+                envelope("event-2", "result-2", "{\"summary\":\"verified\",\"traceId\":\"trace-1\"}")));
+        assertEquals("RESULT_APPLIED", tasks.selectById("task-1").getExecutionStatus());
+        assertEquals(1L, artifacts.selectCount(null));
+    }
+
+    @Test
+    void rejectedTraceRevisionKeepsOriginalReportApplied() throws Exception {
+        when(provider.allowsAcceptanceTraceSelection()).thenReturn(true);
+        when(provider.applyArtifact(any(), any()))
+                .thenReturn(new ArtifactApplyResult(true, "Applied", ArtifactNextAction.STAY_APPLIED,
+                        json.createObjectNode().put("recordId", "domain-1")))
+                .thenReturn(ArtifactApplyResult.rejected("invalid trace"));
+        delivery.submitArtifact("task-1", envelope("event-1", "result-1", "{\"summary\":\"verified\"}"));
+        var rejected = delivery.submitArtifact("task-1", envelope("event-2", "result-2",
+                "{\"summary\":\"verified\",\"traceId\":\"trace-1\"}"));
+        assertEquals("REJECTED", rejected.artifact().getProcessingStatus());
+        assertEquals("RESULT_APPLIED", tasks.selectById("task-1").getExecutionStatus());
+        assertEquals("domain-1", delivery.latestAppliedApplicationResult("task-1").path("recordId").asText());
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void rejectedOrThrowingProviderRollsBackOnlyItsDomainWrites(boolean throwsFailure) throws Exception {

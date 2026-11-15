@@ -14,6 +14,16 @@ class McpPublicationTest {
     private static final LocalDateTime T2 = T1.plusMinutes(1);
 
     @Test
+    void namesMayBeChineseButStartWithText() {
+        assertEquals("订单系统 员工工具", McpPublication.draft("订单系统 员工工具", null).name());
+        assertEquals("erp-tools", McpPublication.draft("erp-tools", null).name());
+        assertEquals("MCP_PUBLICATION_NAME_INVALID", assertThrows(McpDomainException.class,
+                () -> McpPublication.draft("1号工具", null)).code());
+        assertEquals("MCP_PUBLICATION_NAME_INVALID", assertThrows(McpDomainException.class,
+                () -> McpPublication.draft("工具/删除", null)).code());
+    }
+
+    @Test
     void publicationRequiresValidationAndReadyBeforePublishing() {
         McpPublication draft = publication(McpPublicationStatus.DRAFT, null);
 

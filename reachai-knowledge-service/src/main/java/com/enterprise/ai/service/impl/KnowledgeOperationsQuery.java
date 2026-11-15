@@ -23,6 +23,12 @@ public class KnowledgeOperationsQuery {
 
     @Value("${rag.score-threshold:0.5}")
     private float defaultScoreThreshold;
+    private com.enterprise.ai.external.ExternalKnowledgeService external;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setExternalKnowledgeService(com.enterprise.ai.external.ExternalKnowledgeService external) {
+        this.external = external;
+    }
 
     public List<KnowledgeBaseVO> listAll() {
         List<KnowledgeBase> list = knowledgeBaseRepository.selectList(null);
@@ -36,6 +42,15 @@ public class KnowledgeOperationsQuery {
                     new LambdaQueryWrapper<Chunk>().eq(Chunk::getKnowledgeBaseId, kb.getId()));
             vo.setChunkCount(chunkCount != null ? chunkCount.intValue() : 0);
             vo.setHitCount(sumHitCount(kb.getId()));
+            vo.setSourceType(com.enterprise.ai.domain.KnowledgeBaseSettings.isExternal(kb)
+                    ? com.enterprise.ai.domain.KnowledgeBaseSettings.SOURCE_EXTERNAL : com.enterprise.ai.domain.KnowledgeBaseSettings.SOURCE_LOCAL);
+            if (external != null && com.enterprise.ai.domain.KnowledgeBaseSettings.isExternal(kb)) {
+                try {
+                    vo.setExternal(external.view(kb));
+                } catch (RuntimeException broken) {
+                    vo.setExternal(null);
+                }
+            }
             return vo;
         }).collect(Collectors.toList());
     }
@@ -124,7 +139,8 @@ public class KnowledgeOperationsQuery {
                     .score(log.getScore())
                     .source(log.getSource())
                     .fileId(chunk != null ? chunk.getFileId() : null)
-                    .fileName(chunk != null ? fileNameMap.get(chunk.getFileId()) : null)
+                    .fileName(chunk != null ? fileNameMap.get(chunk.getFileId())
+                            : "external".equals(log.getSearchMode()) && log.getScore() != null && log.getScore() > 0 ? "外部知识库" : null)
                     .chunkIndex(chunk != null ? chunk.getChunkIndex() : null)
                     .userId(log.getUserId())
                     .traceId(log.getTraceId())

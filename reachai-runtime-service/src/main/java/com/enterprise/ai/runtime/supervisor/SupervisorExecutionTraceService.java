@@ -321,6 +321,41 @@ public class SupervisorExecutionTraceService implements RuntimeInteractionExpiry
     }
 
     /** Persists only sanitized Managed Executor references; objective and Artifact bodies stay out of Trace. */
+    /**
+     * One call of the project capability toolbox. Records which capability and which argument names,
+     * never argument values or business rows: the governed call keeps its own audited run, linked here.
+     */
+    public void capability(
+            TraceHandle trace,
+            RuntimeAgentView agent,
+            RuntimeAgentConfigSnapshot config,
+            Map<String, Object> input,
+            String toolName,
+            Map<String, Object> safeInput,
+            Map<String, Object> outcome,
+            boolean success,
+            String code,
+            long elapsedMs) {
+        LocalDateTime endedAt = LocalDateTime.now();
+        ChildSpan.ChildSpanBuilder span = baseSpan(trace, id(16), trace.rootSpanId(),
+                "PROJECT_CAPABILITY", agent, config, input);
+        span.toolName(toolName);
+        span.status(success ? "SUCCESS" : "FAILED");
+        span.inputSummary(limit(json(safeInput == null ? Map.of() : safeInput), 4000));
+        span.outputSummary(limit(json(outcome == null ? Map.of() : outcome), 4000));
+        Map<String, Object> metadata = new LinkedHashMap<>(outcome == null ? Map.of() : outcome);
+        metadata.put("sourceType", "PROJECT_CAPABILITY");
+        metadata.put("argumentsPersistedInTrace", false);
+        span.metadataJson(json(metadata));
+        span.errorCode(success ? null : code);
+        span.errorMessage(success ? null : limit(code, 2000));
+        span.latencyMs(toInt(elapsedMs));
+        span.startedAt(endedAt.minus(elapsedMs, ChronoUnit.MILLIS));
+        span.endedAt(endedAt);
+        span.createdAt(endedAt);
+        safe(() -> evidence.appendChild(span.build()), "insert project capability span");
+    }
+
     public void managedExecutor(
             TraceHandle trace,
             RuntimeAgentView agent,

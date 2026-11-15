@@ -3,13 +3,35 @@ import vue from '@vitejs/plugin-vue'
 import { resolve } from 'path'
 import { embedChatDevMiddleware } from './scripts/embed-chat-dev-middleware.mjs'
 import { forwardDevOrigin } from './scripts/forward-dev-origin.mjs'
+import { browserBundleVersion } from './scripts/embed-chat-browser-bundle.mjs'
 
-export default defineConfig({
+const sdkDir = resolve(__dirname, 'dist-sdk/embed-chat')
+let sdkVersion = ''
+try { sdkVersion = browserBundleVersion(sdkDir) } catch { /* dev server can start before SDK is built */ }
+
+export default defineConfig(({ command }) => {
+  if (command === 'build' && !sdkVersion) {
+    throw new Error('Embed SDK is not built; run npm run build:sdk before building the admin frontend')
+  }
+  return {
   define: {
     __REACHAI_EMBED_SDK__: false,
+    // Development SDK output can be rebuilt while Vite keeps running.
+    __REACHAI_EMBED_BROWSER_VERSION__: JSON.stringify(command === 'build' ? sdkVersion : ''),
   },
   plugins: [
     vue(),
+    {
+      name: 'reachai-embed-chat-bundle-manifest',
+      apply: 'build',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'sdk/embed-chat/manifest.json',
+          source: JSON.stringify({ version: sdkVersion }) + '\n',
+        })
+      },
+    },
     {
       name: 'reachai-embed-chat-dev-assets',
       apply: 'serve',
@@ -84,4 +106,5 @@ export default defineConfig({
       },
     },
   },
+  }
 })

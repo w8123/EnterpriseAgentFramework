@@ -1,4 +1,4 @@
-# C#、Python、Node.js、Go 接入
+# C#、Python、Node.js、Go、PHP 接入
 
 > 适合：业务系统不是 Java 的开发者。读完你会知道你的语言用哪个 SDK、怎么声明业务方法、要自己实现哪两个函数。
 
@@ -6,7 +6,7 @@
 
 和 Java 一样：业务系统启动后注册到 ReachAI，你显式登记的业务方法出现在「业务能力」里，AI 以员工身份调用它们。
 
-四种 SDK 遵循同一份 [SDK 接入协议](../contracts/sdk-protocol.md)，概念完全一样，只是写法随语言变化。
+五种 SDK 遵循同一份 [SDK 接入协议](../contracts/sdk-protocol.md)，概念完全一样，只是写法随语言变化。
 
 ## 选哪个 SDK
 
@@ -16,8 +16,9 @@
 | Python / FastAPI | `reachai-fastapi`（wheel） | Python 3.10–3.13，FastAPI 0.115+ | [Python SDK](../../reachai-python/README.md) |
 | Node.js / Express | `@reachai/node-sdk`（npm 包） | Node.js 20+，Express 4.18–5.x | [Node.js SDK](../../reachai-node/README.md) |
 | Go / net/http | `reachai-go`（源码包） | Go 1.22+ | [Go SDK](../../reachai-go/README.md) |
+| PHP / 原生、Laravel、ThinkPHP | `reachai/php-sdk`（Composer 制品包） | PHP 7.4–8.4 | [PHP SDK](../../reachai-php/README.md) |
 
-> 这四个 SDK 都还没有发布到公共仓库，安装包在项目接入工作台下载，下载后先核对页面给出的 SHA-256。它们有完整的协议测试，但**还没有在真实业务系统上验收过**，第一次接入时请预留联调时间。
+> 这些 SDK 都还没有发布到公共仓库，安装包在项目接入工作台下载，下载后先核对页面给出的 SHA-256。它们有完整的协议测试，但**还没有连真实 ReachAI 在生产业务系统上验收过**（PHP SDK 已在 ThinkPHP 8、Laravel 13 和原生 PHP 上用模拟平台跑通全流程），第一次接入时请预留联调时间。
 
 其他框架（比如 Django、Koa、Gin）暂时没有官方适配。可以先用 [OpenAPI 导入](openapi-import.md) 接入 HTTP 接口。
 
@@ -78,6 +79,17 @@ sdk.RegisterCapability(reachai.Capability{
 })
 ```
 
+PHP：
+
+```php
+$reach->capability('order.query', [$orders, 'find'], [
+    'title' => '查询订单', 'sideEffect' => 'READ', 'businessIdentityRequired' => true,
+    'parameters' => ['orderId' => ['type' => 'string']],
+    'returns' => ['type' => 'object', 'properties' => [
+        'id' => ['type' => 'string', 'required' => true], 'status' => ['type' => 'string', 'required' => true]]],
+]);
+```
+
 `sideEffect` 和 `businessIdentityRequired` 的含义和 Java 相同，见 [Java 接入](java-starter.md#第-3-步声明业务方法)。
 
 输入输出只支持明确的结构：标量、数组、有固定字段的对象。动态字典、递归对象、任意联合类型不支持。
@@ -97,6 +109,7 @@ sdk.RegisterCapability(reachai.Capability{
 - Python：`reach.mount(app)`
 - Node.js：`app.use(createReachRouter(reach))`，监听后调用 `reach.start()`
 - Go：`mux.Handle("/reachai/", sdk.Handler())`
+- PHP：Laravel / ThinkPHP 自动注册路由；原生 PHP 在入口文件调用 `$reach->handleGlobals()`。PHP-FPM 没有后台线程，注册和心跳用命令行（`php artisan reachai heartbeat`、`php think reachai heartbeat` 或 `vendor/bin/reachai heartbeat`），配到 cron 每分钟执行
 
 挂载的 `/reachai/**` 路径由 SDK 验签保护，业务系统的登录中间件要放行它。
 

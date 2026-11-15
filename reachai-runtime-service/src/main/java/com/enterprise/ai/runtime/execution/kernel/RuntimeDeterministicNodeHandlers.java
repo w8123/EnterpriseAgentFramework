@@ -245,7 +245,8 @@ final class RuntimeDeterministicNodeHandlers {
             // keep it rather than falling back to the raw message text.
             String source = field.source() == null ? "" : field.source().trim();
             if (existing != null && existing.containsKey(field.name())
-                    && ("input.message".equals(source) || ("input." + field.name()).equals(source))) {
+                    && (!StringUtils.hasText(source) || "input.message".equals(source)
+                    || ("input." + field.name()).equals(source))) {
                 continue;
             }
             // Structured callers (Studio and published Workflow tools) distinguish an omitted

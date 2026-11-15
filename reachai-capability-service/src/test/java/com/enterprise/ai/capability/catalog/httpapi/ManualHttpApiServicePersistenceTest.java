@@ -30,6 +30,7 @@ class ManualHttpApiServicePersistenceTest {
     private HttpApiInventoryIntakeService intake;
     private ManualHttpApiService manual;
     private TransactionTemplate tx;
+    private HttpApiDocumentImportService documents;
 
     @BeforeEach
     void database() throws Exception {
@@ -64,6 +65,7 @@ class ManualHttpApiServicePersistenceTest {
         catalog = new HttpApiCatalogService(assetMapper, bindings, inventories, members,
                 session.getMapper(HttpApiAcceptanceMapper.class), projects, json, new HttpApiContractCanonicalizer(json));
         tx = new TransactionTemplate(new DataSourceTransactionManager(source));
+        documents = new HttpApiDocumentImportService(json, projects, assetMapper, manual, new HttpApiDocumentFetcher(false));
         jdbc.update("INSERT INTO capability_scan_project (id, name, project_code, environment, base_url, context_path, status) "
                 + "VALUES (41, 'orders', 'orders', 'dev', 'https://unused.invalid', '/admin-api', 'scanned')");
     }
@@ -114,6 +116,35 @@ class ManualHttpApiServicePersistenceTest {
         assertTrue(detail.summary().sourceConfirmed(), detail.summary().sourceReason());
         assertEquals("IRREVERSIBLE", detail.contract().path("sideEffect").asText());
         assertEquals("x-api-key", detail.contract().path("authentication").path("requiredHeaderNames").get(0).asText());
+    }
+
+    @Test
+    void documentPreviewMarksExistingRoutesAndImportedItemsSaveWithTheirOrigin() {
+        tx.execute(status -> manual.save(41, new ManualHttpApiService.Request("GET", "/erp/stock/page",
+                null, "form", List.of(), null, null, null, List.of())));
+        String doc = """
+                {"openapi":"3.0.1","info":{"title":"ERP","version":"1"},"servers":[{"url":"/admin-api"}],
+                 "paths":{"/erp/stock/page":{"get":{"summary":"库存分页","tags":["库存"],"responses":{"200":{"description":"ok"}}}},
+                          "/erp/stock/export":{"get":{"summary":"导出","parameters":[{"name":"x","in":"query","schema":{"type":"string"}},
+                              {"name":"x","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"ok"}}}}}}
+                """;
+        var preview = documents.preview(41, new HttpApiDocumentImportService.PreviewRequest(doc, "erp.json", null, null, null));
+        assertEquals("/admin-api", preview.stripPrefix());
+        var page = preview.candidates().stream().filter(c -> c.key().equals("GET /erp/stock/page")).findFirst().orElseThrow();
+        assertTrue(page.existing());
+        assertNull(page.unsupported());
+        var export = preview.candidates().stream().filter(c -> c.key().equals("GET /erp/stock/export")).findFirst().orElseThrow();
+        assertFalse(export.existing());
+
+        var item = page.request();
+        var request = new ManualHttpApiService.Request(item.httpMethod(), item.path(), item.sideEffect(), "openapi",
+                item.parameters(), item.requestBody(), item.responseType(), item.authentication(), item.businessGroups(),
+                item.summary(), item.description());
+        var saved = tx.execute(status -> manual.save(41, request));
+        assertFalse(saved.created());
+        assertEquals("从 OpenAPI 文档导入 · 库存分页", catalog.detail(saved.apiId()).sources().get(0).sourceLocation());
+        assertThrows(ManualHttpApiService.NotFound.class, () -> documents.preview(999,
+                new HttpApiDocumentImportService.PreviewRequest(doc, null, null, null, null)));
     }
 
     @Test

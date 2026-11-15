@@ -85,7 +85,8 @@ class RuntimeAutomationWorkflowTraceEvidenceTest {
         executor = new RuntimeAutomationTargetExecutor(mock(RuntimeAgentPublishedConfigQuery.class),
                 mock(RuntimeAgentExecutionService.class), published, engine, lifecycle, roots,
                 new RuntimeTraceEvidenceWriter(spans, tools), mock(RuntimeAutomationInteractionTerminationService.class),
-                new RuntimeAutomationJsonSupport(json), scheduler);
+                new RuntimeAutomationJsonSupport(json), scheduler,
+                new RuntimeAutomationRunAs(mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)));
     }
 
     @AfterEach
@@ -178,7 +179,8 @@ class RuntimeAutomationWorkflowTraceEvidenceTest {
                     new RuntimeRunLifecycleService(runs, json), roots,
                     new RuntimeTraceEvidenceWriter(database.mapper(RuntimeTraceSpanMapper.class),
                             database.mapper(RuntimeToolCallLogMapper.class)),
-                    mock(RuntimeAutomationInteractionTerminationService.class), new RuntimeAutomationJsonSupport(json), scheduler);
+                    mock(RuntimeAutomationInteractionTerminationService.class), new RuntimeAutomationJsonSupport(json), scheduler,
+                    new RuntimeAutomationRunAs(mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class)));
             var result = execute();
             assertEquals(success, result.success());
             var persisted = runs.selectList(null);

@@ -2,6 +2,7 @@ package com.enterprise.ai.runtime.execution;
 
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointCodec;
 import com.enterprise.ai.runtime.execution.checkpoint.WorkflowCheckpointException;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowApprovalAssignment;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -64,6 +65,17 @@ public class RuntimeInteractionResumeService {
         Object uiAction = request != null && request.get("uiSubmit") instanceof Map<?, ?> ui ? ui.get("action") : null;
         String action = firstText(text(request == null ? null : request.get("action")), text(uiAction),
                 text(values.get("action")), "submit").toLowerCase(java.util.Locale.ROOT);
+        if (WorkflowApprovalAssignment.INTERACTION_TYPE.equals(session.getInteractionType()) && !"cancel".equals(action)) {
+            // Named approvers decide; the runner may only withdraw or carry the recorded decision forward.
+            Map<String, Object> decided = RuntimeWorkflowApprovalService.decisionForResume(
+                    sessionService.readMap(session.getContinuationJson()));
+            if (decided == null) {
+                if (WAITING_USER.equals(session.getStatus())) return approvalPending(session);
+            } else {
+                action = String.valueOf(decided.get("action"));
+                values = safeMap(decided.get("values"));
+            }
+        }
         String idempotencyKey = firstText(text(request == null ? null : request.get("idempotencyKey")),
                 text(request == null ? null : request.get("idempotency_key")));
         String operatorId = firstText(ownershipUser(ownership), text(request == null ? null : request.get("operatorId")));
@@ -141,6 +153,17 @@ public class RuntimeInteractionResumeService {
             return failClaimed(session, rejected.code(), rejected.getMessage(), operatorId, "CHECKPOINT_REJECTED");
         }
         Map<String, Object> checkpoint = new LinkedHashMap<>(decoded.state());
+        Object pageDraftState = checkpoint.remove(
+                com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CHECKPOINT_KEY);
+        if (pageDraftState != null) {
+            var trustedDraft = com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution
+                    .fromCheckpoint(pageDraftState);
+            if (trustedDraft == null) {
+                return failClaimed(session, "RUNTIME_PAGE_DRAFT_CHECKPOINT_INVALID",
+                        "Page draft checkpoint cannot be verified", operatorId);
+            }
+            checkpoint.put(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY, trustedDraft);
+        }
         // Resume state belongs to the persisted checkpoint; submitted values enter through the interaction node.
         checkpoint.put("runId", firstText(session.getRunId(), text(checkpoint.get("runId"))));
         checkpoint.put("traceId", firstText(session.getTraceId(), text(checkpoint.get("traceId"))));
@@ -187,11 +210,23 @@ public class RuntimeInteractionResumeService {
             Map<String, Object> response = successBody(result, session, WAITING_USER, uiRequest);
             response.put("interactionSessionId", nextId);
             response.put("interactionId", nextId);
-            sessionService.completeAndCreateNext(session, response, operatorId,
+            Map<String, Object> previous = sessionService.readMap(session.getContinuationJson());
+            Map<String, Object> runner = previous.get(WorkflowApprovalAssignment.RUNNER_KEY) instanceof Map<?, ?> raw
+                    ? safeMap(raw) : new LinkedHashMap<>(Map.of("userId", firstText(session.getUserId(), "")));
+            Map<String, Object> nextContinuation = new LinkedHashMap<>(previous);
+            nextContinuation.remove(WorkflowApprovalAssignment.METADATA_KEY);
+            nextContinuation.remove(WorkflowApprovalAssignment.DECISION_KEY);
+            nextContinuation.remove(WorkflowApprovalAssignment.RUNNER_KEY);
+            RuntimeWorkflowInteractionSessionService.CreateRequest next = RuntimeWorkflowApprovalService.assign(
                     new RuntimeWorkflowInteractionSessionService.CreateRequest(nextId, session.getSourceType(),
                             session.getRunId(), session.getTraceId(), session.getWorkflowId(), session.getWorkflowVersionId(), graphSpecJson, result.nodeId(), interactionType(result),
-                            nextCheckpoint, uiRequest, sessionService.readMap(session.getContinuationJson()),
-                            session.getAppId(), session.getTenantId(), session.getSessionId(), session.getUserId(), ttlSeconds(uiRequest)));
+                            nextCheckpoint, uiRequest, nextContinuation,
+                            session.getAppId(), session.getTenantId(), session.getSessionId(), session.getUserId(), ttlSeconds(uiRequest)),
+                    result.metadata(), runner, Map.of());
+            if (next.uiRequest() != uiRequest) {
+                response.put("uiRequest", next.uiRequest());
+            }
+            sessionService.completeAndCreateNext(session, response, operatorId, next);
             return response;
         }
         String status = "RUNTIME_GRAPH_CANCELLED".equals(result.code()) ? CANCELLED : result.success() ? COMPLETED : FAILED;
@@ -218,6 +253,22 @@ public class RuntimeInteractionResumeService {
     private Map<String, Object> finish(RuntimeInteractionSessionEntity session, String status,
                                        Map<String, Object> response, String operatorId, String... events) {
         sessionService.finishResume(session, status, response, operatorId, events);
+        return response;
+    }
+
+    private Map<String, Object> approvalPending(RuntimeInteractionSessionEntity session) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("success", true);
+        response.put("waiting", true);
+        response.put("approvalPending", true);
+        response.put("code", RuntimeWorkflowApprovalService.PENDING_CODE);
+        response.put("answer", "等待指定审批人处理");
+        response.put("status", WAITING_USER);
+        response.put("interactionSessionId", session.getId());
+        response.put("interactionId", session.getId());
+        Map<String, Object> ui = sessionService.readMap(session.getUiRequestJson());
+        if (!ui.isEmpty()) response.put("uiRequest", ui);
+        putIdentity(response, session);
         return response;
     }
 

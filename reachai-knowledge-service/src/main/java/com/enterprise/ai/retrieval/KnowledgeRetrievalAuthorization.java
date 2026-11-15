@@ -26,8 +26,11 @@ public class KnowledgeRetrievalAuthorization {
 
     public List<RetrievalTestResponse.RetrievalItem> retain(FileAccessSnapshot snapshot, List<RetrievalTestResponse.RetrievalItem> items) {
         if (snapshot == null) return items; // The separately authorized admin inspection entry has no end-user snapshot.
-        var current = resolve(snapshot, items.stream().filter(Objects::nonNull).map(RetrievalTestResponse.RetrievalItem::getChunkDbId).toList());
+        var current = resolve(snapshot, items.stream().filter(Objects::nonNull).map(RetrievalTestResponse.RetrievalItem::getChunkDbId)
+                .filter(Objects::nonNull).toList());
         return items.stream().filter(Objects::nonNull).filter(item -> {
+            // External passages are not stored here; they are readable exactly when their base is open to this caller.
+            if (item.getExternalProvider() != null) return snapshot.isOpen(item.getExternalKnowledgeBaseId());
             var chunk = current.get(item.getChunkDbId());
             if (chunk == null || !chunk.matches(item.getChunkDbId(), item.getChunkId(), item.getFileId(), item.getKnowledgeBaseCode(), item.getContent())) return false;
             item.setFileName(chunk.fileName());
@@ -37,9 +40,11 @@ public class KnowledgeRetrievalAuthorization {
 
     public boolean isCurrent(FileAccessSnapshot snapshot, List<KnowledgeRetrievalCoreResponse.RetrievalItem> items) {
         if (snapshot == null || items == null) return false;
-        var current = resolve(snapshot, items.stream().filter(Objects::nonNull).map(KnowledgeRetrievalCoreResponse.RetrievalItem::getChunkDbId).toList());
+        var current = resolve(snapshot, items.stream().filter(Objects::nonNull).map(KnowledgeRetrievalCoreResponse.RetrievalItem::getChunkDbId)
+                .filter(Objects::nonNull).toList());
         return items.stream().allMatch(item -> {
             if (item == null) return false;
+            if (item.getExternalProvider() != null) return snapshot.isOpen(item.getExternalKnowledgeBaseId());
             var chunk = current.get(item.getChunkDbId());
             return chunk != null && chunk.matches(item.getChunkDbId(), item.getChunkId(), item.getFileId(), item.getKnowledgeBaseCode(), item.getContent());
         });

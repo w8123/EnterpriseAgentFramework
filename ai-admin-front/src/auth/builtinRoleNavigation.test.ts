@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { filterSidebarMenu, sidebarMenu, type SidebarEntry } from '@/components/common/sidebarMenu'
 import {
+  AI_APPROVALS_PATH,
   availableSidebarWorkspaces,
   defaultSidebarWorkspace,
   findSidebarWorkspace,
@@ -44,11 +45,14 @@ describe('built-in role navigation', () => {
     for (const hidden of ['账号与权限', '调用权限', '业务用户']) {
       expect(labels).not.toContain(hidden)
     }
-    for (const code of ['agent:write', 'agent:publish', 'workflow:write', 'workflow:publish', 'skill:import', 'knowledge:write', 'mcp-hub:publication:manage', 'a2a-hub:publication:manage']) {
+    for (const code of ['agent:write', 'agent:publish', 'workflow:write', 'workflow:publish', 'skill:import', 'skill:review', 'skill:publish', 'knowledge:write', 'mcp-hub:publication:manage', 'a2a-hub:publication:manage']) {
       expect(roles.DEVELOPER).toContain(code)
     }
     expect(roles.DEVELOPER).not.toContain('mcp-hub:write-approval:manage')
     expect(roles.DEVELOPER).not.toContain('tool-acl:manage')
+    // 沙箱脚本放行影响服务器安全，只留给平台管理员。
+    expect(roles.DEVELOPER).not.toContain('skill:script:approve')
+    expect(roles.MANAGER).not.toContain('skill:script:approve')
   })
 
   it('gives managers the former operator and manager work but no platform accounts', () => {
@@ -59,7 +63,7 @@ describe('built-in role navigation', () => {
     for (const hidden of ['账号与权限', '认证源', '跨域数据擦除']) {
       expect(labels).not.toContain(hidden)
     }
-    for (const code of ['mcp-hub:employee-connection:manage', 'mcp-hub:write-approval:manage', 'agent:publish', 'tool-acl:manage', 'identity:business-user:manage']) {
+    for (const code of ['mcp-hub:employee-connection:manage', 'mcp-hub:write-approval:manage', 'agent:publish', 'skill:review', 'skill:publish', 'tool-acl:manage', 'identity:business-user:manage']) {
       expect(roles.MANAGER).toContain(code)
     }
   })
@@ -90,7 +94,7 @@ describe('role workspaces', () => {
       '概览', 'AI 工具接入', '项目管理', '业务能力', 'Agent', 'Workflow', 'Skill', '知识库', 'API 市场', 'MCP 开放', 'A2A 互联中心', '模型中心',
     ])
     expect(workspaceLabels('manager', roles.MANAGER)).toEqual([
-      '概览', 'AI 工具接入', 'AI 使用情况', '员工连接与审批', '运行中心', '自动化中心', 'Agent', 'Workflow', '知识库', '业务用户', '调用权限',
+      '概览', 'AI 工具接入', '待办与审核', 'AI 使用情况', '员工连接与审批', '运行中心', '自动化中心', 'Agent', 'Workflow', 'Skill', '知识库', '业务用户', '调用权限',
     ])
     const fullLabels = visibleLabels(filterSidebarMenu(sidebarMenu, ['*']))
     fullLabels.splice(fullLabels.indexOf('概览') + 1, 0, 'AI 工具接入')
@@ -103,7 +107,8 @@ describe('role workspaces', () => {
     )))
     for (const workspace of sidebarWorkspaces) {
       for (const entry of workspace.menu) {
-        if (entry.kind === 'item') expect(fullMenu.has(entry.index)).toBe(true)
+        // 「待办与审核」是个人页，管理人员工作台直接放一个入口，不进完整菜单目录。
+        if (entry.kind === 'item' && entry.index !== AI_APPROVALS_PATH) expect(fullMenu.has(entry.index)).toBe(true)
       }
     }
   })

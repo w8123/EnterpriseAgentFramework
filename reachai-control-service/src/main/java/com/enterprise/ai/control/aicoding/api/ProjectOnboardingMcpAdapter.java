@@ -32,7 +32,7 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class ProjectOnboardingMcpAdapter implements McpPlatformProjectOnboardingPort {
-    private static final Set<String> LANGUAGES = Set.of("java", "csharp", "python", "node", "go");
+    private static final Set<String> LANGUAGES = Set.of("java", "csharp", "python", "node", "go", "php");
     private static final Set<String> PROVIDERS = Set.of("CODEX", "CLAUDE_CODE", "CURSOR", "TRAE", "OTHER");
     private static final Set<String> TERMINAL = Set.of("COMPLETED", "FAILED", "CANCELLED");
     private final AiCodingTaskConsoleController console;

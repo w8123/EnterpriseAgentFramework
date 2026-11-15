@@ -20,6 +20,8 @@ public final class WorkflowExecutionIdentity {
         EMBED_SESSION,
         A2A_REMOTE_AGENT,
         AUTOMATION,
+        /** A scheduled Automation acting as the employee who saved it, re-verified by Control per run. */
+        AUTOMATION_EMPLOYEE,
         MCP_REMOTE_CLIENT,
         MCP_EMPLOYEE,
         STUDIO_PROJECT_TEST,
@@ -134,6 +136,24 @@ public final class WorkflowExecutionIdentity {
                 principalId, true, false);
     }
 
+    /**
+     * A scheduled Automation acting as the employee who saved its pinned version. Control resolves the
+     * employee's business account from an ACTIVE runtime user mapping before each run; the account and
+     * roles never come from the Automation definition, its input or model output. Like any Automation it
+     * can never wait for a person, so write approvals stop the run instead of executing.
+     */
+    public static WorkflowExecutionIdentity fromAutomationEmployee(
+            String tenantId, Long projectId, String projectCode, String externalUserId, List<String> roles) {
+        if (!StringUtils.hasText(externalUserId)) {
+            throw new IllegalArgumentException("Automation employee identity requires externalUserId");
+        }
+        if (projectId == null && !StringUtils.hasText(projectCode)) {
+            throw new IllegalArgumentException("Automation employee identity requires its business system");
+        }
+        return new WorkflowExecutionIdentity(Source.AUTOMATION_EMPLOYEE, tenantId, projectId, projectCode,
+                externalUserId, true, true, roles);
+    }
+
     public static WorkflowExecutionIdentity untrustedDebug() {
         return new WorkflowExecutionIdentity(Source.DEBUG_UNTRUSTED, null, null, null, null, false, false);
     }
@@ -208,11 +228,16 @@ public final class WorkflowExecutionIdentity {
         // project: identical external user IDs need not denote the same person across systems.
         // The current Embed gateway attests the target separately and sends no project here;
         // an explicitly scoped Embed identity must nevertheless agree with the target.
-        boolean businessCaller = caller.source == Source.EMBED_SESSION || caller.source == Source.MCP_EMPLOYEE;
+        boolean businessCaller = caller.source == Source.EMBED_SESSION || caller.source == Source.MCP_EMPLOYEE
+                || caller.source == Source.AUTOMATION_EMPLOYEE;
         boolean hasCallerProject = caller.projectId != null || StringUtils.hasText(caller.projectCode);
-        if (businessCaller && ((caller.source == Source.MCP_EMPLOYEE && !hasCallerProject)
+        boolean projectRequired = caller.source == Source.MCP_EMPLOYEE || caller.source == Source.AUTOMATION_EMPLOYEE;
+        if (businessCaller && ((projectRequired && !hasCallerProject)
                 || (hasCallerProject && !caller.authorizeProjectCredential(projectId, projectCode)))) {
             throw new IllegalArgumentException("business identity does not match the Agent project");
+        }
+        if (caller.source == Source.AUTOMATION_EMPLOYEE) {
+            return fromAutomationEmployee(caller.tenantId, projectId, projectCode, caller.userId, caller.roles);
         }
         WorkflowExecutionIdentity resolved = restoreFromTrustedSnapshot(caller.source, caller.tenantId, projectId, projectCode, caller.userId);
         return new WorkflowExecutionIdentity(resolved.source, resolved.tenantId, resolved.projectId, resolved.projectCode,
@@ -249,6 +274,10 @@ public final class WorkflowExecutionIdentity {
                     ? fromA2aRemoteAgent(tenantId, projectId, projectCode, userId)
                     : untrustedDebug();
             case AUTOMATION -> StringUtils.hasText(userId)
+                    ? fromAutomation(tenantId, projectId, projectCode, userId)
+                    : untrustedDebug();
+            // Never recreated from a snapshot: only a fresh per-run Control resolution may grant it.
+            case AUTOMATION_EMPLOYEE -> StringUtils.hasText(userId)
                     ? fromAutomation(tenantId, projectId, projectCode, userId)
                     : untrustedDebug();
             case MCP_REMOTE_CLIENT -> StringUtils.hasText(userId)

@@ -21,7 +21,12 @@ public interface RuntimeSupervisorApprovalPort {
                                String permissionKey,
                                String toolName,
                                Map<String, Object> approvedArgs,
-                               String approvedBy) {
+                               String approvedBy,
+                               Map<String, Object> approvedPagePin) {
+        public PolicyApprovalGrant(String interactionId, String permissionKey, String toolName,
+                                   Map<String, Object> approvedArgs, String approvedBy) {
+            this(interactionId, permissionKey, toolName, approvedArgs, approvedBy, Map.of());
+        }
     }
 
     interface ResumeDecision {

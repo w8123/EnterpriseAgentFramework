@@ -19,9 +19,12 @@ export function useSdkAccessWizardLanguage(
   const goManifest = ref<AiOnboardingManifest | null>(null)
   const goLoading = ref(false)
   const goError = ref('')
+  const phpManifest = ref<AiOnboardingManifest | null>(null)
+  const phpLoading = ref(false)
+  const phpError = ref('')
   let sequence = 0
 
-  async function loadManifest(selected: 'csharp' | 'python' | 'node' | 'go') {
+  async function loadManifest(selected: 'csharp' | 'python' | 'node' | 'go' | 'php') {
     const current = ++sequence
     const projectId = project.value?.id
     csharpManifest.value = null
@@ -36,16 +39,19 @@ export function useSdkAccessWizardLanguage(
     goManifest.value = null
     goError.value = ''
     goLoading.value = false
+    phpManifest.value = null
+    phpError.value = ''
+    phpLoading.value = false
     if (language.value !== selected || !projectId) return
-    const loading = selected === 'csharp' ? csharpLoading : selected === 'python' ? pythonLoading : selected === 'node' ? nodeLoading : goLoading
-    const manifest = selected === 'csharp' ? csharpManifest : selected === 'python' ? pythonManifest : selected === 'node' ? nodeManifest : goManifest
-    const error = selected === 'csharp' ? csharpError : selected === 'python' ? pythonError : selected === 'node' ? nodeError : goError
+    const loading = selected === 'csharp' ? csharpLoading : selected === 'python' ? pythonLoading : selected === 'node' ? nodeLoading : selected === 'go' ? goLoading : phpLoading
+    const manifest = selected === 'csharp' ? csharpManifest : selected === 'python' ? pythonManifest : selected === 'node' ? nodeManifest : selected === 'go' ? goManifest : phpManifest
+    const error = selected === 'csharp' ? csharpError : selected === 'python' ? pythonError : selected === 'node' ? nodeError : selected === 'go' ? goError : phpError
     loading.value = true
     try {
       const response = await getAiOnboardingManifest(projectId, selected)
       if (current === sequence) manifest.value = response.data
     } catch {
-      if (current === sequence) error.value = `无法读取 ${selected === 'csharp' ? 'C#' : selected === 'python' ? 'Python' : selected === 'node' ? 'Node.js' : 'Go'} SDK 接入信息，请检查平台服务后重试。`
+      if (current === sequence) error.value = `无法读取 ${selected === 'csharp' ? 'C#' : selected === 'python' ? 'Python' : selected === 'node' ? 'Node.js' : selected === 'go' ? 'Go' : 'PHP'} SDK 接入信息，请检查平台服务后重试。`
     } finally {
       if (current === sequence) loading.value = false
     }
@@ -55,8 +61,9 @@ export function useSdkAccessWizardLanguage(
   const loadPythonManifest = () => loadManifest('python')
   const loadNodeManifest = () => loadManifest('node')
   const loadGoManifest = () => loadManifest('go')
+  const loadPhpManifest = () => loadManifest('php')
   watch([language, () => project.value?.id], () => {
-    void loadManifest(language.value === 'python' ? 'python' : language.value === 'node' ? 'node' : language.value === 'go' ? 'go' : 'csharp')
+    void loadManifest(language.value === 'python' ? 'python' : language.value === 'node' ? 'node' : language.value === 'go' ? 'go' : language.value === 'php' ? 'php' : 'csharp')
   }, { immediate: true, flush: 'sync' })
 
   const csharpArtifact = computed(() => csharpManifest.value?.sdkArtifacts?.find(
@@ -93,8 +100,18 @@ export function useSdkAccessWizardLanguage(
     && goArtifact.value?.installCommandTemplate,
   ))
 
+  const phpArtifact = computed(() => phpManifest.value?.sdkArtifacts?.find(
+    (artifact) => artifact.language === 'php' && artifact.packageName === 'reachai/php-sdk',
+  ))
+  const phpArtifactReady = computed(() => Boolean(
+    phpArtifact.value?.downloadUrl
+    && /^[a-f0-9]{64}$/i.test(phpArtifact.value?.integritySha256 || '')
+    && phpArtifact.value?.installCommandTemplate,
+  ))
+
   return { csharpManifest, csharpLoading, csharpError, csharpArtifact, csharpArtifactReady, loadCsharpManifest,
     pythonManifest, pythonLoading, pythonError, pythonArtifact, pythonArtifactReady, loadPythonManifest,
     nodeManifest, nodeLoading, nodeError, nodeArtifact, nodeArtifactReady, loadNodeManifest,
-    goManifest, goLoading, goError, goArtifact, goArtifactReady, loadGoManifest }
+    goManifest, goLoading, goError, goArtifact, goArtifactReady, loadGoManifest,
+    phpManifest, phpLoading, phpError, phpArtifact, phpArtifactReady, loadPhpManifest }
 }

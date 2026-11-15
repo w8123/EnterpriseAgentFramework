@@ -15,6 +15,7 @@ import {
   type PageActionResultDelivered,
 } from './embedPageActions'
 import { createPageActionTurnCompletion } from './pageActionTurnCompletion'
+import { createDocumentNavigationReadiness } from './documentNavigationReadiness'
 import {
   buildEafChatSessionPayload,
   type EafChatPageSessionPayload,
@@ -96,6 +97,8 @@ export interface EafChatOptions {
   bridge?: EafPageBridge
   /** 把当前页面及其页面动作登记到 ReachAI 页面目录；用当前 Embed Token 鉴权，浏览器不持有项目密钥。 */
   pageRegistry?: EafPageRegistryOptions
+  /** Opt in to ordinary page-transfer lifecycle events. */
+  pageTransfer?: boolean
   page?: EafPageDescriptor
   apiBase?: string
   embedPathPrefix?: string
@@ -104,6 +107,8 @@ export interface EafChatOptions {
   memories?: boolean
   /** Show 在我的 AI 工具中使用 (connect the user's own Claude Code / Codex as themselves). Defaults to true. */
   aiTools?: boolean
+  /** Show 快捷操作 a manager recommended for the current page once the chat is opened. Defaults to true. */
+  shortcuts?: boolean
   theme?: EafChatTheme
   locale?: 'zh-CN' | 'en-US' | string
   position?: EafChatPosition
@@ -137,6 +142,16 @@ export interface EafChatClient {
    * internal navigation request id.
    */
   rebindPage(binding: EafChatPageBinding): Promise<void>
+  /** Rebind a new document to a server-verified pending navigation. */
+  resumePageNavigation(binding: EafChatPageBinding, navigation: EafPageNavigationResume): Promise<void>
+  /** Retry reading authorized history after a successful page rebind. */
+  restoreHistory(): Promise<void>
+  /** Retry the read-only readiness check only if no continuation was submitted. */
+  continuePageNavigation(requestId: string): Promise<void>
+  /** Prepare a short-lived, server-bound transfer for ordinary same-tab navigation. */
+  preparePageTransfer(): Promise<EafPageTransfer>
+  /** Claim an ordinary page transfer with the current page's fresh Embed token. */
+  resumePageTransfer(transfer: Pick<EafPageTransfer, 'sessionId' | 'transferTicket'>): Promise<void>
   registerPageCatalog(): Promise<void>
   setContext(context: Record<string, unknown>): void
   destroy(): void
@@ -145,6 +160,18 @@ export interface EafChatClient {
 export interface EafChatPageBinding {
   bridge: EafPageBridge
   page: EafPageDescriptor
+}
+
+/** Opaque identifiers only. These values do not authenticate the caller. */
+export interface EafPageNavigationResume {
+  sessionId: string
+  requestId: string
+}
+
+export interface EafPageTransfer {
+  sessionId: string
+  transferTicket: string
+  expiresInSeconds: number
 }
 
 export interface EafPageRegistryOptions {
@@ -170,6 +197,9 @@ export interface EafChatEvent {
     | 'page.action.requested'
     | 'page.action.result.delivered'
     | 'page.action.result.settled'
+    | 'page.navigation.ready'
+    | 'page.transfer.invalidated'
+    | 'context.cleared'
     | 'turn.progress'
     | 'message.completed'
     | 'interaction.submitted'
@@ -209,11 +239,16 @@ type EmbedChatHostInstance = ComponentPublicInstance & {
   retryAuthentication: () => Promise<string>
   clearContext: () => Promise<void>
   openAiTools: () => void
+  activateShortcuts?: () => void
   refreshToken: (reason?: EafChatTokenReason) => Promise<string>
   setContext: (context: Record<string, unknown>) => void
   getSessionId: () => string | null
   getExistingSessionId: () => string | null
-  rebindPage: (bridge: EafPageBridge, page: EafPageDescriptor, navigationRequestId: string) => Promise<void>
+  restoreHistory: () => Promise<unknown>
+  continueDocumentNavigation: (requestId: string, cancel?: boolean) => Promise<void>
+  preparePageTransfer: () => Promise<EafPageTransfer>
+  claimPageTransfer: (transfer: Pick<EafPageTransfer, 'sessionId' | 'transferTicket'>) => Promise<void>
+  rebindPage: (bridge: EafPageBridge, page: EafPageDescriptor, navigationRequestId: string, resumeSessionId?: string) => Promise<void>
   disposeHost: () => void
 }
 
@@ -285,10 +320,27 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       }
     })
   })
+  const documentNavigationReadiness = createDocumentNavigationReadiness((result) => {
+    queueMicrotask(() => {
+      if (!destroyed && documentNavigationReadiness.isCurrent(result.sessionId, result.turnId)) {
+        const { sessionId, turnId, ...data } = result
+        options.onEvent?.({ type: 'page.navigation.ready', data, sessionId, turnId })
+      }
+    })
+  }, (result) => {
+    // Let the waiting event finish updating the controller before submitting cancellation.
+    setTimeout(() => {
+      if (!destroyed && documentNavigationReadiness.isCurrent(result.sessionId, result.turnId)
+          && hostInstance?.getExistingSessionId() === result.sessionId) {
+        void hostInstance.continueDocumentNavigation(result.requestId, true).catch(reportError)
+      }
+    }, 0)
+  })
 
   function publishPageActionDelivered(result: PageActionResultDelivered, sessionId: string) {
     options.onEvent?.({ type: 'page.action.result.delivered', data: result, sessionId })
     if (!destroyed) pageActionTurnCompletion.delivered(sessionId, result)
+    if (!destroyed) documentNavigationReadiness.delivered(sessionId, result)
   }
 
   /**
@@ -356,7 +408,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (req) => publishPageActionRequested(req, { sessionId }),
-      onClaimed: (req, traceId) => pageActionTurnCompletion.claimed(sessionId, req.requestId, req.actionKey, traceId),
+      onClaimed: (req, traceId) => {
+        pageActionTurnCompletion.claimed(sessionId, req.requestId, req.actionKey, traceId)
+        documentNavigationReadiness.claimed(sessionId, req.requestId, req.actionKey, traceId)
+      },
       onDelivered: (result) => publishPageActionDelivered(result, sessionId),
       onError: reportError,
       refreshToken: async () => {
@@ -385,13 +440,25 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
   function emitPublicEvent(event: EafChatEvent) {
     // This event is generated only after the SDK validates the result POST ACK.
     // Never forward a similarly named event from the upstream conversation stream.
-    if (event.type === 'page.action.result.delivered' || event.type === 'page.action.result.settled') return
+    if (event.type === 'page.action.result.delivered' || event.type === 'page.action.result.settled'
+        || event.type === 'page.transfer.invalidated' || event.type === 'page.navigation.ready') return
     if (event.type === 'turn.preparing') {
       pageActionTurnCompletion.preparing(event.sessionId)
+      documentNavigationReadiness.preparing(event.sessionId)
+      if (options.pageTransfer === true) {
+        options.onEvent?.({ type: 'page.transfer.invalidated', data: { reason: 'turn-started' }, sessionId: event.sessionId })
+      }
+      return
+    }
+    if (event.type === 'context.cleared') {
+      if (options.pageTransfer === true) {
+        options.onEvent?.({ type: 'page.transfer.invalidated', data: { reason: 'context-cleared' }, sessionId: event.sessionId })
+      }
       return
     }
     if (event.type === 'turn.started') {
       pageActionTurnCompletion.started(event.sessionId, event.turnId)
+      documentNavigationReadiness.started(event.sessionId, event.turnId)
       return
     }
     if (event.type === 'page.action.requested') {
@@ -414,6 +481,9 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       const response = event.data as EafChatMessageResponse
       if (event.terminal === true && response?.metadata?.code === 'SUPERVISOR_COMPLETED') {
         pageActionTurnCompletion.completed(event.sessionId || response.sessionId, response.metadata.traceId, event.turnId)
+      }
+      if (event.terminal === false && response) {
+        documentNavigationReadiness.waiting(event.sessionId || response.sessionId, event.turnId, response)
       }
       if (shell && !shell.isOpen()) {
         unread = true
@@ -459,7 +529,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
       onRequested: (request) => publishPageActionRequested(request, { sessionId }),
-      onClaimed: (request, traceId) => pageActionTurnCompletion.claimed(sessionId, request.requestId, request.actionKey, traceId),
+      onClaimed: (request, traceId) => {
+        pageActionTurnCompletion.claimed(sessionId, request.requestId, request.actionKey, traceId)
+        documentNavigationReadiness.claimed(sessionId, request.requestId, request.actionKey, traceId)
+      },
       onDelivered: (result) => publishPageActionDelivered(result, sessionId),
       onError: reportError,
       refreshToken: async () => {
@@ -493,7 +566,10 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       isActive: () => !destroyed,
       isCurrentPage: () => !pageRebinding && pageBindingEpoch === pageEpoch && activeBridge === pageBridge,
       signal: lifetime.signal,
-      onClaimed: (request, traceId) => pageActionTurnCompletion.claimed(existingSessionId, request.requestId, request.actionKey, traceId),
+      onClaimed: (request, traceId) => {
+        pageActionTurnCompletion.claimed(existingSessionId, request.requestId, request.actionKey, traceId)
+        documentNavigationReadiness.claimed(existingSessionId, request.requestId, request.actionKey, traceId)
+      },
       // poll 自己已 dispatch；此处只 publish，禁止再走 emitPublicEvent→dispatch 递归
       onEvent: (event) => {
         if (event.type === 'page.action.requested') {
@@ -550,6 +626,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
       unread = false
       syncLauncherVisualState()
       pendingPollScheduler.notifyActivity()
+      hostInstance?.activateShortcuts?.()
     },
   })
   const { root, body: bodyEl, connectionStatus } = shell
@@ -597,6 +674,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     memoryPanel: options.memories !== false,
     aiToolPanel: options.aiTools !== false,
     aiToolHeaderEntry: true,
+    shortcutsEnabled: options.shortcuts !== false,
     onEvent: emitPublicEvent,
     onError: (error: EafChatError) => options.onError?.(error),
     onAuthStateChange: handleAuthState,
@@ -612,6 +690,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     },
   })
   hostInstance = chatApp.mount(bodyEl) as EmbedChatHostInstance
+  if (shell.isOpen()) hostInstance?.activateShortcuts?.()
 
   function subscribeToActiveBridge() {
     unregisterPageCatalogChange()
@@ -737,6 +816,61 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
         pageRebinding = false
       }
     },
+    async resumePageNavigation(binding: EafChatPageBinding, navigation: EafPageNavigationResume) {
+      if (destroyed) throw new Error('Embed chat client has been destroyed')
+      if (!binding?.bridge || !binding.page?.pageKey || !navigation?.sessionId || !navigation.requestId) {
+        throw new Error('A target bridge, page, session and navigation request are required')
+      }
+      if (!hostInstance) throw new Error('Embed chat host is not ready')
+      if (pageRebinding) throw new Error('Page navigation is already in progress')
+      const previousActionCount = registeredActionCount
+      pageBindingEpoch += 1
+      pageRebinding = true
+      try {
+        await hostInstance.rebindPage(binding.bridge, binding.page, navigation.requestId, navigation.sessionId)
+        if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
+        activeBridge = binding.bridge
+        activePage = binding.page
+        registeredActionCount = pollableActionCount(activeBridge)
+        subscribeToActiveBridge()
+        await hostInstance.restoreHistory()
+        pendingPollScheduler.notifyActionsChanged(previousActionCount, registeredActionCount)
+        schedulePageCatalogRegistration(0)
+        pendingPollScheduler.notifyActivity()
+      } finally {
+        pageRebinding = false
+      }
+      await hostInstance.continueDocumentNavigation(navigation.requestId)
+    },
+    async restoreHistory() {
+      if (destroyed) throw new Error('Embed chat client has been destroyed')
+      if (!hostInstance) throw new Error('Embed chat host is not ready')
+      await hostInstance.restoreHistory()
+    },
+    async continuePageNavigation(requestId: string) {
+      if (destroyed) throw new Error('Embed chat client has been destroyed')
+      if (!hostInstance || pageRebinding) throw new Error('The target page is not ready')
+      await hostInstance.continueDocumentNavigation(requestId)
+    },
+    async preparePageTransfer() {
+      if (destroyed || !hostInstance) throw new Error('Embed chat host is not ready')
+      if (pageRebinding) throw new Error('Page navigation is already in progress')
+      return hostInstance.preparePageTransfer()
+    },
+    async resumePageTransfer(transfer: Pick<EafPageTransfer, 'sessionId' | 'transferTicket'>) {
+      if (destroyed || !hostInstance) throw new Error('Embed chat host is not ready')
+      if (pageRebinding) throw new Error('Page navigation is already in progress')
+      pageBindingEpoch += 1
+      pageRebinding = true
+      try {
+        await hostInstance.claimPageTransfer(transfer)
+        if (destroyed) throw new DOMException('The operation was aborted.', 'AbortError')
+        await hostInstance.restoreHistory()
+        pendingPollScheduler.notifyActivity()
+      } finally {
+        pageRebinding = false
+      }
+    },
     registerPageCatalog,
     setContext(nextContext: Record<string, unknown>) {
       context = { ...context, ...(nextContext || {}) }
@@ -745,6 +879,7 @@ export async function createEafChat(options: EafChatOptions): Promise<EafChatCli
     destroy() {
       destroyed = true
       pageActionTurnCompletion.clear()
+      documentNavigationReadiness.clear()
       lifetime.abort()
       token = ''
       context = {}

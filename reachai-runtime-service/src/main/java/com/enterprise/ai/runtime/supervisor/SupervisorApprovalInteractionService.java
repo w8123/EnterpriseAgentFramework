@@ -5,6 +5,7 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot;
 import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort;
 import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalService;
+import com.enterprise.ai.runtime.execution.SupervisorApprovalPresentation;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,7 +55,19 @@ public class SupervisorApprovalInteractionService {
                 : workflowInputProtection.protect(tool.getWorkflowId(), tool.getWorkflowVersionId(), args);
         return createWithPresentation(trace, agent, config, "WORKFLOW",
                 tool.getToolName(), tool.getPermissionKey(), tool.getRiskLevel(),
-                input, args, visible, reason, trustedIdentity);
+                input, args, visible, reason, trustedIdentity, null);
+    }
+
+    /** Only call with a fresh, server-verified declaration and published-graph pin. */
+    public ApprovalRequest createTrustedPageDraft(SupervisorExecutionTraceService.TraceHandle trace,
+                                  RuntimeAgentView agent, RuntimeAgentConfigSnapshot config,
+                                  RuntimeAgentWorkflowToolSnapshot tool, Map<String, Object> input,
+                                  Map<String, Object> args, String reason, WorkflowExecutionIdentity trustedIdentity,
+                                  Map<String, Object> pagePin) {
+        Map<String, Object> visible = workflowInputProtection == null ? args
+                : workflowInputProtection.protect(tool.getWorkflowId(), tool.getWorkflowVersionId(), args);
+        return createWithPresentation(trace, agent, config, "WORKFLOW", tool.getToolName(),
+                tool.getPermissionKey(), tool.getRiskLevel(), input, args, visible, reason, trustedIdentity, pagePin);
     }
 
     public ApprovalRequest create(SupervisorExecutionTraceService.TraceHandle trace,
@@ -69,14 +82,15 @@ public class SupervisorApprovalInteractionService {
                                   String reason,
                                   WorkflowExecutionIdentity trustedIdentity) {
         return createWithPresentation(trace, agent, config, toolKind, toolName, permissionKey, riskLevel,
-                input, args, args, reason, trustedIdentity);
+                input, args, args, reason, trustedIdentity, null);
     }
 
     private ApprovalRequest createWithPresentation(SupervisorExecutionTraceService.TraceHandle trace,
                                   RuntimeAgentView agent, RuntimeAgentConfigSnapshot config, String toolKind,
                                   String toolName, String permissionKey, String riskLevel,
                                   Map<String, Object> input, Map<String, Object> args, Map<String, Object> visibleArgs,
-                                  String reason, WorkflowExecutionIdentity trustedIdentity) {
+                                  String reason, WorkflowExecutionIdentity trustedIdentity,
+                                  Map<String, Object> pagePin) {
         LocalDateTime now = LocalDateTime.now();
         String interactionId = INTERACTION_PREFIX + UUID.randomUUID().toString().replace("-", "");
         Map<String, Object> checkpoint = new LinkedHashMap<>();
@@ -92,6 +106,7 @@ public class SupervisorApprovalInteractionService {
         checkpoint.put("riskLevel", riskLevel);
         checkpoint.put("args", args == null ? Map.of() : args);
         checkpoint.put("input", input == null ? Map.of() : input);
+        if (pagePin != null) checkpoint.put("pageApprovalPin", pagePin);
 
         Map<String, Object> displayArgs = displayArgs(visibleArgs);
 
@@ -107,7 +122,37 @@ public class SupervisorApprovalInteractionService {
         cardData.put("permissionKey", firstText(permissionKey, ""));
         cardData.put("riskLevel", firstText(riskLevel, "WRITE"));
         cardData.put("arguments", displayArgs);
+        if (pagePin != null) {
+            if (!(pagePin.get("declaration") instanceof Map<?, ?> declaration)) {
+                throw new IllegalArgumentException("Page approval declaration is missing");
+            }
+            String target = text(declaration.get("targetAlias"));
+            String title = text(declaration.get("actionTitle"));
+            String description = declaration.get("actionDescription") == null ? "未提供" : text(declaration.get("actionDescription"));
+            String effect = text(declaration.get("effect"));
+            if (!StringUtils.hasText(target) || target.length() > 80 || !StringUtils.hasText(title)
+                    || title.length() > 100 || description == null || description.length() > 500
+                    || !"PAGE_LOCAL_DRAFT".equals(effect)) {
+                throw new IllegalArgumentException("Page approval declaration cannot be displayed");
+            }
+            uiRequest.put("title", "确认页面动作：" + title);
+            if (!(declaration.get("fieldLabels") instanceof Map<?, ?> labels)) {
+                throw new IllegalArgumentException("Page field labels are missing");
+            }
+            String explanation = SupervisorApprovalPresentation.pageExplanation(target, title, description, labels, displayArgs);
+            if (explanation == null) throw new IllegalArgumentException("Page field labels cannot be displayed");
+            uiRequest.put("message", confirmationMessage(explanation, displayArgs));
+            cardData.put("pageTarget", target);
+            cardData.put("pageActionTitle", title);
+            cardData.put("pageActionDescription", description);
+            cardData.put("pageEffect", effect);
+        }
         uiRequest.put("data", cardData);
+        boolean approvalBlocked = !SupervisorApprovalPresentation.complete(args == null ? Map.of() : args, uiRequest)
+                || !SupervisorApprovalPresentation.pageDeclarationComplete(pagePin, uiRequest);
+        if (approvalBlocked) {
+            uiRequest.put("message", uiRequest.get("message") + "。操作内容未能完整展示，不能确认执行；请缩小操作范围或在业务页面核对并操作。");
+        }
         uiRequest.put("actions", List.of(
                 Map.of("key", "reject", "label", "拒绝", "tone", "danger"),
                 Map.of("key", "confirm", "label", "确认执行", "tone", "primary")));
@@ -115,7 +160,8 @@ public class SupervisorApprovalInteractionService {
                 "kind", "SUPERVISOR_POLICY_APPROVAL",
                 "resumeVia", "AGENT_EXECUTE",
                 "permissionKey", permissionKey == null ? "" : permissionKey.trim(),
-                "riskLevel", firstText(riskLevel, "WRITE")));
+                "riskLevel", firstText(riskLevel, "WRITE"),
+                "approvalBlocked", approvalBlocked));
 
         Map<String, Object> continuation = new LinkedHashMap<>();
         continuation.put("agentId", agent.id());

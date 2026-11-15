@@ -33,6 +33,15 @@ public class RuntimeModelUsageController {
         return ResponseEntity.ok(recorder.usage(projectCode, days));
     }
 
+    @GetMapping("/internal/runtime/usage/decision-routes")
+    public ResponseEntity<List<java.util.Map<String, Object>>> decisionRoutes(
+            HttpServletRequest request,
+            @RequestParam(required = false) String projectCode,
+            @RequestParam(defaultValue = "30") int days) {
+        if (!fromControl(request)) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        return ResponseEntity.ok(recorder.decisionRoutes(projectCode, days));
+    }
+
     @GetMapping("/internal/runtime/usage/audit-runs")
     public ResponseEntity<List<RuntimeAuditRunRow>> auditRuns(
             HttpServletRequest request,

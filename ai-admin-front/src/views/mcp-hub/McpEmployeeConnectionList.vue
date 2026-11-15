@@ -26,7 +26,7 @@ const stateOptions = [
 ]
 const stateLabels: Record<string, string> = { ACTIVE: '使用中', REVOKED: '已断开', EXPIRED: '已过期' }
 const stateTones: Record<string, 'success' | 'info' | 'warning'> = { ACTIVE: 'success', REVOKED: 'info', EXPIRED: 'warning' }
-const toolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具' }
+const toolLabels: Record<string, string> = { CLAUDE_CODE: 'Claude Code', CODEX: 'Codex', OTHER: '其他 AI 工具', ASSISTANT: '业务系统内的助手' }
 
 function systemNames(row: McpEmployeeConnection) {
   return row.systems.map((system) => system.name).join('、') || '-'

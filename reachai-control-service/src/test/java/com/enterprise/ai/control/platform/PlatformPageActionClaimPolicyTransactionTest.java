@@ -95,6 +95,41 @@ class PlatformPageActionClaimPolicyTransactionTest {
         }
     }
 
+    @Test
+    void changedDeclarationAndLegacyEventsCannotBeClaimed() throws Exception {
+        for (String sql : List.of(
+                "UPDATE control_page_action SET implementation_ref='other-build' WHERE id=1",
+                "UPDATE control_page_action SET input_schema_json='{\"type\":\"string\"}' WHERE id=1",
+                "UPDATE control_page_action SET permission_key='changed' WHERE id=1",
+                "UPDATE control_project_page SET route_pattern='/changed' WHERE id=1",
+                "UPDATE control_page_action_event SET target_page_instance_id='old-instance' WHERE id=1",
+                "UPDATE control_page_action_event SET target_page_key='other-page' WHERE id=1",
+                "UPDATE control_page_action_event SET action_contract_hash=NULL WHERE id=1")) {
+            var fixture = fixture(null, null);
+            fixture.jdbc.update(sql);
+            assertEquals(409, fixture.claim(), sql);
+            assertEquals("REQUESTED", fixture.jdbc.queryForObject(
+                    "SELECT status FROM control_page_action_event WHERE id=1", String.class));
+        }
+    }
+
+    @Test
+    void claimIndependentlyRequiresConfirmationForKnownWriteAndRejectsUnknownRisk() throws Exception {
+        for (String risk : List.of("WRITE", "IRREVERSIBLE", "UNKNOWN")) {
+            var fixture = fixture(null, null);
+            fixture.jdbc.update("UPDATE control_page_action SET risk_level=? WHERE id=1", risk);
+            String hash = PageActionContractFingerprint.of(
+                    fixture.catalog.findAction("erp", "orders.list", "orders.enable").orElseThrow(),
+                    fixture.catalog.findPageForAction(1L).orElseThrow(), new ObjectMapper());
+            fixture.jdbc.update("UPDATE control_page_action_event SET action_contract_hash=? WHERE id=1", hash);
+            assertEquals(409, fixture.claim(), risk);
+            if (!"UNKNOWN".equals(risk)) {
+                fixture.jdbc.update("UPDATE control_page_action_event SET confirm_required=TRUE WHERE id=1");
+                assertEquals(200, fixture.claim(), risk);
+            }
+        }
+    }
+
     private static Fixture fixture(CountDownLatch entered, CountDownLatch release) throws Exception {
         var source = new DriverManagerDataSource("jdbc:h2:mem:claim_policy_" + UUID.randomUUID()
                 + ";MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1", "sa", "");
@@ -115,13 +150,13 @@ class PlatformPageActionClaimPolicyTransactionTest {
         jdbc.execute("""
                 CREATE TABLE control_page_action_event (id BIGINT PRIMARY KEY, request_id VARCHAR(96), session_id VARCHAR(96),
                  tenant_id VARCHAR(96), app_id VARCHAR(96), agent_id VARCHAR(128), command_type VARCHAR(32), parent_request_id VARCHAR(96),
-                 node_id VARCHAR(128), action_key VARCHAR(160), title VARCHAR(256), args_json CLOB, target_page_instance_id VARCHAR(128),
+                 node_id VARCHAR(128), action_key VARCHAR(160), action_contract_hash CHAR(64), effect_approval_id BIGINT, effect_approval_revision BIGINT, title VARCHAR(256), args_json CLOB, target_page_instance_id VARCHAR(128),
                  target_page_key VARCHAR(160), target_route VARCHAR(512), confirm_required BOOLEAN, status VARCHAR(32), result_json CLOB,
                  error_message VARCHAR(1024), requested_at TIMESTAMP, completed_at TIMESTAMP)
                 """);
         jdbc.update("INSERT INTO control_project_page(id,project_id,project_code,page_key,lifecycle_status) VALUES (1,1,'erp','orders.list','ACTIVE')");
-        jdbc.update("INSERT INTO control_page_action(id,page_id,project_id,project_code,page_key,action_key,confirm_required,status,allowed_agent_ids_json) VALUES (1,1,1,'erp','orders.list','orders.enable',FALSE,'ACTIVE','[]')");
-        jdbc.update("INSERT INTO control_page_action_event(id,request_id,session_id,tenant_id,app_id,agent_id,command_type,action_key,target_page_key,confirm_required,status) VALUES (1,'req-1','embed-1','default','erp','agent','PAGE_ACTION','orders.enable','orders.list',FALSE,'REQUESTED')");
+        jdbc.update("INSERT INTO control_page_action(id,page_id,project_id,project_code,page_key,action_key,risk_level,confirm_required,source_type,status,allowed_agent_ids_json) VALUES (1,1,1,'erp','orders.list','orders.enable','READ',FALSE,'MANUAL','ACTIVE','[]')");
+        jdbc.update("INSERT INTO control_page_action_event(id,request_id,session_id,tenant_id,app_id,agent_id,command_type,action_key,target_page_key,target_page_instance_id,confirm_required,status) VALUES (1,'req-1','embed-1','default','erp','agent','PAGE_ACTION','orders.enable','orders.list','page-1',FALSE,'REQUESTED')");
         var config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true);
         config.addMapper(ProjectPageMapper.class); config.addMapper(PageActionMapper.class);
         config.addMapper(PlatformPageActionEventMapper.class);
@@ -129,17 +164,23 @@ class PlatformPageActionClaimPolicyTransactionTest {
         var sql = new SqlSessionTemplate(factory.getObject());
         var catalog = spy(new PageCatalogApplicationService(sql.getMapper(ProjectPageMapper.class), mock(PageResourceMapper.class),
                 sql.getMapper(PageActionMapper.class), new ObjectMapper(), mock(PageWorkbenchProjectPort.class)));
+        String fingerprint = PageActionContractFingerprint.of(
+                catalog.findAction("erp", "orders.list", "orders.enable").orElseThrow(),
+                catalog.findPageForAction(1L).orElseThrow(), new ObjectMapper());
+        jdbc.update("UPDATE control_page_action_event SET action_contract_hash=? WHERE id=1", fingerprint);
         if (entered != null) doAnswer(invocation -> {
             var result = invocation.callRealMethod();
             entered.countDown();
             if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("release timed out");
             return result;
-        }).when(catalog).findActiveActionForUpdate(anyString(), anyString(), anyString());
+        }).when(catalog).findActiveActionAndPageForUpdate(anyString(), anyString(), anyString());
         var sessions = mock(PlatformEmbedSessionService.class);
         var session = new PlatformEmbedSessionEntity();
         session.setSessionId("embed-1"); session.setTenantId("default"); session.setAppId("erp");
         session.setProjectCode("erp"); session.setAgentId("agent"); session.setExternalUserId("user");
+        session.setPageKey("orders.list"); session.setPageInstanceId("page-1");
         when(sessions.requireActiveSession(eq("embed-1"), any())).thenReturn(session);
+        when(sessions.requireActiveSessionForNavigationRebind(eq("embed-1"), any())).thenReturn(session);
         var properties = new PlatformEmbedTokenProperties(); properties.setSecret("test-embed-token-secret");
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
         var target = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
@@ -154,11 +195,11 @@ class PlatformPageActionClaimPolicyTransactionTest {
                 .agentId("agent").pageKey("orders.list").pageInstanceId("page-1").route("/orders").origin("http://localhost")
                 .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal("user", "user", "User", List.of(), Map.of()))
                 .build()).token();
-        return new Fixture(jdbc, controller, "Bearer " + token, new TransactionTemplate(manager));
+        return new Fixture(jdbc, controller, "Bearer " + token, new TransactionTemplate(manager), catalog);
     }
 
     private record Fixture(JdbcTemplate jdbc, PlatformEmbedPublicController controller, String authorization,
-                           TransactionTemplate transaction) {
+                           TransactionTemplate transaction, PageCatalogApplicationService catalog) {
         int claim() {
             return controller.claimPageAction("embed-1", "req-1", authorization,
                     new PlatformEmbedPublicController.PageActionClaimRequest("req-1", "orders.enable")).getStatusCode().value();

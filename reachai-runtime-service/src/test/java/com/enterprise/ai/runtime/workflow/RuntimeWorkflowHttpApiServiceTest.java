@@ -133,7 +133,12 @@ class RuntimeWorkflowHttpApiServiceTest {
                         Map.of("headerName", "X-API-Key", "apiKey", "synthetic-secret"),
                         credentialRevision.get());
         });
-        WorkflowHttpClient http = new WorkflowHttpClient(json, WorkflowHttpEgressPolicy.permissiveForTests(), null);
+        var credentialService = mock(com.enterprise.ai.runtime.credential.RuntimeWorkflowCredentialService.class);
+        when(credentialService.resolve(any(), any())).thenAnswer(call -> java.util.Optional.ofNullable(
+                credentialRevision.get() == null ? null : new RuntimeWorkflowCredentialRuntime(
+                        "cred-1", "Synthetic API key", "API_KEY_HEADER",
+                        Map.of("headerName", "X-API-Key", "apiKey", "synthetic-secret"), credentialRevision.get())));
+        WorkflowHttpClient http = new WorkflowHttpClient(json, WorkflowHttpEgressPolicy.permissiveForTests(), credentialService);
         projection = new RuntimeWorkflowHttpApiService(owner, connections,
                 db.mapper(RuntimeWorkflowHttpApiPinMapper.class), http, json);
         contractPins = new RuntimeCapabilityContractPins(owner, json, projection);
@@ -253,6 +258,36 @@ class RuntimeWorkflowHttpApiServiceTest {
         assertEquals(0, requests.get());
     }
 
+    @Test
+    void refreshingAfterACredentialUpdateLetsPublishedQueriesRunWithoutRepublish() {
+        credentialRevision.set("revision-1");
+        String published = publish();
+        credentialRevision.set("revision-2");
+        var refresh = projection.refreshReadOnlyCredentialPins(41L, "orders");
+        assertEquals(1, refresh.refreshed());
+        assertEquals(0, refresh.writesNeedRepublish());
+        var result = executor.execute(published, Map.of("params", Map.of("orderId", "O-321")),
+                WorkflowExecutionIdentity.fromMcpRemoteClient("orders", 41L, "orders", "test-client"));
+        assertTrue(result.success(), String.valueOf(result));
+        assertEquals(1, requests.get());
+        assertEquals(1, projection.refreshReadOnlyCredentialPins(41L, "orders").alreadyCurrent());
+    }
+
+    @Test
+    void refreshingNeverMovesAWriteOntoANewCredential() {
+        credentialRevision.set("revision-1");
+        String published = publish();
+        credentialRevision.set("revision-2");
+        sideEffect.set("WRITE");
+        var refresh = projection.refreshReadOnlyCredentialPins(41L, "orders");
+        sideEffect.set("READ_ONLY");
+        assertEquals(0, refresh.refreshed());
+        var result = executor.execute(published, Map.of("params", Map.of("orderId", "O-321")),
+                WorkflowExecutionIdentity.fromMcpRemoteClient("orders", 41L, "orders", "test-client"));
+        assertFalse(result.success());
+        assertEquals(0, requests.get());
+    }
+
     private String publish() {
         var workflow = new RuntimeWorkflowDefinitionEntity();
         workflow.setId("wf-api"); workflow.setProjectId(41L); workflow.setProjectCode("orders");
@@ -320,5 +355,30 @@ class RuntimeWorkflowHttpApiServiceTest {
         sideEffect.set("READ_ONLY"); unauthorized.set(true);
         var failed = projection.withDraftScope(List.of(pin), () -> true, () -> executor.execute(graph, input, identity));
         assertFalse(failed.success()); assertEquals(1, requests.get());
+    }
+
+    @Test
+    void recognizesBusinessFailuresInsideHttp200() {
+        assertEquals("未登录！", RuntimeWorkflowHttpApiService.businessError(Map.of("resultCode", 419, "message", "未登录！")));
+        assertEquals("参数错误", RuntimeWorkflowHttpApiService.businessError(Map.of("success", false, "msg", "参数错误",
+                "data", Map.of())));
+        assertEquals("业务系统返回了失败结果", RuntimeWorkflowHttpApiService.businessError(Map.of("code", "500")));
+        assertNull(RuntimeWorkflowHttpApiService.businessError(Map.of("code", 0, "data", List.of())));
+        assertNull(RuntimeWorkflowHttpApiService.businessError(Map.of("code", 500, "data", Map.of("total", 0))));
+        assertNull(RuntimeWorkflowHttpApiService.businessError(List.of(1, 2)));
+        assertNull(RuntimeWorkflowHttpApiService.businessError(Map.of("code", 200, "msg", "ok")));
+    }
+
+    @Test
+    void listQueriesGetTheFirstPageWhenPagingIsLeftOut() throws Exception {
+        var contract = new com.fasterxml.jackson.databind.ObjectMapper().readTree("{\"parameters\":["
+                + "{\"name\":\"pageNumber\",\"location\":\"QUERY\",\"schema\":{\"type\":\"integer\"}},"
+                + "{\"name\":\"pageSize\",\"location\":\"QUERY\",\"schema\":{\"type\":\"integer\"}},"
+                + "{\"name\":\"size\",\"location\":\"QUERY\",\"schema\":{\"type\":\"string\"}},"
+                + "{\"name\":\"page\",\"location\":\"PATH\",\"schema\":{\"type\":\"integer\"}},"
+                + "{\"name\":\"keyword\",\"location\":\"QUERY\",\"schema\":{\"type\":\"string\"}}]}");
+        Map<String, Object> query = new java.util.LinkedHashMap<>(Map.of("pageSize", 50));
+        RuntimeWorkflowHttpApiService.fillPagingDefaults(contract, query);
+        assertEquals(Map.of("pageNumber", 1, "pageSize", 50), query);
     }
 }

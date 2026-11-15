@@ -199,6 +199,8 @@ services:
       dockerfile: deploy/docker/Dockerfile
       target: web
     restart: unless-stopped
+    volumes:
+      - reachai-embed-versions:/var/lib/reachai/embed-versions
     depends_on:
       reachai-control: { condition: service_healthy }
     ports:
@@ -268,6 +270,7 @@ services:
       - "${YUDAO_PORT:-48080}:80"
 
 volumes:
+  reachai-embed-versions:
   mysql-data:
   redis-data:
   milvus-data:

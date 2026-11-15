@@ -117,8 +117,10 @@ assert.match(
   'AI Coding task-state failure must not make the manual SDK workbench unavailable',
 )
 assert.match(wizardSource, /AiCodingTaskDetailPanel/, 'SdkAccessWizard should reuse the common task detail panel')
-assert.match(wizardSource, /<AiCodingTaskDetailPanel[\s\S]*?:handoff-enabled="false"/, 'Project task details should not expose legacy handoff actions')
-assert.doesNotMatch(wizardSource, /@reissue=/, 'Project task details should not reissue handoffs')
+assert.match(wizardSource, /<AiCodingTaskDetailPanel[\s\S]*?@reissue="handleOnboardingTaskReissue"/, 'Project task details should allow a person to reissue an MCP claim code')
+assert.match(wizardSource, /<AiHandoffDialog[\s\S]*?scenario="ai-coding-task"/, 'Project task recovery should use the shared MCP dialog')
+assert.match(wizardSource, /issueAiCodingHandoff\(taskId\)/, 'Recovery must request the one-time MCP claim code')
+assert.match(wizardSource, /originProjectCode !== projectCode\.value/, 'Recovery must discard a response after project navigation')
 
 assert.match(
   wizardSource,

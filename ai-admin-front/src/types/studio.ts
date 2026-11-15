@@ -266,6 +266,8 @@ export interface PageActionNodeConfig {
 
 export interface AnswerNodeConfig {
   template: string
+  /** Deliver this text as the final reply when the read-only flow is hit directly. */
+  directAnswer?: boolean
 }
 
 export interface CodeNodeConfig {
@@ -334,12 +336,23 @@ export interface VariableAggregateNodeConfig {
   template?: string
 }
 
+export interface ApprovalApproverOption {
+  username: string
+  displayName?: string
+}
+
 export interface HumanApprovalNodeConfig {
   title: string
   prompt: string
   approvers: string[]
   timeoutSeconds?: number
   defaultRoute?: string
+  /** RUNNER（默认，运行的人自己确认）或 ASSIGNED（指定审批人在「待办」里处理）。 */
+  approverMode?: 'RUNNER' | 'ASSIGNED'
+  approverUsers?: ApprovalApproverOption[]
+  /** 平台角色编码：MANAGER / DEVELOPER / PLATFORM_ADMIN。 */
+  approverRoles?: string[]
+  allowRunnerApprove?: boolean
 }
 
 export interface LoopVariable {

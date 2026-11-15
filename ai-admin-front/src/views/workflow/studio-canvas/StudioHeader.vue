@@ -80,6 +80,8 @@
             <el-dropdown-item command="layout" :icon="Rank">自动整理</el-dropdown-item>
             <el-dropdown-item command="versions" :icon="Tickets">版本记录</el-dropdown-item>
             <el-dropdown-item command="export" :icon="Download">导出工作流文件</el-dropdown-item>
+            <el-dropdown-item v-if="!viewOnly" command="reviewed-page-draft" :icon="CircleCheck">从已审核页面动作构建草稿</el-dropdown-item>
+            <el-dropdown-item v-if="!viewOnly && trustedPageDraft" command="exit-reviewed-page-draft">退出受限页面草稿</el-dropdown-item>
             <el-dropdown-item command="env" :icon="Setting" divided>环境变量</el-dropdown-item>
             <el-dropdown-item command="shortcuts" :icon="Help">快捷键</el-dropdown-item>
           </el-dropdown-menu>
@@ -118,6 +120,7 @@ defineProps<{
   readOnly: boolean
   /** The caller's role may only look at this Workflow: save, publish and AI edit are hidden, not disabled. */
   viewOnly?: boolean
+  trustedPageDraft?: boolean
   /** The role lacks workflow:debug, so 调试 is hidden. */
   hideRun?: boolean
   debugLoading: boolean

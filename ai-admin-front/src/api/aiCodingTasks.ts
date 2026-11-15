@@ -185,7 +185,7 @@ export function downloadManagedAiCodingArtifact(
 
 export function issueAiCodingHandoff(taskId: string, issuedBy?: string) {
   return controlRequest.post<AiCodingHandoffPackage>(
-    `${ROOT}/${encodeURIComponent(taskId)}/handoffs`,
+    `${ROOT}/${encodeURIComponent(taskId)}/claim-codes`,
     issuedBy ? { issuedBy } : {},
   )
 }

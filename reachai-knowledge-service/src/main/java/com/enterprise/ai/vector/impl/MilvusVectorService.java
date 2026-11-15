@@ -152,7 +152,21 @@ public class MilvusVectorService implements VectorService {
             builder.withExpr(request.getFilterExpression());
         }
 
-        R<SearchResults> response = milvusClient.search(builder.build());
+        SearchParam searchParam = builder.build();
+        R<SearchResults> response = milvusClient.search(searchParam);
+        if (!succeeded(response)) {
+            // After a Milvus restart a collection can come back released ("collection not loaded"),
+            // so the first search fails although the data is intact. Load it once and retry.
+            log.warn("Milvus search on {} failed (status={}); loading the collection and retrying once",
+                    request.getCollectionName(), response == null ? "missing" : response.getStatus());
+            try {
+                loadCollection(request.getCollectionName());
+            } catch (RuntimeException loadFailed) {
+                log.warn("Milvus load collection {} before retry failed: {}",
+                        request.getCollectionName(), loadFailed.getMessage());
+            }
+            response = milvusClient.search(searchParam);
+        }
         requireSuccess(response, "search");
 
         SearchResultsWrapper wrapper = new SearchResultsWrapper(response.getData().getResults());
@@ -207,6 +221,11 @@ public class MilvusVectorService implements VectorService {
         requireSuccess(result, "check collection");
         if (result.getData() == null) throw new IllegalStateException("Milvus collection existence returned no result");
         return result.getData();
+    }
+
+    private static boolean succeeded(R<?> result) {
+        return result != null && result.getException() == null
+                && Objects.equals(result.getStatus(), R.Status.Success.getCode());
     }
 
     private static void requireSuccess(R<?> result, String operation) {

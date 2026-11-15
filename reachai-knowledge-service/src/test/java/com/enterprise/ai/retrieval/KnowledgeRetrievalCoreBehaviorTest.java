@@ -52,6 +52,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
     private EmbeddingService embeddingService;
     private VectorService vectorService;
     private ModelServiceClient modelServiceClient;
+    private KnowledgeHitLogRepository hitLogRepository;
     private KnowledgeRetrievalCore core;
 
     @BeforeEach
@@ -62,6 +63,7 @@ class KnowledgeRetrievalCoreBehaviorTest {
         embeddingService = mock(EmbeddingService.class);
         vectorService = mock(VectorService.class);
         modelServiceClient = mock(ModelServiceClient.class);
+        hitLogRepository = mock(KnowledgeHitLogRepository.class);
         // These existing cases isolate scoring/materialization. Real grant checks have database tests.
         var authorization = mock(KnowledgeRetrievalAuthorization.class);
         var grants = Map.of(1L, new com.enterprise.ai.security.FileAccessSnapshot.Grant(1L, "a".repeat(32), 1L, "b".repeat(32), 1L, "f1", "physical"),
@@ -73,10 +75,11 @@ class KnowledgeRetrievalCoreBehaviorTest {
                 new KnowledgeBaseLookup(knowledgeBaseRepository),
                 fileInfoRepository,
                 chunkRepository,
-                mock(KnowledgeHitLogRepository.class),
+                hitLogRepository,
                 embeddingService,
                 modelServiceClient,
                 vectorService, authorization);
+        org.springframework.test.util.ReflectionTestUtils.setField(engine, "vectorRetryDelayMs", 0L);
         core = new KnowledgeRetrievalCore(engine, authorization);
     }
 
@@ -256,7 +259,46 @@ class KnowledgeRetrievalCoreBehaviorTest {
                 .recordHit(false)
                 .userId("u1")
                 .build()));
+        // kb_ok once; kb_bad once plus one retry for a possibly cold dependency.
+        verify(vectorService, times(3)).search(any(VectorSearchRequest.class));
+    }
+
+    @Test
+    void firstVectorRecallFailureAfterRestartIsRetriedOnce() {
+        KnowledgeBase kb = kb("kb_cold");
+        when(knowledgeBaseRepository.selectList(any())).thenReturn(List.of(kb));
+        when(knowledgeBaseRepository.selectOne(any())).thenReturn(kb);
+        when(chunkRepository.incrementHitCount(any())).thenReturn(1);
+        when(embeddingService.embed(anyString(), anyString())).thenReturn(List.of(0.1f));
+        when(vectorService.search(any(VectorSearchRequest.class)))
+                .thenThrow(new IllegalStateException("Milvus search failed (status=101)"))
+                .thenReturn(List.of(result("v1", 0.9f, "f1", "退货 7 天内可申请")));
+        stubChunkLookup(kb.getId(), "v1", "f1", "退货 7 天内可申请", 41L);
+        when(fileInfoRepository.selectList(any())).thenReturn(List.of(file("f1", "a.md")));
+
+        KnowledgeRetrievalCoreResponse response = core.retrieve(KnowledgeRetrievalCoreRequest.builder()
+                .query("退货").knowledgeBaseCodes(List.of("kb_cold")).searchMode("vector")
+                .topK(5).scoreThreshold(0.5f).rerankEnabled(false).recordHit(true).userId("u1").build());
+
+        assertEquals(1, response.getItems().size());
+        assertEquals("退货 7 天内可申请", response.getItems().get(0).getContent());
         verify(vectorService, times(2)).search(any(VectorSearchRequest.class));
+        verify(hitLogRepository, times(1)).insert(any(com.enterprise.ai.domain.entity.KnowledgeHitLog.class));
+    }
+
+    @Test
+    void failedRetrievalIsNotRecordedAsAMiss() {
+        KnowledgeBase kb = kb("kb_down");
+        when(knowledgeBaseRepository.selectList(any())).thenReturn(List.of(kb));
+        when(embeddingService.embed(anyString(), anyString())).thenThrow(new RuntimeException("model service not ready"));
+
+        assertThrows(com.enterprise.ai.common.exception.BizException.class, () -> core.retrieve(
+                KnowledgeRetrievalCoreRequest.builder()
+                        .query("退货").knowledgeBaseCodes(List.of("kb_down")).searchMode("vector")
+                        .topK(5).scoreThreshold(0.5f).rerankEnabled(false).recordHit(true).userId("u1").build()));
+
+        verify(embeddingService, times(2)).embed(anyString(), anyString());
+        verify(hitLogRepository, never()).insert(any(com.enterprise.ai.domain.entity.KnowledgeHitLog.class));
     }
 
     @Test

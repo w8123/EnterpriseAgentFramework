@@ -1,0 +1,27 @@
+app: {mode: workflow, name: 批量翻译}
+kind: app
+version: 0.1.3
+workflow:
+  graph:
+    edges:
+    - {source: s, target: it, sourceHandle: source}
+    - {source: itstart, target: tr, sourceHandle: source, data: {isInIteration: true}}
+    - {source: it, target: e, sourceHandle: source}
+    nodes:
+    - id: s
+      position: {x: 0, y: 0}
+      data: {type: start, title: 开始, variables: [{variable: lines, label: 句子, type: paragraph, required: true}]}
+    - id: it
+      position: {x: 300, y: 0}
+      data: {type: iteration, title: 逐句翻译, iterator_selector: [s, lines], output_selector: [tr, text], start_node_id: itstart, is_parallel: true, parallel_nums: 10}
+    - id: itstart
+      parentId: it
+      position: {x: 20, y: 60}
+      data: {type: iteration-start, title: '', isInIteration: true}
+    - id: tr
+      parentId: it
+      position: {x: 120, y: 60}
+      data: {type: llm, title: 翻译, isInIteration: true, iteration_id: it, prompt_template: [{role: user, text: '翻译成英文：{{#it.item#}}'}], model: {name: x}}
+    - id: e
+      position: {x: 900, y: 0}
+      data: {type: end, title: 结束, outputs: [{variable: result, value_selector: [it, output]}]}

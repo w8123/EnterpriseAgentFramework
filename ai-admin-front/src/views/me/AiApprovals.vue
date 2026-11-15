@@ -5,11 +5,17 @@
       presentation="plain"
       action-presentation="inline"
       domain="agent"
-      title="AI 操作审核"
-      description="审核 AI 申请的业务写入、配置修改和发布，核对具体内容后批准一次执行。"
+      title="待办与审核"
+      description="指派给你的工作流人工确认，以及 AI 申请的业务写入、配置修改和发布，核对后再批准。"
     />
 
     <LiquidGlassTabs v-model="tab" source="wallpaper">
+      <el-tab-pane name="workflows">
+        <template #label>
+          工作流审批<span v-if="workflowPending" class="ai-approvals__count">{{ workflowPending }}</span>
+        </template>
+        <WorkflowApprovalList v-if="tab === 'workflows'" @pending-count="workflowPending = $event" />
+      </el-tab-pane>
       <el-tab-pane v-if="canReviewEmployees" name="employees">
         <template #label>
           员工提交的<span v-if="employeePending" class="ai-approvals__count">{{ employeePending }}</span>
@@ -380,11 +386,18 @@ import {
   LiquidGlassButton, LiquidGlassCard, LiquidGlassEmptyState, LiquidGlassTabs,
 } from '@/components/common/liquid-glass'
 import McpWriteApprovalList from '@/views/mcp-hub/McpWriteApprovalList.vue'
+import WorkflowApprovalList from './components/WorkflowApprovalList.vue'
+import { useWorkflowApprovalCount } from '@/composables/useWorkflowApprovalCount'
 
 // 管理人员审批员工 AI 写操作；每个人审核自己平台 AI 连接的业务写入和发布。
 const canReviewEmployees = computed(() => hasPlatformPermission(platformSessionUser.value?.permissions,
   PLATFORM_PERMISSION_MCP_WRITE_APPROVAL_MANAGE))
-const tab = ref<'employees' | 'mine'>(canReviewEmployees.value ? 'employees' : 'mine')
+const { count: workflowApprovalCount } = useWorkflowApprovalCount()
+const workflowPending = ref(workflowApprovalCount.value)
+watch(workflowApprovalCount, (value) => { workflowPending.value = value })
+// 有指派给自己的工作流审批时先打开它；否则沿用原来的默认页。
+const tab = ref<'workflows' | 'employees' | 'mine'>(workflowApprovalCount.value > 0
+  ? 'workflows' : canReviewEmployees.value ? 'employees' : 'mine')
 const employeePending = ref(0)
 const mineFilter = ref<'pending' | 'all'>('pending')
 const connections = ref<PlatformAiConnection[]>([])

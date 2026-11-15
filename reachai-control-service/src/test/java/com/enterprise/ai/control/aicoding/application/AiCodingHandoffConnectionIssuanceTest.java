@@ -11,6 +11,10 @@ import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskHandoffMapper;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingTaskMapper;
 import com.enterprise.ai.control.aicoding.security.AiCodingActivationAttemptService;
 import com.enterprise.ai.control.aicoding.security.AiCodingSecretDigester;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -25,6 +29,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 class AiCodingHandoffConnectionIssuanceTest {
+    @BeforeAll
+    static void initializeEntityMetadata() {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), "test"), AiCodingTaskHandoffEntity.class);
+    }
     private final AiCodingTaskMapper tasks = mock(AiCodingTaskMapper.class);
     private final AiCodingTaskHandoffMapper handoffs = mock(AiCodingTaskHandoffMapper.class);
     private final AiCodingTaskEventMapper events = mock(AiCodingTaskEventMapper.class);
@@ -54,6 +62,7 @@ class AiCodingHandoffConnectionIssuanceTest {
         assertEquals("rhc-fixture", issued.activationCode());
         assertEquals("fixture-digest", stored.getValue().getActivationCodeHash());
         assertEquals("ISSUED", stored.getValue().getActivationStatus());
+        assertEquals("mcp-claim-only", stored.getValue().getClientSessionRef());
         assertNotNull(stored.getValue().getActivationExpiresAt());
         var event = ArgumentCaptor.forClass(AiCodingTaskEventEntity.class);
         verify(events).insert(event.capture());
@@ -64,6 +73,7 @@ class AiCodingHandoffConnectionIssuanceTest {
 
     @Test
     void otherTaskKindsCanStillBuildTheExistingHandoffPackage() {
+        when(properties.isLegacyHandoffEnabled()).thenReturn(true);
         AiCodingTaskEntity task = task();
         when(tasks.selectById("T-1")).thenReturn(task);
         when(tasks.updateById(task)).thenReturn(1);

@@ -30,7 +30,7 @@ class ControlAiAssistArtifactControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.skillPackageUrl")
                         .value("https://reachai.example.com:9443/api/ai-assist/skills/reachai-onboarding/latest.zip"))
-                .andExpect(jsonPath("$.sdkArtifacts.length()").value(7))
+                .andExpect(jsonPath("$.sdkArtifacts.length()").value(8))
                 .andExpect(jsonPath("$.sdkArtifacts[0].artifactId").value("reachai-capability-sdk"))
                 .andExpect(jsonPath("$.sdkArtifacts[0].pomIntegritySha256").isNotEmpty())
                 .andExpect(jsonPath("$.sdkArtifacts[1].artifactId").value("reachai-spring-boot2-starter"));
@@ -51,6 +51,23 @@ class ControlAiAssistArtifactControllerTest {
         assertEquals(200, response.getStatusCode().value());
         assertEquals(actual, HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(response.getBody())));
         assertEquals(actual, new String(controller.downloadGoSdk(ControlGoSdkArtifactSupport.FILE_NAME + ".sha256").getBody()).trim());
+    }
+
+    @Test
+    void phpPackageIsVerifiedAndRejectsModifiedBytes() throws Exception {
+        byte[] good = "php package".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String hash = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(good));
+        var digest = new ByteArrayResource(hash.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertArrayEquals(good, ControlPhpSdkArtifactSupport.loadVerified(new ByteArrayResource(good), digest));
+        assertNull(ControlPhpSdkArtifactSupport.loadVerified(new ByteArrayResource(new byte[] {1}), digest));
+        assertEquals(400, controller.downloadPhpSdk("../secret.zip").getStatusCode().value());
+        assertEquals(404, controller.downloadPhpSdk("other.zip").getStatusCode().value());
+        String actual = ControlPhpSdkArtifactSupport.integritySha256();
+        assertNotNull(actual, "A normal Control build must contain the verified PHP SDK archive");
+        var response = controller.downloadPhpSdk(ControlPhpSdkArtifactSupport.FILE_NAME);
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(actual, HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(response.getBody())));
+        assertEquals(actual, new String(controller.downloadPhpSdk(ControlPhpSdkArtifactSupport.FILE_NAME + ".sha256").getBody()).trim());
     }
 
     @Test

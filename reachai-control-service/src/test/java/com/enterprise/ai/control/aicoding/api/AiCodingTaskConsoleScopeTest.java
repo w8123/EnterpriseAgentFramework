@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aicoding.api;
 
 import com.enterprise.ai.control.aicoding.application.AiCodingHandoffApplicationService;
+import com.enterprise.ai.control.aicoding.application.AiCodingTaskProperties;
 import com.enterprise.ai.control.aicoding.application.AiCodingManagedExecutionService;
 import com.enterprise.ai.control.aicoding.application.AiCodingManagedExecutionStreamService;
 import com.enterprise.ai.control.aicoding.application.AiCodingTaskApplicationService;
@@ -24,6 +25,7 @@ import static org.mockito.Mockito.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class AiCodingTaskConsoleScopeTest {
@@ -91,6 +93,60 @@ class AiCodingTaskConsoleScopeTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.taskId").value("t-page"));
         verify(handoffs).issue(eq("t-page"), anyString(), eq("builder"));
+    }
+
+    @Test
+    void claimCodeRequiresProjectWriteAndIsNeverCachedOrAccompaniedByATaskToken() throws Exception {
+        stubTask("t-page", "orders");
+        when(tasks.detail("t-page").task().taskKind()).thenReturn("PAGE_MAP_SCAN");
+        when(handoffs.issueClaimCode("t-page", "builder")).thenReturn(
+                new AiCodingHandoffApplicationService.ClaimCodeView("t-page", "rhc-fixture", LocalDateTime.now().plusHours(1)));
+        mvc.perform(post("/api/ai-coding-console/tasks/t-page/claim-codes")
+                        .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.activationCode").value("rhc-fixture"))
+                .andExpect(jsonPath("$.taskToken").doesNotExist())
+                .andExpect(jsonPath("$.prompt").doesNotExist());
+        verify(handoffs).issueClaimCode("t-page", "builder");
+
+        stubTask("t-foreign", "finance");
+        mvc.perform(post("/api/ai-coding-console/tasks/t-foreign/claim-codes")
+                        .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session))
+                .andExpect(status().isForbidden());
+        verify(handoffs, never()).issueClaimCode(eq("t-foreign"), any());
+    }
+
+    @Test
+    void authorizedPersonCanReissueAnOnboardingTaskForMcp() throws Exception {
+        stubTask("t-onboard", "orders");
+        when(tasks.detail("t-onboard").task().taskKind()).thenReturn("PROJECT_ONBOARDING");
+        when(handoffs.issueClaimCode("t-onboard", "builder")).thenReturn(
+                new AiCodingHandoffApplicationService.ClaimCodeView("t-onboard", "rhc-fixture", LocalDateTime.now().plusHours(1)));
+        mvc.perform(post("/api/ai-coding-console/tasks/t-onboard/claim-codes")
+                        .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.activationCode").value("rhc-fixture"));
+        verify(handoffs).issueClaimCode("t-onboard", "builder");
+    }
+
+    @Test
+    void legacyIssuanceAndActivationRoutesAreGoneByDefault() throws Exception {
+        var service = new AiCodingHandoffApplicationService(null, null, null, new AiCodingTaskProperties(),
+                null, null, null, null, null);
+        var defaultMvc = MockMvcBuilders.standaloneSetup(
+                new AiCodingTaskConsoleController(tasks, service, managed, mock(AiCodingManagedExecutionStreamService.class)),
+                new AiCodingHandoffController(service)).build();
+        stubTask("t-page", "orders");
+        when(tasks.detail("t-page").task().taskKind()).thenReturn("PAGE_MAP_SCAN");
+        defaultMvc.perform(post("/api/ai-coding-console/tasks/t-page/handoffs")
+                        .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session))
+                .andExpect(status().isGone());
+        defaultMvc.perform(post("/api/ai-coding/handoffs/h-1/activate")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"schema\":\"reachai.ai-coding.activation.v1\",\"activationCode\":\"fixture\"}"))
+                .andExpect(status().isGone());
     }
 
     private void stubTask(String id, String project) {

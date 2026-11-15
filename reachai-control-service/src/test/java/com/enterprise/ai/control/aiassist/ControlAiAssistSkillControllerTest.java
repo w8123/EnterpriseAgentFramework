@@ -52,7 +52,7 @@ class ControlAiAssistSkillControllerTest {
                 "templates/angular/reachai-page-action.service.ts",
                 "templates/angular/page-registry.example.ts",
                 "scripts/install-embed-chat.mjs",
-                "scripts/install-java-sdk.ps1",
+                "scripts/install-java-sdk.mjs",
                 "scripts/set-reachai-registry-secret.ps1",
                 "scripts/reachai-page-actions.ps1",
                 "scripts/reachai-doctor.mjs",

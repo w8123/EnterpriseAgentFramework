@@ -31,7 +31,9 @@ import {
 } from '@/components/common/liquid-glass'
 import { downloadAiAuditExport, getAiUsageReport } from '@/api/mcp'
 import { ElMessage } from 'element-plus'
+import AiUsageActivityPanel from './AiUsageActivityPanel.vue'
 import AiUsageCostPanel from './AiUsageCostPanel.vue'
+import AiUsageEvalPanel from './AiUsageEvalPanel.vue'
 import type { AiUsagePerson, AiUsageReport } from '@/types/mcp'
 import { useCatalogQuery } from '@/composables/useCatalogQuery'
 import { usePlatformCan } from '@/auth/usePlatformCan'
@@ -75,7 +77,7 @@ const sort = computed(
 )
 const activeTab = computed({
   get: () =>
-    ['operations', 'skills', 'cost'].includes(catalog.filters.value.tab) ? catalog.filters.value.tab : 'people',
+    ['operations', 'skills', 'activity', 'cost', 'eval'].includes(catalog.filters.value.tab) ? catalog.filters.value.tab : 'people',
   set: (value: string) => {
     void catalog.applyField('tab', value === 'people' ? '' : value)
   },
@@ -513,14 +515,23 @@ onBeforeUnmount(() => {
               }}</span></template
             ></el-tab-pane
           >
+          <el-tab-pane name="activity" label="员工操作" />
           <el-tab-pane name="cost" label="费用" />
+          <el-tab-pane name="eval" label="自动优化" />
         </LiquidGlassTabs>
         <AiUsageCostPanel v-if="activeTab === 'cost'" :days="days" :project-code="projectCode || undefined" />
+        <AiUsageEvalPanel v-else-if="activeTab === 'eval'" :project-code="projectCode || undefined" :systems="systems" />
+        <AiUsageActivityPanel
+          v-else-if="activeTab === 'activity'"
+          :days="days"
+          :project-code="projectCode || undefined"
+          :systems="systems"
+        />
         <p v-else-if="hasActivity || loading || activeTab === 'skills'" class="view-description">
           {{ tabDescription }}
         </p>
 
-        <template v-if="activeTab === 'cost'" />
+        <template v-if="activeTab === 'cost' || activeTab === 'activity' || activeTab === 'eval'" />
         <div
           v-else-if="loading && !report"
           v-loading="true"

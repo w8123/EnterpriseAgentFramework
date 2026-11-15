@@ -34,7 +34,7 @@ public class ManualHttpApiService {
     private static final Pattern ROUTE_PARAMETER = Pattern.compile("\\{([A-Za-z][A-Za-z0-9_.-]*)}");
     private static final Set<String> METHODS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE");
     private static final Set<String> SCALAR_TYPES = Set.of("string", "integer", "number", "boolean");
-    private static final Set<String> ORIGINS = Set.of("form", "curl", "mcp");
+    private static final Set<String> ORIGINS = Set.of("form", "curl", "mcp", "openapi", "postman", "har", "dify", "n8n");
     private static final int MAX_PARAMETERS = 50;
 
     private final ScanProjectMapper projects;
@@ -48,21 +48,14 @@ public class ManualHttpApiService {
     public Result save(long projectId, Request request) {
         ScanProjectEntity project = project(projectId);
         HttpApiServiceScope scope = scope(project);
-        if (request == null) throw new IllegalArgumentException("请填写 API 信息");
-        String method = method(request.httpMethod());
+        HttpApiOperationContract contract = contract(project, request);
+        String method = contract.httpMethod();
         String path = path(request.path());
-        String origin = StringUtils.hasText(request.origin()) ? request.origin().trim().toLowerCase(Locale.ROOT) : "form";
-        if (!ORIGINS.contains(origin)) throw new IllegalArgumentException("来源类型无效");
-        HttpApiOperationContract contract = new HttpApiOperationContract(method, project.getContextPath(), path,
-                new HttpApiOperationContract.MappingConditions(List.of(), List.of(), List.of()),
-                parameters(path, request.parameters()), requestBody(method, request.requestBody()),
-                List.of(new HttpApiOperationContract.Response("200", responseSchema(request.responseType()),
-                        List.of("application/json"))),
-                authentication(request.authentication()), sideEffect(method, request.sideEffect()));
+        String origin = origin(request);
         String sourceKey = SOURCE_KEY_PREFIX + method + " " + path;
         if (sourceKey.length() > 256) throw new IllegalArgumentException("API 路径过长");
         HttpApiAssetService.ObserveRequest observe = new HttpApiAssetService.ObserveRequest(scope,
-                HttpApiSourceKind.MANUAL, sourceKey, switch (origin) { case "curl" -> "粘贴 curl 添加"; case "mcp" -> "智能体通过 MCP 上传"; default -> "手动添加"; }, null,
+                HttpApiSourceKind.MANUAL, sourceKey, sourceLocation(origin, request.summary()), null,
                 contract, request.businessGroups());
         var canonical = assets.validate(observe);
         observe = new HttpApiAssetService.ObserveRequest(scope, HttpApiSourceKind.MANUAL, sourceKey,
@@ -71,6 +64,51 @@ public class ManualHttpApiService {
         inventories.recordSubset(scope, HttpApiSourceKind.MANUAL, List.of(observation.binding().getId()), List.of(), null);
         return new Result(observation.asset().getId(), observation.binding().getId(), observation.assetCreated(),
                 observation.asset().getStatus());
+    }
+
+    /** Same checks as {@link #save} without touching the database; null when the request would save. */
+    public String validationError(ScanProjectEntity project, Request request) {
+        try {
+            contract(project, request);
+            return null;
+        } catch (IllegalArgumentException invalid) {
+            return invalid.getMessage();
+        }
+    }
+
+    HttpApiOperationContract contract(ScanProjectEntity project, Request request) {
+        if (request == null) throw new IllegalArgumentException("请填写 API 信息");
+        String method = method(request.httpMethod());
+        String path = path(request.path());
+        origin(request);
+        return new HttpApiOperationContract(method, project.getContextPath(), path,
+                new HttpApiOperationContract.MappingConditions(List.of(), List.of(), List.of()),
+                parameters(path, request.parameters()), requestBody(method, request.requestBody()),
+                List.of(new HttpApiOperationContract.Response("200", responseSchema(request.responseType()),
+                        List.of("application/json"))),
+                authentication(request.authentication()), sideEffect(method, request.sideEffect()));
+    }
+
+    private String origin(Request request) {
+        String origin = StringUtils.hasText(request.origin()) ? request.origin().trim().toLowerCase(Locale.ROOT) : "form";
+        if (!ORIGINS.contains(origin)) throw new IllegalArgumentException("来源类型无效");
+        return origin;
+    }
+
+    private String sourceLocation(String origin, String summary) {
+        String label = switch (origin) {
+            case "curl" -> "粘贴 curl 添加";
+            case "mcp" -> "智能体通过 MCP 上传";
+            case "openapi" -> "从 OpenAPI 文档导入";
+            case "postman" -> "从 Postman 集合导入";
+            case "har" -> "从浏览器抓包（HAR）导入";
+            case "dify" -> "从 Dify 应用接入";
+            case "n8n" -> "从 n8n 工作流接入";
+            default -> "手动添加";
+        };
+        if (!StringUtils.hasText(summary)) return label;
+        String text = summary.replaceAll("\\s+", " ").trim();
+        return label + " · " + (text.length() > 200 ? text.substring(0, 200) : text);
     }
 
     /** Removes only a manual source of this project; other sources of the same API stay. */
@@ -220,9 +258,18 @@ public class ManualHttpApiService {
         return text.length() > max ? text.substring(0, max) : text;
     }
 
+    /** {@code summary}/{@code description} are optional prose from imports; they seed the API's semantic doc. */
     public record Request(String httpMethod, String path, String sideEffect, String origin,
                           List<Parameter> parameters, RequestBody requestBody, String responseType,
-                          Authentication authentication, List<String> businessGroups) { }
+                          Authentication authentication, List<String> businessGroups,
+                          String summary, String description) {
+        public Request(String httpMethod, String path, String sideEffect, String origin,
+                       List<Parameter> parameters, RequestBody requestBody, String responseType,
+                       Authentication authentication, List<String> businessGroups) {
+            this(httpMethod, path, sideEffect, origin, parameters, requestBody, responseType, authentication,
+                    businessGroups, null, null);
+        }
+    }
 
     public record Parameter(String name, String location, String type, boolean required, String description) { }
 

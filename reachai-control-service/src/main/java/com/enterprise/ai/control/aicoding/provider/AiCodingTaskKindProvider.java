@@ -38,6 +38,11 @@ public interface AiCodingTaskKindProvider {
         return List.of();
     }
 
+    /** Whether an applied acceptance report may select a server-verified trace. */
+    default boolean allowsAcceptanceTraceSelection() {
+        return false;
+    }
+
     default List<TaskRequiredResource> requiredResources(
             TaskDescriptor task,
             String publicBaseUrl) {

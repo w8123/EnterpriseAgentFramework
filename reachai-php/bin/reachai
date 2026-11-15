@@ -1,0 +1,45 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+// Usage: vendor/bin/reachai heartbeat --bootstrap=reachai.php [--loop]
+// The bootstrap file builds and returns the host's configured ReachAI\ReachAI instance.
+
+$autoloaders = [__DIR__ . '/../../../autoload.php', __DIR__ . '/../vendor/autoload.php', __DIR__ . '/../autoload.php'];
+foreach ($autoloaders as $file) {
+    if (is_file($file)) {
+        require $file;
+        break;
+    }
+}
+if (!class_exists(ReachAI\ReachAI::class)) {
+    fwrite(STDERR, "ReachAI SDK autoloader not found. Install with composer or require reachai-php/autoload.php.\n");
+    exit(1);
+}
+
+$positional = array_values(array_filter(array_slice($argv, 1), static function (string $argument): bool {
+    return strpos($argument, '--') !== 0;
+}));
+$command = $positional[0] ?? '';
+$loop = in_array('--loop', $argv, true);
+$bootstrap = getenv('REACHAI_BOOTSTRAP') ?: 'reachai.php';
+foreach ($argv as $argument) {
+    if (strpos($argument, '--bootstrap=') === 0) {
+        $bootstrap = substr($argument, strlen('--bootstrap='));
+    }
+}
+if ($command === 'generate-key') {
+    fwrite(STDOUT, ReachAI\EncryptedFileCredentialStore::generateKey() . PHP_EOL);
+    exit(0);
+}
+if (!is_file($bootstrap)) {
+    fwrite(STDERR, "Bootstrap file not found: {$bootstrap}\n");
+    exit(2);
+}
+$reach = require $bootstrap;
+if (!$reach instanceof ReachAI\ReachAI) {
+    fwrite(STDERR, "Bootstrap file must return a ReachAI\\ReachAI instance.\n");
+    exit(2);
+}
+exit((new ReachAI\Cli($reach))->run($command, $loop));

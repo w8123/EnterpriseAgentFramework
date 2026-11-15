@@ -118,6 +118,12 @@ class RuntimeWorkflowPageResourceBindingValidationTest {
                 .anyMatch(item -> "GRAPH_PAGE_ACTION_ARGS_REQUIRED_MISSING".equals(item.code())));
         assertTrue(result.warnings().stream()
                 .anyMatch(item -> "GRAPH_PAGE_ACTION_CONFIRM_REQUIRED".equals(item.code())));
+        workflow.setGraphSpecJson(workflow.getGraphSpecJson().replace("\"args\": {}", "\"inputMapping\": {\"orderId\": \"params.orderId\"}"));
+        assertTrue(service.validate(workflow).errors().stream()
+                .noneMatch(item -> "GRAPH_PAGE_ACTION_ARGS_REQUIRED_MISSING".equals(item.code())));
+        workflow.setGraphSpecJson(workflow.getGraphSpecJson().replace("params.orderId", "  "));
+        assertTrue(service.validate(workflow).errors().stream()
+                .anyMatch(item -> "GRAPH_PAGE_ACTION_ARGS_REQUIRED_MISSING".equals(item.code())));
     }
 
     private RuntimeWorkflowReleaseValidationService service(

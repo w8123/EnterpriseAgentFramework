@@ -75,6 +75,18 @@ public class CapabilitySemanticCatalogService {
         return doc;
     }
 
+    /**
+     * Seeds a document from imported prose (OpenAPI summary, Postman description). It never replaces an
+     * existing document, so a later re-import keeps whatever people or the model wrote since.
+     */
+    public boolean seedIfAbsent(Long projectId, String type, Long id, String contentMd) {
+        if (!StringUtils.hasText(contentMd)) return false;
+        CatalogSubject subject = subjects.resolve(projectId, type, id);
+        if (find(subject).filter(doc -> StringUtils.hasText(doc.getContentMd())).isPresent()) return false;
+        edit(projectId, type, id, contentMd, null);
+        return true;
+    }
+
     public SemanticDocEntity edit(Long projectId, String type, Long id, String contentMd, String expectedUpdatedAt) {
         if (!StringUtils.hasText(contentMd)) throw new IllegalArgumentException("文档内容不能为空");
         CatalogSubject subject = subjects.resolve(projectId, type, id);

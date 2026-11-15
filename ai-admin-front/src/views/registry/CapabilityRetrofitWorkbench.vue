@@ -54,7 +54,7 @@
 
         <div class="prompt-block">
           <div class="prompt-head">
-            <strong>还没连上平台？生成一次性交接提示词</strong>
+            <strong>在这里新建任务，再交给你的 AI</strong>
             <LiquidGlassButton
               size="small"
               type="primary"
@@ -62,15 +62,15 @@
               :disabled="!canWrite || !project?.id || !objective.trim()"
               @click="createHandoff"
             >
-              新建任务并生成
+              新建任务
             </LiquidGlassButton>
           </div>
           <p v-if="!canWrite" class="muted">你没有这个项目的修改权限。</p>
-          <template v-if="latestHandoff">
-            <pre class="prompt-text">{{ latestHandoff.prompt }}</pre>
+          <template v-if="latestHandoff && latestHandoff.taskId === selectedTaskId">
             <div class="prompt-foot">
-              <span class="muted">激活码一次有效，{{ formatTime(latestHandoff.activationExpiresAt) }} 前使用。</span>
-              <LiquidGlassButton size="small" @click="copy(latestHandoff.prompt)">复制交接提示词</LiquidGlassButton>
+              <span class="muted">领取码一次有效，{{ formatTime(latestHandoff.activationExpiresAt) }} 前使用。</span>
+              <AiHandoffButton scenario="ai-coding-task" size="small" type="primary"
+                :context="{ taskId: latestHandoff.taskId, claimCode: latestHandoff.activationCode }" />
             </div>
           </template>
         </div>
@@ -106,6 +106,8 @@
       <div class="detail-head">
         <h2>{{ selectedTask?.objective || selectedTask?.title || selectedTaskId }}</h2>
         <LiquidGlassButton size="small" :loading="overviewLoading" @click="loadOverview(selectedTaskId)">刷新这条</LiquidGlassButton>
+        <LiquidGlassButton v-if="canWrite && selectedTask && aiCodingExecutionAcceptsClientAccess(selectedTask.executionStatus)"
+          size="small" :loading="creating" @click="reissueTaskClaim">重新生成领取码</LiquidGlassButton>
       </div>
       <ol class="stage-strip" aria-label="改造进度">
         <li v-for="stage in stages" :key="stage.key" :class="`stage--${stage.status}`">{{ stage.title }}</li>
@@ -264,7 +266,7 @@ import {
   hasPlatformPermission,
 } from '@/auth/platformAccess'
 import AiHandoffButton from '@/components/ai-access/AiHandoffButton.vue'
-import { copyAiCodingText } from '@/utils/aiCodingClipboard'
+import { aiCodingExecutionAcceptsClientAccess } from '@/utils/aiCodingPresentation'
 import type { AiCodingExecutorProvider, AiCodingExecutionStatus } from '@/types/aiCodingTask'
 import type { McpPublication } from '@/types/mcp'
 import type { ScanProject } from '@/types/scanProject'
@@ -302,13 +304,14 @@ const publishing = ref(false)
 const publishMessage = ref('')
 
 const {
-  tasks, selectedTaskDetail, latestHandoff, loading, loadTasks, createTask, refreshTask, answerQuestion,
+  tasks, selectedTaskDetail, latestHandoff, loading, loadTasks, createTask, reissueHandoff, refreshTask, answerQuestion, reset: resetTaskState,
 } = useAiCodingTask()
 
 const permissions = computed(() => platformSessionUser.value?.permissions)
 const canWrite = computed(() => hasPlatformPermission(permissions.value, PLATFORM_PERMISSION_WRITE))
 const canPublish = computed(() => hasPlatformPermission(permissions.value, PLATFORM_PERMISSION_MCP_PUBLICATION_MANAGE))
-const selectedTask = computed(() => tasks.value.find((task) => task.taskId === selectedTaskId.value) || selectedTaskDetail.value?.task)
+const selectedTask = computed(() => tasks.value.find((task) => task.taskId === selectedTaskId.value)
+  || (selectedTaskDetail.value?.task.taskId === selectedTaskId.value ? selectedTaskDetail.value.task : undefined))
 const stage = computed(() => currentRetrofitStage(overview.value))
 const stages = computed(() => retrofitStages(overview.value))
 const candidates = computed(() => overview.value?.selection?.candidates?.candidates || [])
@@ -404,6 +407,7 @@ async function submitSelection() {
 
 async function createHandoff() {
   if (!project.value?.id) return
+  const originProjectCode = projectCode.value
   creating.value = true
   try {
     const goal = objective.value.trim()
@@ -422,10 +426,34 @@ async function createHandoff() {
         snapshot: { projectId: project.value.id, name: project.value.name, projectKind: project.value.projectKind },
       }],
     })
+    if (originProjectCode !== projectCode.value) return
     await selectTask(task.taskId)
-    ElMessage.success('任务已建好，复制交接提示词给你的 AI')
+    ElMessage.success('任务已建好，点击「交给我的 AI」领取')
   } catch (error) {
     ElMessage.error(`新建失败：${(error as Error).message || '请稍后重试'}`)
+  } finally {
+    creating.value = false
+  }
+}
+
+async function reissueTaskClaim() {
+  if (!selectedTaskId.value) return
+  const taskId = selectedTaskId.value
+  const originProjectCode = projectCode.value
+  if (['ACTIVE', 'TIMED_OUT'].includes(selectedTask.value?.connection?.status || '')) {
+    try {
+      await ElMessageBox.confirm('重新生成会撤销当前连接的任务权限，确定继续吗？', '重新生成领取码', { type: 'warning' })
+    } catch { return }
+  }
+  if (taskId !== selectedTaskId.value || originProjectCode !== projectCode.value) return
+  creating.value = true
+  try {
+    await reissueHandoff(taskId)
+    if (taskId === selectedTaskId.value && originProjectCode === projectCode.value) {
+      ElMessage.success('领取码已生成，请点击上方「交给我的 AI」')
+    }
+  } catch (error) {
+    ElMessage.error(`生成领取码失败：${(error as Error).message || '请稍后重试'}`)
   } finally {
     creating.value = false
   }
@@ -485,12 +513,6 @@ function goReview() {
   })
 }
 
-async function copy(text: string) {
-  const result = await copyAiCodingText(text)
-  if (result.copied) ElMessage.success('已复制')
-  else ElMessage.warning('浏览器不允许自动复制，请手动选中复制')
-}
-
 function statusLabel(status: AiCodingExecutionStatus | string) {
   const labels: Record<string, string> = {
     READY: '等 AI 领取', RUNNING: '进行中', WAITING_USER: '等你操作', RESULT_SUBMITTED: '已交报告',
@@ -512,6 +534,7 @@ function formatTime(value?: string | null) {
 }
 
 watch(projectCode, () => {
+  resetTaskState()
   project.value = null
   selectedTaskId.value = ''
   overview.value = null

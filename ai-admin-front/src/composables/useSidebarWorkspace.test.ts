@@ -96,6 +96,6 @@ describe('useSidebarWorkspace', () => {
 
     session.user.value = { userId: 8, username: 'manager01', roles: ['MANAGER'], permissions: ['agent:read'] }
     workspace.setWorkspace('my')
-    expect(labels(workspace.visibleMenu.value)).toEqual(['我的首页', 'AI 工具接入', 'AI 操作审核', '我的记忆'])
+    expect(labels(workspace.visibleMenu.value)).toEqual(['我的首页', 'AI 工具接入', '待办与审核', '我的记忆'])
   })
 })

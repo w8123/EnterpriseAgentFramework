@@ -110,7 +110,7 @@ const modelPreflightBlocked = computed(() => (
         :disabled="preflightLoading || modelPreflightBlocked"
         @click="emit('confirm', page, workflow)"
       >
-        创建并生成验收交接包
+        创建并生成领取码
       </LiquidGlassButton>
     </template>
   </AppDialog>

@@ -21,6 +21,7 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionEventSink;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutor;
+import com.enterprise.ai.runtime.execution.RuntimeWorkflowApprovalService;
 import com.enterprise.ai.runtime.execution.RuntimeWorkflowInteractionSessionService;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
@@ -79,12 +80,13 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
     private static final String FINAL_ANSWER_TOOL = "begin_final_answer";
     private static final String PLAN_INCOMPLETE_CODE = "SUPERVISOR_PLAN_INCOMPLETE";
     private static final String PLAN_INCOMPLETE_MESSAGE =
-            "Supervisor stopped before all structured execution-tool plan steps completed";
+            "智能体没有执行完计划里的全部步骤就停下了，结果可能不完整。请重试一次；如果反复出现，请把问题说得更具体，或在运行详情里查看哪一步没有执行。";
     private static final int MAX_UNPLANNED_TOOL_ATTEMPTS = 3;
 
     private final RuntimeModelServiceClient modelClient;
     private final RuntimeModelStreamHttpClient modelStreamClient;
     private final SupervisorPageQueryRouter pageQueryRouter;
+    private final TrustedPageDraftRouter pageDraftRouter;
     private final RuntimeWorkflowExecutionQuery workflowQuery;
     private final RuntimeGraphSpecExecutor graphSpecExecutor;
     private final RuntimeWorkflowInteractionSessionService interactionSessionService;
@@ -144,6 +146,26 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         this.managedExecutorDelegationService = service;
     }
 
+    private SupervisorProjectCapabilityToolbox capabilityToolbox;
+    private SupervisorDirectFlowRouteMemory directFlowRouteMemory;
+
+    @Autowired(required = false)
+    void setDirectFlowRouteMemory(SupervisorDirectFlowRouteMemory memory) {
+        this.directFlowRouteMemory = memory;
+    }
+
+    @Autowired(required = false)
+    void setCapabilityToolbox(SupervisorProjectCapabilityToolbox toolbox) {
+        this.capabilityToolbox = toolbox;
+    }
+
+    private com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup projectEvalSettings;
+
+    @Autowired(required = false)
+    void setProjectEvalSettings(com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup settings) {
+        this.projectEvalSettings = settings;
+    }
+
     public AgentScopeSupervisorRuntimeAdapter(
             RuntimeModelServiceClient modelClient,
             RuntimeModelStreamHttpClient modelStreamClient,
@@ -178,6 +200,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         this.modelClient = modelClient;
         this.modelStreamClient = modelStreamClient;
         this.pageQueryRouter = new SupervisorPageQueryRouter(controlCatalogClient, objectMapper);
+        this.pageDraftRouter = new TrustedPageDraftRouter(controlCatalogClient, objectMapper);
         this.workflowQuery = workflowQuery;
         this.graphSpecExecutor = graphSpecExecutor;
         this.interactionSessionService = interactionSessionService;
@@ -245,6 +268,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             cancellation.throwIfCancelled();
             SupervisorResult ruleFirstResult = request.approvalGrant() == null
                     ? tryRuleFirstPageQuery(state) : resumeApprovedAction(state);
+            if (ruleFirstResult == null && request.approvalGrant() == null) {
+                ruleFirstResult = tryRememberedDirectFlow(state);
+            }
             if (ruleFirstResult != null) {
                 return ruleFirstResult;
             }
@@ -263,6 +289,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             for (String toolName : state.managedExecutorToolNames()) {
                 toolkit.registerAgentTool(SupervisorDelegationTools.managedExecutor(
                         toolName, args -> state.executeManagedExecutor(toolName, args)));
+            }
+            if (state.capabilities != null) {
+                state.capabilities.tools().forEach(toolkit::registerAgentTool);
             }
 
             AgentScopeAnswerPhase answerPhase = state.answerPhase;
@@ -326,11 +355,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     .model(model)
                     .toolkit(toolkit)
                     .maxIters(Math.max(6, config.getMaxWorkflowCalls() + config.getMaxReplans()
-                            + request.remoteAgents().size() + 4))
+                            + request.remoteAgents().size() + 4
+                            + (state.capabilities == null ? 0
+                                    : SupervisorProjectCapabilityToolbox.MAX_SEARCHES
+                                            + SupervisorProjectCapabilityToolbox.MAX_CALLS)))
                     .generateOptions(options)
                     .hook(publicFinalHook)
                     .hook(new SupervisorInteractionPauseHook(() -> state.confirmationPending()
                             || state.unplannedToolAttemptLimitReached()
+                            || state.pageActionPreconditionFailed
                             || state.deterministicKnowledgeAnswer != null))
                     .defaultSessionId(agentStateStore == null ? state.sessionId() : agentStateStore.defaultSessionId())
                     .stateStore(agentStateStore);
@@ -362,6 +395,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         .block(Duration.ofMillis(config.getTotalTimeoutMs()));
                 state.agentStateContainsTurn = state.memoryKey().persistent();
                 cancellation.throwIfCancelled();
+                if (state.pageActionPreconditionFailed) {
+                    state.answerPhase.markFailed();
+                    state.phases.terminateActive("failed", "页面操作条件不满足");
+                    return finish(state, false, "PAGE_BRIDGE_PRECONDITION_FAILED",
+                            "页面操作条件不满足，本次未完成，请检查输入后重试。", Map.of("contentStreamed", false));
+                }
                 String answer = response == null ? null : response.getTextContent();
                 boolean directTerminal = isDirectTerminalResponse(state, answer, model);
                 boolean incompletePlan = !state.confirmationPending()
@@ -392,6 +431,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     model.publishBufferedDirect(answer);
                 } else if (directTerminal) {
                     // 无 Workflow / 无 Plan 的 terminal 正文：一次模型请求即可，禁止 forcePublicFinalPass
+                    if (state.hasUnexecutedPageRequest() && !isSafePageClarification(answer)
+                            || state.hasUnexecutedEmbedMutation() && claimsOperationStarted(answer)) {
+                        state.answerPhase.markFailed();
+                        return finish(state, false, "SUPERVISOR_PAGE_ACTION_NOT_EXECUTED",
+                                "本轮没有执行请求的操作，请确认所需信息后重试。", Map.of("contentStreamed", false));
+                    }
                     answer = acceptDirectTerminalAnswer(model, state, answer);
                 } else if (!model.didStreamContent()) {
                     // 模型未进入 PUBLIC_FINAL：不得公开 INTERNAL 文本；确定性补救一次 no-tool final pass
@@ -414,7 +459,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 if (!state.confirmationPending() && !incompletePlan
                         && !StringUtils.hasText(answer) && !model.didStreamContent()) {
                     return finish(state, false, "SUPERVISOR_EMPTY_RESPONSE",
-                            "Supervisor returned no final answer", null);
+                            "智能体这次没有给出回答，请重试一次。", null);
                 }
                 Map<String, Object> responseMeta = new LinkedHashMap<>();
                 if (response != null && response.getMetadata() != null) {
@@ -430,6 +475,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 responseMeta.put("a2aDelegationCount", state.a2aCallCount.get());
                 responseMeta.put("managedExecutorToolCount", state.managedExecutorToolNames().size());
                 responseMeta.put("managedExecutorCallCount", state.managedExecutorCallCount.get());
+                responseMeta.put("capabilityToolboxEnabled", state.capabilities != null);
                 responseMeta.put("activeSkillCount", preparedSkills.activeBindings().size());
                 responseMeta.put("skippedSkillCount", preparedSkills.skippedSkills().size());
                 responseMeta.put("activeSkillVersions", preparedSkills.activeBindings().stream()
@@ -475,14 +521,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         } catch (RuntimeAgentExecutionCancellation.CancellationSignal cancelled) {
             state.answerPhase.markCancelled();
             state.phases.terminateActive("cancelled", "执行已取消");
-            return finish(state, false, "SUPERVISOR_CANCELLED", "Agent execution cancelled",
+            return finish(state, false, "SUPERVISOR_CANCELLED", "本次运行已取消。",
                     Map.of("answerPhase", state.answerPhase.get().name(), "cancelled", true));
         } catch (Exception ex) {
             if (cancellation.isCancelled()
                     || state.answerPhase.get() == AgentScopeAnswerPhase.Phase.CANCELLED) {
                 state.answerPhase.markCancelled();
                 state.phases.terminateActive("cancelled", "执行已取消");
-                return finish(state, false, "SUPERVISOR_CANCELLED", "Agent execution cancelled",
+                return finish(state, false, "SUPERVISOR_CANCELLED", "本次运行已取消。",
                         Map.of("answerPhase", state.answerPhase.get().name(), "cancelled", true));
             }
             ModelStreamFailure streamFailure = ModelStreamFailure.findIn(ex);
@@ -552,7 +598,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         } catch (IllegalArgumentException ex) {
             return finishContinuationTrace(request, memoryKey, turnId, userMessage, traceId, false,
                     "RUNTIME_INTERACTION_CONTINUATION_INVALID",
-                    "Workflow interaction continuation is invalid",
+                    "这一步的确认已经失效，请重新发起提问。",
                     Map.of("continuationConsumed", true,
                             "continuationMode", "INVALID",
                             "validationError", ex.getMessage()));
@@ -779,6 +825,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             }
             @Override public Mono<ToolResultBlock> callAsync(ToolCallParam param) {
                 return Mono.fromCallable(() -> {
+                    if (state.hasUnexecutedPageRequest() || state.hasUnexecutedEmbedMutation()) {
+                        return ToolResultBlock.error("No tool has executed this requested page operation. "
+                                + "Do not claim it started or completed; call an authorized tool or ask for missing information.");
+                    }
                     String blockReason = state.finalAnswerBlockReason();
                     if (blockReason != null) {
                         return ToolResultBlock.error(blockReason);
@@ -814,7 +864,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return false;
         }
         if (state.executionPlan.planCount() != 0 || state.workflowCallCount.get() != 0
-                || state.a2aCallCount.get() != 0 || state.managedExecutorCallCount.get() != 0) {
+                || state.a2aCallCount.get() != 0 || state.managedExecutorCallCount.get() != 0
+                || state.capabilitiesUsed()) {
             return false;
         }
         if (state.answerPhase.isPublicFinal()
@@ -827,6 +878,47 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return false;
         }
         return StringUtils.hasText(answer);
+    }
+
+    /** Conservative recognition only; never grants permission to invoke an action. */
+    private static boolean isConcretePageRequest(String message) {
+        if (!StringUtils.hasText(message)) return false;
+        String unquoted = message.replaceAll("“[^”]*”|\"[^\"]*\"", "");
+        for (String clause : unquoted.split("[，,。.;；!！?？\\n]")) {
+            String text = clause.trim();
+            if (text.isEmpty() || text.matches("^(?:请问|是否|能否).*")
+                    || text.matches(".*(?:如何|怎么|怎样|解释|如果|假如|假设).*")
+                    || text.matches(".*(?:不要|请勿|禁止|无需|不需要|别|不得).*(?:打开|进入|跳转|填写|填入|修改|清空|点击|操作).*")
+                    || text.matches(".*(?:页面|网页|界面|表单|搜索框|输入框|个人中心|个人资料).*") == false) continue;
+            if (text.matches(".*(?:打开|进入|跳转|填写|填入|填上|输入|修改|清空|点击|操作).*") ) return true;
+        }
+        return false;
+    }
+
+    private static boolean isSafePageClarification(String answer) {
+        if (!StringUtils.hasText(answer)) return false;
+        // Allow only a short, single request for missing information. Free-form
+        // text can mix a question with an unsupported claim that an action began.
+        return answer.trim().matches("^(?:请提供|请告诉我|请说明|需要提供|还需要).{1,80}[？?。.]?$")
+                && !answer.matches("(?s).*(?:已经|已|正在|已被|等待确认|已触发|已启动|已完成|成功).*")
+                && !answer.matches("(?s).*[，,；;！!].*");
+    }
+
+    /** Recognition is only used to prevent unsupported success claims, never to authorize a write. */
+    private static boolean isConcreteEmbedMutation(String message) {
+        if (!StringUtils.hasText(message)) return false;
+        String unquoted = message.replaceAll("“[^”]*”|\"[^\"]*\"", "");
+        for (String clause : unquoted.split("[，,。.;；!！?？\\n]")) {
+            String text = clause.trim();
+            if (text.matches(".*(?:如何|怎么|怎样|解释|如果|假如|假设|教程|步骤).*")) continue;
+            if (text.matches(".*(?:不要|请勿|禁止|无需|不需要|别|不得|不许).{0,8}(?:修改|更改|更新|改|填写|填入|删除|提交).*")) continue;
+            if (text.matches(".*(?:帮我|替我|请|麻烦).*(?:修改|更改|更新|改一下|改成|改为|填写|填入|删除|提交).+")) return true;
+        }
+        return false;
+    }
+
+    private static boolean claimsOperationStarted(String answer) {
+        return StringUtils.hasText(answer) && answer.matches("(?s).*(?:已经|已|正在|成功|完成|执行|提交|保存).*" );
     }
 
     private String acceptDirectTerminalAnswer(ReachAiAgentScopeChatModel model,
@@ -912,7 +1004,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         if (invalid != null || workflows.size() + remoteAgents.size() != 1) {
             state.answerPhase.markFailed();
             return finish(state, false, "SUPERVISOR_APPROVAL_CONTINUATION_INVALID",
-                    invalid == null ? "Approved tool does not match exactly one published binding" : invalid, Map.of());
+                    invalid == null ? "批准的操作和当前发布的工具对不上，已停止执行。请重新提问。" : invalid, Map.of());
         }
         ToolResultBlock result;
         try {
@@ -929,7 +1021,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return finish(state, false, "SUPERVISOR_CONFIRMATION_REQUIRED", state.pendingReason, Map.of());
         }
         if (result == null) {
-            return finish(state, false, "SUPERVISOR_APPROVAL_EMPTY_RESULT", "Approved action returned no result", Map.of());
+            return finish(state, false, "SUPERVISOR_APPROVAL_EMPTY_RESULT", "批准的操作执行后没有返回结果，请到业务系统核对是否已经办理。", Map.of());
+        }
+        if (grant.approvedPagePin() != null && !grant.approvedPagePin().isEmpty()
+                && state.deterministicKnowledgeAnswer != null && isSuccessfulToolResult(result)
+                && !state.hasUnfinishedPlannedWorkflows()) {
+            state.answerPhase.markCompleted();
+            return finish(state, true, "RUNTIME_PAGE_ACTION_EXECUTED", state.deterministicKnowledgeAnswer,
+                    Map.of("contentStreamed", false));
         }
         state.approvalResultHint = "The user has confirmed the saved action '" + grant.toolName()
                 + "'. Runtime has handled that exact action with the saved approved arguments; "
@@ -974,6 +1073,105 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 "route", "RULE_FIRST_PAGE_QUERY",
                 "modelRoundCount", 0,
                 "contentStreamed", false));
+    }
+
+    /**
+     * A question this Agent version already answered through a direct flow runs that flow again
+     * without the model round that only picked the tool. Anything unusual falls back to the model.
+     */
+    private SupervisorResult tryRememberedDirectFlow(RunState state) {
+        if (directFlowRouteMemory == null || state.executionPlan.planCount() > 0 || state.confirmationPending()) {
+            return null;
+        }
+        String configId = directFlowRouteKey(state);
+        String toolName = directFlowRouteMemory.match(configId, state.userMessage(), state.directFlowToolNames());
+        if (toolName == null) return null;
+        RuntimeResolvedWorkflowTarget target = null;
+        for (RuntimeResolvedWorkflowTarget candidate : state.targets()) {
+            if (candidate != null && candidate.tool() != null
+                    && toolName.equals(firstText(candidate.tool().getToolName(), "").trim())) {
+                target = candidate;
+                break;
+            }
+        }
+        if (target == null || !effectiveInputSchemaAcceptsQuestionOnly(target)) return null;
+        if (state.admitDirectFlow(toolName) != null) return null;
+        ToolResultBlock result = state.executeWorkflow(target.tool(), target, Map.of("question", state.userMessage()))
+                .block(Duration.ofMillis(Math.max(1_000L, state.request.config().getWorkflowTimeoutMs() + 1_000L)));
+        String answer = state.singleKnowledgeNoEvidenceAnswer();
+        boolean success = result != null && isSuccessfulToolResult(result) && answer != null;
+        if (success) {
+            state.deterministicKnowledgeAnswer = answer;
+        } else {
+            answer = result == null ? "流程没有返回结果，请稍后再试。"
+                    : firstText(toolOutputText(result), "流程未完成，请稍后再试。");
+        }
+        state.answerPhase.markCompleted();
+        Map<String, Object> payload = result == null ? Map.of() : parseToolPayload(result);
+        return finish(state, success,
+                firstText(textObj(payload.get("code")), success ? "RUNTIME_GRAPH_EXECUTED" : "SUPERVISOR_DIRECT_FLOW_FAILED"),
+                answer, Map.of(
+                        "route", "REMEMBERED_DIRECT_FLOW",
+                        "modelRoundCount", 0,
+                        "contentStreamed", false));
+    }
+
+    /** Cache only context-free, stateless requests belonging to one verified user and session. */
+    private String directFlowRouteKey(RunState state) {
+        if (state.request.agent() == null || state.request.config() == null
+                || state.request.config().getId() == null || state.memoryKey().persistent()
+                || state.request.approvalGrant() != null || !state.request.personalMemory().isEmpty()
+                || !state.request.skills().isEmpty() || !state.request.remoteAgents().isEmpty()) return null;
+        Map<String, Object> input = state.request.input();
+        if (input == null || !StringUtils.hasText(textObj(input.get("sessionId")))) return null;
+        String question = state.userMessage();
+        if (question.matches("(?is).*(?:这个|那个|这些|那些|它|他|她|上述|刚才|刚刚|之前|上次|继续|再来|同样|同一个|当前|这里|那里|上面|下面|其中).*")
+                || question.matches("(?is).*\\b(?:it|them|this|that|these|those|previous|same|again|continue)\\b.*")) return null;
+        Set<String> allowed = Set.of("message", "input", "userInput", "sessionId", "traceId", "userId",
+                "tenantId", "projectCode", "projectId", "appId");
+        Map<String, Object> context = new java.util.TreeMap<>();
+        for (Map.Entry<String, Object> item : input.entrySet()) {
+            Object value = item.getValue();
+            if (!allowed.contains(item.getKey()) || value != null && !(value instanceof String)
+                    && !(value instanceof Number) && !(value instanceof Boolean)) return null;
+            if (Set.of("message", "input", "userInput").contains(item.getKey())) {
+                if (!(value instanceof String text) || !question.equals(text.trim())) return null;
+            } else if (!"traceId".equals(item.getKey())) {
+                context.put(item.getKey(), value);
+            }
+        }
+        WorkflowExecutionIdentity identity = resolveTrustedIdentity(state.request);
+        if (!identity.canResolveUserAcl()) return null;
+        try {
+            return objectMapper.writeValueAsString(List.of(state.request.agent().id(),
+                    String.valueOf(state.request.config().getId()), identity.source().name(),
+                    java.util.Objects.toString(identity.tenantId(), ""), java.util.Objects.toString(identity.projectCode(), ""),
+                    identity.userId(), identity.roles(), state.sessionId(), context));
+        } catch (Exception invalid) {
+            return null;
+        }
+    }
+
+    /** A remembered route can only pass the question; optional business inputs still need model extraction. */
+    private boolean effectiveInputSchemaAcceptsQuestionOnly(RuntimeResolvedWorkflowTarget target) {
+        Map<String, Object> published = schema(RuntimeWorkflowSchemaResolver.publishedInputSchemaJson(
+                objectMapper, target.version()));
+        return questionOnlySchema(published) && questionOnlySchema(effectiveInputSchema(target.tool(), target));
+    }
+
+    private boolean questionOnlySchema(Map<String, Object> inputSchema) {
+        if (!"object".equals(inputSchema.get("type")) || !Boolean.FALSE.equals(inputSchema.get("additionalProperties"))) {
+            return false;
+        }
+        Object rawProperties = inputSchema.get("properties");
+        if (!(rawProperties instanceof Map<?, ?> properties) || properties.size() != 1
+                || !(properties.get("question") instanceof Map<?, ?> question)
+                || !"string".equals(question.get("type"))) {
+            return false;
+        }
+        Object required = inputSchema.get("required");
+        return required == null || required instanceof List<?> names
+                && names.stream().allMatch("question"::equals);
     }
 
     private String ruleFirstAnswer(Map<String, Object> payload,
@@ -1125,6 +1323,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("If no permitted execution tool can safely continue after a failure, record one revised plan with workflowToolNames=[] and then call begin_final_answer to explain the failure or ask for clarification; never retry the denied tool in a loop.\n")
                 .append("A non-read-only Workflow or A2A delegation is never automatically retryable after failure because its side-effect outcome may be ambiguous. Never include that same tool in a revised plan; explain the outcome or use a different safe read-only tool.\n")
                 .append("Use page navigation or page actions for page requests. A request for data, counts, filters, visible rows, or details belonging to the current page is a page request even when the user does not explicitly say open, navigate, or operate; natural-language phrases such as 查、查询、统计、多少、哪些、筛选 are sufficient. If a matching page Workflow is permitted, use it instead of refusing the request. Only prefer an API/data Workflow for a page-independent factual query when such an API/data Workflow is actually permitted; never refuse solely because the user did not describe the internal page action.\n")
+                .append("For a user request to change or fill business information, use a matching permitted page draft Workflow when available. Pass only field values explicitly supplied by the user, omit absent optional fields, and never infer, complete, or clear unspecified values. A pending confirmation is not execution; describe success only after a verified action result. After a verified page draft action, state exactly which fields were handled, say all unlisted requested content was not handled, and do not imply that the whole request was saved or submitted.\n")
                 .append("Never invent tool results. If required arguments are missing, ask one concise clarification question.\n")
                 .append("Business capabilities in the Agent description can be aspirational or unavailable to this run. "
                         + "For a request that needs current business data or an action, rely only on execution tools actually permitted in this run or verified results. "
@@ -1137,6 +1336,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 .append("Workflow tool results may include resultSummary.pageAction. Treat that as verified evidence: when empty=true or total=0, explicitly say that no matching records were found; when total is present, use that count. When userConfirmed=true, the end user accepted ReachAI's confirmation before execution, so never claim that confirmation was skipped. Never claim that matching records are displayed when the verified result is empty. If outcomeClass=BUSINESS_TERMINAL, explain the supplied message or businessOutcome plainly and never claim that the requested page operation completed.\n")
                 .append("After execution tools (or when a planned path needs a gated final answer), call begin_final_answer exactly once, then produce the final plain-text answer. ")
                 .append("Never reveal internal planning, tool arguments, or reasoning in the user-facing answer.\n")
+                .append(state.capabilities == null ? "" : SupervisorProjectCapabilityToolbox.systemPrompt())
                 .append("Permitted published Workflow tools:\n");
         if (targets == null || targets.isEmpty()) {
             prompt.append("- (none)\n");
@@ -1144,7 +1344,16 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             for (RuntimeResolvedWorkflowTarget target : targets) {
                 prompt.append("- ").append(target.tool().getToolName())
                         .append(" -> workflow=").append(target.workflow().getKeySlug())
-                        .append("; version=").append(target.version().getVersion()).append("\n");
+                        .append("; version=").append(target.version().getVersion())
+                        .append(state.directFlowToolNames().contains(target.tool().getToolName().trim())
+                                ? "; direct=true" : "")
+                        .append("\n");
+            }
+            if (!state.directFlowToolNames().isEmpty()) {
+                prompt.append("A Workflow tool marked direct=true is a verified read-only fixed flow. When the request "
+                        + "clearly matches exactly one such tool and needs nothing else, call it as your first action "
+                        + "WITHOUT record_supervisor_plan; its answer is delivered to the user as-is and the run ends. "
+                        + "Use the normal plan path when the request needs more than that one tool.\n");
             }
         }
         prompt.append("Permitted fixed A2A remote-Agent tools:\n");
@@ -1249,13 +1458,31 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         metadata.put("plannedWorkflowCursor", planSnapshot.cursor());
         // Trusted in-memory counters for RunOps finish — avoid remote aggregate COUNT when complete.
         metadata.put("toolCallCount", state.workflowCallCount.get() + state.a2aCallCount.get()
-                + state.managedExecutorCallCount.get());
+                + state.managedExecutorCallCount.get() + state.capabilityCallCount());
+        metadata.put("capabilityToolboxEnabled", state.capabilities != null);
+        metadata.put("capabilityLastCallFailed", state.capabilities != null && state.capabilities.lastCallFailed());
+        if (state.capabilities != null) {
+            metadata.put("capabilitySearchCount", state.capabilities.searchCount());
+            metadata.put("capabilityCallCount", state.capabilities.callCount());
+            metadata.put("capabilityApprovalPendingCount", state.capabilities.approvalPendingCount());
+            // Names and order only, never arguments: what a repeated request can later become a Workflow from.
+            metadata.put("capabilityToolNames", state.capabilities.calledNames());
+        }
         metadata.put("guardDenyCount", state.guardDenyCount.get());
         metadata.put("approvalCount", state.approvalCount.get());
         metadata.put("decisionMode", state.decisionMode());
         metadata.put("workflowSelected", state.workflowCallCount.get() > 0);
         metadata.put("remoteAgentSelected", state.a2aCallCount.get() > 0);
         metadata.put("managedExecutorSelected", state.managedExecutorCallCount.get() > 0);
+        metadata.put("capabilitySelected", state.capabilityCallCount() > 0);
+        metadata.put("directFlow", state.directFlow);
+        boolean directFlowDelivered = state.directFlow && state.directFlowCandidate != null
+                && state.directFlowCandidate.equals(state.deterministicKnowledgeAnswer);
+        metadata.put("directFlowDelivered", directFlowDelivered);
+        if (directFlowDelivered && success && directFlowRouteMemory != null && state.directFlowToolName != null
+                && !state.request.evalContext().isEvaluation()) {
+            directFlowRouteMemory.remember(directFlowRouteKey(state), state.userMessage(), state.directFlowToolName);
+        }
         List<Map<String, Object>> phaseSnapshot = state.phases.snapshot();
         metadata.put("steps", phaseSnapshot);
         metadata.put("runtime.traceBeginMs", state.traceBeginMs);
@@ -1408,6 +1635,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private final String memoryUserMessage;
         private final ManagedExecutorAgentDelegationService.DelegationPolicy managedExecutorPolicy;
         private final Set<String> managedExecutorToolNames;
+        /** Null unless this configuration and this verified employee may use the project's capabilities. */
+        private final SupervisorProjectCapabilityToolbox.Session capabilities;
         private volatile String pendingInteractionId;
         private volatile String pendingInteractionKind;
         private volatile String pendingReason;
@@ -1418,8 +1647,15 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private volatile Map<String, Object> lastWorkflowResultSummary = Map.of();
         private volatile String knowledgeNoEvidenceCandidate;
         private volatile String knowledgeUnavailableCandidate;
+        /** Reply text of a direct flow (see SupervisorDirectFlowAnswer) waiting to be delivered as-is. */
+        private volatile String directFlowCandidate;
+        /** True once a direct-flow tool was admitted without a model-written plan in this run. */
+        private volatile boolean directFlow;
+        private volatile String directFlowToolName;
+        private volatile Set<String> directFlowToolNames;
         private volatile String deterministicKnowledgeAnswer;
         private volatile String unconfirmedOutcomeCode;
+        private volatile boolean pageActionPreconditionFailed;
         private String approvalResultHint;
         private boolean approvalConsumed;
         /** DIRECT | PLANNED | WORKFLOW — 不得把 implicit audit 算作主动规划。 */
@@ -1447,6 +1683,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     ? Set.of()
                     : managedExecutorDelegationService.availableTools(
                             this.managedExecutorPolicy, request.input());
+            this.capabilities = capabilityToolbox == null ? null : request.evalContext().isEvaluation()
+                    ? openEvaluationCapabilities(request, trustedIdentity)
+                    : capabilityToolbox.open(request.config(), trustedIdentity, false, capabilityHost());
             this.memoryKey = request.evalContext().isEvaluation()
                     ? sessionMemoryService.resolveTransient(
                             request.agent(), text(request.input().get("sessionId")), trustedIdentity)
@@ -1488,6 +1727,19 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
 
         private String turnId() {
             return turnId;
+        }
+
+        private boolean hasUnexecutedPageRequest() {
+            return !confirmationPending() && workflowCallCount.get() == 0 && a2aCallCount.get() == 0
+                    && managedExecutorCallCount.get() == 0 && isConcretePageRequest(userMessage);
+        }
+
+        private boolean hasUnexecutedEmbedMutation() {
+            WorkflowExecutionIdentity identity = resolveTrustedIdentity(request);
+            return !confirmationPending() && workflowCallCount.get() == 0 && a2aCallCount.get() == 0
+                    && managedExecutorCallCount.get() == 0 && !capabilitiesUsed() && identity != null
+                    && identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION && identity.canResolveUserAcl()
+                    && isConcreteEmbedMutation(userMessage);
         }
 
         private boolean shouldPublishAnswerText() {
@@ -1532,6 +1784,57 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return managedExecutorToolNames;
         }
 
+        private boolean capabilitiesUsed() {
+            return capabilities != null && capabilities.used();
+        }
+
+        private int capabilityCallCount() {
+            return capabilities == null ? 0 : capabilities.callCount();
+        }
+
+        /**
+         * An evaluation of a business system's assistant uses that system's designated evaluation account,
+         * read-only; without one the evaluation runs without business capabilities, as before.
+         */
+        private SupervisorProjectCapabilityToolbox.Session openEvaluationCapabilities(
+                SupervisorRequest request, WorkflowExecutionIdentity trustedIdentity) {
+            String projectCode = request.agent() == null ? null : request.agent().projectCode();
+            if (projectEvalSettings == null || !StringUtils.hasText(projectCode)) {
+                return null;
+            }
+            return projectEvalSettings.evalAccount(projectCode)
+                    .map(account -> capabilityToolbox.openEvaluation(request.config(), projectCode,
+                            firstText(account.tenantId(), trustedIdentity == null ? null : trustedIdentity.tenantId()),
+                            account.userId(), capabilityHost()))
+                    .orElse(null);
+        }
+
+        private SupervisorProjectCapabilityToolbox.Host capabilityHost() {
+            return new SupervisorProjectCapabilityToolbox.Host() {
+                @Override public String blockedReason() {
+                    if (unconfirmedOutcomeCode != null) {
+                        return "An operation outcome is unconfirmed; do not execute more tools in this run";
+                    }
+                    return confirmationPending()
+                            ? "An execution tool is waiting for user confirmation; do not call another tool" : null;
+                }
+
+                @Override public void throwIfCancelled() {
+                    request.cancellation().throwIfCancelled();
+                }
+
+                @Override public void phase(String stepId, String name, String state, String title, String detail) {
+                    phases.emit(stepId, name, state, "capability_toolbox", title, detail);
+                }
+
+                @Override public void trace(String toolName, Map<String, Object> input, Map<String, Object> outcome,
+                                            boolean success, String code, long elapsedMs) {
+                    traceService.capability(trace, request.agent(), request.config(), request.input(), toolName,
+                            input, outcome, success, code, elapsedMs);
+                }
+            };
+        }
+
         private ManagedExecutorAgentDelegationService.DelegationPolicy managedExecutorPolicy() {
             return managedExecutorPolicy;
         }
@@ -1560,11 +1863,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
 
         private String singleKnowledgeNoEvidenceAnswer() {
             var plan = executionPlan.snapshot();
-            return knowledgeNoEvidenceCandidate != null && workflowCallCount.get() == 1
-                    && a2aCallCount.get() == 0 && managedExecutorCallCount.get() == 0
+            String candidate = knowledgeNoEvidenceCandidate != null ? knowledgeNoEvidenceCandidate : directFlowCandidate;
+            return candidate != null && workflowCallCount.get() == 1
+                    && a2aCallCount.get() == 0 && managedExecutorCallCount.get() == 0 && !capabilitiesUsed()
                     && plan.planCount() == 1 && plan.plannedToolNames().size() == 1 && plan.cursor() == 1
                     && !confirmationPending() && displayUiRequest == null && request.approvalGrant() == null
-                    ? knowledgeNoEvidenceCandidate : null;
+                    ? candidate : null;
         }
 
         private String userFacingResultHint() {
@@ -1620,7 +1924,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             traceService.plan(trace, request.agent(), request.config(), request.input(), planNo, normalized);
             if (decision.abandonedFailedPath() && knowledgeUnavailableCandidate != null
                     && workflowCallCount.get() == 1 && a2aCallCount.get() == 0
-                    && managedExecutorCallCount.get() == 0 && !confirmationPending()
+                    && managedExecutorCallCount.get() == 0 && !capabilitiesUsed() && !confirmationPending()
                     && displayUiRequest == null && request.approvalGrant() == null) {
                 request.cancellation().throwIfCancelled();
                 if (!answerPhase.enterPublicFinal()) {
@@ -1645,6 +1949,46 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             return executionPlan.planCount() == 0
                     && unplannedToolAttemptCount.get() >= MAX_UNPLANNED_TOOL_ATTEMPTS;
         }
+        /** Direct-flow tools of this run: verified repeatable reads whose published graph declares direct delivery. */
+        private Set<String> directFlowToolNames() {
+            Set<String> names = directFlowToolNames;
+            if (names == null) {
+                names = new LinkedHashSet<>();
+                if (request.approvalGrant() == null && targets() != null) {
+                    for (RuntimeResolvedWorkflowTarget target : targets()) {
+                        if (target == null || target.tool() == null || target.version() == null
+                                || !StringUtils.hasText(target.tool().getToolName())
+                                || repeatableReadPolicy == null
+                                || !repeatableReadPolicy.isRepeatable(target.tool(), target)
+                                || !SupervisorDirectFlowAnswer.declared(
+                                        target.version().getGraphSpecSnapshotJson(), objectMapper)) continue;
+                        names.add(target.tool().getToolName().trim());
+                    }
+                }
+                directFlowToolNames = names;
+            }
+            return names;
+        }
+
+        /**
+         * A direct-flow tool may be the first action of a run without a model-written plan: the runtime
+         * records the one-step plan itself. Returns null when admitted, otherwise the rejection.
+         */
+        private synchronized ToolResultBlock admitDirectFlow(String toolName) {
+            if (executionPlan.planCount() > 0) return null;
+            if (!StringUtils.hasText(toolName) || !directFlowToolNames().contains(toolName.trim())) {
+                return rejectUnplannedTool("Workflow");
+            }
+            ToolResultBlock plan = recordPlan(Map.of(
+                    "summary", "直达流程",
+                    "steps", List.of("执行已验证的只读流程"),
+                    "workflowToolNames", List.of(toolName.trim())));
+            if (!isSuccessfulToolResult(plan)) return plan;
+            directFlow = true;
+            directFlowToolName = toolName.trim();
+            return null;
+        }
+
         private ToolResultBlock rejectUnplannedTool(String kind) {
             unplannedToolAttemptCount.incrementAndGet();
             return ToolResultBlock.error("Call record_supervisor_plan before any " + kind + " tool");
@@ -1668,7 +2012,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private void markDirectDecision() {
             implicitDirectDecision = true;
             if (workflowCallCount.get() == 0 && a2aCallCount.get() == 0
-                    && managedExecutorCallCount.get() == 0 && executionPlan.planCount() == 0) {
+                    && managedExecutorCallCount.get() == 0 && executionPlan.planCount() == 0
+                    && !capabilitiesUsed()) {
                 decisionMode = "DIRECT";
             }
         }
@@ -1676,9 +2021,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         private String decisionMode() {
             int selectedModes = (workflowCallCount.get() > 0 ? 1 : 0)
                     + (a2aCallCount.get() > 0 ? 1 : 0)
-                    + (managedExecutorCallCount.get() > 0 ? 1 : 0);
+                    + (managedExecutorCallCount.get() > 0 ? 1 : 0)
+                    + (capabilityCallCount() > 0 ? 1 : 0);
             if (selectedModes > 1) {
                 return "HYBRID";
+            }
+            if (capabilityCallCount() > 0) {
+                // The model chose and ordered the capabilities itself: reasoning, not a fixed Workflow.
+                return "CAPABILITY";
             }
             if (managedExecutorCallCount.get() > 0) {
                 return "MANAGED_EXECUTOR";
@@ -2043,7 +2393,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                         "Workflow tool already completed in this run; do not re-execute: " + toolName));
             }
             if (executionPlan.planCount() == 0) {
-                return Mono.just(rejectUnplannedTool("Workflow"));
+                ToolResultBlock admitted = admitDirectFlow(toolName);
+                if (admitted != null) return Mono.just(admitted);
             }
             if (executionPlan.failed()) {
                 return Mono.just(ToolResultBlock.error("The previous Workflow failed; record a revised plan before continuing"));
@@ -2056,15 +2407,25 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 guardDenyCount.incrementAndGet();
                 return Mono.just(ToolResultBlock.error("业务方法风险无法验证或与只读配置不符，请管理员校验并重新发布 Workflow 和 Agent。"));
             }
+            var approvalGrant = approvalConsumed ? null : request.approvalGrant();
+            boolean hadDraftApproval = approvalGrant != null && approvalGrant.approvedPagePin() != null
+                    && !approvalGrant.approvedPagePin().isEmpty();
+            // A marked published graph must not bypass its policy merely because the
+            // Agent binding was misconfigured or mislabeled as READ.
+            var assessment = pageDraftRouter.assess(target, safeArgs, userMessage(), resolveTrustedIdentity(request));
+            var draftPin = assessment.pin();
             // A confirmation must describe the next stable step, never a later step while its
-            // predecessors are still running. Read-only parallel admission remains in reserve().
-            if (policyService.requiresWorkflowConfirmation(request.config(), tool)) {
+            // predecessors are still running. Trusted page drafts also always require approval.
+            if (draftPin.isPresent() || hadDraftApproval || policyService.requiresWorkflowConfirmation(request.config(), tool)) {
                 String orderError = executionPlan.approvedStepError(toolName);
                 if (orderError != null) return Mono.just(ToolResultBlock.error(orderError));
             }
-            SupervisorToolPolicyService.PolicyDecision decision = policyService.evaluate(
-                    trace, request.agent(), request.config(), tool, approvalInput(), safeArgs,
-                    approvalConsumed ? null : request.approvalGrant(), resolveTrustedIdentity(request), request.evalContext());
+            SupervisorToolPolicyService.PolicyDecision decision = assessment.reviewed() || hadDraftApproval
+                    ? policyService.evaluateTrustedPageDraft(trace, request.agent(), request.config(), tool,
+                            approvalInput(), safeArgs, approvalGrant, resolveTrustedIdentity(request), request.evalContext(),
+                            draftPin.orElse(null))
+                    : policyService.evaluate(trace, request.agent(), request.config(), tool, approvalInput(), safeArgs,
+                            approvalGrant, resolveTrustedIdentity(request), request.evalContext());
             if (!decision.allowed()) {
                 if (decision.confirmationRequired()) {
                     approvalCount.incrementAndGet();
@@ -2118,11 +2479,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                     "策略通过", decision.decision(), Map.of("toolName", toolName, "decision", decision.decision()));
             SupervisorWorkflowExecutionScope scope = new SupervisorWorkflowExecutionScope(
                     request.cancellation(), () -> releasePlannedWorkflow(toolName));
+            Map<String, Object> acceptedDraftPin = draftPin.orElse(null);
             Lock lock = Boolean.TRUE.equals(tool.getReadOnly())
                     ? workflowExecutionLock.readLock()
                     : workflowExecutionLock.writeLock();
             return scope.execute(lock, Duration.ofMillis(request.config().getWorkflowTimeoutMs()),
-                    () -> runWorkflow(callNo, tool, target, safeArgs, scope), ex -> {
+                    () -> runWorkflow(callNo, tool, target, safeArgs, scope, acceptedDraftPin), ex -> {
                         if (isCancellation(ex) || request.cancellation().isCancelled()) {
                             return Mono.error(toCancellationSignal(ex));
                         }
@@ -2136,7 +2498,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                             RuntimeAgentWorkflowToolSnapshot tool,
                                             RuntimeResolvedWorkflowTarget target,
                                             Map<String, Object> args,
-                                            SupervisorWorkflowExecutionScope scope) {
+                                            SupervisorWorkflowExecutionScope scope,
+                                            Map<String, Object> acceptedDraftPin) {
             if (unconfirmedOutcomeCode != null) return unconfirmedOutcomeError();
             RuntimeGraphSpecExecutionCancellation workflowCancel = scope.cancellation();
             activeWorkflowCancellations.add(workflowCancel);
@@ -2150,6 +2513,9 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 WorkflowExecutionIdentity identity = resolveTrustedIdentity(request);
                 Map<String, Object> workflowInput = workflowSafeInput(request.input());
                 Map<String, Object> safeArgs = sanitizeModelArgs(args);
+                workflowInput.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY);
+                workflowInput.remove(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CHECKPOINT_KEY);
+                if (acceptedDraftPin != null) workflowInput.keySet().removeIf(key -> key.startsWith("params."));
                 workflowInput.putAll(safeArgs);
                 // Contract for Supervisor -> Workflow calls:
                 // - userInput/message: immutable natural-language request for USER_INPUT/LLM nodes;
@@ -2198,6 +2564,12 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                 var trustedTrace = com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.fromRuntime(trace.traceId());
                 if (trustedTrace != null) {
                     workflowInput.put(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY, trustedTrace);
+                }
+                if (acceptedDraftPin != null) {
+                    var draft = com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.fromRuntime(acceptedDraftPin, safeArgs,
+                            TrustedPageDraftIntent.unhandledItemLabels(userMessage(), safeArgs, acceptedDraftPin));
+                    if (draft == null) throw new IllegalArgumentException("RUNTIME_PAGE_DRAFT_PIN_INVALID");
+                    workflowInput.put(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY, draft);
                 }
                 scope.throwIfCancelled();
                 // Agent/Embed 不公开 Workflow 内部 node delta；使用 NOOP sink。
@@ -2258,6 +2630,8 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             published.graphSpecJson(), objectMapper);
                     knowledgeUnavailableCandidate = SupervisorKnowledgeTerminalAnswer.unavailableFrom(result,
                             Boolean.TRUE.equals(tool.getReadOnly()));
+                    directFlowCandidate = directFlow && directFlowToolNames().contains(tool.getToolName().trim())
+                            ? SupervisorDirectFlowAnswer.from(result, published.graphSpecJson(), objectMapper) : null;
                 }
                 traceService.workflow(trace, request.agent(), request.config(), request.input(), tool.getToolName(),
                         target.workflow().getId(), target.version().getId(), target.version().getVersion(), args,
@@ -2271,9 +2645,24 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                                 ? ("已完成：" + tool.getToolName())
                                 : ("失败：" + firstText(result.code(), tool.getToolName())), Map.of("toolName", tool.getToolName()));
                 if (!result.success()) {
+                    if ("PAGE_BRIDGE_PRECONDITION_FAILED".equals(result.code())) {
+                        pageActionPreconditionFailed = true;
+                    }
                     executionPlan.fail(Boolean.TRUE.equals(tool.getReadOnly()) ? null : tool.getToolName());
                 } else if (StringUtils.hasText(tool.getToolName())) {
                     completePlannedWorkflow(tool.getToolName());
+                }
+                // The server-owned result states the exact requested field subset and the
+                // non-submission boundary. Deliver it directly once the plan is complete;
+                // another model round must not claim unsupported fields were saved.
+                if (acceptedDraftPin != null && result.success() && !hasUnfinishedPlannedWorkflows()
+                        && StringUtils.hasText(result.answer())) {
+                    scope.throwIfCancelled();
+                    if (!answerPhase.enterPublicFinal()) throw new IllegalStateException("Cannot deliver page draft result");
+                    deterministicKnowledgeAnswer = result.answer();
+                    forcedFinalAnswer = true;
+                    phases.emit("final-answer", "final_answer", "started", "workflow_runtime",
+                            "生成最终回答", "正在交付页面操作结果");
                 }
                 // Stop before another model round can add an invented answer to persistent
                 // conversation state. The pause hook will end the agent after this tool result.
@@ -2376,7 +2765,14 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
             state.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, result.nodeId());
             state.remove("submittedPayload");
             state.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
-            return interactionSessionService.createWaitingSession(
+            Map<String, Object> runner = new LinkedHashMap<>();
+            runner.put("userId", ownerUserId);
+            runner.put("userName", request.input() == null ? null : text(request.input().get("userName")));
+            runner.put("source", ownerIdentity.source().name());
+            Map<String, Object> labels = new LinkedHashMap<>();
+            labels.put("workflowName", target.workflow().getName());
+            labels.put("agentName", request.agent().name());
+            return interactionSessionService.createWaitingSession(RuntimeWorkflowApprovalService.assign(
                     new RuntimeWorkflowInteractionSessionService.CreateRequest(
                             interactionId,
                             "WORKFLOW",
@@ -2395,7 +2791,7 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
                             tenantId,
                             ownerSessionId,
                             ownerUserId,
-                            ttl));
+                            ttl), result.metadata(), runner, labels));
         }
 
         private boolean isCancellation(Throwable ex) {

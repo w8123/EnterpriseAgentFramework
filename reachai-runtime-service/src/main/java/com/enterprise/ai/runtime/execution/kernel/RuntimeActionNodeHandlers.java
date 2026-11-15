@@ -13,8 +13,11 @@ import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionCancellation
 import com.enterprise.ai.runtime.execution.RuntimeGraphSpecExecutionResult;
 import com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity;
 import com.enterprise.ai.runtime.execution.RuntimeHttpApiToolExecutionPort;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowApprovalAssignment;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionNodeHandler;
 import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionType;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes;
+import com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionUiRequestFactory;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
@@ -40,6 +43,7 @@ final class RuntimeActionNodeHandlers {
     private static final long MAX_CAPABILITY_TIMEOUT_MS = 600_000L;
     private static final String CAPABILITY_INVOCATION_CONTROLS_KEY =
             "__runtimeCapabilityInvocationControls";
+    private static final String DOCUMENT_NAVIGATION_KEY = "__runtimeDocumentNavigation";
 
     private final RuntimeCapabilityCatalogClient capabilityClient;
     private final RuntimeControlCatalogClient controlClient;
@@ -69,7 +73,9 @@ final class RuntimeActionNodeHandlers {
         Map<String, Object> config = node.getConfig() == null ? Map.of() : node.getConfig();
         WorkflowInteractionType interactionType = WorkflowInteractionType.from(config.get("interactionType"));
         WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
-        if (identity.source() == WorkflowExecutionIdentity.Source.AUTOMATION && interactionType.blocking()) {
+        if ((identity.source() == WorkflowExecutionIdentity.Source.AUTOMATION
+                || identity.source() == WorkflowExecutionIdentity.Source.AUTOMATION_EMPLOYEE)
+                && interactionType.blocking()) {
             return failure("AUTOMATION_INTERACTION_REQUIRED",
                     "Scheduled Workflow cannot wait for human interaction at node: " + node.getId(),
                     node.getId(), "INTERACTION");
@@ -126,8 +132,17 @@ final class RuntimeActionNodeHandlers {
         interactionConfig.put("message", valueResolver.renderTemplate(
                 prompt == null || prompt.isBlank() ? "{{ lastOutput }}" : prompt, context));
         interactionConfig.put("outputAlias", firstNonBlank(text(config.get("outputAlias")), "approval_result"));
+        WorkflowApprovalAssignment assignment = WorkflowApprovalAssignment.fromNodeConfig(config);
+        if (assignment != null && assignment.isEmpty()) {
+            return failure("WORKFLOW_APPROVAL_ASSIGNEE_REQUIRED",
+                    "人工确认节点选择了指定审批人，但没有配置人员或角色：" + node.getId(), node.getId(), "HUMAN_APPROVAL");
+        }
         Object timeout = config.get("timeoutSeconds");
-        if (timeout != null) interactionConfig.put("ttlSeconds", timeout);
+        if (timeout != null) {
+            interactionConfig.put("ttlSeconds", timeout);
+        } else if (assignment != null) {
+            interactionConfig.put("ttlSeconds", WorkflowApprovalAssignment.DEFAULT_TTL_SECONDS);
+        }
         GraphSpec.Node synthetic = new GraphSpec.Node();
         synthetic.setId(node.getId());
         synthetic.setName(node.getName());
@@ -136,6 +151,8 @@ final class RuntimeActionNodeHandlers {
         RuntimeGraphSpecExecutionResult result = WorkflowInteractionNodeHandler.execute(synthetic, context);
         Map<String, Object> metadata = result.metadata() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(result.metadata());
         metadata.put("nodeType", "HUMAN_APPROVAL");
+        // Only the Agent/Embed persistence path turns this into a named-approver wait; debug keeps the confirm card.
+        if (assignment != null && !result.success()) metadata.put(WorkflowApprovalAssignment.METADATA_KEY, assignment.toMap());
         if (result.success()) {
             String route = "confirm".equalsIgnoreCase(String.valueOf(metadata.get("route"))) ? "approved" : "rejected";
             metadata.put("route", route);
@@ -145,10 +162,8 @@ final class RuntimeActionNodeHandlers {
             Map<String, Object> structured = new LinkedHashMap<>();
             structured.put("approved", "approved".equals(route));
             structured.put("decision", route);
-            Object submitted = metadata.get("submittedPayload");
-            if (submitted instanceof Map<?, ?> values && values.get("comment") != null) {
-                structured.put("comment", values.get("comment"));
-            }
+            WorkflowApprovalAssignment.copyDecisionFields(metadata.get("submittedPayload"), structured);
+            WorkflowApprovalAssignment.mergeOutput(context, firstNonBlank(text(config.get("outputAlias")), "approval_result"), structured);
             metadata.put("structuredOutput", structured);
             return new RuntimeGraphSpecExecutionResult(true, result.code(), "approved".equals(route) ? "已批准" : "已拒绝",
                     node.getId(), "HUMAN_APPROVAL", result.steps(), metadata);
@@ -302,7 +317,13 @@ final class RuntimeActionNodeHandlers {
         if (invocation.httpStatus() != null) metadata.put("httpStatus", invocation.httpStatus());
         if (invocation.inputField() != null) metadata.put("inputField", invocation.inputField());
         if (!invocation.success()) return new RuntimeGraphSpecExecutionResult(false, invocation.code(),
-                invocation.code(), node.getId(), "TOOL", List.of(step("execute-node", node.getId())), metadata);
+                // A business system's own failure text (HTTP 200 with an error inside) is what the user needs to hear.
+                "HTTP_API_BUSINESS_ERROR".equals(invocation.code()) && invocation.output() instanceof String reason
+                        ? "业务系统返回失败：" + reason
+                        : "RUNTIME_HTTP_LOGIN_FAILED".equals(invocation.code())
+                                && invocation.output() instanceof String loginFailure
+                                ? loginFailure + "。请管理员在「接口鉴权」里核对登录凭据" : invocation.code(),
+                node.getId(), "TOOL", List.of(step("execute-node", node.getId())), metadata);
         metadata.put("structuredOutput", invocation.output());
         return success(node, "TOOL", String.valueOf(invocation.output()), metadata, "execute-node");
     }
@@ -333,12 +354,44 @@ final class RuntimeActionNodeHandlers {
         if (cancel.isCancelled()) {
             return cancelled(node.getId(), "PAGE_ACTION");
         }
-        Map<String, Object> args = buildToolInput(node, context);
+        Object draftMarker = context.get(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY);
+        com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution trustedDraft =
+                draftMarker instanceof com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution marker
+                        ? marker : null;
+        Map<?, ?> draftDeclaration = trustedDraft != null && trustedDraft.pin().get("declaration") instanceof Map<?, ?> declaration
+                ? declaration : Map.of();
+        if (trustedDraft != null && (!java.util.Objects.equals(projectCode, draftDeclaration.get("projectCode"))
+                || !java.util.Objects.equals(targetPageKey, draftDeclaration.get("pageKey"))
+                || !java.util.Objects.equals(actionKey, draftDeclaration.get("actionKey")))) {
+            return failure("RUNTIME_PAGE_DRAFT_PIN_MISMATCH", "Approved page action target changed", node.getId(), "PAGE_ACTION");
+        }
+        // In the trusted draft path, the exact confirmed subset is sent directly;
+        // absent optional mappings must not turn into null-valued writes.
+        Map<String, Object> args = trustedDraft == null ? buildToolInput(node, context) : trustedDraft.args();
         int executionTimeoutMs = intValue(
                 context.get("pageBridgeTimeoutMs"), DEFAULT_PAGE_BRIDGE_EXECUTION_TIMEOUT_MS);
         WorkflowExecutionIdentity identity = RuntimeTrustedExecutionContexts.identity(context);
         boolean trustedEmbed = identity != null && identity.canResolveUserAcl()
                 && identity.source() == WorkflowExecutionIdentity.Source.EMBED_SESSION;
+        String resumeNavigationId = null;
+        Object pendingNavigation = context.get(DOCUMENT_NAVIGATION_KEY);
+        if (pendingNavigation instanceof Map<?, ?> pending && node.getId().equals(pending.get("nodeId"))) {
+            Object rawResume = context.get(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+            if (!(rawResume instanceof Map<?, ?> resume)
+                    || !node.getId().equals(resume.get("nodeId"))
+                    || !java.util.Objects.equals(context.get(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY),
+                            resume.get("interactionId"))
+                    || !"confirm".equals(resume.get("action"))) {
+                return failure("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID",
+                        "The pending navigation must be resumed by its authenticated interaction", node.getId(), "PAGE_ACTION");
+            }
+            resumeNavigationId = text(pending.get("requestId"));
+            if (!StringUtils.hasText(resumeNavigationId)) {
+                return failure("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", "Missing navigation request", node.getId(), "PAGE_ACTION");
+            }
+        }
+        String navigationInteractionId = resumeNavigationId == null ? WorkflowInteractionUiRequestFactory.newInteractionId()
+                : text(context.get(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY));
         try {
             PageBridgeExecutionResponse response = controlClient.executePageBridge(new PageBridgeExecutionRequest(
                     sessionId,
@@ -349,7 +402,7 @@ final class RuntimeActionNodeHandlers {
                     firstText(text(config.get("route")), text(config.get("routePattern"))),
                     actionKey,
                     args,
-                    Boolean.TRUE.equals(config.get("confirm"))
+                    trustedDraft != null || Boolean.TRUE.equals(config.get("confirm"))
                             || Boolean.TRUE.equals(config.get("confirmRequired")),
                     DEFAULT_PAGE_BRIDGE_CONFIRMATION_TIMEOUT_MS,
                     executionTimeoutMs,
@@ -358,9 +411,56 @@ final class RuntimeActionNodeHandlers {
                     trustedEmbed ? identity.userId() : null,
                     trustedEmbed && context.get(com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace.CONTEXT_KEY)
                             instanceof com.enterprise.ai.runtime.execution.context.TrustedSupervisorTrace trustedTrace
-                            ? trustedTrace.traceId() : null));
+                            ? trustedTrace.traceId() : null,
+                    resumeNavigationId, navigationInteractionId,
+                    trustedDraft == null ? null : ((Number) draftDeclaration.get("approvalId")).longValue(),
+                    trustedDraft == null ? null : ((Number) draftDeclaration.get("revision")).longValue(),
+                    trustedDraft == null ? null : (String) draftDeclaration.get("catalogHash")));
             if (cancel.isCancelled()) {
                 return cancelled(node.getId(), "PAGE_ACTION");
+            }
+            if (response != null && "PAGE_BRIDGE_DOCUMENT_NAVIGATION_REQUIRED".equals(response.code())) {
+                if (resumeNavigationId != null || !(response.data() instanceof Map<?, ?> navigation)
+                        || !StringUtils.hasText(text(navigation.get("navigationRequestId")))) {
+                    return failure("PAGE_BRIDGE_DOCUMENT_NAVIGATION_INVALID", "Invalid navigation response", node.getId(), "PAGE_ACTION");
+                }
+                String navigationId = text(navigation.get("navigationRequestId"));
+                context.put(DOCUMENT_NAVIGATION_KEY, Map.of("nodeId", node.getId(), "requestId", navigationId));
+                context.put(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY, navigationInteractionId);
+                context.put(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY, node.getId());
+                GraphSpec.Node interaction = new GraphSpec.Node();
+                interaction.setId(node.getId());
+                interaction.setName(node.getName());
+                interaction.setType("INTERACTION");
+                interaction.setConfig(Map.of("interactionType", "CONFIRM_ACTION", "title", "继续页面操作",
+                        "message", "请先确认并打开目标页面，随后继续操作。", "ttlSeconds", 120));
+                RuntimeGraphSpecExecutionResult waiting = WorkflowInteractionNodeHandler.execute(interaction, context);
+                Map<String, Object> waitingMetadata = new LinkedHashMap<>(waiting.metadata());
+                if (waiting.uiRequest() instanceof Map<?, ?> originalUi) {
+                    Map<String, Object> ui = new LinkedHashMap<>();
+                    originalUi.forEach((key, value) -> ui.put(String.valueOf(key), value));
+                    ui.put("extension", Map.of("documentNavigation", Map.of("version", 1,
+                            "navigationRequestId", navigationId)));
+                    Map<String, Object> behavior = new LinkedHashMap<>();
+                    if (ui.get("behavior") instanceof Map<?, ?> existing) {
+                        existing.forEach((key, value) -> behavior.put(String.valueOf(key), value));
+                    }
+                    // The document handoff is resumed only after target rebind;
+                    // do not offer an early source-page interaction submission.
+                    behavior.put("readonly", true);
+                    behavior.put("blocking", true);
+                    ui.put("behavior", behavior);
+                    waitingMetadata.put("uiRequest", ui);
+                }
+                waitingMetadata.put("nodeType", "PAGE_ACTION");
+                return new RuntimeGraphSpecExecutionResult(false, waiting.code(), waiting.answer(), node.getId(),
+                        "PAGE_ACTION", waiting.steps(), waitingMetadata);
+            }
+            if (resumeNavigationId != null) {
+                context.remove(DOCUMENT_NAVIGATION_KEY);
+                context.remove(WorkflowInteractionCodes.RESUME_CONTEXT_KEY);
+                context.remove(WorkflowInteractionCodes.PENDING_INTERACTION_ID_KEY);
+                context.remove(WorkflowInteractionCodes.PENDING_INTERACTION_NODE_KEY);
             }
             Map<String, Object> metadata = nodeMetadata(node, "PAGE_ACTION");
             metadata.put("pageKey", targetPageKey);
@@ -395,6 +495,22 @@ final class RuntimeActionNodeHandlers {
                         List.of(step("execute-page-action", node.getId())), metadata);
             }
             if (isBusinessTerminalPageAction(response)) {
+                String status = text(response.status());
+                // These outcomes explicitly prove the requested operation did not
+                // happen. Stop the graph and the Supervisor continuation rather
+                // than allowing an unconditional success ANSWER downstream.
+                if ("PRECONDITION_FAILED".equalsIgnoreCase(status)) {
+                    return new RuntimeGraphSpecExecutionResult(
+                            false, "PAGE_BRIDGE_PRECONDITION_FAILED", pageActionBusinessMessage(response),
+                            node.getId(), "PAGE_ACTION",
+                            List.of(step("execute-page-action", node.getId())), metadata);
+                }
+                if ("USER_CANCELLED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status)) {
+                    return new RuntimeGraphSpecExecutionResult(
+                            false, "RUNTIME_GRAPH_CANCELLED", pageActionBusinessMessage(response),
+                            node.getId(), "PAGE_ACTION",
+                            List.of(step("execute-page-action", node.getId())), metadata);
+                }
                 return new RuntimeGraphSpecExecutionResult(
                         true, "RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL", pageActionBusinessMessage(response),
                         node.getId(), "PAGE_ACTION",
@@ -402,7 +518,8 @@ final class RuntimeActionNodeHandlers {
             }
             return new RuntimeGraphSpecExecutionResult(
                     true, "RUNTIME_PAGE_ACTION_EXECUTED",
-                    response.data() == null ? response.status() : String.valueOf(response.data()),
+                    trustedDraft != null ? trustedDraftResultMessage(draftDeclaration, args, trustedDraft.unhandledItemLabels())
+                            : response.data() == null ? response.status() : String.valueOf(response.data()),
                     node.getId(), "PAGE_ACTION",
                     List.of(step("execute-page-action", node.getId())), metadata);
         } catch (Exception ex) {
@@ -415,6 +532,15 @@ final class RuntimeActionNodeHandlers {
             return new RuntimeGraphSpecExecutionResult(false, "PAGE_BRIDGE_RESULT_UNCONFIRMED",
                     "页面操作结果未确认，请核对业务记录。", node.getId(), "PAGE_ACTION", List.of(), metadata);
         }
+    }
+
+    private static String trustedDraftResultMessage(Map<?, ?> declaration, Map<String, Object> args, List<String> unhandledItemLabels) {
+        Map<?, ?> labels = declaration.get("fieldLabels") instanceof Map<?, ?> map ? map : Map.of();
+        java.util.StringJoiner fields = new java.util.StringJoiner("、");
+        args.keySet().forEach(key -> fields.add(labels.get(key) instanceof String label ? label : key));
+        String missing = unhandledItemLabels.isEmpty() ? "" : "原请求中的这些条目未处理：" + String.join("、", unhandledItemLabels) + "。";
+        return "页面动作已执行；本次请求填写的字段：" + fields + "。" + missing
+                + "未列出的内容未处理；业务方声明此动作不会主动提交，但业务页面可能自动保存，请检查。";
     }
 
     @SuppressWarnings("unchecked")

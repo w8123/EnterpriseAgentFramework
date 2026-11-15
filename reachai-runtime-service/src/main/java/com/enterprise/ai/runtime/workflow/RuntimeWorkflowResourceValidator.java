@@ -127,12 +127,14 @@ final class RuntimeWorkflowResourceValidator {
         }
         Map<String, Object> inputSchema = mapValue(action.inputSchema());
         Map<String, Object> args = mapValue(config.get("args"));
+        Map<String, Object> inputMapping = mapValue(config.get("inputMapping"));
         Object requiredValue = inputSchema.get("required");
         if (requiredValue instanceof Iterable<?> requiredFields) {
             List<String> missing = new ArrayList<>();
             for (Object requiredField : requiredFields) {
                 String field = text(requiredField);
-                if (StringUtils.hasText(field) && !args.containsKey(field)) {
+                if (StringUtils.hasText(field) && !args.containsKey(field)
+                        && !(inputMapping.get(field) instanceof String expression && StringUtils.hasText(expression))) {
                     missing.add(field);
                 }
             }

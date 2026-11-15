@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -259,7 +260,7 @@ class PlatformEmbedCatalogControllerTest {
         assertEquals("contract-list", event.getTargetPageKey());
         assertEquals("/contracts", event.getTargetRoute());
         assertEquals("search", event.getActionKey());
-        assertEquals(false, event.getConfirmRequired());
+        assertEquals(true, event.getConfirmRequired());
     }
 
     @Test
@@ -285,6 +286,30 @@ class PlatformEmbedCatalogControllerTest {
         ArgumentCaptor<PlatformPageActionEventEntity> event = ArgumentCaptor.forClass(PlatformPageActionEventEntity.class);
         verify(fixture.eventMapper).insert(event.capture());
         assertEquals(true, event.getValue().getConfirmRequired());
+    }
+
+    @Test
+    void debugWriteRiskCannotDisableConfirmationAndUnknownRiskFailsClosed() {
+        Fixture fixture = fixture();
+        PageView page = page();
+        ActionView action = mock(ActionView.class);
+        when(action.id()).thenReturn(21L); when(action.pageId()).thenReturn(11L);
+        when(action.actionKey()).thenReturn("search"); when(action.status()).thenReturn("ACTIVE");
+        when(action.riskLevel()).thenReturn("WRITE");
+        when(fixture.pageCatalog.findAction(21L)).thenReturn(Optional.of(action));
+        when(fixture.pageCatalog.findPageForAction(21L)).thenReturn(Optional.of(page));
+        PlatformEmbedSessionEntity session = new PlatformEmbedSessionEntity();
+        session.setSessionId("embed-1"); session.setProjectCode("bzjs12"); session.setPageKey("contract-list");
+        session.setAgentId("agent-1"); session.setPageInstanceId("page-1"); session.setStatus("ACTIVE");
+        when(fixture.sessionMapper.selectOne(any())).thenReturn(session);
+        fixture.controller.debugPageActionCatalog(21L, null);
+        ArgumentCaptor<PlatformPageActionEventEntity> event = ArgumentCaptor.forClass(PlatformPageActionEventEntity.class);
+        verify(fixture.eventMapper).insert(event.capture());
+        assertEquals(true, event.getValue().getConfirmRequired());
+        assertNotNull(event.getValue().getActionContractHash());
+        when(action.riskLevel()).thenReturn("CUSTOM");
+        assertEquals(409, assertThrows(ResponseStatusException.class,
+                () -> fixture.controller.debugPageActionCatalog(21L, null)).getStatusCode().value());
     }
 
     @Test

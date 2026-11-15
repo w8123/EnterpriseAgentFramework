@@ -1,10 +1,8 @@
 name: CI
 
+# 只手动运行（Actions 页面点 Run workflow）：账号没有自动 CI 的额度了（2026-11-10）。
+# 提交前请在本地跑对应检查，不要依赖 CI。
 on:
-  push:
-    branches: [dev, main]
-  pull_request:
-    branches: [dev, main]
   workflow_dispatch:
 
 concurrency:
@@ -15,6 +13,9 @@ env:
   # 中文测试数据和文件名需要 UTF-8 区域设置
   LANG: C.UTF-8
   LC_ALL: C.UTF-8
+  # 锁文件里记录的是 npmmirror 地址；CI 统一从官方源下载同一版本，避免镜像故障（2026-11-09 npmmirror 返回 500）
+  npm_config_registry: https://registry.npmjs.org/
+  npm_config_replace_registry_host: registry.npmmirror.com
 
 jobs:
   go-sdk-compatibility:
@@ -112,6 +113,15 @@ jobs:
           python scripts/pack-go-sdk-artifacts.py --check
           python scripts/pack-go-sdk-artifacts.py
           git diff --exit-code -- reachai-control-service/src/main/resources/ai-assist/artifacts/go-sdk
+      - name: 验证 PHP SDK 和下载制品
+        # ubuntu 运行器自带 PHP，SDK 没有第三方依赖，不需要 Composer
+        run: |
+          php --version
+          php reachai-php/tests/run.php
+          php ai-admin-front/scripts/check-php-sdk-snippet.php
+          python scripts/pack-php-sdk-artifacts.py --check
+          python scripts/pack-php-sdk-artifacts.py
+          git diff --exit-code -- reachai-control-service/src/main/resources/ai-assist/artifacts/php-sdk
       - name: 运行全部 Maven 模块测试
         run: mvn -B test -fae
       - name: 上传测试报告
@@ -165,6 +175,9 @@ jobs:
             echo "::endgroup::"
           done
       - name: 构建（类型检查 + 打包 + 嵌入 SDK）
+        # vue-tsc 全量类型检查已超过 Node 默认的 2GB 堆。
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
         run: npm run build
 
   repository:

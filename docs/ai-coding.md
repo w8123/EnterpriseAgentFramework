@@ -9,10 +9,12 @@ AI Coding 将接入和改造目标交给外部编码工具，并在平台中保�
 | 通道 | 身份与用途 |
 | --- | --- |
 | 管理端任务控制台 | 平台会话与项目权限，创建任务、查看进度和验收 |
-| 一次性交接 | 激活 handoff 后获得任务级凭据，限定当前任务与能力 |
+| 平台 MCP 任务连接 | 人在控制台为已有任务生成一次性领取码；AI 使用本人平台连接领取，任务权限绑定该连接。项目接入和 AI 发起的改造任务可按各自流程绑定创建者连接 |
 | 项目级 API | `X-ReachAI-AiCoding-Key`，读取 manifest、操作项目内 Agent / Workflow |
 
-平台会话、项目 Key 与 Task Token 不互相替代。Key 不进入 URL query、生成代码、浏览器运行时代码或 Artifact；完整端点从 `/api/ai-coding/projects/{projectId}/manifest` 发现。
+平台会话、项目 Key 与任务凭据不互相替代。领取码不写入日志或 Artifact，只能使用一次；任务调用还会重新核验项目权限与连接归属。Key 不进入 URL query、生成代码、浏览器运行时代码或 Artifact；完整端点从 `/api/ai-coding/projects/{projectId}/manifest` 发现。
+
+旧版 PowerShell 交接包的签发和激活默认关闭，旧入口返回 410；尚未激活的旧包需要在任务详情重新生成领取码。已经激活的旧任务凭据仍按原有效期和撤销规则生效。升级时先协调管理端与 Control 并验证平台 MCP；如需临时回退旧客户端，可在 Control 设置 `reachai.ai-coding-task.legacy-handoff-enabled=true`，排查完成后恢复默认关闭。新领取码始终只能通过 MCP 使用，即使临时回退也不能通过旧激活接口换取任务令牌。
 
 ## 任务协议
 
@@ -25,6 +27,8 @@ AI Coding 将接入和改造目标交给外部编码工具，并在平台中保�
 | 业务验收 | 目标服务、SDK 回调、页面动作和真实业务结果是否符合要求 |
 
 事件、问题与 Artifact 绑定任务和发送身份，遵守幂等与顺序约束。重连或迟到回传不能覆盖终态，也不能把其他任务的证据移入本任务。未完成验收时任务保留明确缺口，不用新的会话授权或执行提示词绕过。
+
+浏览器验收报告已应用、但有多条符合条件的页面 Workflow Trace 时，可用新的 `artifactKey` 回传同一报告并指定 `traceId`；除 `traceId` 外的报告内容必须与已应用版本一致。平台仍独立核验该 Trace 的页面会话、任务时间及精确 Workflow 版本，不因 AI 报告而跳过验收。
 
 ## 页面改造
 

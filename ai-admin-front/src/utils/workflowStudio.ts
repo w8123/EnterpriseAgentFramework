@@ -89,6 +89,19 @@ export function workflowCanvasToSaveRequest(
   studio: WorkflowWorkingCopyState,
   snapshot: CanvasSnapshot,
 ): SaveWorkflowWorkingCopyRequest {
+  const sourceGraph = parseWorkflowGraphSpec(studio.graphSpecJson)
+  if (sourceGraph.env?.reachaiTrustedPageDraft === true) {
+    // A reviewed graph is deliberately not round-tripped through the generic canvas
+    // serializer: it would discard reviewed schema constraints and rewrite mappings.
+    // Reject semantic canvas edits rather than silently saving a different graph.
+    const baseline = workflowStudioToCanvas(studio)
+    if (stableJson(canvasSemantics(snapshot)) !== stableJson(canvasSemantics(baseline))) {
+      throw new Error('受限页面草稿不能直接修改节点或连线；请重新选择已审核页面动作构建')
+    }
+    const draft = canvasToDefinition(workflowStudioToCanvasForm(studio), snapshot)
+    return { graphSpecJson: JSON.stringify(sourceGraph), canvasJson: draft.canvasJson || JSON.stringify(snapshot),
+      extraJson: studio.extraJson || null, baseRevision: studio.revision || studio.updatedAt || '' }
+  }
   const draft = canvasToDefinition(workflowStudioToCanvasForm(studio), snapshot)
   return {
     graphSpecJson: JSON.stringify(draft.graphSpec || parseWorkflowGraphSpec(studio.graphSpecJson)),
@@ -96,6 +109,26 @@ export function workflowCanvasToSaveRequest(
     extraJson: studio.extraJson || null,
     baseRevision: studio.revision || studio.updatedAt || '',
   }
+}
+
+function canvasSemantics(snapshot: CanvasSnapshot) {
+  return {
+    nodes: snapshot.nodes.map((node) => ({ id: node.id, data: node.data })).sort((a, b) => a.id.localeCompare(b.id)),
+    edges: snapshot.edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target,
+      sourceHandle: edge.sourceHandle || '', targetHandle: edge.targetHandle || '',
+      condition: edge.condition || (typeof edge.label === 'string' ? edge.label : '') || 'always',
+      priority: edge.priority ?? null }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  }
+}
+function stableJson(value: unknown): string {
+  const normalize = (entry: unknown): unknown => {
+    if (Array.isArray(entry)) return entry.map(normalize)
+    if (!entry || typeof entry !== 'object') return entry
+    return Object.fromEntries(Object.entries(entry as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right)).map(([key, child]) => [key, normalize(child)]))
+  }
+  return JSON.stringify(normalize(value))
 }
 
 export function createWorkflowCanvasNode(
@@ -179,6 +212,9 @@ export function parseWorkflowGraphSpec(graphSpecJson: string | null | undefined)
   if (!Array.isArray(parsed.exitNodeIds) || parsed.exitNodeIds.some((id) => typeof id !== 'string')) {
     throw new Error('GraphSpec exitNodeIds must contain only strings')
   }
+  if (parsed.env != null && (typeof parsed.env !== 'object' || Array.isArray(parsed.env))) {
+    throw new Error('GraphSpec env must be an object')
+  }
   for (const node of parsed.nodes) {
     if (!node || typeof node !== 'object' || Array.isArray(node)) {
       throw new Error('GraphSpec nodes must contain only objects')
@@ -212,6 +248,7 @@ export function parseWorkflowGraphSpec(graphSpecJson: string | null | undefined)
     schemaVersion: 2,
     inputSchema: parsed.inputSchema,
     stateSchema: parsed.stateSchema,
+    env: parsed.env,
     nodes: parsed.nodes,
     edges: parsed.edges,
     entryNodeId: parsed.entryNodeId,

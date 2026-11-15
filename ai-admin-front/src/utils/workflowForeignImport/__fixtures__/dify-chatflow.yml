@@ -1,0 +1,205 @@
+app:
+  description: 根据客户问题查知识库或查订单
+  icon: 🤖
+  mode: advanced-chat
+  name: 客服助手
+kind: app
+version: 0.1.5
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  graph:
+    edges:
+    - id: start-classifier
+      source: '1711528914102'
+      sourceHandle: source
+      target: '1711528915811'
+      targetHandle: target
+    - id: classifier-kb
+      source: '1711528915811'
+      sourceHandle: '1'
+      target: '1711528917469'
+      targetHandle: target
+    - id: classifier-extract
+      source: '1711528915811'
+      sourceHandle: '2'
+      target: '1711528919501'
+      targetHandle: target
+    - id: kb-llm
+      source: '1711528917469'
+      sourceHandle: source
+      target: '1711528920000'
+      targetHandle: target
+    - id: llm-answer
+      source: '1711528920000'
+      sourceHandle: source
+      target: answer1
+      targetHandle: target
+    - id: extract-if
+      source: '1711528919501'
+      sourceHandle: source
+      target: ifelse1
+      targetHandle: target
+    - id: if-http
+      source: ifelse1
+      sourceHandle: 'true'
+      target: http1
+      targetHandle: target
+    - id: if-noorder
+      source: ifelse1
+      sourceHandle: 'false'
+      target: answer3
+      targetHandle: target
+    - id: http-code
+      source: http1
+      sourceHandle: source
+      target: code1
+      targetHandle: target
+    - id: http-tool
+      source: http1
+      sourceHandle: source
+      target: tool1
+      targetHandle: target
+    - id: code-agg
+      source: code1
+      sourceHandle: source
+      target: agg1
+      targetHandle: target
+    - id: tool-agg
+      source: tool1
+      sourceHandle: source
+      target: agg1
+      targetHandle: target
+    - id: agg-answer
+      source: agg1
+      sourceHandle: source
+      target: answer2
+      targetHandle: target
+    nodes:
+    - data:
+        title: 开始
+        type: start
+        variables:
+        - label: 客户等级
+          variable: level
+          type: select
+          required: false
+          options: [普通, VIP]
+      id: '1711528914102'
+      position: {x: 80, y: 280}
+    - data:
+        title: 问题分类
+        type: question-classifier
+        query_variable_selector: [sys, query]
+        instruction: 判断客户在问什么
+        classes:
+        - {id: '1', name: 产品咨询}
+        - {id: '2', name: 订单查询}
+        model: {provider: openai, name: gpt-4o-mini, mode: chat, completion_params: {temperature: 0.2}}
+      id: '1711528915811'
+      position: {x: 380, y: 280}
+    - data:
+        title: 查产品知识
+        type: knowledge-retrieval
+        query_variable_selector: [sys, query]
+        dataset_ids: [abc, def]
+        retrieval_mode: multiple
+        multiple_retrieval_config: {top_k: 4}
+      id: '1711528917469'
+      position: {x: 680, y: 160}
+    - data:
+        title: 回答产品问题
+        type: llm
+        context: {enabled: true, variable_selector: ['1711528917469', result]}
+        model: {provider: langgenius/openai/openai, name: gpt-4o, mode: chat, completion_params: {temperature: 0.7}}
+        prompt_template:
+        - role: system
+          text: "你是客服。参考资料：{{#context#}}\n客户等级：{{#1711528914102.level#}}"
+        - role: user
+          text: '{{#sys.query#}}'
+        memory: {window: {enabled: true, size: 10}}
+        vision: {enabled: false}
+      id: '1711528920000'
+      position: {x: 980, y: 160}
+    - data:
+        title: 回复
+        type: answer
+        answer: '{{#1711528920000.text#}}'
+      id: answer1
+      position: {x: 1280, y: 160}
+    - data:
+        title: 提取订单号
+        type: parameter-extractor
+        query: [sys, query]
+        instruction: 提取订单号
+        parameters:
+        - {name: order_no, type: string, description: 订单号, required: true}
+      id: '1711528919501'
+      position: {x: 680, y: 400}
+    - data:
+        title: 有订单号吗
+        type: if-else
+        logical_operator: and
+        conditions:
+        - {variable_selector: ['1711528919501', order_no], comparison_operator: not empty, value: ''}
+      id: ifelse1
+      position: {x: 980, y: 400}
+    - data:
+        title: 查订单
+        type: http-request
+        method: get
+        url: 'https://erp.example.com/api/orders/{{#1711528919501.order_no#}}'
+        headers: "Accept:application/json"
+        params: ''
+        body: {type: none, data: []}
+        authorization: {type: api-key, config: {type: bearer, api_key: secret-should-not-import}}
+        timeout: {max_read_timeout: 10}
+      id: http1
+      position: {x: 1280, y: 340}
+    - data:
+        title: 整理订单
+        type: code
+        code_language: javascript
+        code: "function main({body}) { return { summary: String(body).slice(0, 200) } }"
+        variables:
+        - {variable: body, value_selector: [http1, body]}
+        outputs:
+          summary: {type: string, children: null}
+      id: code1
+      position: {x: 1580, y: 300}
+    - data:
+        title: 发飞书通知
+        type: tool
+        provider_id: feishu
+        provider_name: feishu
+        tool_name: send_message
+        tool_label: 发送消息
+        tool_parameters:
+          text: {type: mixed, value: '订单 {{#1711528919501.order_no#}} 被查询'}
+      id: tool1
+      position: {x: 1580, y: 440}
+    - data:
+        title: 汇总
+        type: variable-aggregator
+        output_type: string
+        variables:
+        - [code1, summary]
+        - [tool1, text]
+      id: agg1
+      position: {x: 1880, y: 340}
+    - data:
+        title: 回复订单
+        type: answer
+        answer: '{{#agg1.output#}}'
+      id: answer2
+      position: {x: 2180, y: 340}
+    - data:
+        title: 没有订单号
+        type: answer
+        answer: 请告诉我订单号。
+      id: answer3
+      position: {x: 1280, y: 520}
+    - data: {type: '', title: '', text: 这是一个便签}
+      id: note1
+      type: custom-note
+      position: {x: 0, y: 0}

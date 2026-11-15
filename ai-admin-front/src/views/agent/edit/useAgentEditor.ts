@@ -205,6 +205,12 @@ export function useAgentEditor() {
     pageBridgeTimeoutMs: DEFAULT_PAGE_BRIDGE_TIMEOUT_MS,
     parallelReadOnly: true,
     policyProfile: 'STANDARD',
+    // A new Agent can use everything its business system already opened to employees.
+    toolCatalogMode: 'PROJECT_CAPABILITIES',
+  })
+  const useProjectCapabilities = computed({
+    get: () => supervisor.toolCatalogMode === 'PROJECT_CAPABILITIES',
+    set: (enabled: boolean) => { supervisor.toolCatalogMode = enabled ? 'PROJECT_CAPABILITIES' : 'ALLOW_LIST' },
   })
 
   const DEFAULT_MEMORY_POLICY: AgentMemoryPolicy = {
@@ -1008,7 +1014,7 @@ export function useAgentEditor() {
       pageBridgeTimeoutMs: supervisor.pageBridgeTimeoutMs,
       parallelReadOnly: supervisor.parallelReadOnly,
       policyProfile: supervisor.policyProfile,
-      toolCatalogMode: 'ALLOW_LIST',
+      toolCatalogMode: supervisor.toolCatalogMode,
       memory: { ...memoryPolicy },
       configJson: entryConfigText.value.trim() || null,
       tools: workflowTools.value.map((tool, priority) => ({ ...tool, priority })),
@@ -1205,6 +1211,7 @@ export function useAgentEditor() {
       pageBridgeTimeoutMs: config.pageBridgeTimeoutMs ?? DEFAULT_PAGE_BRIDGE_TIMEOUT_MS,
       parallelReadOnly: config.parallelReadOnly !== false,
       policyProfile: config.policyProfile || 'STANDARD',
+      toolCatalogMode: config.toolCatalogMode === 'PROJECT_CAPABILITIES' ? 'PROJECT_CAPABILITIES' : 'ALLOW_LIST',
     })
     Object.assign(memoryPolicy, { ...DEFAULT_MEMORY_POLICY, ...(config.memory || {}) })
     entryConfigText.value = config.configJson || '{}'
@@ -1365,6 +1372,7 @@ export function useAgentEditor() {
     knowledgeAddingCode,
     knowledgeTools,
     generalWorkflowEntries,
+    useProjectCapabilities,
     knowledgeToolLabel,
     knowledgeOptionAttached,
     openKnowledgePicker,

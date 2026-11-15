@@ -87,6 +87,7 @@ class AiCodingTaskCommandPersistenceTest {
         context = new AnnotationConfigApplicationContext();
         context.register(Transactions.class);
         context.registerBean(DataSourceTransactionManager.class, () -> new DataSourceTransactionManager(source));
+        context.registerBean(JdbcTemplate.class, () -> jdbc);
         context.registerBean(ObjectMapper.class, () -> json);
         context.registerBean(AiCodingTaskMapper.class, () -> sql.getMapper(AiCodingTaskMapper.class));
         context.registerBean(AiCodingTaskTargetMapper.class, () -> sql.getMapper(AiCodingTaskTargetMapper.class));
@@ -96,7 +97,7 @@ class AiCodingTaskCommandPersistenceTest {
         context.registerBean(AiCodingHandoffApplicationService.class, () -> handoffs);
         context.registerBean(CapabilityProjectOnboardingClient.class, () -> projects);
         context.registerBean(AiCodingTaskProviderRegistry.class, () -> new AiCodingTaskProviderRegistry(List.of(provider)));
-        context.register(AiCodingTaskDeliveryService.class, AiCodingArtifactProviderExecutor.class,
+        context.register(ProjectOnboardingCreationLock.class, AiCodingTaskDeliveryService.class, AiCodingArtifactProviderExecutor.class,
                 AiCodingArtifactContractValidator.class);
         context.register(AiCodingTaskApplicationService.class, AiCodingTaskQueryService.class, AiCodingTaskCreationService.class, AiCodingTaskEventService.class, AiCodingTaskQuestionService.class,
                 AiCodingTaskStateChanges.class, AiCodingTaskJsonSupport.class, AiCodingTaskDescriptorReader.class,

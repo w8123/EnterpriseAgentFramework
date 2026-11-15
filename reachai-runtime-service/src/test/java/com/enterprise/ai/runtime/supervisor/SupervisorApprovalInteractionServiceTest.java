@@ -50,6 +50,7 @@ class SupervisorApprovalInteractionServiceTest {
         assertTrue(visible.contains("createReqVO.sort=0"));
         assertTrue(visible.contains("createReqVO.token=[已隐藏]"));
         assertFalse(visible.contains("never-display-this"));
+        assertEquals(true, ((Map<?, ?>) created.uiRequest().get("extension")).get("approvalBlocked"));
     }
 
     @Test
@@ -62,7 +63,7 @@ class SupervisorApprovalInteractionServiceTest {
                 .permissionKey("team:write")
                 .riskLevel("WRITE")
                 .build();
-        Map<String, Object> args = Map.of("teamId", "T-1", "name", "一班", "token", "secret-value");
+        Map<String, Object> args = Map.of("teamId", "T-1", "name", "一班");
         Map<String, Object> input = Map.of(
                 "agentId", "agent-1", "message", "修改班组", "sessionId", "session-1",
                 "userId", "forged-body-user");
@@ -83,8 +84,7 @@ class SupervisorApprovalInteractionServiceTest {
         assertEquals("WAITING_USER", row.getStatus());
         assertEquals("update_team", row.getNodeId());
         assertEquals("confirm", ((Map<?, ?>) created.uiRequest()).get("component"));
-        assertTrue(created.uiRequest().toString().contains("[已隐藏]"));
-        assertFalse(created.uiRequest().toString().contains("secret-value"));
+        assertEquals(false, ((Map<?, ?>) created.uiRequest().get("extension")).get("approvalBlocked"));
         when(sessionMapper.selectForUpdate(row.getId())).thenReturn(row);
         when(sessionMapper.update(any(), any())).thenReturn(1);
 
@@ -115,6 +115,33 @@ class SupervisorApprovalInteractionServiceTest {
         assertEquals(true, replay.replayResult().get("success"));
         assertEquals(true, ((Map<?, ?>) replay.replayResult().get("metadata")).get("idempotentReplay"));
         verify(eventMapper, org.mockito.Mockito.atLeastOnce()).insert(any());
+    }
+
+    @Test
+    void incompleteHistoricalApprovalCannotBeConfirmedButCanBeRejected() throws Exception {
+        RuntimeInteractionSessionEntity row = pendingRow();
+        row.setUiRequestJson(objectMapper.writeValueAsString(Map.of("message", "操作参数：teamId=…[已截断]",
+                "data", Map.of("arguments", Map.of("teamId", "…[已截断]")))));
+        when(sessionMapper.selectForUpdate("spv_1")).thenReturn(row);
+        when(sessionMapper.update(any(), any())).thenReturn(1);
+        var error = assertThrows(IllegalArgumentException.class, () -> prepareResume("spv_1",
+                Map.of("sessionId", "session-1", "uiSubmit", Map.of("action", "confirm"))));
+        assertTrue(error.getMessage().contains("SUPERVISOR_APPROVAL_CONTENT_INCOMPLETE"));
+        assertEquals("WAITING_USER", row.getStatus());
+        assertTrue(prepareResume("spv_1", Map.of("sessionId", "session-1", "uiSubmit", Map.of("action", "reject"))).rejected());
+    }
+
+    @Test
+    void longOrSecretValuesCannotBeApproved() {
+        var config = RuntimeAgentConfigSnapshot.builder().id(12L).build();
+        var tool = RuntimeAgentWorkflowToolSnapshot.builder().toolName("update").riskLevel("WRITE").build();
+        for (var args : java.util.List.of(Map.<String, Object>of("description", "x".repeat(201)),
+                Map.<String, Object>of("password", "private-value"))) {
+            var created = service.create(new SupervisorExecutionTraceService.TraceHandle("trace", "span", 1L, LocalDateTime.now()),
+                    agent(), config, tool, Map.of("sessionId", "session-1"), args, "需要确认", trustedIdentity("u-1"));
+            assertEquals(true, ((Map<?, ?>) created.uiRequest().get("extension")).get("approvalBlocked"));
+            assertFalse(created.uiRequest().toString().contains("private-value"));
+        }
     }
 
     @Test
@@ -235,6 +262,8 @@ class SupervisorApprovalInteractionServiceTest {
                 "args", Map.of("teamId", "T-1"),
                 "input", Map.of("agentId", "agent-1", "message", "修改班组"))));
         row.setContinuationJson(objectMapper.writeValueAsString(Map.of("agentId", "agent-1")));
+        row.setUiRequestJson(objectMapper.writeValueAsString(Map.of("message", "需要确认。操作参数：teamId=T-1",
+                "data", Map.of("arguments", Map.of("teamId", "T-1")))));
         row.setExpiresAt(LocalDateTime.now().plusMinutes(10));
         return row;
     }

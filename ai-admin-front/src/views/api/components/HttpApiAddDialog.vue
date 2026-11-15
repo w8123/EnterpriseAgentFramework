@@ -1,5 +1,5 @@
 <template>
-  <AppDialog :model-value="modelValue" title="添加 API" width="860px" class="http-api-add-dialog" destroy-on-close
+  <AppDialog :model-value="modelValue" title="添加 API" :width="tab === 'batch' ? '1040px' : '860px'" class="http-api-add-dialog" destroy-on-close
     @update:model-value="emit('update:modelValue', $event)">
     <template #header="{ titleId }">
       <div class="add-api-header">
@@ -23,25 +23,14 @@
         </div>
       </el-tab-pane>
 
-      <el-tab-pane label="导入 OpenAPI / Swagger" name="openapi">
-        <div class="add-api-pane">
-          <LiquidGlassNotice v-if="sdkOnly" type="info" source="backdrop"
-            title="这个项目通过 SDK 自动同步接口"
-            description="SDK 项目不需要上传文档。SDK 没覆盖到的接口，可以用「粘贴 curl」「手动填写」或「让智能体扫描」补上。" />
-          <template v-else>
-            <p class="add-api-lead">支持 OpenAPI 3（.json / .yaml）和 Swagger 2.0（.json，会自动转成 OpenAPI 3）。一般在 <code>/v3/api-docs</code> 或 <code>/v2/api-docs</code> 下载。</p>
-            <div class="add-api-file-row">
-              <input ref="fileInput" type="file" class="add-api-file-input" accept=".json,.yaml,.yml" aria-label="选择 OpenAPI 文档" @change="pickFile" />
-              <el-button @click="fileInput?.click()">选择文件</el-button>
-              <span class="add-api-hint">{{ documentName || '未选择，最大 5MB' }}</span>
-            </div>
-            <el-input v-model="documentText" type="textarea" :rows="6" placeholder="也可以直接把文档内容（JSON 或 YAML）粘贴到这里" aria-label="OpenAPI 文档内容"
-              @input="documentName = ''" />
-            <p v-if="documentNote" class="add-api-ok">{{ documentNote }}</p>
-            <LiquidGlassNotice type="warning" source="backdrop" title="会替换这个项目之前上传的文档"
-              description="新文档里没有的、之前从文档导入的接口会变成「来源已缺失」。手动添加和 SDK 同步的接口不受影响。" />
-          </template>
-        </div>
+      <el-tab-pane label="批量导入文档" name="batch">
+        <HttpApiBatchImport ref="batchRef" :project="project" :targets="importTargets" :can-write="canWrite"
+          :can-configure-auth="canConfigureAuth" @done="batchDone" @configure-auth="configureAuth" />
+      </el-tab-pane>
+
+      <el-tab-pane label="Dify / n8n 工作流" name="platform">
+        <HttpApiBatchImport ref="platformRef" mode="platform" :project="project" :targets="importTargets" :can-write="canWrite"
+          :can-configure-auth="canConfigureAuth" @done="batchDone" @configure-auth="configureAuth" />
       </el-tab-pane>
 
       <el-tab-pane label="粘贴 curl" name="curl">
@@ -135,9 +124,7 @@
       <div class="add-api-footer">
         <span v-if="submitError" class="add-api-error" role="alert">{{ submitError }}</span>
         <el-button :disabled="saving" @click="emit('update:modelValue', false)">取消</el-button>
-        <el-button v-if="tab === 'openapi' && !sdkOnly" type="primary" :loading="saving" :disabled="!canWrite || !documentText.trim()"
-          @click="importDocument">上传并导入</el-button>
-        <el-button v-else-if="tab === 'form' || (tab === 'curl' && curlParsed)" type="primary" :loading="saving" :disabled="!canWrite"
+        <el-button v-if="tab === 'form' || (tab === 'curl' && curlParsed)" type="primary" :loading="saving" :disabled="!canWrite"
           @click="saveManual">保存 API</el-button>
       </div>
     </template>
@@ -149,26 +136,31 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'
-import { LiquidGlassNotice, LiquidGlassTabs } from '@/components/common/liquid-glass'
+import { LiquidGlassTabs } from '@/components/common/liquid-glass'
 import { saveManualHttpApi } from '@/api/httpApi'
-import { getScanProjectDetail, triggerRescan, updateScanProject } from '@/api/scanProject'
-import type { ScanProject, ScanProjectUpsertRequest } from '@/types/scanProject'
-import { MAX_OPENAPI_DOCUMENT_CHARS } from '@/utils/openapiDocument'
+import type { ScanProject } from '@/types/scanProject'
+import HttpApiBatchImport from './HttpApiBatchImport.vue'
 import { agentScanPrompt, buildManualPayload, defaultSideEffect, emptyManualDraft, MANUAL_METHODS, normalizeApiPath,
-  parseCurl, prepareOpenApiDocument, syncPathParameters, type ManualHttpApiDraft } from '../manualHttpApi'
+  parseCurl, syncPathParameters, type ManualHttpApiDraft } from '../manualHttpApi'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean
   project: Pick<ScanProject, 'id' | 'name' | 'projectCode' | 'projectKind' | 'contextPath' | 'baseUrl'>
   canWrite: boolean
-}>()
+  /** 批量导入时可以选择的其他「所属系统」（当前用户能写入的项目） */
+  importTargets?: Array<{ id: number; name: string; contextPath?: string | null; projectCode?: string | null; canManageCredential?: boolean }>
+  canConfigureAuth?: boolean
+}>(), { importTargets: () => [], canConfigureAuth: false })
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
-  saved: [result: { apiId?: number; imported?: boolean }]
+  saved: [result: { apiId?: number; imported?: boolean; projectId?: number }]
+  'configure-auth': [projectId: number]
 }>()
 
 const router = useRouter()
-const tab = ref<'agent' | 'openapi' | 'curl' | 'form'>('agent')
+const tab = ref<'agent' | 'batch' | 'curl' | 'form'>('agent')
+const batchRef = ref<InstanceType<typeof HttpApiBatchImport> | null>(null)
+const platformRef = ref<InstanceType<typeof HttpApiBatchImport> | null>(null)
 const draft = reactive<ManualHttpApiDraft>(emptyManualDraft())
 const saving = ref(false)
 const submitError = ref('')
@@ -177,12 +169,6 @@ const curlError = ref('')
 const curlNote = ref('')
 const curlParsed = ref(false)
 const originWarning = ref('')
-const fileInput = ref<HTMLInputElement | null>(null)
-const documentName = ref('')
-const documentText = ref('')
-const documentNote = ref('')
-
-const sdkOnly = computed(() => props.project.projectKind === 'REGISTERED')
 const prompt = computed(() => agentScanPrompt(props.project))
 const pathPlaceholder = computed(() => '/erp/stock/page')
 
@@ -190,7 +176,9 @@ watch(() => props.modelValue, open => {
   if (!open) return
   Object.assign(draft, emptyManualDraft())
   tab.value = 'agent'; submitError.value = ''; curlText.value = ''; curlError.value = ''; curlNote.value = ''
-  curlParsed.value = false; originWarning.value = ''; documentName.value = ''; documentText.value = ''; documentNote.value = ''
+  curlParsed.value = false; originWarning.value = ''
+  batchRef.value?.reset()
+  platformRef.value?.reset()
 })
 watch(tab, value => {
   submitError.value = ''
@@ -231,15 +219,14 @@ function parseCurlText() {
     curlError.value = error instanceof Error ? error.message : 'curl 解析失败'
   }
 }
-async function pickFile(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  if (file.size > MAX_OPENAPI_DOCUMENT_CHARS) { ElMessage.warning('文档不能超过 5MB'); return }
-  documentText.value = await file.text()
-  documentName.value = file.name
-  documentNote.value = ''
+function batchDone(result: { imported: boolean; projectId: number }) {
+  emit('saved', { imported: result.imported, projectId: result.projectId })
+  emit('update:modelValue', false)
+}
+function configureAuth(projectId: number) {
+  emit('saved', { imported: true, projectId })
+  emit('configure-auth', projectId)
+  emit('update:modelValue', false)
 }
 
 function ownerMessage(error: unknown, fallback: string) {
@@ -264,34 +251,6 @@ async function saveManual() {
   } finally { saving.value = false }
 }
 
-async function importDocument() {
-  if (saving.value || !props.canWrite || sdkOnly.value) return
-  submitError.value = ''
-  let prepared
-  try {
-    if (documentText.value.length > MAX_OPENAPI_DOCUMENT_CHARS) throw new Error('文档不能超过 5MB')
-    prepared = prepareOpenApiDocument(documentName.value || 'openapi.json', documentText.value)
-  } catch (error) { submitError.value = error instanceof Error ? error.message : '文档无法识别'; return }
-  documentNote.value = prepared.note
-  saving.value = true
-  try {
-    const { data: project } = await getScanProjectDetail(props.project.id)
-    const payload: ScanProjectUpsertRequest = {
-      name: project.name, projectCode: project.projectCode, projectKind: project.projectKind,
-      environment: project.environment, owner: project.owner || '', visibility: project.visibility,
-      baseUrl: project.baseUrl, businessPageUrl: project.businessPageUrl ?? null, contextPath: project.contextPath || '',
-      specFile: prepared.specFile,
-      specContent: prepared.specContent,
-    }
-    await updateScanProject(project.id, payload)
-    const { data: result } = await triggerRescan(project.id)
-    ElMessage.success(`文档已导入${typeof result?.toolCount === 'number' ? `，识别出 ${result.toolCount} 个接口` : ''}。新接口确认后点「接纳」即可使用`)
-    emit('saved', { imported: true })
-    emit('update:modelValue', false)
-  } catch (error) {
-    submitError.value = ownerMessage(error, '导入失败：文档已保存时可以到「接入与变更」里重新导入，或检查文档后重试')
-  } finally { saving.value = false }
-}
 </script>
 
 <style scoped>

@@ -8,7 +8,7 @@ Python 3.10–3.13，FastAPI 0.115 至 1.0 之前，Pydantic 2。
 
 ## 准备
 
-1. 调用 `reachai_onboarding_resources` 获取所有语言的 `sdkArtifacts` 和 `skillPackageUrl`，选择当前语言制品。注册地址使用 AI 所连接的 ReachAI 平台根地址 `{{reachaiUrl}}`，从业务服务确认该地址可达。首次接入先确认项目编码「{{projectCode}}」，用 `reachai_onboarding_enrollment_request` 申请并由本人在「AI 操作审核」批准，再用 `reachai_onboarding_enrollment_execute` 获取一次性令牌。注册成功后项目出现在工作台。
+1. 调用 `reachai_onboarding_resources` 获取所有语言的 `sdkArtifacts` 和 `skillPackageUrl`，选择当前语言制品。注册地址使用 AI 所连接的 ReachAI 平台根地址 `{{reachaiUrl}}`，从业务服务确认该地址可达。首次接入先确认项目编码「{{projectCode}}」，用 `reachai_onboarding_enrollment_request` 申请并由本人在「待办与审核」批准，再用 `reachai_onboarding_enrollment_execute` 获取一次性令牌。注册成功后项目出现在工作台。
 2. 所有密钥（Enrollment Token、AppKey / AppSecret、凭据加密密钥）只放环境变量或密钥管理器，不写进代码、配置文件、日志和浏览器。
 3. ReachAI 的制品地址不是 Maven / NuGet / npm / pip / Go 模块仓库，按清单里的 `downloadUrl` 下载并校验 `integritySha256`，不要猜仓库地址。
 

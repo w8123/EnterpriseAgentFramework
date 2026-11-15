@@ -6,8 +6,13 @@
 
 | Table | Owner service | Additional direct access | Notes |
 | --- | --- | --- | --- |
+| `control_page_action_effect_generation` | `reachai-control-service` | - | 页面动作审核失效的单调版本 |
+| `control_page_action_effect_review` | `reachai-control-service` | - | 项目发布者对动作效应作出的不可变审核与撤销历史 |
 | `control_ai_tool_connection` | `reachai-control-service` | - | Employee's personal connection from their own AI tool (Claude Code, Codex…); key stored only as SHA-256 |
 | `control_ai_tool_connection_system` | `reachai-control-service` | - | Business systems an employee ticked for one personal AI-tool connection |
+| `control_activity_event` | `reachai-control-service` | - | 主动感知：业务系统 SDK 上报的员工操作和搜索（不含请求内容，已脱敏） |
+| `control_activity_setting` | `reachai-control-service` | - | 主动感知：每个业务系统的采集开关、搜索词、隐藏姓名和保留天数 |
+| `control_activity_insight` | `reachai-control-service` | - | 主动感知：归纳出的常用流程、易错步骤，以及推荐给员工的快捷操作 |
 | `control_a2a_publication` | `reachai-control-service` | - | A2A Hub local Agent publication aggregate and current immutable revision |
 | `control_a2a_publication_revision` | `reachai-control-service` | - | Immutable A2A 1.0 Agent Card publication snapshot and conformance evidence |
 | `control_a2a_remote_agent` | `reachai-control-service` | - | Stable remote Agent catalog identity, trust and health state |

@@ -52,5 +52,10 @@ public class KnowledgeRetrievalCoreResponse {
         private Integer chunkIndex;
         private Integer hitCount;
         private String reason;
+        /** RAGFLOW / IMA / DIFY when the passage came from an external knowledge base; null for local chunks. */
+        private String externalProvider;
+        /** Knowledge base row of an external passage, for the content-release check; never serialized. */
+        @com.fasterxml.jackson.annotation.JsonIgnore
+        private Long externalKnowledgeBaseId;
     }
 }

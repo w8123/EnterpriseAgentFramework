@@ -93,6 +93,48 @@ class RuntimeWorkflowCredentialServiceTest {
     }
 
     @Test
+    void aSignInCredentialShowsItsSettingsButNeverWhatItSends() {
+        RuntimeWorkflowCredentialMapper mapper = mock(RuntimeWorkflowCredentialMapper.class);
+        RuntimeWorkflowCredentialCipher cipher = new RuntimeWorkflowCredentialCipher("unit-test-secret");
+        RuntimeWorkflowCredentialEntity existing = new RuntimeWorkflowCredentialEntity();
+        existing.setId(2L);
+        existing.setCredentialRef("cred_orders");
+        existing.setName("Orders API");
+        existing.setType("API_KEY_HEADER");
+        existing.setStatus("ACTIVE");
+        existing.setScope("PROJECT");
+        existing.setProjectId(7L);
+        existing.setProjectCode("orders");
+        existing.setSecretJson(cipher.encrypt("{\"headerName\":\"token\",\"apiKey\":\"old-token\"}"));
+        when(mapper.selectById(2L)).thenReturn(existing);
+        when(mapper.selectOne(org.mockito.ArgumentMatchers.<Wrapper<RuntimeWorkflowCredentialEntity>>any()))
+                .thenReturn(existing);
+        RuntimeWorkflowCredentialService service = new RuntimeWorkflowCredentialService(mapper, cipher, new ObjectMapper());
+
+        RuntimeWorkflowCredentialView rotated = service.update(2L, new RuntimeWorkflowCredentialRequest("cred_orders",
+                "Orders API", "API_KEY_HEADER", 7L, "orders", "PROJECT", "ACTIVE",
+                Map.of("headerName", "token", "login", Map.of("url", "https://erp.example.com/login",
+                        "body", "{\"password\":\"p-123456\"}", "ttlMinutes", 60))));
+
+        var resolved = service.resolveProjectCredential("cred_orders", 7L, "orders").orElseThrow();
+        assertEquals(60, WorkflowCredentialTypes.login(resolved.secret()).get("ttlMinutes"));
+        Map<?, ?> shown = (Map<?, ?>) rotated.secretPreview().get("login");
+        assertEquals("https://erp.example.com/login", shown.get("url"));
+        assertFalse(String.valueOf(rotated.secretPreview()).contains("p-123456"));
+        assertFalse(rotated.secretPreview().containsKey("apiKey"));
+    }
+
+    @Test
+    void signInSettingsAreValidated() {
+        assertThrows(IllegalArgumentException.class, () -> WorkflowCredentialTypes.validateAndNormalizeSecret("BEARER",
+                Map.of("login", Map.of("url", "ftp://erp/login"))));
+        assertThrows(IllegalArgumentException.class, () -> WorkflowCredentialTypes.validateAndNormalizeSecret("BEARER",
+                Map.of("login", Map.of("url", "https://erp/login", "tokenPath", "data[0]"))));
+        assertThrows(IllegalArgumentException.class, () -> WorkflowCredentialTypes.validateAndNormalizeSecret("BEARER",
+                Map.of("token", "")));
+    }
+
+    @Test
     void deleteDisablesCredentialInsteadOfRemovingRow() {
         RuntimeWorkflowCredentialMapper mapper = mock(RuntimeWorkflowCredentialMapper.class);
         RuntimeWorkflowCredentialEntity existing = new RuntimeWorkflowCredentialEntity();

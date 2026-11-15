@@ -70,3 +70,74 @@ export function saveManualHttpApi(projectId: number, body: import('@/views/api/m
 export function removeManualHttpApi(projectId: number, apiId: number) {
   return controlRequest.delete<{ removed: boolean }>(`/api/scan-projects/${projectId}/manual-http-apis/${apiId}`, { errorFeedback: 'local' })
 }
+
+export interface HttpApiImportCandidate {
+  key: string
+  request: import('@/views/api/manualHttpApi').ManualHttpApiPayload & { summary?: string | null; description?: string | null; businessGroups?: string[] }
+  host: string | null
+  deprecated: boolean
+  warnings: string[]
+  unsupported: string | null
+  existing: boolean
+}
+
+export interface HttpApiImportPreview {
+  format: 'OPENAPI3' | 'SWAGGER2' | 'POSTMAN' | 'HAR' | 'DIFY' | 'N8N'
+  title: string
+  version: string | null
+  fetchedFrom: string | null
+  stripPrefix: string
+  skipped: number
+  warnings: string[]
+  candidates: HttpApiImportCandidate[]
+}
+
+/** 解析整份接口文档（OpenAPI / Swagger / Postman / HAR），不保存。url 由后端下载，Authorization 只用这一次。 */
+export function previewHttpApiDocument(projectId: number, body: { content?: string; fileName?: string; url?: string;
+  authorization?: string; stripPrefix?: string }) {
+  return controlRequest.post<HttpApiImportPreview>(`/api/scan-projects/${projectId}/manual-http-apis/import/preview`, body,
+    { errorFeedback: 'local', timeout: 60000 })
+}
+
+/** 读取 Dify 应用（用应用 API 密钥）或 n8n 的 Webhook 工作流，列成可导入的接口；密钥只用这一次，不保存。 */
+export function previewWorkflowPlatform(projectId: number, body: { platform: 'DIFY' | 'N8N'; baseUrl?: string; apiKey?: string;
+  webhookUrls?: string }) {
+  return controlRequest.post<HttpApiImportPreview>(`/api/scan-projects/${projectId}/manual-http-apis/import/platform-preview`, body,
+    { errorFeedback: 'local', timeout: 60000 })
+}
+
+export interface ManualHttpApiBatchResult {
+  saved: number
+  failed: number
+  results: Array<{ index: number; httpMethod: string; path: string; ok: boolean; apiId?: number; created?: boolean;
+    status?: string; message?: string }>
+}
+
+/** 一次最多 200 个；每个单独保存，一个失败不影响其他。 */
+export function saveManualHttpApiBatch(projectId: number, apis: unknown[]) {
+  return controlRequest.post<ManualHttpApiBatchResult>(`/api/scan-projects/${projectId}/manual-http-apis/batch`, { apis },
+    { errorFeedback: 'local', timeout: 120000 })
+}
+
+/** 把已接纳的 HTTP API 包装成「调用一次接口」的流程，之后可以加入员工发布，员工和助手才能用。 */
+export interface HttpApiFlowResult {
+  apiId: number
+  workflowId: string | null
+  workflowKeySlug: string | null
+  workflowName: string | null
+  workflowStatus: string | null
+  created: boolean
+  error: string | null
+}
+
+export function generateHttpApiFlows(body: { projectId: number; projectCode: string;
+  apis: { apiId: number; title?: string }[]; publish: boolean; publishedBy?: string }) {
+  return controlRequest.post<HttpApiFlowResult[]>('/api/workflows/http-api-flows', body,
+    { errorFeedback: 'local', timeout: 600000 })
+}
+
+/** 用这个系统助手的模型给 API 起中文名（只给建议），返回 { apiId: 名称 }。 */
+export function suggestHttpApiFlowNames(body: { projectId: number; projectCode: string; apiIds: number[] }) {
+  return controlRequest.post<Record<string, string>>('/api/workflows/http-api-flows/names', body,
+    { errorFeedback: 'local', timeout: 180000 })
+}

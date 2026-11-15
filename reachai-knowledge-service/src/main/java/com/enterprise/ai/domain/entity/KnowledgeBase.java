@@ -65,6 +65,18 @@ public class KnowledgeBase {
 
     private Float keywordWeight;
 
+    /** 来源：LOCAL（本平台向量库）/ EXTERNAL（外部知识库，检索时调用外部系统）。 */
+    private String sourceType;
+
+    /** 外部知识库提供方：RAGFLOW / IMA / DIFY；本地知识库为空。 */
+    private String externalProvider;
+
+    /** 外部连接配置 JSON（地址、Client ID、选中的远端库），不含密钥。 */
+    private String externalConfig;
+
+    /** 外部系统 API Key，AES-GCM 加密后保存，永不返回给控制台。 */
+    private String externalSecret;
+
     /** 状态: 0-禁用 1-启用 */
     private Integer status;
 

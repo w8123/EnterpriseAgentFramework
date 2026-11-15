@@ -116,8 +116,10 @@ export function nextAllowedAgentIds(policy: ProjectEmbedPolicy, agent: AgentIden
 
 export function frontendSnippet(options: { reachAiBase: string; agentId: string }): string {
   const base = options.reachAiBase.replace(/\/+$/, '')
-  return `<link rel="stylesheet" href="${base}${EMBED_SDK_PUBLIC_PATH}/style.css">
-<script src="${base}${EMBED_SDK_PUBLIC_PATH}/reachai-chat-embed.umd.js"></script>
+  const version = typeof __REACHAI_EMBED_BROWSER_VERSION__ === 'string' ? __REACHAI_EMBED_BROWSER_VERSION__ : ''
+  const sdkPath = version ? `${EMBED_SDK_PUBLIC_PATH}/versions/${version}` : EMBED_SDK_PUBLIC_PATH
+  return `<link rel="stylesheet" href="${base}${sdkPath}/style.css">
+<script src="${base}${sdkPath}/reachai-chat-embed.umd.js"></script>
 <script>
   ReachAI.createEafChat({
     mount: document.body,

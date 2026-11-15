@@ -12,6 +12,19 @@ describe('UnifiedInteractionRenderer DOM', () => {
     unregisterCustomInteractionRenderer('host.test-card')
   })
 
+  it('disables confirmation when the approval says its content is incomplete', async () => {
+    const wrapper = mount(UnifiedInteractionRenderer, { props: { request: {
+      schemaVersion: '1.0', interactionId: 'ix-incomplete', component: 'confirm',
+      message: '请核对操作内容', extension: { approvalBlocked: true },
+    } } })
+    expect(wrapper.text()).toContain('操作内容未能完整展示')
+    const confirm = wrapper.findAll('button').find(button => button.text() === '确认')!
+    expect((confirm.element as HTMLButtonElement).disabled).toBe(true)
+    await confirm.trigger('click')
+    expect(wrapper.emitted('submit')).toBeUndefined()
+    expect(wrapper.findAll('button').find(button => button.text() === '拒绝')?.attributes('disabled')).toBeUndefined()
+  })
+
   it('isolates radio name by interactionId', () => {
     const wrapper = mount(UnifiedInteractionRenderer, {
       props: {

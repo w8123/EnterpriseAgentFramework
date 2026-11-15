@@ -1,0 +1,30 @@
+{
+  "name": "工单分派",
+  "nodes": [
+    {"parameters": {"httpMethod": "POST", "path": "ticket", "responseMode": "responseNode"}, "id": "a1", "name": "Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 2, "position": [0, 300]},
+    {"parameters": {"assignments": {"assignments": [
+      {"id": "x1", "name": "title", "value": "={{ $json.body.title }}", "type": "string"},
+      {"id": "x2", "name": "priority", "value": "={{ $json.body.priority.toUpperCase() }}", "type": "string"}
+    ]}}, "id": "a2", "name": "Edit Fields", "type": "n8n-nodes-base.set", "typeVersion": 3.4, "position": [220, 300]},
+    {"parameters": {"conditions": {"options": {}, "conditions": [
+      {"id": "c1", "leftValue": "={{ $json.priority }}", "rightValue": "HIGH", "operator": {"type": "string", "operation": "equals"}}
+    ], "combinator": "and"}}, "id": "a3", "name": "If", "type": "n8n-nodes-base.if", "typeVersion": 2.2, "position": [440, 300]},
+    {"parameters": {"method": "POST", "url": "https://jira.example.com/rest/api/2/issue", "authentication": "genericCredentialType", "sendBody": true, "specifyBody": "json", "jsonBody": "={ \"summary\": \"{{ $('Edit Fields').item.json.title }}\" }"}, "id": "a4", "name": "Create Issue", "type": "n8n-nodes-base.httpRequest", "typeVersion": 4.2, "position": [660, 200]},
+    {"parameters": {"promptType": "define", "text": "=给客户写一段回复，工单标题：{{ $('Edit Fields').item.json.title }}", "options": {"systemMessage": "你是客服"}}, "id": "a5", "name": "AI Agent", "type": "@n8n/n8n-nodes-langchain.agent", "typeVersion": 1.7, "position": [660, 420]},
+    {"parameters": {"model": "gpt-4o-mini"}, "id": "a6", "name": "OpenAI Chat Model", "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi", "typeVersion": 1, "position": [600, 600]},
+    {"parameters": {"channel": "#support", "text": "={{ $json.output }}", "resource": "message", "operation": "post"}, "id": "a7", "name": "Slack", "type": "n8n-nodes-base.slack", "typeVersion": 2.2, "position": [880, 420]},
+    {"parameters": {}, "id": "a8", "name": "No Operation", "type": "n8n-nodes-base.noOp", "typeVersion": 1, "position": [880, 200]},
+    {"parameters": {"respondWith": "text", "responseBody": "=已创建：{{ $('Create Issue').item.json.key }}"}, "id": "a9", "name": "Respond", "type": "n8n-nodes-base.respondToWebhook", "typeVersion": 1.1, "position": [1100, 200]},
+    {"parameters": {"content": "说明"}, "id": "a10", "name": "Sticky Note", "type": "n8n-nodes-base.stickyNote", "typeVersion": 1, "position": [0, 0]}
+  ],
+  "connections": {
+    "Webhook": {"main": [[{"node": "Edit Fields", "type": "main", "index": 0}]]},
+    "Edit Fields": {"main": [[{"node": "If", "type": "main", "index": 0}]]},
+    "If": {"main": [[{"node": "Create Issue", "type": "main", "index": 0}], [{"node": "AI Agent", "type": "main", "index": 0}]]},
+    "Create Issue": {"main": [[{"node": "No Operation", "type": "main", "index": 0}]]},
+    "No Operation": {"main": [[{"node": "Respond", "type": "main", "index": 0}]]},
+    "AI Agent": {"main": [[{"node": "Slack", "type": "main", "index": 0}]]},
+    "OpenAI Chat Model": {"ai_languageModel": [[{"node": "AI Agent", "type": "ai_languageModel", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"}
+}

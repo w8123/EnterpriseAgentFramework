@@ -29,6 +29,11 @@ spring:
             connectTimeout: 5000
             # Covers navigation plus the separate 90s human-confirmation and action-execution phases.
             readTimeout: 165000
+          reachai-model-service:
+            connectTimeout: 5000
+            # One-shot generation (evaluation questions, API names) on a reasoning model can take 1–2 minutes;
+            # the 60s default failed every question generation on deepseek-v4-pro.
+            readTimeout: 180000
 
 services:
   control-service:

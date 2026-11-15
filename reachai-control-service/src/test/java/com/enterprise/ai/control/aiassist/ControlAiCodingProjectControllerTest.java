@@ -15,6 +15,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -54,9 +55,7 @@ class ControlAiCodingProjectControllerTest {
         assertEquals("X-ReachAI-AiCoding-Key", response.getBody().auth().headerName());
         assertEquals("http://localhost:18603/api/ai-coding/projects/7/manifest",
                 response.getBody().endpoints().manifestUrl());
-        assertEquals(
-                "http://localhost:18603/api/ai-coding/handoffs/{handoffId}/activate",
-                response.getBody().endpoints().handoffActivationUrlTemplate());
+        assertNull(response.getBody().endpoints().handoffActivationUrlTemplate());
         assertEquals(
                 "http://localhost:18603/api/ai-coding/tasks/{taskId}/context",
                 response.getBody().endpoints().taskContextUrlTemplate());
@@ -240,7 +239,7 @@ class ControlAiCodingProjectControllerTest {
         verify(runtimeClient).createAgent(org.mockito.ArgumentMatchers.anyMap());
         ArgumentCaptor<Map<String, Object>> agentBodyCaptor = ArgumentCaptor.forClass(Map.class);
         verify(runtimeClient).createAgent(agentBodyCaptor.capture());
-        assertEquals("Orders 页面副驾驶 Agent", agentBodyCaptor.getValue().get("name"));
+        assertEquals("Orders 助手", agentBodyCaptor.getValue().get("name"));
         assertEquals(
                 ControlProjectAgentProvisioningService.DEFAULT_PAGE_COPILOT_DESCRIPTION,
                 agentBodyCaptor.getValue().get("description"));

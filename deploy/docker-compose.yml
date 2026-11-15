@@ -183,6 +183,8 @@ services:
   reachai-web:
     image: ${REACHAI_IMAGE_REGISTRY:-ghcr.io/w8123}/reachai-web:${REACHAI_VERSION:-dev}
     restart: unless-stopped
+    volumes:
+      - reachai-embed-versions:/var/lib/reachai/embed-versions
     depends_on:
       reachai-control: { condition: service_healthy }
     ports:
@@ -190,3 +192,6 @@ services:
     logging:
       driver: json-file
       options: { max-size: "20m", max-file: "3" }
+
+volumes:
+  reachai-embed-versions:

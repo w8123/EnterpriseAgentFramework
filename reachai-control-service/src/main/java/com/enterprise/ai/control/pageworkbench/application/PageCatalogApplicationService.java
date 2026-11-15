@@ -41,6 +41,21 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PageCatalogApplicationService {
 
+    private com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectGenerationMapper effectGenerations;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setEffectGenerations(com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectGenerationMapper mapper) {
+        this.effectGenerations = mapper;
+    }
+
+    private void invalidatePageEffectReviews(Long pageId) {
+        if (effectGenerations != null && pageId != null) effectGenerations.invalidatePage(pageId);
+    }
+
+    private void invalidateActionEffectReview(Long actionId) {
+        if (effectGenerations != null && actionId != null) effectGenerations.invalidateAction(actionId);
+    }
+
     private final ProjectPageMapper pageMapper;
     private final PageResourceMapper resourceMapper;
     private final PageActionMapper actionMapper;
@@ -155,6 +170,7 @@ public class PageCatalogApplicationService {
                     .eq(ProjectPageEntity::getLifecycleStatus, PageLifecycle.ACTIVE.name()));
             for (ProjectPageEntity current : currentPages) {
                 if (!reportKeys.contains(current.getPageKey())) {
+                    invalidatePageEffectReviews(current.getId());
                     current.setLifecycleStatus(PageLifecycle.ARCHIVED.name());
                     current.setUpdatedAt(LocalDateTime.now());
                     pageMapper.updateById(current);
@@ -165,28 +181,50 @@ public class PageCatalogApplicationService {
     }
 
     public Optional<ActionView> findAction(String projectCode, String pageKey, String actionKey) {
+        String project = requireText(projectCode, "projectCode");
+        String page = requireText(pageKey, "pageKey");
+        String key = requireText(actionKey, "actionKey");
         PageActionEntity action = actionMapper.selectOne(Wrappers.<PageActionEntity>lambdaQuery()
-                .eq(PageActionEntity::getProjectCode, requireText(projectCode, "projectCode"))
-                .eq(PageActionEntity::getPageKey, requireText(pageKey, "pageKey"))
-                .eq(PageActionEntity::getActionKey, requireText(actionKey, "actionKey"))
+                .eq(PageActionEntity::getProjectCode, project)
+                .eq(PageActionEntity::getPageKey, page)
+                .eq(PageActionEntity::getActionKey, key)
                 .last("LIMIT 1"));
-        return action == null ? Optional.empty() : Optional.of(toActionView(action));
+        if (action == null || !project.equals(action.getProjectCode()) || !page.equals(action.getPageKey())
+                || !key.equals(action.getActionKey()) || action.getPageId() == null) return Optional.empty();
+        ProjectPageEntity owner = pageMapper.selectById(action.getPageId());
+        return owner == null || !Objects.equals(owner.getId(), action.getPageId())
+                || !project.equals(owner.getProjectCode()) || !page.equals(owner.getPageKey())
+                ? Optional.empty() : Optional.of(toActionView(action));
     }
 
     /** Caller must hold a transaction until its action claim has been persisted. */
     public Optional<ActionView> findActiveActionForUpdate(String projectCode, String pageKey, String actionKey) {
+        return findActiveActionAndPageForUpdate(projectCode, pageKey, actionKey).map(LockedPageAction::action);
+    }
+
+    /** Both views come from locking reads in the caller's transaction, never an older consistent-read snapshot. */
+    public Optional<LockedPageAction> findActiveActionAndPageForUpdate(String projectCode, String pageKey, String actionKey) {
+        String project = requireText(projectCode, "projectCode");
+        String key = requireText(actionKey, "actionKey");
+        String pageName = requireText(pageKey, "pageKey");
         ProjectPageEntity page = pageMapper.selectOne(Wrappers.<ProjectPageEntity>lambdaQuery()
-                .eq(ProjectPageEntity::getProjectCode, requireText(projectCode, "projectCode"))
-                .eq(ProjectPageEntity::getPageKey, requireText(pageKey, "pageKey"))
+                .eq(ProjectPageEntity::getProjectCode, project)
+                .eq(ProjectPageEntity::getPageKey, pageName)
                 .last("LIMIT 1 FOR UPDATE"));
-        if (page == null || !"ACTIVE".equalsIgnoreCase(page.getLifecycleStatus())) return Optional.empty();
+        if (page == null || !project.equals(page.getProjectCode()) || !pageName.equals(page.getPageKey())
+                || !"ACTIVE".equalsIgnoreCase(page.getLifecycleStatus())) return Optional.empty();
         PageActionEntity action = actionMapper.selectOne(Wrappers.<PageActionEntity>lambdaQuery()
                 .eq(PageActionEntity::getPageId, page.getId())
-                .eq(PageActionEntity::getActionKey, requireText(actionKey, "actionKey"))
+                .eq(PageActionEntity::getActionKey, key)
                 .last("LIMIT 1 FOR UPDATE"));
-        return action == null || !"ACTIVE".equalsIgnoreCase(action.getStatus())
-                ? Optional.empty() : Optional.of(toActionView(action));
+        return action == null || !Objects.equals(action.getPageId(), page.getId())
+                || !project.equals(action.getProjectCode()) || !pageName.equals(action.getPageKey())
+                || !key.equals(action.getActionKey()) || !"ACTIVE".equalsIgnoreCase(action.getStatus())
+                ? Optional.empty() : Optional.of(new LockedPageAction(
+                        toPageView(page, List.of(), List.of()), toActionView(action)));
     }
+
+    public record LockedPageAction(PageView page, ActionView action) { }
 
     public Optional<ActionView> findAction(Long actionId) {
         if (actionId == null) {
@@ -259,6 +297,7 @@ public class PageCatalogApplicationService {
         if (page == null) {
             return false;
         }
+        invalidatePageEffectReviews(page.getId());
         resourceMapper.delete(Wrappers.<PageResourceEntity>lambdaQuery()
                 .eq(PageResourceEntity::getPageId, pageId));
         actionMapper.delete(Wrappers.<PageActionEntity>lambdaQuery()
@@ -288,6 +327,7 @@ public class PageCatalogApplicationService {
                 .last("LIMIT 1 FOR UPDATE"));
         LocalDateTime now = LocalDateTime.now();
         boolean create = page == null;
+        var previousContract = create ? null : pageContractFields(page);
         if (create) {
             page = new ProjectPageEntity();
             page.setProjectId(projectId);
@@ -353,6 +393,9 @@ public class PageCatalogApplicationService {
         }
         if (create || source != PageSource.SDK || PageLifecycle.ACTIVE.name().equalsIgnoreCase(page.getLifecycleStatus())) {
             page.setLifecycleStatus(PageLifecycle.ACTIVE.name());
+        }
+        if (!create && !Objects.equals(previousContract, pageContractFields(page))) {
+            invalidatePageEffectReviews(page.getId());
         }
         if (source == PageSource.AI_SCAN) {
             page.setLastDiscoveredAt(discoveredAt);
@@ -433,10 +476,12 @@ public class PageCatalogApplicationService {
                     && !reportedKeys.contains(existing.getActionKey())) {
                 if (source == PageSource.SDK) {
                     // Keep the policy floor if a browser removes and later re-reports an action.
+                    if (!"INACTIVE".equalsIgnoreCase(existing.getStatus())) invalidateActionEffectReview(existing.getId());
                     existing.setStatus("INACTIVE");
                     existing.setUpdatedAt(LocalDateTime.now());
                     actionMapper.updateById(existing);
                 } else {
+                    invalidateActionEffectReview(existing.getId());
                     actionMapper.deleteById(existing.getId());
                 }
             }
@@ -492,6 +537,7 @@ public class PageCatalogApplicationService {
         LocalDateTime now = LocalDateTime.now();
         boolean create = existing == null;
         PageActionEntity entity = create ? new PageActionEntity() : existing;
+        var previousContract = create ? null : actionContractFields(entity);
         boolean sdkPriorInactive = source == PageSource.SDK && !create
                 && !"ACTIVE".equalsIgnoreCase(entity.getStatus());
         List<String> priorAllowedAgents = !create && source == PageSource.SDK
@@ -525,6 +571,9 @@ public class PageCatalogApplicationService {
         // Only an authorized management edit may reactivate a previously inactive action.
         entity.setStatus(sdkPriorInactive ? entity.getStatus() : "ACTIVE");
         entity.setMetadataJson(writeJsonOrNull(input.metadata()));
+        if (!create && !Objects.equals(previousContract, actionContractFields(entity))) {
+            invalidateActionEffectReview(entity.getId());
+        }
         entity.setLastVerifiedAt(now);
         entity.setUpdatedAt(now);
         if (create) {
@@ -533,6 +582,21 @@ public class PageCatalogApplicationService {
         } else {
             actionMapper.updateById(entity);
         }
+    }
+
+    private java.util.List<Object> pageContractFields(ProjectPageEntity page) {
+        return java.util.Arrays.asList(page.getId(), page.getProjectId(), page.getProjectCode(), page.getPageKey(),
+                page.getName(), page.getDescription(), page.getRoutePattern(), page.getBusinessPageUrl(),
+                page.getComponentPath(), page.getSourceType(), page.getLifecycleStatus());
+    }
+
+    private java.util.List<Object> actionContractFields(PageActionEntity entity) {
+        var action = toActionView(entity);
+        return java.util.Arrays.asList(action.id(), action.pageId(), action.projectId(), action.projectCode(),
+                action.pageKey(), action.actionKey(), action.title(), action.description(), action.actionType(),
+                action.riskLevel(), action.confirmRequired(), action.permissionKey(), action.inputSchema(),
+                action.outputSchema(), action.sampleArgs(), action.allowedAgentIds(), action.implementationRef(),
+                action.sourceType(), action.status(), action.metadata());
     }
 
     private List<PageView> hydrate(List<ProjectPageEntity> pages) {

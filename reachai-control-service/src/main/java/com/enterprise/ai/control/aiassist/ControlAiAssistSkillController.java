@@ -114,9 +114,22 @@ public class ControlAiAssistSkillController {
     static String requestBaseUrl(HttpServletRequest request) {
         String scheme = headerOrDefault(request, "X-Forwarded-Proto", request.getScheme());
         String host = headerOrDefault(request, "X-Forwarded-Host", request.getServerName());
-        String port = request.getServerPort() <= 0 ? "" : ":" + request.getServerPort();
-        if (host.contains(":") || ("http".equalsIgnoreCase(scheme) && request.getServerPort() == 80)
-                || ("https".equalsIgnoreCase(scheme) && request.getServerPort() == 443)) {
+        // Behind a reverse proxy the container port (usually 80) is not the public one: only a port the
+        // proxy states itself may be appended, otherwise links come out as https://host:80/...
+        boolean forwarded = StringUtils.hasText(request.getHeader("X-Forwarded-Proto"))
+                || StringUtils.hasText(request.getHeader("X-Forwarded-Host"));
+        String forwardedPort = headerOrDefault(request, "X-Forwarded-Port", "");
+        int portNumber = request.getServerPort();
+        if (forwarded) {
+            try {
+                portNumber = forwardedPort.isEmpty() ? -1 : Integer.parseInt(forwardedPort);
+            } catch (NumberFormatException invalid) {
+                portNumber = -1;
+            }
+        }
+        String port = portNumber <= 0 || portNumber > 65535 ? "" : ":" + portNumber;
+        if (host.contains(":") || ("http".equalsIgnoreCase(scheme) && portNumber == 80)
+                || ("https".equalsIgnoreCase(scheme) && portNumber == 443)) {
             port = "";
         }
         String contextPath = request.getContextPath() == null ? "" : request.getContextPath();

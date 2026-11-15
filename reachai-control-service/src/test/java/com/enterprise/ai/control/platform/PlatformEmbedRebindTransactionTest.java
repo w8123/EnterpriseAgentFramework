@@ -82,6 +82,19 @@ class PlatformEmbedRebindTransactionTest {
     }
 
     @Test
+    void changedGlobalIdentityCannotRebindOrResolveAnInteraction() throws Exception {
+        var mismatch = fixture(false);
+        mismatch.jdbc.update("UPDATE control_embed_session SET global_user_id='other' WHERE id=1");
+        assertEquals(401, mismatch.controller.rebindPageBridge("embed-1", mismatch.authorization, request()).getStatusCode().value());
+        assertEquals("page-1", mismatch.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+
+        var resolved = fixture(false);
+        assertEquals(200, resolved.controller.rebindPageBridge("embed-1", resolved.authorization, request()).getStatusCode().value());
+        resolved.jdbc.update("UPDATE control_embed_session SET global_user_id='other' WHERE id=1");
+        assertEquals(401, resolved.controller.navigationInteraction("embed-1", "navigate-1", resolved.authorization).getStatusCode().value());
+    }
+
+    @Test
     void concurrentTimeoutCannotOverwriteNavigationBeingRebound() throws Exception {
         var entered = new CountDownLatch(1);
         var release = new CountDownLatch(1);
@@ -131,6 +144,214 @@ class PlatformEmbedRebindTransactionTest {
         assertEquals(400, fixture.controller.rebindPageBridge("embed-1", fixture.authorization, request()).getStatusCode().value());
         assertEquals("page-3", fixture.jdbc.queryForObject(
                 "SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+    }
+
+    @Test
+    void clearAndAcknowledgedNavigationCannotRestoreAnOldPageOutOfOrder() throws Exception {
+        var clearFirst = fixture(false);
+        clearFirst.jdbc.update("UPDATE control_page_action_event SET status='SUCCESS', result_json=? WHERE id=1", "{\"data\":{\"ready\":false}}");
+        clearFirst.clears.begin("embed-1", clearFirst.sourceClaims);
+        assertEquals("USER_CANCELLED", clearFirst.jdbc.queryForObject("SELECT status FROM control_page_action_event WHERE id=1", String.class));
+        assertEquals(400, clearFirst.controller.rebindPageBridge("embed-1", clearFirst.authorization, request()).getStatusCode().value());
+        assertEquals("page-1", clearFirst.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+
+        var rebindFirst = fixture(false);
+        rebindFirst.jdbc.update("UPDATE control_page_action_event SET status='SUCCESS', result_json=? WHERE id=1", "{\"data\":{\"ready\":false}}");
+        assertEquals(200, rebindFirst.controller.rebindPageBridge("embed-1", rebindFirst.authorization, request()).getStatusCode().value());
+        rebindFirst.clears.begin("embed-1", rebindFirst.targetClaims);
+        assertEquals("SUCCESS", rebindFirst.jdbc.queryForObject("SELECT status FROM control_page_action_event WHERE id=1", String.class));
+        assertEquals("page-2", rebindFirst.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+    }
+
+    @Test
+    void concurrentClearAndRebindSerializeBeforeChoosingTheWinningPage() throws Exception {
+        var f = fixture(false);
+        f.jdbc.update("UPDATE control_page_action_event SET status='SUCCESS', result_json=? WHERE id=1", "{\"data\":{\"ready\":false}}");
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var transaction = new org.springframework.transaction.support.TransactionTemplate(
+                    new DataSourceTransactionManager(f.jdbc.getDataSource()));
+            var clear = pool.submit(() -> transaction.execute(status -> {
+                f.clears.begin("embed-1", f.sourceClaims);
+                entered.countDown();
+                try { if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("lock wait timeout"); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+                return 1;
+            }));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var rebind = pool.submit(() -> f.controller.rebindPageBridge("embed-1", f.authorization, request()));
+            assertThrows(TimeoutException.class, () -> rebind.get(200, TimeUnit.MILLISECONDS));
+            release.countDown();
+            assertEquals(1, clear.get(5, TimeUnit.SECONDS));
+            assertEquals(400, rebind.get(5, TimeUnit.SECONDS).getStatusCode().value());
+            assertEquals("page-1", f.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+        } finally { release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test
+    void clearWithOldTokenCannotUndoARebindThatAlreadyHoldsTheSessionLock() throws Exception {
+        var entered = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var f = fixture(false, entered, release);
+        f.jdbc.update("UPDATE control_page_action_event SET status='SUCCESS', result_json=? WHERE id=1", "{\"data\":{\"ready\":false}}");
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var rebind = pool.submit(() -> f.controller.rebindPageBridge("embed-1", f.authorization, request()));
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var clear = pool.submit(() -> f.clears.begin("embed-1", f.sourceClaims));
+            assertThrows(TimeoutException.class, () -> clear.get(200, TimeUnit.MILLISECONDS));
+            release.countDown();
+            assertEquals(200, rebind.get(5, TimeUnit.SECONDS).getStatusCode().value());
+            assertThrows(java.util.concurrent.ExecutionException.class, () -> clear.get(5, TimeUnit.SECONDS));
+            assertEquals("SUCCESS", f.jdbc.queryForObject("SELECT status FROM control_page_action_event WHERE id=1", String.class));
+            assertEquals("page-2", f.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+        } finally { release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test
+    void documentNavigationExpiryBlocksFirstRebindButNotAnAlreadyCompletedIdenticalRetry() throws Exception {
+        var expired = fixture(false);
+        expired.jdbc.update("UPDATE control_page_action_event SET args_json=?, requested_at=? WHERE id=1",
+                "{\"documentNavigation\":true}", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(121)));
+        assertEquals(400, expired.controller.rebindPageBridge("embed-1", expired.authorization, request()).getStatusCode().value());
+        assertEquals("page-1", expired.jdbc.queryForObject("SELECT page_instance_id FROM control_embed_session WHERE id=1", String.class));
+        expired.jdbc.update("UPDATE control_page_action_event SET requested_at=NULL WHERE id=1");
+        assertEquals(400, expired.controller.rebindPageBridge("embed-1", expired.authorization, request()).getStatusCode().value());
+
+        var current = fixture(false);
+        current.jdbc.update("UPDATE control_page_action_event SET args_json=?, requested_at=? WHERE id=1",
+                "{\"documentNavigation\":true}", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(30)));
+        assertEquals(200, current.controller.rebindPageBridge("embed-1", current.authorization, request()).getStatusCode().value());
+        current.jdbc.update("UPDATE control_page_action_event SET requested_at=? WHERE id=1",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(121)));
+        assertEquals(200, current.controller.rebindPageBridge("embed-1", current.authorization, request()).getStatusCode().value());
+        current.jdbc.update("UPDATE control_embed_session SET page_instance_id='another-page' WHERE id=1");
+        assertEquals(400, current.controller.rebindPageBridge("embed-1", current.authorization, request()).getStatusCode().value());
+
+        var spa = fixture(false);
+        spa.jdbc.update("UPDATE control_page_action_event SET requested_at=? WHERE id=1",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusDays(1)));
+        assertEquals(200, spa.controller.rebindPageBridge("embed-1", spa.authorization, request()).getStatusCode().value());
+    }
+
+    @Test
+    void documentClaimRechecksExpiryAfterWaitingForEventLock() throws Exception {
+        var fixture = fixture(false);
+        fixture.jdbc.update("UPDATE control_page_action_event SET status='REQUESTED', args_json=?, requested_at=? WHERE id=1",
+                "{\"documentNavigation\":true}", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(10)));
+        var props = new PlatformEmbedTokenProperties(); props.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), props);
+        var token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("default").appId("erp").projectCode("erp").agentId("agent")
+                .pageKey("orders.list").pageInstanceId("page-1").route("/orders").origin("http://localhost")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal("user", "user", "User", List.of(), Map.of()))
+                .build()).token();
+        var locked = new CountDownLatch(1);
+        var release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var tx = new org.springframework.transaction.support.TransactionTemplate(
+                    new DataSourceTransactionManager(fixture.jdbc.getDataSource()));
+            var update = pool.submit(() -> tx.execute(status -> {
+                fixture.jdbc.update("UPDATE control_page_action_event SET requested_at=? WHERE id=1",
+                        java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(121)));
+                locked.countDown();
+                try { if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("lock wait timeout"); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+                return 1;
+            }));
+            assertTrue(locked.await(5, TimeUnit.SECONDS));
+            var claim = pool.submit(() -> fixture.controller.claimPageAction("embed-1", "navigate-1", "Bearer " + token,
+                    new PlatformEmbedPublicController.PageActionClaimRequest("navigate-1", PlatformPageBridgeCommandService.NAVIGATE_ACTION)));
+            assertThrows(TimeoutException.class, () -> claim.get(200, TimeUnit.MILLISECONDS));
+            release.countDown();
+            assertEquals(1, update.get(5, TimeUnit.SECONDS));
+            assertEquals(409, claim.get(5, TimeUnit.SECONDS).getStatusCode().value());
+            assertEquals("REQUESTED", fixture.jdbc.queryForObject("SELECT status FROM control_page_action_event WHERE id=1", String.class));
+        } finally { release.countDown(); pool.shutdownNow(); }
+    }
+
+    @Test
+    void navigationInteractionRequiresFreshCompletedOwnedDocumentNavigationAndCurrentPage() throws Exception {
+        var fixture = fixture(false);
+        String interactionId = "wfi_0123456789abcdef0123456789abcdef";
+        fixture.jdbc.update("UPDATE control_page_action_event SET args_json=?, requested_at=? WHERE id=1",
+                "{\"documentNavigation\":true,\"interactionId\":\"" + interactionId + "\"}",
+                java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(5)));
+        when(fixture.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(true);
+        // An executing navigation has not rebound the target and cannot resolve a continuation.
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+        assertEquals(200, fixture.controller.rebindPageBridge("embed-1", fixture.authorization, request()).getStatusCode().value());
+        var response = fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization);
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals("no-store", response.getHeaders().getCacheControl());
+        assertEquals(interactionId, response.getBody().getData().interactionId());
+        when(fixture.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(false);
+        var pending = fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization);
+        assertEquals(409, pending.getStatusCode().value());
+        assertNull(pending.getBody().getData());
+        when(fixture.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(true);
+        assertNotEquals(200, fixture.controller.navigationInteraction("other-session", "navigate-1", fixture.authorization).getStatusCode().value());
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "other-request", fixture.authorization).getStatusCode().value());
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", "Bearer invalid").getStatusCode().value());
+        fixture.jdbc.update("UPDATE control_page_action_event SET requested_at=? WHERE id=1", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(121)));
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+        fixture.jdbc.update("UPDATE control_page_action_event SET requested_at=? WHERE id=1", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(5)));
+        fixture.jdbc.update("UPDATE control_page_action_event SET tenant_id='other' WHERE id=1");
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+        fixture.jdbc.update("UPDATE control_page_action_event SET tenant_id='default', args_json=? WHERE id=1", "{\"documentNavigation\":true,\"interactionId\":\"bad\"}");
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+        fixture.jdbc.update("UPDATE control_page_action_event SET args_json=? WHERE id=1", "{\"interactionId\":\"" + interactionId + "\"}");
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+        fixture.jdbc.update("UPDATE control_page_action_event SET args_json=?, result_json=? WHERE id=1", "{\"documentNavigation\":true,\"interactionId\":\"" + interactionId + "\"}", "{\"data\":{\"ready\":false}}");
+        assertNotEquals(200, fixture.controller.navigationInteraction("embed-1", "navigate-1", fixture.authorization).getStatusCode().value());
+    }
+
+    @Test
+    void cancelledNavigationResolvesOnlyForCurrentSourceAndBoundInteraction() throws Exception {
+        var f = fixture(false);
+        String interactionId = "wfi_0123456789abcdef0123456789abcdef";
+        String sourceAuthorization = sourceAuthorization();
+        String args = "{\"documentNavigation\":true,\"interactionId\":\"" + interactionId + "\"}";
+        f.jdbc.update("UPDATE control_page_action_event SET status='USER_CANCELLED',args_json=?,requested_at=?,result_json=? WHERE id=1",
+                args, java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(5)), "{\"data\":{\"ready\":false}}");
+        when(f.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(true);
+        var ok = f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization);
+        assertEquals(200, ok.getStatusCode().value());
+        assertEquals("no-store", ok.getHeaders().getCacheControl());
+        assertEquals(interactionId, ok.getBody().getData().interactionId());
+        assertEquals(401, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", f.authorization).getStatusCode().value());
+        assertNotEquals(200, f.controller.cancelledNavigationInteraction("other-session", "navigate-1", sourceAuthorization).getStatusCode().value());
+        assertNotEquals(200, f.controller.cancelledNavigationInteraction("embed-1", "other-request", sourceAuthorization).getStatusCode().value());
+        when(f.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(false);
+        var pending = f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization);
+        assertEquals(409, pending.getStatusCode().value());
+        assertNull(pending.getBody().getData());
+        when(f.chatEvents.interactionReady(any(), eq(interactionId))).thenReturn(true);
+        f.jdbc.update("UPDATE control_page_action_event SET tenant_id='other' WHERE id=1");
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+        f.jdbc.update("UPDATE control_page_action_event SET tenant_id='default',status='SUCCESS' WHERE id=1");
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+        f.jdbc.update("UPDATE control_page_action_event SET status='USER_CANCELLED',requested_at=? WHERE id=1", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(121)));
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+        f.jdbc.update("UPDATE control_page_action_event SET requested_at=?,args_json=? WHERE id=1", java.sql.Timestamp.valueOf(java.time.LocalDateTime.now().minusSeconds(5)), "{\"interactionId\":\"" + interactionId + "\"}");
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+        f.jdbc.update("UPDATE control_page_action_event SET args_json=?,result_json=? WHERE id=1", args, "{\"data\":{\"ready\":true}}");
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+        f.jdbc.update("UPDATE control_page_action_event SET result_json='{}',target_page_instance_id='another-page' WHERE id=1");
+        assertEquals(400, f.controller.cancelledNavigationInteraction("embed-1", "navigate-1", sourceAuthorization).getStatusCode().value());
+    }
+
+    private static String sourceAuthorization() {
+        var properties = new PlatformEmbedTokenProperties(); properties.setSecret("test-embed-token-secret");
+        var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
+        return "Bearer " + tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("default").appId("erp").projectCode("erp").agentId("agent")
+                .pageKey("orders.list").pageInstanceId("page-1").route("/orders").origin("http://localhost")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal("user", "user", "User", List.of(), Map.of()))
+                .build()).token();
     }
 
     @Test
@@ -285,16 +506,17 @@ class PlatformEmbedRebindTransactionTest {
         jdbc.execute("""
                 CREATE TABLE control_page_action_event (id BIGINT PRIMARY KEY, request_id VARCHAR(96), session_id VARCHAR(96),
                  tenant_id VARCHAR(96), app_id VARCHAR(96), agent_id VARCHAR(128), command_type VARCHAR(32),
-                 parent_request_id VARCHAR(96), node_id VARCHAR(128), action_key VARCHAR(160), title VARCHAR(256), args_json CLOB,
+                 parent_request_id VARCHAR(96), node_id VARCHAR(128), action_key VARCHAR(160), action_contract_hash CHAR(64), effect_approval_id BIGINT, effect_approval_revision BIGINT, title VARCHAR(256), args_json CLOB,
                  target_page_instance_id VARCHAR(128), target_page_key VARCHAR(160), target_route VARCHAR(512),
                  confirm_required BOOLEAN, status VARCHAR(32), result_json CLOB, error_message VARCHAR(1024),
                  requested_at TIMESTAMP, completed_at TIMESTAMP)
                 """);
+        jdbc.execute("CREATE TABLE control_embed_chat_event (id BIGINT AUTO_INCREMENT PRIMARY KEY, session_id VARCHAR(96), event_type VARCHAR(64), role VARCHAR(32), content CLOB, payload_json CLOB, trace_id VARCHAR(128), created_at TIMESTAMP)");
         if (rejectSuccess) jdbc.execute("ALTER TABLE control_page_action_event ADD CONSTRAINT no_success CHECK (status <> 'SUCCESS')");
-        jdbc.update("INSERT INTO control_embed_session(id,session_id,tenant_id,app_id,project_code,agent_id,external_user_id,page_key,page_instance_id,route,origin,status,expires_at) VALUES (1,'embed-1','default','erp','erp','agent','user','orders.list','page-1','/orders','http://localhost','ACTIVE',DATEADD('HOUR',1,CURRENT_TIMESTAMP))");
+        jdbc.update("INSERT INTO control_embed_session(id,session_id,tenant_id,app_id,project_code,agent_id,external_user_id,global_user_id,page_key,page_instance_id,route,origin,status,expires_at) VALUES (1,'embed-1','default','erp','erp','agent','user','user','orders.list','page-1','/orders','http://localhost','ACTIVE',DATEADD('HOUR',1,CURRENT_TIMESTAMP))");
         jdbc.update("INSERT INTO control_page_action_event(id,request_id,session_id,tenant_id,app_id,agent_id,command_type,action_key,target_page_instance_id,target_page_key,target_route,status) VALUES (1,'navigate-1','embed-1','default','erp','agent','NAVIGATE',?,'page-1','orders.audit','/orders/audit','EXECUTING')", PlatformPageBridgeCommandService.NAVIGATE_ACTION);
         var config = new MybatisConfiguration(); config.setMapUnderscoreToCamelCase(true);
-        config.addMapper(PlatformEmbedSessionMapper.class); config.addMapper(PlatformPageActionEventMapper.class);
+        config.addMapper(PlatformEmbedSessionMapper.class); config.addMapper(PlatformPageActionEventMapper.class); config.addMapper(PlatformEmbedChatEventMapper.class);
         var factory = new MybatisSqlSessionFactoryBean(); factory.setDataSource(source); factory.setConfiguration(config);
         var sql = new SqlSessionTemplate(factory.getObject());
         var sessions = new PlatformEmbedSessionService(sql.getMapper(PlatformEmbedSessionMapper.class), new ObjectMapper()) {
@@ -314,22 +536,40 @@ class PlatformEmbedRebindTransactionTest {
         };
         var properties = new PlatformEmbedTokenProperties(); properties.setSecret("test-embed-token-secret");
         var tokens = new PlatformEmbedTokenService(new ObjectMapper(), properties);
-        var target = new PlatformEmbedPublicController(tokens, sessions, mock(PlatformEmbedChatEventService.class),
+        var chatEvents = mock(PlatformEmbedChatEventService.class);
+        var target = new PlatformEmbedPublicController(tokens, sessions, chatEvents,
                 mock(CapabilityProxyClient.class), mock(RuntimeProxyClient.class),
                 mock(RuntimeTrustedAgentExecutionGateway.class), mock(PlatformEmbedStreamRelay.class),
                 sql.getMapper(PlatformPageActionEventMapper.class));
+        var manager = new DataSourceTransactionManager(source);
         var proxy = new ProxyFactory(target);
-        proxy.addAdvice(new TransactionInterceptor(new DataSourceTransactionManager(source), new AnnotationTransactionAttributeSource()));
+        proxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
         var controller = (PlatformEmbedPublicController) proxy.getProxy();
         String token = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
                 .tenantId("default").appId("erp").projectCode("erp").agentId("agent")
                 .pageKey("orders.audit").pageInstanceId("page-2").route("/orders/audit").origin("http://localhost")
                 .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal("user", "user", "User", List.of(), Map.of()))
                 .build()).token();
+        var historyTarget = new PlatformEmbedChatEventService(sql.getMapper(PlatformEmbedChatEventMapper.class), new ObjectMapper());
+        historyTarget.setSessionMapper(sql.getMapper(PlatformEmbedSessionMapper.class));
+        var historyProxy = new ProxyFactory(historyTarget);
+        historyProxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
+        var clearTarget = new PlatformEmbedContextClearService(sessions, (PlatformEmbedChatEventService) historyProxy.getProxy(),
+                sql.getMapper(PlatformPageActionEventMapper.class), new ObjectMapper());
+        var clearProxy = new ProxyFactory(clearTarget);
+        clearProxy.addAdvice(new TransactionInterceptor(manager, new AnnotationTransactionAttributeSource()));
+        String sourceToken = tokens.issue(PlatformEmbedTokenIssueCommand.builder()
+                .tenantId("default").appId("erp").projectCode("erp").agentId("agent")
+                .pageKey("orders.list").pageInstanceId("page-1").route("/orders").origin("http://localhost")
+                .principal(new PlatformEmbedTokenIssueCommand.BusinessPrincipal("user", "user", "User", List.of(), Map.of()))
+                .build()).token();
         return new Fixture(jdbc, controller, "Bearer " + token,
-                sql.getMapper(PlatformEmbedSessionMapper.class), sql.getMapper(PlatformPageActionEventMapper.class));
+                sql.getMapper(PlatformEmbedSessionMapper.class), sql.getMapper(PlatformPageActionEventMapper.class), chatEvents,
+                (PlatformEmbedContextClearService) clearProxy.getProxy(), tokens.verify(sourceToken), tokens.verify(token));
     }
 
     private record Fixture(JdbcTemplate jdbc, PlatformEmbedPublicController controller, String authorization,
-                           PlatformEmbedSessionMapper sessions, PlatformPageActionEventMapper events) { }
+                           PlatformEmbedSessionMapper sessions, PlatformPageActionEventMapper events,
+                           PlatformEmbedChatEventService chatEvents, PlatformEmbedContextClearService clears,
+                           PlatformEmbedTokenClaims sourceClaims, PlatformEmbedTokenClaims targetClaims) { }
 }

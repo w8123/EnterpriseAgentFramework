@@ -27,6 +27,15 @@ class PlatformConsoleRoutePolicyTest {
     private final AntPathMatcher matcher = new AntPathMatcher();
 
     @Test
+    void effectReviewUsesProjectScopedEmbedManagementInsteadOfGenericProjectWrite() {
+        String path = "/api/registry/projects/mall/page-workbench/pages/profile/actions/fill/effect-review";
+        var rule = PlatformConsolePermissionPolicy.ruleFor(path).orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(PlatformPermissions.EMBED_MANAGE), rule.requiredAnyOf("POST"));
+        org.junit.jupiter.api.Assertions.assertEquals("mall", rule.projectCode(path));
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(PlatformPermissions.EMBED_READ), rule.requiredAnyOf("GET"));
+    }
+
+    @Test
     void coversConsoleWorkflowProjectAndCapabilityOperations() {
         assertProtected("/api/workflows/wf_1/working-copy");
         assertProtected("/api/agents/agent_1/config-versions");

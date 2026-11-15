@@ -51,6 +51,8 @@ public class BusinessSsoService {
     static final Duration STATE_TTL = Duration.ofMinutes(5);
     static final String CALLBACK_PATH = "/api/platform/auth/sso/callback";
     private static final int MAX_STATES = 10_000;
+    static final int MAX_PASSWORD_FAILURES = 5;
+    static final Duration PASSWORD_LOCK = Duration.ofMinutes(10);
 
     private final BusinessSsoProviderStore store;
     private final BusinessSsoSecretCipher cipher;
@@ -59,20 +61,24 @@ public class BusinessSsoService {
     private final EmployeePortalSessionService portalSessions;
     private final PlatformExternalLoginService consoleLogins;
     private final PlatformAuthAuditService audit;
+    private final EmployeeBusinessTokens employeeTokens;
     private final Clock clock;
     private final Map<String, PendingLogin> states = new ConcurrentHashMap<>();
+    private final Map<String, Attempts> failures = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
 
     @org.springframework.beans.factory.annotation.Autowired
     public BusinessSsoService(BusinessSsoProviderStore store, BusinessSsoSecretCipher cipher, BusinessSsoHttp http,
                               BusinessUserSyncService userSync, EmployeePortalSessionService portalSessions,
-                              PlatformExternalLoginService consoleLogins, PlatformAuthAuditService audit) {
-        this(store, cipher, http, userSync, portalSessions, consoleLogins, audit, Clock.systemUTC());
+                              PlatformExternalLoginService consoleLogins, PlatformAuthAuditService audit,
+                              EmployeeBusinessTokens employeeTokens) {
+        this(store, cipher, http, userSync, portalSessions, consoleLogins, audit, employeeTokens, Clock.systemUTC());
     }
 
     BusinessSsoService(BusinessSsoProviderStore store, BusinessSsoSecretCipher cipher, BusinessSsoHttp http,
                        BusinessUserSyncService userSync, EmployeePortalSessionService portalSessions,
-                       PlatformExternalLoginService consoleLogins, PlatformAuthAuditService audit, Clock clock) {
+                       PlatformExternalLoginService consoleLogins, PlatformAuthAuditService audit,
+                       EmployeeBusinessTokens employeeTokens, Clock clock) {
         this.store = store;
         this.cipher = cipher;
         this.http = http;
@@ -80,13 +86,14 @@ public class BusinessSsoService {
         this.portalSessions = portalSessions;
         this.consoleLogins = consoleLogins;
         this.audit = audit;
+        this.employeeTokens = employeeTokens;
         this.clock = clock;
     }
 
     /** Buttons for the login page: active entries that are completely configured. */
     public List<LoginButton> buttons() {
         return store.list().stream().filter(this::usable)
-                .map(provider -> new LoginButton(provider.code(), provider.label()))
+                .map(provider -> new LoginButton(provider.code(), provider.label(), provider.mode()))
                 .toList();
     }
 
@@ -94,6 +101,7 @@ public class BusinessSsoService {
     public String start(String code, String origin) {
         BusinessSsoProvider provider = store.find(code).filter(this::usable)
                 .orElseThrow(() -> new BusinessSsoException("这个登录方式没有启用"));
+        if (provider.passwordMode()) throw new BusinessSsoException("这个登录方式需要在登录页输入账号和密码");
         Instant now = clock.instant();
         if (states.size() >= MAX_STATES) {
             states.values().removeIf(pending -> pending.expired(now));
@@ -125,18 +133,14 @@ public class BusinessSsoService {
         String externalUserId = null;
         String userName = null;
         try {
-            Map<String, Object> userInfo = userInfo(provider, accessToken(provider, code, pending.redirectUri()));
+            String accessToken = accessToken(provider, code, pending.redirectUri());
+            Map<String, Object> userInfo = userInfo(provider, accessToken);
             externalUserId = text(path(userInfo, provider.userIdPath()));
             userName = text(path(userInfo, provider.userNamePath()));
             if (externalUserId == null) {
                 throw new BusinessSsoException("业务系统的用户信息里没有「" + provider.userIdPath() + "」，请检查认证源配置");
             }
-            Optional<PlatformExternalLoginService.ConsoleLogin> console = consoleLogins.signInBoundAccount(
-                    provider.code(), externalUserId, request,
-                    details(provider.code(), provider.projectCode(), externalUserId, userName, ip, null));
-            return console.isPresent()
-                    ? new Outcome("/", console.get().cookies())
-                    : employeeLogin(provider, externalUserId, userName, ip);
+            return signedIn(provider, externalUserId, userName, request, ip, accessToken);
         } catch (BusinessSsoException failure) {
             return failed(provider.code(), externalUserId, userName, ip, failure.getMessage());
         } catch (PlatformExternalLoginService.BoundAccountDisabledException disabled) {
@@ -147,6 +151,145 @@ public class BusinessSsoService {
             log.warn("[BusinessSso] {} sign-in failed: {}", provider.code(), unexpected.toString());
             return failed(provider.code(), externalUserId, userName, ip, "登录失败，请稍后再试");
         }
+    }
+
+    private Outcome signedIn(BusinessSsoProvider provider, String externalUserId, String userName,
+                             HttpServletRequest request, String ip, String businessToken) {
+        Optional<PlatformExternalLoginService.ConsoleLogin> console = consoleLogins.signInBoundAccount(
+                provider.code(), externalUserId, request,
+                details(provider.code(), provider.projectCode(), externalUserId, userName, ip, null));
+        return console.isPresent()
+                ? new Outcome("/", console.get().cookies())
+                : employeeLogin(provider, externalUserId, userName, ip, businessToken);
+    }
+
+    /**
+     * 「账号密码验证」: the employee typed their business-system account on ReachAI's login page. ReachAI asks the
+     * system's own login API whether it is right and never stores or logs the password. Never throws.
+     */
+    public PasswordOutcome passwordLogin(String code, String username, String password, HttpServletRequest request) {
+        String ip = clientIp(request);
+        BusinessSsoProvider provider = store.find(code).filter(this::usable)
+                .filter(BusinessSsoProvider::passwordMode).orElse(null);
+        if (provider == null) return refused(code, null, ip, "这个登录方式没有启用");
+        String account = username == null ? "" : username.trim();
+        if (account.isEmpty() || account.length() > 128 || password == null || password.isEmpty()
+                || password.length() > 256) {
+            return refused(provider.code(), null, ip, "请输入账号和密码");
+        }
+        Instant now = clock.instant();
+        String accountKey = provider.code() + "|" + account.toLowerCase(java.util.Locale.ROOT);
+        String ipKey = "ip|" + ip;
+        if (locked(accountKey, now) || locked(ipKey, now)) {
+            return refused(provider.code(), account, ip, "试错次数太多了，请 10 分钟后再试");
+        }
+        String externalUserId = null;
+        String userName = null;
+        try {
+            BusinessSsoProvider.PasswordLogin login = provider.passwordLogin();
+            boolean form = "FORM".equals(login.contentType());
+            Map<String, Object> answer;
+            try {
+                answer = http.postBody(provider.tokenUrl(),
+                        form ? "application/x-www-form-urlencoded" : "application/json",
+                        render(login.body(), account, password, form), provider.extraHeaders());
+            } catch (BusinessSsoException refusedBySystem) {
+                // Most systems answer a wrong password with 400 / 401 / 403.
+                if (refusedBySystem.getMessage().matches(".*HTTP 40[013].*")) {
+                    throw new BusinessSsoException("账号或密码不对");
+                }
+                throw refusedBySystem;
+            }
+            rejectWrappedFailure(answer);
+            // Only a login token in the answer proves the password was right; "no error" is not proof.
+            Object rawToken = path(answer, login.tokenPath());
+            String token = rawToken instanceof String || rawToken instanceof Number ? text(rawToken) : null;
+            if (token == null) throw new BusinessSsoException("账号或密码不对");
+            Map<String, Object> identity = answer;
+            if (StringUtils.hasText(provider.userInfoUrl())) {
+                String header = StringUtils.hasText(login.tokenHeader()) ? login.tokenHeader().trim() : "Authorization";
+                String prefix = login.tokenPrefix() != null ? login.tokenPrefix()
+                        : "Authorization".equalsIgnoreCase(header) ? "Bearer " : "";
+                Map<String, String> headers = new LinkedHashMap<>(provider.extraHeaders());
+                headers.put(header, prefix + token);
+                identity = http.getJson(provider.userInfoUrl(), headers);
+                rejectWrappedFailure(identity);
+            }
+            // With no id field configured the login name is the account id: it is what the system checked.
+            externalUserId = StringUtils.hasText(provider.userIdPath())
+                    ? text(path(identity, provider.userIdPath())) : account;
+            if (externalUserId == null) {
+                throw new BusinessSsoException("业务系统的返回里没有「" + provider.userIdPath() + "」，请检查认证源配置");
+            }
+            userName = text(path(identity, provider.userNamePath()));
+            if (userName == null) userName = account;
+            Outcome outcome = signedIn(provider, externalUserId, userName, request, ip, token);
+            failures.remove(accountKey);
+            return new PasswordOutcome(outcome.location(), outcome.cookies(), null);
+        } catch (BusinessSsoException failure) {
+            failed(accountKey, now);
+            failed(ipKey, now);
+            return refused(provider.code(), account, ip, failure.getMessage());
+        } catch (PlatformExternalLoginService.BoundAccountDisabledException disabled) {
+            return refused(provider.code(), account, ip, "你的管理端账号已被停用，请联系管理员");
+        } catch (BusinessUserDisabledException disabled) {
+            return refused(provider.code(), account, ip, "你的账号在 ReachAI 已被停用，请联系管理员");
+        } catch (RuntimeException unexpected) {
+            log.warn("[BusinessSso] {} password sign-in failed: {}", provider.code(), unexpected.getClass().getName());
+            return refused(provider.code(), account, ip, "登录失败，请稍后再试");
+        }
+    }
+
+    private PasswordOutcome refused(String providerCode, String account, String ip, String reason) {
+        failed(providerCode, null, account, ip, reason);
+        return new PasswordOutcome(null, List.of(), reason);
+    }
+
+    private boolean locked(String key, Instant now) {
+        Attempts attempts = failures.get(key);
+        if (attempts == null) return false;
+        if (!now.isBefore(attempts.resetAt())) {
+            failures.remove(key);
+            return false;
+        }
+        return attempts.count() >= MAX_PASSWORD_FAILURES;
+    }
+
+    private void failed(String key, Instant now) {
+        if (failures.size() >= MAX_STATES) failures.values().removeIf(attempts -> !now.isBefore(attempts.resetAt()));
+        if (failures.size() >= MAX_STATES) return;
+        failures.merge(key, new Attempts(1, now.plus(PASSWORD_LOCK)), (old, fresh) ->
+                !now.isBefore(old.resetAt()) ? fresh : new Attempts(old.count() + 1, old.resetAt()));
+    }
+
+    /** Fills the login template; every value is escaped for the body it goes into. */
+    static String render(String template, String username, String password, boolean form) {
+        String md5;
+        try {
+            md5 = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("MD5")
+                    .digest(password.getBytes(StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException(impossible);
+        }
+        return template.replace("{{username}}", escape(username, form))
+                .replace("{{password_md5}}", md5)
+                .replace("{{password}}", escape(password, form));
+    }
+
+    private static String escape(String value, boolean form) {
+        if (form) return URLEncoder.encode(value, StandardCharsets.UTF_8);
+        StringBuilder out = new StringBuilder();
+        for (char ch : value.toCharArray()) {
+            switch (ch) {
+                case '"' -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                default -> {
+                    if (ch < 0x20) out.append(String.format("\\u%04x", (int) ch));
+                    else out.append(ch);
+                }
+            }
+        }
+        return out.toString();
     }
 
     private String accessToken(BusinessSsoProvider provider, String code, String redirectUri) {
@@ -187,13 +330,23 @@ public class BusinessSsoService {
         }
     }
 
-    private Outcome employeeLogin(BusinessSsoProvider provider, String externalUserId, String userName, String ip) {
+    private Outcome employeeLogin(BusinessSsoProvider provider, String externalUserId, String userName, String ip,
+                                  String businessToken) {
         String system = provider.projectCode();
         SyncedBusinessUser synced = userSync.syncKeepingRoles(new AttestedBusinessUser(
                 null, system, externalUserId, null, userName, List.of()));
+        if (synced.roles().isEmpty() && StringUtils.hasText(provider.defaultRole())) {
+            // Nobody has given this employee a role in the system yet: start them on the entry's default role.
+            synced = userSync.sync(new AttestedBusinessUser(
+                    null, system, externalUserId, null, userName, List.of(provider.defaultRole())));
+        }
         EmployeeOwner owner = new EmployeeOwner(synced.tenantId(), synced.businessUserId(), system, system,
                 synced.externalUserId(), synced.externalUserName(), synced.roles());
         EmployeePortalSessionService.Issued ticket = portalSessions.issueTicket(owner);
+        // Kept in memory only, and only when this entry is set to call the system as the employee.
+        if (employeeTokens != null) {
+            employeeTokens.signedIn(provider, synced.tenantId(), synced.externalUserId(), businessToken);
+        }
         audit.record(null, "EMPLOYEE_SSO_LOGIN_SUCCEEDED", "BUSINESS_USER", String.valueOf(synced.businessUserId()),
                 details(provider.code(), system, externalUserId, synced.externalUserName(), ip, null));
         return new Outcome("/my/ai-tools#ticket=" + ticket.value(), List.of());
@@ -222,6 +375,13 @@ public class BusinessSsoService {
     }
 
     boolean usable(BusinessSsoProvider provider) {
+        if (provider.passwordMode()) {
+            String body = provider.passwordLogin().body();
+            return provider.active() && StringUtils.hasText(provider.projectCode())
+                    && StringUtils.hasText(provider.tokenUrl()) && StringUtils.hasText(body)
+                    && body.contains("{{username}}") && body.contains("{{password")
+                    && StringUtils.hasText(provider.passwordLogin().tokenPath());
+        }
         return provider.active() && provider.clientSecretPresent() && cipher.available()
                 && StringUtils.hasText(provider.projectCode()) && StringUtils.hasText(provider.clientId())
                 && StringUtils.hasText(provider.authorizeUrl()) && StringUtils.hasText(provider.tokenUrl())
@@ -276,7 +436,14 @@ public class BusinessSsoService {
         }
     }
 
-    public record LoginButton(String code, String label) {
+    public record LoginButton(String code, String label, String mode) {
+    }
+
+    /** Where to go after a password sign-in, or why it was refused. */
+    public record PasswordOutcome(String location, List<String> cookies, String error) {
+    }
+
+    private record Attempts(int count, Instant resetAt) {
     }
 
     /** Where to send the browser, and the console session cookies to set (empty for employees and failures). */

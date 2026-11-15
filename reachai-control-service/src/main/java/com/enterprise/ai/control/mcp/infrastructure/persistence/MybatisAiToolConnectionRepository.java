@@ -128,6 +128,8 @@ public class MybatisAiToolConnectionRepository implements AiToolConnectionReposi
                 .eq(AiToolConnectionEntity::getTenantId, tenantId)
                 .eq(AiToolConnectionEntity::getBusinessUserId, businessUserId)
                 .eq(AiToolConnectionEntity::getState, AiToolConnectionStatus.ACTIVE.name())
+                // The embedded assistant's own connection is not one the employee created or can disconnect.
+                .ne(AiToolConnectionEntity::getToolKind, AiToolKind.ASSISTANT.name())
                 .and(q -> q.isNull(AiToolConnectionEntity::getExpiresAt)
                         .or().gt(AiToolConnectionEntity::getExpiresAt, now)));
     }

@@ -35,7 +35,7 @@
 </dependency>
 ```
 
-> 实际版本和下载地址以项目接入工作台给出的为准。Starter 还没有发布到 Maven 中央仓库，工作台会提供下载和安装到本地仓库的命令。
+> 实际版本和下载地址以项目接入工作台给出的为准。Starter 还没有发布到 Maven 中央仓库，工作台提供下载和安装到本地仓库的命令。安装器支持 Windows、macOS、Linux，需要 Node.js 18 或以上、JDK 和 Maven，并会先核对 JAR 与 POM 的 SHA-256。先安装 Capability SDK，再安装 Starter。
 
 ## 第 2 步：写配置
 
@@ -106,6 +106,22 @@ public class OrderQueryService {
 
 1. 项目接入工作台里「后端 SDK」「业务服务校验」两项变绿。
 2. 左侧「业务能力」里能看到 `order.query`，见 [核对业务能力](capabilities.md)。
+
+## 可选：记录员工操作
+
+想让管理人员在「AI 使用情况 · 员工操作」里看到员工在系统里的高频操作、热门搜索和常出错的步骤，并让 AI 推荐快捷操作，在配置里加：
+
+```yaml
+reachai:
+  activity:
+    enabled: true
+```
+
+- 只记已登录员工从浏览器发来的请求（带 Referer 或 Origin）。员工身份依次取 `ReachAiCurrentUserProvider`、已实现的 `ReachAiEmbedPrincipalResolver`、容器登录用户；都取不到就不记。
+- 记的是「请求方法 + 接口路径模板」，名字取 `@Operation(summary)` / `@ApiOperation`；GET 参数 `keyword`、`name`、`q` 等当搜索词（`search-parameters` 可改）；所在页面取 Referer 的路径。不记请求和返回内容，手机号、邮箱、长数字先打码。
+- 未处理异常、被 `@ExceptionHandler` 接住的异常、HTTP 4xx/5xx、返回体 `code` 不在 `success-codes`（默认 0、200）里，都算失败，错误信息取返回体的 `msg` / `message`。芋道的 `CommonResult` 不用改代码。
+- 请求线程只把事件放进内存队列，后台每 10 秒批量签名上报；ReachAI 慢或不可用时直接丢弃，不影响业务。管理人员在 ReachAI 关掉采集后，Starter 自动暂停上报。
+- 其他配置：`exclude-paths`（默认排除 `/reachai/**`、`/actuator/**`）、`browser-requests-only`、`max-queue-size`、`batch-size`、`flush-interval-ms`。
 
 ## 背后发生了什么
 

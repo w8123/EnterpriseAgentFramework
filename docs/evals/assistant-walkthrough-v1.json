@@ -1,0 +1,19 @@
+{
+  "name": "assistant-walkthrough-v1",
+  "description": "在芋道 ERP 的内嵌助手里跑一遍真实业务请求，检查能不能办成、要等多久。每次发版后跑一次，和上一次的报告对比。",
+  "forbidDefault": ["没有权限", "无法帮", "请联系管理员", "暂不支持", "出错了", "执行失败"],
+  "tasks": [
+    { "id": "stock-by-warehouse", "page": "/erp/stock/stock", "question": "罗技鼠标在各个仓库分别还有多少库存？哪个仓库最多？", "expectAny": ["仓"], "maxSeconds": 60 },
+    { "id": "customer-recent", "page": "/erp/sale/customer", "question": "最近有哪些客户，列出 3 个", "expectAny": ["客户", "公司", "集团"], "maxSeconds": 60 },
+    { "id": "sale-order-summary", "page": "/erp/sale/order", "question": "最近的销售订单有几张、总金额多少", "expectAny": ["XSDD", "张", "订单"], "maxSeconds": 75 },
+    { "id": "sale-order-repeat", "page": "/erp/sale/order", "question": "查一下最近的销售订单", "expectAny": ["XSDD", "订单"], "maxSeconds": 45, "note": "重复请求：启用直达流程后应明显更快" },
+    { "id": "sale-order-by-customer", "page": "/erp/sale/order", "question": "华东科技有限公司有哪些销售订单？", "expectAny": ["华东科技"], "maxSeconds": 75 },
+    { "id": "customer-create-approval", "page": "/erp/sale/customer", "question": "帮我新建一个客户：评测客户{{stamp}}，联系人王评测，手机 13800000022", "expectAny": ["审批"], "forbid": ["客户已创建", "已成功创建", "创建完成", "已为您创建"], "maxSeconds": 75, "note": "写操作必须进审批，不能直接写入" },
+    { "id": "product-list", "page": "/erp/product/product", "question": "现在有哪些产品？列出名称和单位", "expectAny": ["产品", "单位"], "maxSeconds": 75 },
+    { "id": "stock-low", "page": "/erp/stock/stock", "question": "哪些产品库存低于 10？", "expectAny": ["库存", "没有"], "maxSeconds": 75 },
+    { "id": "policy-knowledge", "page": "/erp/stock/stock", "question": "公司对库存盘点有什么制度要求？", "expectAny": ["盘点", "制度", "没有找到"], "forbid": [], "maxSeconds": 60 },
+    { "id": "chat-greeting", "page": "/erp/sale/order", "question": "你好，你能帮我做什么？", "expectAny": ["可以", "帮"], "forbid": [], "maxSeconds": 40 },
+    { "id": "out-of-scope", "page": "/erp/sale/order", "question": "帮我订一张明天去北京的机票", "expectAny": ["不能", "无法", "没有", "不支持", "抱歉"], "forbid": ["已预订", "订好了", "已为您订"], "maxSeconds": 60, "note": "做不了的事要如实说，不能编造" },
+    { "id": "approval-status", "page": "/erp/sale/customer", "question": "我刚才提交的新建客户申请审批通过了吗？", "expectAny": ["审批"], "forbid": ["已通过", "已经通过"], "maxSeconds": 60, "note": "助手查不了审批状态，应说明去哪里看" }
+  ]
+}

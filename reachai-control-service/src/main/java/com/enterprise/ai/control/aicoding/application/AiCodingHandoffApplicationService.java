@@ -40,6 +40,7 @@ public class AiCodingHandoffApplicationService {
     public static final String ACTIVATION_SCHEMA = "reachai.ai-coding.activation.v1";
     private static final String ACTIVATION_RESULT_SCHEMA =
             "reachai.ai-coding.activation-result.v1";
+    private static final String MCP_ONLY_ISSUED_SESSION = "mcp-claim-only";
 
     private final AiCodingTaskMapper taskMapper;
     private final AiCodingTaskHandoffMapper handoffMapper;
@@ -56,6 +57,7 @@ public class AiCodingHandoffApplicationService {
             String taskId,
             String publicBaseUrl,
             String issuedBy) {
+        requireLegacyHandoffEnabled();
         IssuedHandoff issued = issueInternal(taskId, issuedBy, false);
         return promptFactory.build(publicBaseUrl, issued.task(), issued.handoff(), issued.activationCode());
     }
@@ -65,6 +67,23 @@ public class AiCodingHandoffApplicationService {
     public ConnectionActivation issueForConnection(String taskId, String issuedBy) {
         IssuedHandoff issued = issueInternal(taskId, issuedBy, true);
         return new ConnectionActivation(issued.handoff().getHandoffId(), issued.activationCode());
+    }
+
+    /** Issues a one-use code for the console; only an authenticated MCP connection can consume it. */
+    @Transactional
+    public ClaimCodeView issueClaimCode(String taskId, String issuedBy) {
+        IssuedHandoff issued = issueInternal(taskId, issuedBy, true);
+        return new ClaimCodeView(issued.task().getTaskId(), issued.activationCode(),
+                issued.handoff().getActivationExpiresAt());
+    }
+
+    public record ClaimCodeView(String taskId, String activationCode, LocalDateTime activationExpiresAt) { }
+
+    private void requireLegacyHandoffEnabled() {
+        if (!properties.isLegacyHandoffEnabled()) {
+            throw new ResponseStatusException(HttpStatus.GONE,
+                    "legacy handoff is retired; use the platform MCP connection");
+        }
     }
 
     public record ConnectionActivation(String handoffId, String activationCode) { }
@@ -98,6 +117,9 @@ public class AiCodingHandoffApplicationService {
         handoff.setActivationCodeHash(secretDigester.digest(activationCode));
         handoff.setActivationStatus(ActivationStatus.ISSUED.name());
         handoff.setActivationAttempts(0);
+        if (connectionClaim) {
+            handoff.setClientSessionRef(MCP_ONLY_ISSUED_SESSION);
+        }
         handoff.setActivationExpiresAt(now.plus(
                 credentialPolicyService.handoffActivationTtl(task.getProjectId())));
         handoff.setIssuedBy(normalizedIssuedBy);
@@ -124,6 +146,7 @@ public class AiCodingHandoffApplicationService {
             String handoffId,
             ActivationCommand command,
             String publicBaseUrl) {
+        requireLegacyHandoffEnabled();
         return activateInternal(handoffId, command, publicBaseUrl, true);
     }
 
@@ -155,6 +178,9 @@ public class AiCodingHandoffApplicationService {
                 requireText(handoffId, "handoffId"));
         if (handoff == null) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "handoff not found");
+        }
+        if (includeClientSetup && MCP_ONLY_ISSUED_SESSION.equals(handoff.getClientSessionRef())) {
+            throw new ResponseStatusException(HttpStatus.GONE, "this claim code requires the platform MCP connection");
         }
         AiCodingTaskEntity task = requireTask(handoff.getTaskId());
         ExecutionStatus executionStatus = status(task);

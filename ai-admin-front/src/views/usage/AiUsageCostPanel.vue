@@ -9,7 +9,7 @@ import {
   LiquidGlassTable,
   LiquidGlassTabs,
 } from '@/components/common/liquid-glass'
-import { getAiCostReport } from '@/api/mcp'
+import { getAiCostReport, getAiDecisionRoutes, type AiDecisionRouteRow } from '@/api/mcp'
 import type { AiCostLine, AiCostReport } from '@/types/mcp'
 import { costDimensions, formatCost, formatCount, formatTokens, type CostDimension } from './aiUsageView'
 
@@ -36,6 +36,29 @@ const dimensionHint = computed(
 )
 const hasUsage = computed(() => Boolean(total.value?.calls))
 
+const routes = ref<AiDecisionRouteRow[]>([])
+const routeLabels: Record<string, { label: string; hint: string }> = {
+  REASONING: { label: '靠推理完成', hint: '模型自己查找并调用业务能力' },
+  FLOW: { label: '走固定流程', hint: '命中已配置或沉淀的 Workflow' },
+  CHAT: { label: '普通对话', hint: '没有调用业务能力' },
+}
+const routeRows = computed(() =>
+  ['REASONING', 'FLOW', 'CHAT']
+    .map((key) => routes.value.find((row) => String(row.route).toUpperCase() === key))
+    .filter((row): row is AiDecisionRouteRow => Boolean(row) && Number(row!.runs) > 0),
+)
+
+async function loadRoutes(current: number) {
+  try {
+    const { data } = await getAiDecisionRoutes({ days: props.days, projectCode: props.projectCode || undefined })
+    if (current !== sequence) return
+    routes.value = Array.isArray(data) ? data : []
+  } catch {
+    // 这块只是补充视图，读不到就不显示。
+    if (current === sequence) routes.value = []
+  }
+}
+
 async function load() {
   const current = ++sequence
   controller?.abort()
@@ -49,6 +72,7 @@ async function load() {
     )
     if (current !== sequence) return
     report.value = data
+    loadRoutes(current)
   } catch (error) {
     if (current !== sequence) return
     report.value = null
@@ -72,6 +96,21 @@ onBeforeUnmount(() => {
       ReachAI 自己调用大模型花的 Token 和估算费用（按模型中心里填的价格计算）。员工自己的 Claude Code、Codex
       由员工的工具计费，这里看不到。
     </p>
+
+    <section v-if="routeRows.length" class="route-summary" aria-label="推理与流程">
+      <header>
+        <strong>推理与流程</strong>
+        <small>业务系统内的助手是怎么完成请求的。重复出现的推理请求可以在助手配置页沉淀为直达流程，更快也更省 Token。</small>
+      </header>
+      <div class="route-summary__grid">
+        <article v-for="row in routeRows" :key="row.route" class="route-summary__item">
+          <span>{{ routeLabels[String(row.route).toUpperCase()]?.label || row.route }}</span>
+          <strong>{{ formatCount(Number(row.runs)) }} 次</strong>
+          <small>平均 {{ Math.max(1, Math.round(Number(row.avgLatencyMs) / 1000)) }} 秒 · {{ formatTokens(Number(row.avgTokens)) }} Token</small>
+          <small>{{ routeLabels[String(row.route).toUpperCase()]?.hint }}</small>
+        </article>
+      </div>
+    </section>
 
     <LiquidGlassNotice
       v-if="loadError"
@@ -97,7 +136,7 @@ onBeforeUnmount(() => {
       <div class="cost-summary__item">
         <span>估算费用</span>
         <strong
-          >{{ formatCost(total?.cost ?? null, currency) }}<small v-if="total?.partialCost"> 起</small></strong
+          >{{ formatCost(total?.cost ?? null, currency) }}<small v-if="total?.partialCost && total?.cost != null"> 起</small></strong
         >
       </div>
       <div class="cost-summary__item">
@@ -230,5 +269,43 @@ onBeforeUnmount(() => {
 }
 .muted {
   color: var(--text-muted);
+}
+
+.route-summary {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-divider);
+  border-radius: 12px;
+
+  header {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    small {
+      color: var(--text-secondary);
+    }
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+  }
+
+  &__item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+
+    strong {
+      font-size: 20px;
+    }
+
+    small {
+      color: var(--text-secondary);
+    }
+  }
 }
 </style>

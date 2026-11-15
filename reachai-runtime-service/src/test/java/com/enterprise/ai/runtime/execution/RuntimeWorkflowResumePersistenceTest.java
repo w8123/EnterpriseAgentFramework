@@ -64,6 +64,59 @@ class RuntimeWorkflowResumePersistenceTest {
     void close() { if (db != null) db.close(); }
 
     @Test
+    void documentPageActionUsesPersistedCheckpointAndResumesAtMostOnce() throws Exception {
+        var control = mock(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(
+                new com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse(false,
+                        "PAGE_BRIDGE_DOCUMENT_NAVIGATION_REQUIRED", "WAITING",
+                        Map.of("navigationRequestId", "navigate-1", "pageKey", "personal", "route", "/personal"), List.of()),
+                new com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionResponse(true,
+                        "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var actualExecutor = new RuntimeGraphSpecExecutor(json,
+                mock(com.enterprise.ai.runtime.client.model.RuntimeModelServiceClient.class),
+                mock(com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient.class), control);
+        String graph = """
+                {"schemaVersion":2,"env":{"reachaiTrustedPageDraft":true},"entryNodeId":"action","exitNodeIds":["action"],"nodes":[
+                  {"id":"action","type":"PAGE_ACTION","config":{"pageKey":"personal","actionKey":"fill","route":"/personal",
+                    "inputMapping":{"nickname":"params.nickname","address":"params.address"}}}
+                ]}
+                """;
+        var declaration = Map.<String, Object>of("approvalId", 7L, "revision", 3L, "catalogHash", "a".repeat(64),
+                "projectCode", "orders", "pageKey", "personal", "actionKey", "fill");
+        var draft = com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.fromRuntime(
+                Map.of("declaration", declaration, "graphHash", java.util.HexFormat.of().formatHex(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(graph.getBytes(java.nio.charset.StandardCharsets.UTF_8)))), Map.of("nickname", "Alice"), List.of("电话"));
+        var waiting = actualExecutor.execute(graph, Map.of("sessionId", "chat-a", "agentId", "bot", "projectCode", "orders",
+                com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY, draft),
+                WorkflowExecutionIdentity.fromEmbedSession("tenant-a", 7L, "orders", "user-a"));
+        assertTrue(waiting.isWaitingUser());
+        String interactionId = waiting.interactionId();
+        waits.createWaitingSession(new RuntimeWorkflowInteractionSessionService.CreateRequest(interactionId, "WORKFLOW",
+                "run-page", "trace-page", "wf-page", 25L, graph, "action", "CONFIRM_ACTION",
+                waiting.resumeCheckpoint(), waiting.uiRequest(), Map.of(), "orders", "tenant-a", "chat-a", "user-a", 120));
+        var expiry = transactional(new RuntimeInteractionExpiryProcessor(sessions, waits,
+                mock(RuntimeInteractionExpiryTracePort.class), mock(RuntimeSupervisorApprovalService.class)));
+        var actualResume = transactional(new RuntimeInteractionResumeService(waits, actualExecutor, json, expiry));
+        var input = Map.<String, Object>of("action", "confirm", "values", Map.of(), "idempotencyKey", "page-attempt");
+        var first = actualResume.resume(interactionId, input, owner());
+        assertEquals(true, first.get("success"));
+        assertTrue(String.valueOf(first.get("answer")).contains("这些条目未处理：电话"));
+        assertEquals("COMPLETED", sessions.selectById(interactionId).getStatus());
+        var replay = actualResume.resume(interactionId, input, owner());
+        assertEquals(true, replay.get("idempotentReplay"));
+        var captured = org.mockito.ArgumentCaptor.forClass(com.enterprise.ai.runtime.client.control.RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control, times(2)).executePageBridge(captured.capture());
+        assertEquals("navigate-1", captured.getAllValues().get(1).resumeNavigationRequestId());
+        assertEquals(interactionId, captured.getAllValues().get(1).navigationInteractionId());
+        assertEquals("EMBED_SESSION", captured.getAllValues().get(1).identitySource());
+        assertEquals("tenant-a", captured.getAllValues().get(1).identityTenantId());
+        assertEquals("user-a", captured.getAllValues().get(1).identityUserId());
+        assertEquals(Map.of("nickname", "Alice"), captured.getAllValues().get(1).args());
+        assertEquals(7L, captured.getAllValues().get(1).effectApprovalId());
+        assertEquals(3L, captured.getAllValues().get(1).effectApprovalRevision());
+    }
+
+    @Test
     void submittedEventFailureRollsBackClaimBeforeAnyExternalExecution() {
         failEvent("SUBMITTED");
         assertThrows(DataAccessResourceFailureException.class, this::submit);

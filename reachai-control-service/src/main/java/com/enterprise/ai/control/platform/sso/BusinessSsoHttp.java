@@ -40,6 +40,16 @@ public class BusinessSsoHttp {
         return send(request.build());
     }
 
+    /** Posts a body already rendered by the caller; the body may hold a password and is never logged. */
+    public Map<String, Object> postBody(String url, String contentType, String body, Map<String, String> headers) {
+        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(TIMEOUT)
+                .header("Content-Type", contentType)
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
+        headers.forEach(request::header);
+        return send(request.build());
+    }
+
     public Map<String, Object> getJson(String url, Map<String, String> headers) {
         HttpRequest.Builder request = HttpRequest.newBuilder(URI.create(url)).timeout(TIMEOUT)
                 .header("Accept", "application/json").GET();

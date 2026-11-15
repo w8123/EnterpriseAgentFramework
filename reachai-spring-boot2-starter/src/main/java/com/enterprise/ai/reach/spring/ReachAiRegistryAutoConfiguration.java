@@ -9,6 +9,8 @@ import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -165,5 +167,50 @@ public class ReachAiRegistryAutoConfiguration {
                 }
             }
         };
+    }
+
+    /** 主动感知: only when {@code reachai.activity.enabled=true} in a Spring MVC application. */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "reachai.activity", name = "enabled", havingValue = "true")
+    @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
+    @ConditionalOnClass(name = "org.springframework.web.servlet.config.annotation.WebMvcConfigurer")
+    static class ActivityConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        public ReachAiActivityRecorder reachAiActivityRecorder(ReachAiRegistryProperties properties,
+                                                               ReachAiRegistryTransport transport,
+                                                               @Qualifier("reachAiRegistryTaskScheduler") TaskScheduler taskScheduler) {
+            ReachAiActivityRecorder recorder = new ReachAiActivityRecorder(properties, transport);
+            taskScheduler.scheduleWithFixedDelay(() -> {
+                try {
+                    recorder.flush();
+                } catch (Throwable failure) {
+                    log.debug("[ReachAI Activity] flush failed: {}", failure.toString());
+                }
+            }, properties.getActivity().getFlushIntervalMs());
+            return recorder;
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public ReachAiActivityInterceptor reachAiActivityInterceptor(
+                ReachAiRegistryProperties properties,
+                ReachAiActivityRecorder recorder,
+                ObjectProvider<ReachAiCurrentUserProvider> currentUsers,
+                ObjectProvider<ReachAiEmbedPrincipalResolver> embedPrincipals) {
+            return new ReachAiActivityInterceptor(properties, recorder, currentUsers, embedPrincipals);
+        }
+
+        @Bean
+        @ConditionalOnMissingBean
+        public ReachAiActivityResponseAdvice reachAiActivityResponseAdvice(ReachAiRegistryProperties properties) {
+            return new ReachAiActivityResponseAdvice(properties);
+        }
+
+        @Bean
+        public ReachAiActivityWebMvcConfigurer reachAiActivityWebMvcConfigurer(ReachAiActivityInterceptor interceptor) {
+            return new ReachAiActivityWebMvcConfigurer(interceptor);
+        }
     }
 }

@@ -30,6 +30,47 @@ export interface KnowledgeBase {
   hitCount: number
   createTime: string
   updateTime: string
+  /** LOCAL：本平台向量库；EXTERNAL：外部知识库（RAGFlow / ima / Dify），检索时实时调用。 */
+  sourceType?: KnowledgeSourceType
+  externalProvider?: string
+  external?: ExternalKnowledgeView | null
+}
+
+export type KnowledgeSourceType = 'LOCAL' | 'EXTERNAL'
+
+export interface ExternalKnowledgeDataset {
+  id: string
+  name: string
+}
+
+/** 外部连接摘要；密钥永不返回，只告诉你是否已配置。 */
+export interface ExternalKnowledgeView {
+  provider: string
+  providerName: string
+  baseUrl: string
+  clientId?: string | null
+  datasets: ExternalKnowledgeDataset[]
+  apiKeyConfigured: boolean
+}
+
+export interface ExternalKnowledgeProvider {
+  type: string
+  name: string
+  defaultBaseUrl?: string | null
+  requiresClientId: boolean
+}
+
+/** 外部连接草稿；apiKey 留空时沿用 kbCode 已保存的密钥。 */
+export interface ExternalKnowledgeConnectionForm {
+  provider: string
+  baseUrl: string
+  clientId?: string
+  apiKey?: string
+  datasets: ExternalKnowledgeDataset[]
+  kbCode?: string
+  scope?: string
+  workspaceId?: string
+  projectCode?: string
 }
 
 /** 知识库创建/编辑表单 */
@@ -50,6 +91,8 @@ export interface KnowledgeBaseForm {
   rerankEnabled?: boolean
   vectorWeight?: number
   keywordWeight?: number
+  sourceType?: KnowledgeSourceType
+  external?: ExternalKnowledgeConnectionForm
 }
 
 /** 文件信息 */
@@ -127,6 +170,8 @@ export interface RetrievalItem {
   chunkIndex: number
   hitCount: number
   reason: string
+  /** 来自外部知识库时为 RAGFLOW / IMA / DIFY。 */
+  externalProvider?: string | null
 }
 
 /** 检索测试响应 */

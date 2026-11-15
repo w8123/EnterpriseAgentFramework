@@ -251,6 +251,10 @@ public class PlatformEmbedCatalogController {
         if (!"ACTIVE".equalsIgnoreCase(page.lifecycleStatus()) || !"ACTIVE".equalsIgnoreCase(action.status())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Page or action is not active");
         }
+        Boolean riskRequiresConfirmation = PageActionRiskFloor.requiresConfirmation(action);
+        if (riskRequiresConfirmation == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Page action risk is missing or unknown");
+        }
         PlatformEmbedSessionEntity session = resolveDebugSession(page, request);
         if (session == null || (action.allowedAgentIds() != null && !action.allowedAgentIds().isEmpty()
                 && !action.allowedAgentIds().contains(session.getAgentId()))) {
@@ -273,12 +277,13 @@ public class PlatformEmbedCatalogController {
         event.setAgentId(session.getAgentId());
         event.setCommandType("PAGE_ACTION");
         event.setActionKey(action.actionKey());
+        event.setActionContractHash(PageActionContractFingerprint.of(action, page, objectMapper));
         event.setTitle(action.title());
         event.setArgsJson(toJson(request == null || request.args() == null ? Map.of() : request.args()));
         event.setTargetPageInstanceId(session.getPageInstanceId());
         event.setTargetPageKey(page.pageKey());
         event.setTargetRoute(page.routePattern());
-        event.setConfirmRequired(action.confirmRequired());
+        event.setConfirmRequired(action.confirmRequired() || riskRequiresConfirmation);
         event.setStatus("REQUESTED");
         event.setRequestedAt(LocalDateTime.now());
         pageActionEventMapper.insert(event);

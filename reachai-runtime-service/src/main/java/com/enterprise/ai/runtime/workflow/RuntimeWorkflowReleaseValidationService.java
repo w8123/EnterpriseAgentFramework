@@ -24,6 +24,7 @@ import static com.enterprise.ai.runtime.workflow.RuntimeWorkflowValidationSuppor
 public class RuntimeWorkflowReleaseValidationService {
 
     private final ObjectMapper objectMapper;
+    private final RuntimeControlCatalogClient controlCatalogClient;
     private final RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry;
     private final RuntimeWorkflowGraphValidator graphValidator = new RuntimeWorkflowGraphValidator();
     private final RuntimeWorkflowInteractionValidator interactionValidator = new RuntimeWorkflowInteractionValidator();
@@ -48,6 +49,7 @@ public class RuntimeWorkflowReleaseValidationService {
             RuntimeWorkflowNodeCapabilityRegistry nodeCapabilityRegistry,
             RuntimeWorkflowResourceBindingService resourceBindingService) {
         this.objectMapper = objectMapper;
+        this.controlCatalogClient = controlCatalogClient;
         this.nodeCapabilityRegistry = nodeCapabilityRegistry == null
                 ? new RuntimeWorkflowNodeCapabilityRegistry()
                 : nodeCapabilityRegistry;
@@ -113,6 +115,7 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         validateGraph(workflow, graph, boundPageKeys, report);
         validateWorkflowKindContract(workflow, graph, report);
+        validateTrustedPageDraft(workflow, graph, workflow.getGraphSpecJson(), report);
         return report.build();
     }
 
@@ -130,7 +133,41 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         validateGraph(workflow, graphSpec, boundPageKeys, report);
         validateWorkflowKindContract(workflow, graphSpec, report);
+        try {
+            validateTrustedPageDraft(workflow, graphSpec, objectMapper.writeValueAsString(graphSpec), report);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
+            report.error("PAGE_DRAFT_GRAPH_INVALID", null, "受信页面草稿无法序列化");
+        }
         return report.build();
+    }
+
+    private void validateTrustedPageDraft(RuntimeWorkflowDefinitionEntity workflow, GraphSpec graph, String graphJson,
+                                          RuntimeWorkflowReleaseValidationResult.Builder report) {
+        if (graph.getEnv() == null || !graph.getEnv().containsKey("reachaiTrustedPageDraft")) return;
+        if (!Boolean.TRUE.equals(graph.getEnv().get("reachaiTrustedPageDraft"))) {
+            report.error("PAGE_DRAFT_MARKER_INVALID", null, "受信页面草稿标记必须为布尔 true"); return;
+        }
+        try {
+            String workflowId = StringUtils.hasText(workflow.getId()) ? workflow.getId() : "preview";
+            var target = new com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget(null,
+                    RuntimeWorkflowExecutionView.builder().id(workflowId).projectCode(workflow.getProjectCode()).build(),
+                    RuntimeWorkflowPublishedVersionView.builder().id(1L).workflowId(workflowId).version("validation")
+                            .status("ACTIVE").graphSpecSnapshotJson(graphJson).build());
+            var guard = new com.enterprise.ai.runtime.supervisor.TrustedPageActionWorkflowGuard();
+            var candidate = guard.candidate(target).orElseThrow();
+            var approved = controlCatalogClient.resolvePageEffect(new RuntimeControlCatalogClient.TrustedPageEffectRequest(
+                    candidate.projectCode(), candidate.pageKey(), candidate.actionKey()));
+            if (approved == null) throw new IllegalArgumentException("review unavailable");
+            String schema = approved.inputSchema() instanceof String s ? s : objectMapper.writeValueAsString(approved.inputSchema());
+            var declaration = new com.enterprise.ai.runtime.supervisor.TrustedPageActionWorkflowGuard.TrustedActionDeclaration(
+                    approved.approvalId(), approved.revision(), approved.pageId(), approved.actionId(), approved.projectCode(),
+                    approved.pageKey(), approved.actionKey(), approved.effect(), approved.catalogHash(), approved.implementationVersion(),
+                    approved.targetAlias(), approved.actionTitle(), approved.actionDescription(), approved.routePattern(), schema,
+                    approved.fieldLabels(), approved.active());
+            if (guard.pin(target, declaration).isEmpty()) throw new IllegalArgumentException("reviewed contract mismatch");
+        } catch (Exception unavailableOrInvalid) {
+            report.error("PAGE_DRAFT_REVIEW_INVALID", null, "页面动作审核不可用或与受信草稿不匹配，请重新审核并检查图结构");
+        }
     }
 
     /**
@@ -293,6 +330,8 @@ public class RuntimeWorkflowReleaseValidationService {
                 } else if ("KNOWLEDGE_WRITE".equals(type)) {
                     nodeConfigValidator.validateKnowledgeWrite(node, report);
                     report.warn("GRAPH_KNOWLEDGE_WRITE", nodeId, "该节点会写入知识库；发布到员工 MCP 时按写操作处理");
+                } else if ("HUMAN_APPROVAL".equals(type)) {
+                    nodeConfigValidator.validateHumanApproval(node, effectiveNodeConfig(node, "approvalConfig"), report);
                 } else if ("SUB_WORKFLOW".equals(type)) {
                     String[] pin = nodeConfigValidator.validateSubWorkflowReference(node, workflow.getId(), report);
                     if (pin != null) validatePinnedSubWorkflow(workflow, node, pin[0], Long.parseLong(pin[1]), report);

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -399,6 +400,55 @@ class RuntimeAgentExecutionServiceTest {
     }
 
     @Test
+    void resumesEmbedApprovalWithPinnedOriginalAliasAndIgnoresForgedSubmission() {
+        RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeSupervisorApprovalPort approvals = mock(RuntimeSupervisorApprovalPort.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                resolver, supervisor, approvals, mock(RuntimeInteractionResumeService.class),
+                mock(RuntimeSessionClearPort.class), mock(RuntimeRunLifecycleService.class));
+        RuntimeAgentExecutionView agent = agent("agent-1", "orders-bot", "orders");
+        RuntimeAgentConfigSnapshot config = activeConfig();
+        RuntimeSupervisorApprovalPort.PolicyApprovalGrant grant = new RuntimeSupervisorApprovalPort.PolicyApprovalGrant(
+                "spv_1", "orders:write", "update_order", Map.of("orderId", "O-1"), "u-1");
+        when(approvals.prepareResume(any(), any(), any()))
+                .thenReturn(new RuntimeSupervisorApprovalService.ResumeDecision(
+                        true, false, "agent-1", 7L,
+                        Map.of("message", "更新订单", "sessionId", "s1", "agentId", "orders-bot",
+                                "traceId", "trace-original"),
+                        grant, "审批已通过", "attempt-1", Map.of("action", "confirm"), null));
+        when(approvals.completeResume(any(), any(), any(), any()))
+                .thenAnswer(invocation -> invocation.getArgument(3));
+        when(resolver.resolvePinned("agent-1", 7L)).thenReturn(Optional.of(context(agent, config, List.of())));
+        when(supervisor.execute(any())).thenReturn(new SupervisorRuntimeAdapter.SupervisorResult(
+                true, "SUPERVISOR_COMPLETED", "订单已更新", "trace-original", List.of(), Map.of(), null));
+        WorkflowExecutionIdentity trustedIdentity =
+                WorkflowExecutionIdentity.fromEmbedSession("default", 7L, "orders", "u-1");
+
+        Map<String, Object> response = service.execute(Map.of(
+                "interactionId", "spv_1",
+                "traceId", "trace-submit-must-not-win",
+                "sessionId", "s1",
+                "userId", "forged-body-user", "agentId", "other-agent",
+                "uiSubmit", Map.of("action", "confirm")), true,
+                RuntimeAgentExecutionEventSink.NOOP,
+                RuntimeAgentExecutionCancellation.NOOP,
+                trustedIdentity);
+
+        assertEquals(true, response.get("success"));
+        assertEquals("订单已更新", response.get("answer"));
+        verify(approvals).prepareResume(any(), any(), same(trustedIdentity));
+        ArgumentCaptor<SupervisorRuntimeAdapter.SupervisorRequest> captor =
+                ArgumentCaptor.forClass(SupervisorRuntimeAdapter.SupervisorRequest.class);
+        verify(supervisor).execute(captor.capture());
+        assertEquals(grant, captor.getValue().approvalGrant());
+        assertEquals("orders-bot", captor.getValue().input().get("agentId"));
+        assertEquals("trace-original", captor.getValue().input().get("traceId"));
+        assertEquals(true, captor.getValue().input().get("__resumeExistingTrace"));
+        assertEquals("trace-original", ((Map<?, ?>) response.get("metadata")).get("traceId"));
+    }
+
+    @Test
     void returnsCompletedSupervisorApprovalReplayWithoutExecutingAgain() {
         RuntimeAgentExecutionContextResolver resolver = mock(RuntimeAgentExecutionContextResolver.class);
         SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
@@ -495,6 +545,61 @@ class RuntimeAgentExecutionServiceTest {
         verify(runLifecycle).finishAgent(finishTrace.capture(), any(Boolean.class), any(), any(), any(), any(), any());
         assertEquals("session-trace-original", finishTrace.getValue());
         verify(supervisor, never()).execute(any());
+    }
+
+    @Test
+    void cancellingWorkflowInteractionProducesTerminalEnvelopeWithoutAnotherUiRequest() {
+        RuntimeInteractionResumeService resumeService = mock(RuntimeInteractionResumeService.class);
+        RuntimeRunLifecycleService runLifecycle = mock(RuntimeRunLifecycleService.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                mock(RuntimeAgentExecutionContextResolver.class), mock(SupervisorRuntimeAdapter.class),
+                mock(RuntimeSupervisorApprovalPort.class), resumeService,
+                mock(RuntimeSessionClearPort.class), runLifecycle);
+        when(resumeService.resume(any(), any(), any())).thenReturn(Map.of(
+                "success", true, "code", "RUNTIME_GRAPH_CANCELLED", "answer", "Interaction cancelled",
+                "status", "CANCELLED", "waiting", false, "traceId", "trace-original",
+                "runId", "run-original", "interactionId", "wfi_abc"));
+        var events = new java.util.ArrayList<String>();
+        Map<String, Object> response = service.execute(Map.of(
+                        "interactionId", "wfi_abc", "sessionId", "chat-1", "action", "cancel"),
+                true, (event, data) -> events.add(event), RuntimeAgentExecutionCancellation.NOOP, null);
+
+        assertEquals(true, response.get("success"));
+        assertFalse(response.containsKey("uiRequest"));
+        assertTrue(events.isEmpty());
+        Map<?, ?> metadata = (Map<?, ?>) response.get("metadata");
+        assertEquals("RUNTIME_GRAPH_CANCELLED", metadata.get("code"));
+        assertEquals("CANCELLED", metadata.get("interactionStatus"));
+        assertEquals(false, metadata.get("interactionPending"));
+        verify(runLifecycle).finishAgent(eq("trace-original"), eq(true), eq("RUNTIME_GRAPH_CANCELLED"),
+                any(), any(), any(), any());
+    }
+
+    @Test
+    void pageActionPreconditionFailureDoesNotResumeSupervisorOrProduceSuccessAnswer() {
+        RuntimeInteractionResumeService resumeService = mock(RuntimeInteractionResumeService.class);
+        SupervisorRuntimeAdapter supervisor = mock(SupervisorRuntimeAdapter.class);
+        RuntimeRunLifecycleService runLifecycle = mock(RuntimeRunLifecycleService.class);
+        RuntimeAgentExecutionService service = new RuntimeAgentExecutionService(
+                mock(RuntimeAgentExecutionContextResolver.class), supervisor,
+                mock(RuntimeSupervisorApprovalPort.class), resumeService,
+                mock(RuntimeSessionClearPort.class), runLifecycle);
+        when(resumeService.resume(any(), any(), any())).thenReturn(Map.of(
+                "success", false, "code", "PAGE_BRIDGE_PRECONDITION_FAILED",
+                "answer", "页面操作未执行，请核对输入后重试。", "status", "FAILED", "waiting", false,
+                "traceId", "trace-original", "runId", "run-original", "interactionId", "wfi_abc",
+                "continuation", Map.of("agentId", "agent-1", "agentConfigVersionId", 7L)));
+
+        Map<String, Object> response = service.execute(Map.of(
+                "interactionId", "wfi_abc", "sessionId", "chat-1", "action", "confirm"), false);
+
+        assertEquals(false, response.get("success"));
+        assertEquals("PAGE_BRIDGE_PRECONDITION_FAILED", ((Map<?, ?>) response.get("metadata")).get("code"));
+        assertEquals("页面操作未执行，请核对输入后重试。", response.get("answer"));
+        assertFalse(response.containsKey("uiRequest"));
+        verify(supervisor, never()).execute(any());
+        verify(runLifecycle).finishAgent(eq("trace-original"), eq(false), eq("PAGE_BRIDGE_PRECONDITION_FAILED"),
+                any(), any(), any(), any());
     }
 
     @Test

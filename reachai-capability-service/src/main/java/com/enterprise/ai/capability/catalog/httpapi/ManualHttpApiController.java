@@ -1,6 +1,10 @@
 package com.enterprise.ai.capability.catalog.httpapi;
 
+import com.enterprise.ai.capability.catalog.enrichment.CatalogSubject;
+import com.enterprise.ai.capability.catalog.semantic.CapabilitySemanticCatalogService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,12 +23,47 @@ import java.util.Map;
  * Console project resource (reached only through Control's /api/scan-projects/{id}/** proxy, which
  * checks the caller's project write permission): people and their AI tools add HTTP APIs by hand.
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/scan-projects/{projectId}/manual-http-apis")
 @RequiredArgsConstructor
 public class ManualHttpApiController {
     static final int MAX_BATCH = 200;
     private final ManualHttpApiService manual;
+    private final HttpApiDocumentImportService documents;
+    private final ObjectProvider<CapabilitySemanticCatalogService> semantic;
+
+    /**
+     * Reads a whole API document (OpenAPI 3 / Swagger 2 / Postman / HAR; pasted, uploaded or fetched by URL)
+     * and returns the operations it describes. Nothing is saved; the page then posts the ticked ones to /batch.
+     */
+    @PostMapping("/import/preview")
+    public ResponseEntity<?> preview(@PathVariable long projectId,
+                                     @RequestBody(required = false) HttpApiDocumentImportService.PreviewRequest request) {
+        try {
+            return ResponseEntity.ok(documents.preview(projectId, request));
+        } catch (ManualHttpApiService.NotFound missing) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalArgumentException invalid) {
+            return ResponseEntity.badRequest().body(error("HTTP_API_IMPORT_INVALID", invalid.getMessage()));
+        }
+    }
+
+    /**
+     * Reads a Dify app (by its API key) or n8n webhooks and returns them as API candidates, so workflows that
+     * already run there can be called by agents and employees' AI tools. Nothing is saved.
+     */
+    @PostMapping("/import/platform-preview")
+    public ResponseEntity<?> platformPreview(@PathVariable long projectId,
+                                             @RequestBody(required = false) WorkflowPlatformReader.Request request) {
+        try {
+            return ResponseEntity.ok(documents.previewPlatform(projectId, request));
+        } catch (ManualHttpApiService.NotFound missing) {
+            return ResponseEntity.notFound().build();
+        } catch (IllegalArgumentException invalid) {
+            return ResponseEntity.badRequest().body(error("HTTP_API_IMPORT_INVALID", invalid.getMessage()));
+        }
+    }
 
     @PostMapping
     public ResponseEntity<?> save(@PathVariable long projectId, @RequestBody(required = false) ManualHttpApiService.Request request) {
@@ -60,6 +99,7 @@ public class ManualHttpApiController {
                 row.put("apiId", result.apiId());
                 row.put("created", result.created());
                 row.put("status", result.status());
+                row.put("described", describe(projectId, result.apiId(), item));
                 saved++;
             } catch (ManualHttpApiService.NotFound missing) {
                 return ResponseEntity.notFound().build();
@@ -86,6 +126,24 @@ public class ManualHttpApiController {
             return ResponseEntity.notFound().build();
         } catch (IllegalArgumentException invalid) {
             return ResponseEntity.badRequest().body(error("HTTP_API_MANUAL_INVALID", invalid.getMessage()));
+        }
+    }
+
+    /** Imported summary/description become the API's semantic doc, only when it has none yet. */
+    private boolean describe(long projectId, Long apiId, ManualHttpApiService.Request item) {
+        if (apiId == null || item == null) return false;
+        String summary = item.summary() == null ? "" : item.summary().trim();
+        String description = item.description() == null ? "" : item.description().trim();
+        if (summary.isEmpty() && description.isEmpty()) return false;
+        String content = summary.isEmpty() ? description
+                : description.isEmpty() || description.equals(summary) ? summary : summary + "\n\n" + description;
+        CapabilitySemanticCatalogService docs = semantic.getIfAvailable();
+        if (docs == null) return false;
+        try {
+            return docs.seedIfAbsent(projectId, CatalogSubject.HTTP_API, apiId, content);
+        } catch (RuntimeException failed) {
+            log.warn("Imported API description not saved: project={}, api={}, reason={}", projectId, apiId, failed.getMessage());
+            return false;
         }
     }
 

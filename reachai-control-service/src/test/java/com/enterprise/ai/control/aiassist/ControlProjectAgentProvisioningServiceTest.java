@@ -26,6 +26,18 @@ class ControlProjectAgentProvisioningServiceTest {
         when(runtime.listAgents(7L, "orders")).thenReturn(ResponseEntity.ok(List.of(Map.of(
                 "id", "agent-1", "projectId", 7L, "projectCode", "orders", "keySlug", "orders-page-copilot"))));
     }
+    @Test void newAssistantDefaultsToTheCheapestPricedActiveModel() {
+        when(models.list(null, "LLM", null)).thenReturn(ResponseEntity.ok(Map.of("data", List.of(
+                Map.of("id", "pro", "status", "ACTIVE"), Map.of("id", "flash", "status", "ACTIVE"),
+                Map.of("id", "off", "status", "DISABLED"), Map.of("id", "unpriced", "status", "ACTIVE")))));
+        assertEquals("pro", service.resolveSupervisorModelInstanceId(null));
+        when(models.prices()).thenReturn(ResponseEntity.ok(Map.of("data", List.of(
+                Map.of("modelInstanceId", "pro", "inputPricePerMillion", 4, "outputPricePerMillion", 16),
+                Map.of("modelInstanceId", "flash", "inputPricePerMillion", "1", "outputPricePerMillion", "2"),
+                Map.of("modelInstanceId", "off", "inputPricePerMillion", 0, "outputPricePerMillion", 0)))));
+        assertEquals("flash", service.resolveSupervisorModelInstanceId(null));
+        assertEquals("pro", service.resolveSupervisorModelInstanceId("pro"));
+    }
     @Test void existingUnpublishedDraftCannotBeOverwrittenOrPublishedByProvisioning() {
         when(drafts.context("agent-1")).thenReturn(context(Map.of("id", 21L, "status", "DRAFT"), "a".repeat(64)));
         when(drafts.versions("agent-1")).thenReturn(Map.of("versions", List.of()));

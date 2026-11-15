@@ -1,5 +1,6 @@
-import { mount } from '@vue/test-utils'
-import { describe, expect, it } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { ElMessageBox } from 'element-plus'
+import { describe, expect, it, vi } from 'vitest'
 import type { AiCodingTaskDetail } from '@/types/aiCodingTask'
 import AiCodingTaskDetailPanel from './AiCodingTaskDetailPanel.vue'
 
@@ -51,19 +52,35 @@ function render(detail: AiCodingTaskDetail, handoffEnabled?: boolean) {
 }
 
 describe('AiCodingTaskDetailPanel handoff controls', () => {
-  it('keeps existing handoff and recovery controls by default', () => {
+  it('offers MCP claim-code reissue without a Windows recovery command', () => {
     const wrapper = render(taskDetail())
-    expect(wrapper.text()).toContain('重新生成交接包')
-    expect(wrapper.text()).toContain('复制恢复命令')
-    expect(wrapper.text()).toContain('交接包已签发')
+    expect(wrapper.text()).toContain('重新生成领取码')
+    expect(wrapper.text()).not.toContain('复制恢复命令')
+    expect(wrapper.text()).toContain('任务领取码已生成')
   })
 
-  it('hides legacy controls for MCP project onboarding', () => {
+  it('confirms revoking an active connection before requesting a new claim code', async () => {
+    const confirm = vi.spyOn(ElMessageBox, 'confirm')
+      .mockResolvedValueOnce('confirm' as Awaited<ReturnType<typeof ElMessageBox.confirm>>)
+    try {
+      const wrapper = render(taskDetail())
+      const button = wrapper.findAll('button').find((item) => item.text() === '重新生成领取码')
+      expect(button).toBeDefined()
+      await button!.trigger('click')
+      await flushPromises()
+      expect(confirm).toHaveBeenCalledOnce()
+      expect(wrapper.emitted('reissue')).toEqual([['task-1']])
+    } finally {
+      confirm.mockRestore()
+    }
+  })
+
+  it('hides claim-code controls when the caller disables reissue', () => {
     const wrapper = render(taskDetail(), false)
-    expect(wrapper.text()).not.toContain('生成交接包')
+    expect(wrapper.text()).not.toContain('生成领取码')
     expect(wrapper.text()).not.toContain('复制恢复命令')
     expect(wrapper.text()).not.toContain('交接包已签发')
-    expect(wrapper.text()).toContain('任务连接已准备')
+    expect(wrapper.text()).toContain('任务领取码已生成')
     expect(wrapper.text()).toContain('取消任务')
   })
 

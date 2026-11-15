@@ -22,10 +22,13 @@ public class McpEmployeeAccessController {
     private final McpEmployeeAccessService service;
     private final McpHubManagementAccess access;
     private final PlatformAuthAuditService auditService;
+    private final com.enterprise.ai.control.mcp.application.port.McpPublicationRepository publications;
 
     public McpEmployeeAccessController(McpEmployeeAccessService service,
                                        McpHubManagementAccess access,
-                                       PlatformAuthAuditService auditService) {
+                                       PlatformAuthAuditService auditService,
+                                       com.enterprise.ai.control.mcp.application.port.McpPublicationRepository publications) {
+        this.publications = publications;
         this.service = service;
         this.access = access;
         this.auditService = auditService;
@@ -34,8 +37,25 @@ public class McpEmployeeAccessController {
     @GetMapping
     public EmployeeAccessView get(HttpServletRequest request, @PathVariable long publicationId) {
         access.require(request, McpHubManagementAccess.READ);
-        return service.find(publicationId).map(EmployeeAccessView::of)
-                .orElse(new EmployeeAccessView(publicationId, null, null, null, false, true));
+        return withHiddenTools(service.find(publicationId).map(EmployeeAccessView::of)
+                .orElse(new EmployeeAccessView(publicationId, null, null, null, false, true, 0, 0)));
+    }
+
+    /**
+     * Tools of the live revision that employees and the assistant cannot see: a revision published before
+     * risk contracts carries none, so every tool is withheld until the publication is published again.
+     */
+    private EmployeeAccessView withHiddenTools(EmployeeAccessView view) {
+        return publications.findById(view.publicationId())
+                .filter(publication -> publication.currentRevisionId() != null)
+                .flatMap(publication -> publications.findRevision(publication.id(), publication.currentRevisionId()))
+                .map(revision -> {
+                    int total = revision.tools().size();
+                    int hidden = (int) revision.tools().stream().filter(tool -> !tool.hasTrustedRiskContract()).count();
+                    return new EmployeeAccessView(view.publicationId(), view.projectId(), view.projectCode(),
+                            view.displayName(), view.enabled(), view.writeApprovalRequired(), total, hidden);
+                })
+                .orElse(view);
     }
 
     @PutMapping
@@ -48,7 +68,7 @@ public class McpEmployeeAccessController {
                 String.valueOf(publicationId),
                 Map.of("projectCode", saved.projectCode(), "enabled", saved.enabled(),
                         "writeApprovalRequired", saved.writeApprovalRequired()));
-        return EmployeeAccessView.of(saved);
+        return withHiddenTools(EmployeeAccessView.of(saved));
     }
 
     public record SaveRequest(Long projectId, String projectCode, String displayName, Boolean enabled,
@@ -56,10 +76,11 @@ public class McpEmployeeAccessController {
     }
 
     public record EmployeeAccessView(long publicationId, Long projectId, String projectCode, String displayName,
-                                     boolean enabled, boolean writeApprovalRequired) {
+                                     boolean enabled, boolean writeApprovalRequired,
+                                     int toolCount, int hiddenToolCount) {
         static EmployeeAccessView of(McpEmployeeAccess access) {
             return new EmployeeAccessView(access.publicationId(), access.projectId(), access.projectCode(),
-                    access.displayName(), access.enabled(), access.writeApprovalRequired());
+                    access.displayName(), access.enabled(), access.writeApprovalRequired(), 0, 0);
         }
     }
 }

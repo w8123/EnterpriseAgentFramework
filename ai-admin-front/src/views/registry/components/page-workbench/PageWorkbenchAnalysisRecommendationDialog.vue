@@ -65,7 +65,7 @@ const emit = defineEmits<{
         :loading="busy"
         @click="emit('create', page)"
       >
-        创建并生成分析交接包
+        创建并生成领取码
       </LiquidGlassButton>
     </template>
   </AppDialog>

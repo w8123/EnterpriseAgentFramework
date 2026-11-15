@@ -98,6 +98,8 @@ public class KnowledgeRetrievalCore {
                         .chunkIndex(item.getChunkIndex())
                         .hitCount(item.getHitCount())
                         .reason(item.getReason())
+                        .externalProvider(item.getExternalProvider())
+                        .externalKnowledgeBaseId(item.getExternalKnowledgeBaseId())
                         .build());
             }
         }

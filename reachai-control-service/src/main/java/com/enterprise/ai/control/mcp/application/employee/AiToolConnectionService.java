@@ -120,6 +120,7 @@ public class AiToolConnectionService {
         LocalDateTime now = LocalDateTime.now();
         Map<String, String> labels = systemLabels();
         return connectionRepository.findByOwner(owner.tenantId(), owner.businessUserId()).stream()
+                .filter(connection -> connection.toolKind() != AiToolKind.ASSISTANT)
                 .map(connection -> view(connection, labels, now))
                 .toList();
     }
@@ -127,6 +128,9 @@ public class AiToolConnectionService {
     @Transactional
     public CreatedConnection create(EmployeeOwner owner, String toolKind, List<String> projectCodes) {
         AiToolKind kind = parseKind(toolKind);
+        if (kind == AiToolKind.ASSISTANT) {
+            throw new McpDomainException("AI_TOOL_KIND_INVALID", "unknown AI tool: " + toolKind);
+        }
         Set<String> requested = new LinkedHashSet<>();
         for (String code : projectCodes == null ? List.<String>of() : projectCodes) {
             if (code != null && !code.isBlank()) {
@@ -164,7 +168,8 @@ public class AiToolConnectionService {
     @Transactional
     public ConnectionView revoke(EmployeeOwner owner, long connectionId) {
         AiToolConnection connection = connectionRepository.findById(connectionId)
-                .filter(found -> found.ownedBy(owner.tenantId(), owner.businessUserId()))
+                .filter(found -> found.ownedBy(owner.tenantId(), owner.businessUserId())
+                        && found.toolKind() != AiToolKind.ASSISTANT)
                 .orElseThrow(() -> new McpDomainException("AI_TOOL_CONNECTION_NOT_FOUND",
                         "connection not found"));
         LocalDateTime now = LocalDateTime.now();

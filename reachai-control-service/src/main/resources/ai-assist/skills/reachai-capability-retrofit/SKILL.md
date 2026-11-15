@@ -1,6 +1,6 @@
 ---
 name: reachai-capability-retrofit
-description: Retrofit an already-connected business system so ReachAI can operate more of it. Inventory business operations that fit the developer's goal, let the developer pick which ones to open, declare the picked ones with the ReachAI SDK (Java, C#, Python, Node.js or Go), trigger one audited SDK sync, and report. Use when asked to "let AI do X in our system", open more business methods to ReachAI, or run a ReachAI CAPABILITY_RETROFIT task.
+description: Retrofit an already-connected business system so ReachAI can operate more of it. Inventory business operations that fit the developer's goal, let the developer pick which ones to open, declare the picked ones with the ReachAI SDK (Java, C#, Python, Node.js, Go or PHP), trigger one audited SDK sync, and report. Use when asked to "let AI do X in our system", open more business methods to ReachAI, or run a ReachAI CAPABILITY_RETROFIT task.
 ---
 
 # ReachAI 业务能力改造
@@ -13,14 +13,12 @@ description: Retrofit an already-connected business system so ReachAI can operat
 
 ## 任务通道
 
-这个 Skill 总在一个 `CAPABILITY_RETROFIT` 任务里使用，任务有两种接法，选你手上有的那种：
+这个 Skill 总在一个 `CAPABILITY_RETROFIT` 任务里使用，通过开发者自己的平台 MCP 连接操作：
 
-1. **平台 MCP（推荐）**：开发者的 AI 工具已经用自己的身份连上 ReachAI 平台 MCP。
-   - 没有任务时用 `reachai_retrofit_start`（projectCode、objective）新建，它会把任务直接领取到当前连接。
-   - 读上下文：`reachai_ai_coding_task_context`；进度：`reachai_ai_coding_task_event`；提问/读回答：`reachai_retrofit_propose`、`reachai_ai_coding_task_questions`；SDK 同步：`reachai_ai_coding_task_verify`（verificationKey=SDK_SYNC）；交报告：`reachai_ai_coding_task_artifact`。
-2. **一次性交接**：页面给了激活码和 PowerShell/Bootstrap。激活后用任务令牌调用 `/api/ai-coding/tasks/{taskId}/**`（context、events、questions、verifications/SDK_SYNC、artifacts）。
+- 没有任务时用 `reachai_retrofit_start`（projectCode、objective）新建，它会把任务直接领取到当前连接；页面已有任务时，用开发者签发的一次性领取码调用 `reachai_ai_coding_task_claim`。
+- 读上下文：`reachai_ai_coding_task_context`；进度：`reachai_ai_coding_task_event`；提问/读回答：`reachai_retrofit_propose`、`reachai_ai_coding_task_questions`；SDK 同步：`reachai_ai_coding_task_verify`（verificationKey=SDK_SYNC）；交报告：`reachai_ai_coding_task_artifact`。
 
-不管哪种，先读任务上下文（`context`），里面有项目、目标、语言、候选清单格式、声明写法、报告契约和 Skill 地址。不要猜接口和字段。不打印、不提交任何密钥、激活码、任务令牌。
+先读任务上下文（`context`），里面有项目、目标、语言、候选清单格式、声明写法、报告契约和 Skill 地址。不要猜接口和字段。不打印、不提交任何密钥、领取码或任务令牌。
 
 ## 步骤
 
@@ -35,8 +33,7 @@ description: Retrofit an already-connected business system so ReachAI can operat
 
 ### 2. 提交候选清单，等开发者勾选
 
-- MCP：调用 `reachai_retrofit_propose`（taskId、summary、candidates），它会生成规范的问题。
-- HTTP：`POST <taskRoot>/questions`，`questionId` 以 `retrofit-select-` 开头，`title` 为「请勾选要开放给 AI 的业务能力」，`body` 是 `reachai.capability-retrofit-candidates.v1` JSON 字符串，`options` 为全部 candidateKey。
+- 调用 `reachai_retrofit_propose`（taskId、summary、candidates），它会生成规范的问题。
 - 然后等待。开发者可能在 ReachAI 页面勾选，也可能直接在你的对话里说“开 1、3”。只有开发者明确说了，你才能代为回答这个问题（`reachai_ai_coding_question_answer`，answer 写 `{"schema":"reachai.capability-retrofit-selection.v1","selected":[...],"note":""}`）。不要自己替开发者决定。
 - 读到回答后写一条 `RESUMED` 事件再继续。没被勾选的候选一行代码都不要动。
 
@@ -49,7 +46,7 @@ description: Retrofit an already-connected business system so ReachAI can operat
 
 ### 4. SDK 同步
 
-- 心跳在线后，触发一次 `SDK_SYNC`（MCP：`reachai_ai_coding_task_verify`；HTTP：`POST <taskRoot>/verifications/SDK_SYNC`）。
+- 心跳在线后，通过 `reachai_ai_coding_task_verify` 触发一次 `SDK_SYNC`。
 - 失败时区分：服务不可达/超时、业务登录或 CSRF 拦截（401/403）、路由或 context-path 不对（404/405）、签名被拒。按原因修，不要关闭签名校验。
 - 同步成功只表示能力进了“待评审”，不代表已上线。
 

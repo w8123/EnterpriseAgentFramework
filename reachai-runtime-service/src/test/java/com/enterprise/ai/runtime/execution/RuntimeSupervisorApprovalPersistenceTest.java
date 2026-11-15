@@ -242,7 +242,7 @@ class RuntimeSupervisorApprovalPersistenceTest {
 
     @Test
     void pendingListDoesNotExposePrivateCheckpointArgumentsOrOriginalInput() throws Exception {
-        create(identity("tenant-a", "user-a"));
+        create(identity("tenant-a", "user-a"), Map.of("orderId", "订单一", "token", "private-credential"));
         var views = human.listPendingHumanApprovals("agent-1", "user-a", 50);
         assertEquals(1, views.size());
         String visible = json.writeValueAsString(views);
@@ -369,13 +369,36 @@ class RuntimeSupervisorApprovalPersistenceTest {
         var request = new java.util.LinkedHashMap<>(submission("confirm", true));
         request.put("toolName", "delete_all");
         request.put("args", Map.of("orderId", "another-order"));
+        request.put("pageApprovalPin", Map.of("approvalId", 8, "catalogHash", "forged"));
         var prepared = approvals.prepareResume(id, request, identity("tenant-a", "user-a"));
         assertTrue(prepared.approved());
         assertEquals("update_order", prepared.grant().toolName());
         assertEquals("订单一", prepared.grant().approvedArgs().get("orderId"));
-        assertEquals("private-credential", prepared.grant().approvedArgs().get("token"));
         assertEquals("trace-original", prepared.originalInput().get("traceId"));
         assertEquals("user-a", prepared.grant().approvedBy());
+        assertTrue(prepared.grant().approvedPagePin().isEmpty());
+    }
+
+    @Test
+    void pageDeclarationAndArgumentsAreBoundToTheConfirmedCheckpoint() throws Exception {
+        var agent = new RuntimeAgentView("agent-1", 7L, "orders", "order-agent", "订单助手", null,
+                "PROJECT", null, true, 12L, 12L, 1, "ACTIVE", "AGENTSCOPE", 1, null, null);
+        var tool = com.enterprise.ai.runtime.agent.RuntimeAgentWorkflowToolSnapshot.builder()
+                .toolName("fill_customer").workflowId("wf-1").workflowVersionId(9L)
+                .permissionKey("customer:edit").riskLevel("PAGE_ACTION").build();
+        Map<String, Object> declaration = Map.of("approvalId", 7, "catalogHash", "original",
+                "targetAlias", "客户资料", "actionTitle", "填写客户资料", "actionDescription", "填写指定字段",
+                "effect", "PAGE_LOCAL_DRAFT", "fieldLabels", Map.of("name", "客户名称"));
+        Map<String, Object> pin = Map.of("declaration", declaration);
+        id = factory.createTrustedPageDraft(
+                new SupervisorExecutionTraceService.TraceHandle("trace-original", "root", 1L, LocalDateTime.now()),
+                agent, config(12L), tool, Map.of("sessionId", "session-1"), Map.of("name", "演示客户"),
+                "需要确认", identity("tenant-a", "user-a"), pin).interactionId();
+        var request = new java.util.LinkedHashMap<>(submission("confirm", true));
+        request.put("pageApprovalPin", Map.of("declaration", Map.of("approvalId", 99)));
+        var prepared = approvals.prepareResume(id, request, identity("tenant-a", "user-a"));
+        assertTrue(prepared.approved());
+        assertEquals(pin, prepared.grant().approvedPagePin());
     }
 
     @Test
@@ -535,13 +558,17 @@ class RuntimeSupervisorApprovalPersistenceTest {
     }
 
     private void create(WorkflowExecutionIdentity identity) {
+        create(identity, Map.of("orderId", "订单一"));
+    }
+
+    private void create(WorkflowExecutionIdentity identity, Map<String, Object> args) {
         var config = config(12L);
         var agent = new RuntimeAgentView("agent-1", 7L, "orders", "order-agent", "订单助手", null,
                 "PROJECT", null, true, 12L, 12L, 1, "ACTIVE", "AGENTSCOPE", 1, null, null);
         id = factory.create(new SupervisorExecutionTraceService.TraceHandle("trace-original", "root", 1L, LocalDateTime.now()),
                 agent, config, "WORKFLOW", "update_order", "orders:write", "WRITE",
                 Map.of("message", "private-original-message", "sessionId", "session-1", "userId", "body-attacker"),
-                Map.of("orderId", "订单一", "token", "private-credential"), "需要确认", identity).interactionId();
+                args, "需要确认", identity).interactionId();
     }
 
     private Map<String, Object> submission(String action, Object confirm) {

@@ -24,13 +24,14 @@ import java.util.Objects;
 public class ControlProjectAgentProvisioningService {
 
     static final String DEFAULT_PAGE_COPILOT_DESCRIPTION =
-            "项目页面副驾驶 Agent，用于嵌入式对话、页面理解和 Workflow 路由。";
+            "这个系统的 AI 助手，帮员工查询和办理系统里的业务。";
     static final String DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT =
             "你是当前项目的页面副驾驶 Supervisor。理解用户请求并制定计划，"
                     + "从允许的 Workflow 中选择一个或多个作为 Tool 执行。"
                     + "当前页面的数据、列表、筛选、统计、可见行和详情都属于页面请求；"
                     + "即使用户只说查、查询、统计、多少、哪些或筛选，也应使用匹配的页面 Workflow，"
                     + "不能因为用户没有说打开或操作页面就拒绝。"
+                    + "没有匹配的 Workflow 时，查找并调用业务系统已向员工开放的能力来完成请求。"
                     + "名称、说明和回复默认使用简体中文；Token、MCP、AI、Agent、"
                     + "Supervisor、Workflow、Tool、API、SDK 等熟知专业术语和技术标识可保留英文。";
     private final CapabilityProjectOnboardingClient capabilityClient;
@@ -173,7 +174,8 @@ public class ControlProjectAgentProvisioningService {
                 DEFAULT_PAGE_COPILOT_SYSTEM_PROMPT);
         draftRequest.put("modelInstanceId", modelInstanceId);
         draftRequest.put("policyProfile", "STANDARD");
-        draftRequest.put("toolCatalogMode", "ALLOW_LIST");
+        // The assistant of a newly connected system can use what that system already opened to employees.
+        draftRequest.put("toolCatalogMode", "PROJECT_CAPABILITIES");
         draftRequest.put(
                 "configJson",
                 "{\"source\":\"project-onboarding\",\"purpose\":\"page-copilot\",\"routing\":\"supervisor-workflow-tools\"}");
@@ -210,7 +212,7 @@ public class ControlProjectAgentProvisioningService {
             String projectName,
             String projectCode) {
         return firstText(projectName, projectCode, "项目")
-                + " 页面副驾驶 Agent";
+                + " 助手";
     }
 
     String resolveSupervisorModelInstanceId(
@@ -231,12 +233,50 @@ public class ControlProjectAgentProvisioningService {
                             "Requested Agent Supervisor model is not an ACTIVE LLM instance: "
                                     + requestedModelInstanceId.trim()));
         }
-        return activeModels.stream()
+        List<String> ids = activeModels.stream()
                 .map(item -> stringValue(item.get("id")))
                 .filter(StringUtils::hasText)
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "No ACTIVE LLM model instance is available for the Agent Supervisor"));
+                .toList();
+        if (ids.isEmpty()) throw new IllegalArgumentException(
+                "No ACTIVE LLM model instance is available for the Agent Supervisor");
+        String cheapest = cheapestPriced(ids);
+        return cheapest != null ? cheapest : ids.get(0);
+    }
+
+    /**
+     * Without an explicit choice a new assistant takes the cheapest model the admin has priced, so
+     * connecting a system never quietly starts on the most expensive one. Unpriced models are skipped.
+     */
+    private String cheapestPriced(List<String> activeIds) {
+        List<Map<String, Object>> prices;
+        try {
+            prices = modelDataList(modelCatalogClient.prices());
+        } catch (RuntimeException unavailable) {
+            return null;
+        }
+        String best = null;
+        java.math.BigDecimal bestCost = null;
+        for (Map<String, Object> price : prices) {
+            String id = stringValue(price.get("modelInstanceId"));
+            java.math.BigDecimal input = decimal(price.get("inputPricePerMillion"));
+            java.math.BigDecimal output = decimal(price.get("outputPricePerMillion"));
+            if (!activeIds.contains(id) || input == null || output == null) continue;
+            java.math.BigDecimal cost = input.add(output);
+            if (bestCost == null || cost.compareTo(bestCost) < 0) {
+                best = id;
+                bestCost = cost;
+            }
+        }
+        return best;
+    }
+
+    private static java.math.BigDecimal decimal(Object value) {
+        if (value == null) return null;
+        try {
+            return new java.math.BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException invalid) {
+            return null;
+        }
     }
 
     @SuppressWarnings("unchecked")

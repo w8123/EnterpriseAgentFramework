@@ -6516,8 +6516,7 @@ async function validateAgentSupervisorWorkbenchConsumer(source, label) {
     model(within(advanced), 'el-select', 'supervisor.policyProfile') &&
     model(within(advanced), 'el-input-number', 'supervisor.maxPlanSteps') &&
     expressionMatchesSource(property(draft, 'runtimeType'), "'AGENTSCOPE'") &&
-    expressionMatchesSource(property(draft, 'toolCatalogMode'), "'ALLOW_LIST'") &&
-    ['maxPlanSteps', 'maxWorkflowCalls', 'maxReplans', 'parallelReadOnly', 'policyProfile'].every(key =>
+    ['maxPlanSteps', 'maxWorkflowCalls', 'maxReplans', 'parallelReadOnly', 'policyProfile', 'toolCatalogMode'].every(key =>
       expressionMatchesSource(property(draft, key), `supervisor.${key}`)) &&
     call('handleSave', 'saveAgentConfigDraft(agentId, buildConfigDraft())') &&
     call('handlePublish', 'saveAgentConfigDraft(agentId, buildConfigDraft())') &&

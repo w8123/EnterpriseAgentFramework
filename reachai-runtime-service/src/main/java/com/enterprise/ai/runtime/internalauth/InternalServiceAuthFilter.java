@@ -63,6 +63,7 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 && !isProjectAgentDraftPath(path)
                 && !isProjectAttachmentPath(path)
                 && !isRunOpsReplayPath(path)
+                && !isWorkflowApprovalPath(path)
                 && !isPageAssistantAttachmentPath(path)
                 && agentGraphSyncProjectCode(path) == null
                 && !("DELETE".equalsIgnoreCase(request.getMethod())
@@ -96,10 +97,11 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
                 bodyBytes,
                 System.currentTimeMillis());
         if (verified.isEmpty() || (("/internal/runtime/capability-references".equals(path)
-                || "/internal/runtime/workflows/studio/read-only-trials".equals(path) || isWorkflowReleasePath(path)
+                || "/internal/runtime/workflows/studio/read-only-trials".equals(path)
+                || isWorkflowReleasePath(path)
                 || isDebugSessionPath(path) || isConsoleCapabilityInvocationPath(path)
                 || isHttpApiConsolePath(path) || isAgentConfigDraftPath(path) || isRunOpsReplayPath(path)
-                || isPageAssistantAttachmentPath(path))
+                || isWorkflowApprovalPath(path) || isPageAssistantAttachmentPath(path))
                 && !InternalServiceAuthHeaders.IDENTITY_SOURCE_PLATFORM_SESSION.equals(verified.get().identitySource()))) {
             writeUnauthorized(response);
             return;
@@ -126,6 +128,11 @@ public class InternalServiceAuthFilter extends OncePerRequestFilter {
         response.getWriter().write(
                 "{\"success\":false,\"code\":\"RUNTIME_INTERNAL_AUTH_REQUIRED\","
                         + "\"answer\":\"internal service authentication failed\"}");
+    }
+
+    /** Approver list and decisions carry the signed platform operator; runner status is session-scoped. */
+    private static boolean isWorkflowApprovalPath(String path) {
+        return path.startsWith("/internal/runtime/workflow-approvals/") && !path.endsWith("/runner-status");
     }
 
     private static boolean isRunOpsReplayPath(String path) {

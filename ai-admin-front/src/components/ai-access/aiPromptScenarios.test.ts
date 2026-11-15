@@ -38,7 +38,19 @@ describe('aiPromptScenarios', () => {
     const text = renderAiPrompt(scenario, {})
     expect(text).toContain('reachai_project_onboarding_start')
     expect(text).toContain('reachai_onboarding_enrollment_request')
-    expect(text).toContain('AI 操作审核')
+    expect(text).toContain('待办与审核')
+  })
+
+  it.each(['page-workbench', 'ai-coding-task'])('uses a one-time MCP claim and task recovery rules for %s', (key) => {
+    const scenario = findAiPromptScenario(key)!
+    const text = renderAiPrompt(scenario, { projectCode: 'orders', taskId: 'task-1', claimCode: 'fixture-code' })
+    expect(text).toContain('reachai_ai_coding_task_claim')
+    expect(text).toContain('reachai_ai_coding_task_context')
+    expect(text).toContain('requiredBeforeEditing=true')
+    expect(text).toContain('WAITING_USER')
+    expect(text).toContain('RESULT_APPLIED')
+    expect(text).not.toContain('PowerShell')
+    expect(text).not.toContain('taskToken=')
   })
 
   it('marks optional blanks as unspecified and groups by category order', () => {

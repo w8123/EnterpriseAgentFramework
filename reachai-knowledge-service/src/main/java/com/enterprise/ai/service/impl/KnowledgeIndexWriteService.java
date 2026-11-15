@@ -54,6 +54,7 @@ public class KnowledgeIndexWriteService {
         suspended.executeWithoutResult(status -> {
             if (request == null) throw new IllegalArgumentException("导入请求不能为空");
             var kb=bases.requireByCode(request.getKnowledgeBaseCode());
+            com.enterprise.ai.domain.KnowledgeBaseSettings.requireLocal(kb);
             var context=context(kb,request.getFileId(),request.getFileName(),request.getChunks(),"DIRECT");
             context.setVectors(embedding.embedBatch(requireEmbeddingModelInstanceId(kb),context.getChunks()));
             writeAndPublish(context,()->metadata.process(context));

@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({ list: vi.fn(), classifications: vi.fn(), scope
   modeActive: null as unknown as Ref<boolean>, modeRegister: vi.fn(),
   auth: null as unknown as { sessionId: string; principal: { permissionGrants: Array<{ permissionCode: string; scopeType: string; scopeValue: string }> } } }))
 vi.mock('@/api/httpApi', () => ({ listHttpApis: mocks.list }))
+// 接入进度自己读一遍接口数，这里测的是目录本身，所以换成空组件。
+vi.mock('./components/ProjectOnboardingGuide.vue', () => ({ default: { name: 'ProjectOnboardingGuide', render: () => null } }))
 vi.mock('@/api/semanticDoc', () => ({ getCatalogClassificationIndex: mocks.classifications }))
 vi.mock('@/views/capability/components/CatalogClassificationEditor.vue', async () => {
   const { ref, watch } = await import('vue')

@@ -56,6 +56,27 @@ class RegistryProjectRequestVerificationServiceTest {
     }
 
     @Test
+    void verifiesActivityIngressOnlyForItsOwnProjectAndPost() {
+        RegistryCredentialMapper mapper = mock(RegistryCredentialMapper.class);
+        RegistryProjectRequestNonceStore nonceStore = mock(RegistryProjectRequestNonceStore.class);
+        when(mapper.selectOne(any())).thenReturn(credential());
+        when(nonceStore.tryConsume(any(), any(), any(), anyLong(), anyLong(), anyInt()))
+                .thenReturn(true);
+        RegistryProjectRequestVerificationService service = new RegistryProjectRequestVerificationService(
+                mapper, nonceStore, 300, 600, 1000);
+        String path = "/api/activity-ingress/projects/orders/events";
+        byte[] body = "{\"events\":[]}".getBytes(StandardCharsets.UTF_8);
+        ReachAiProjectRequestHeaders signed = ReachAiProjectRequestSigner.sign(
+                "rak_orders", "ras_orders", "orders", "POST", path, body);
+
+        assertEquals(3L, service.verify(request(signed, "POST", path)).credentialId());
+        assertThrows(IllegalArgumentException.class,
+                () -> service.verify(request(signed, "DELETE", path)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.verify(request(signed, "POST", "/api/activity-ingress/projects/other/events")));
+    }
+
+    @Test
     void verifiesEmbedExchangeAndRejectsReplayAndChangedBodyDigest() {
         RegistryCredentialMapper mapper = mock(RegistryCredentialMapper.class);
         RegistryProjectRequestNonceStore nonceStore = mock(RegistryProjectRequestNonceStore.class);

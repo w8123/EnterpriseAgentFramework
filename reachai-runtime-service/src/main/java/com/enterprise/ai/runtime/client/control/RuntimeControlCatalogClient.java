@@ -18,6 +18,17 @@ public interface RuntimeControlCatalogClient {
                                          @RequestParam("pageKey") String pageKey,
                                          @RequestParam("actionKey") String actionKey);
 
+    @PostMapping("/internal/control/page-action-effects/resolve")
+    TrustedPageEffectApproval resolvePageEffect(@RequestBody TrustedPageEffectRequest request);
+
+    record TrustedPageEffectRequest(String projectCode, String pageKey, String actionKey) { }
+
+    record TrustedPageEffectApproval(Long approvalId, long revision, Long pageId, Long actionId,
+                                     String projectCode, String pageKey, String actionKey,
+                                     String effect, String catalogHash, String implementationVersion,
+                                     String targetAlias, String actionTitle, String actionDescription,
+                                     String routePattern, Object inputSchema, Map<String, String> fieldLabels, boolean active) { }
+
     @GetMapping("/internal/control/page-actions")
     List<PageActionCatalogEntry> listPageActions(
             @RequestParam("projectCode") String projectCode,
@@ -30,6 +41,30 @@ public interface RuntimeControlCatalogClient {
 
     @PostMapping("/internal/control/page-bridge/resolve-context")
     PageBridgeContextResolution resolvePageBridgeContext(@RequestBody PageBridgeContextResolutionRequest request);
+
+    /** Whose business identity a scheduled Automation acts as; re-asked before every run. */
+    @PostMapping("/internal/control/automation-run-as/resolve")
+    AutomationRunAsResolution resolveAutomationRunAs(@RequestBody AutomationRunAsRequest request);
+
+    /** 「用员工自己的令牌调用」: what to call a business system with for this employee. Never log the answer. */
+    @PostMapping("/internal/control/employee-business-tokens/resolve")
+    com.enterprise.ai.runtime.execution.http.EmployeeBusinessTokenSource.Resolution resolveEmployeeBusinessToken(
+            @RequestBody EmployeeBusinessTokenSubject subject);
+
+    @PostMapping("/internal/control/employee-business-tokens/expired")
+    Map<String, Object> employeeBusinessTokenExpired(@RequestBody EmployeeBusinessTokenSubject subject);
+
+    record EmployeeBusinessTokenSubject(String tenantId, String projectCode, String externalUserId) {
+    }
+
+    record AutomationRunAsRequest(String tenantId, String actorId, Long projectId, String projectCode) {
+    }
+
+    record AutomationRunAsResolution(String code, String tenantId, String externalUserId, List<String> roles) {
+        public boolean resolved() {
+            return "RESOLVED".equals(code);
+        }
+    }
 
     record PageActionCatalogEntry(
             Long id,
@@ -88,7 +123,41 @@ public interface RuntimeControlCatalogClient {
                                       String identitySource,
                                       String identityTenantId,
                                       String identityUserId,
-                                      String supervisorTraceId) {
+                                      String supervisorTraceId,
+                                      String resumeNavigationRequestId,
+                                      String navigationInteractionId,
+                                      Long effectApprovalId,
+                                      Long effectApprovalRevision,
+                                      String effectCatalogHash) {
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId,
+                                          String resumeNavigationRequestId, String navigationInteractionId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey, args,
+                    confirmRequired, confirmationTimeoutMs, executionTimeoutMs, identitySource, identityTenantId,
+                    identityUserId, supervisorTraceId, resumeNavigationRequestId, navigationInteractionId, null, null, null);
+        }
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId,
+                                          String resumeNavigationRequestId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, supervisorTraceId, resumeNavigationRequestId, null);
+        }
+        public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
+                                          String currentPageKey, String targetPageKey, String targetRoute,
+                                          String actionKey, Map<String, Object> args, boolean confirmRequired,
+                                          int confirmationTimeoutMs, int executionTimeoutMs, String identitySource,
+                                          String identityTenantId, String identityUserId, String supervisorTraceId) {
+            this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
+                    args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
+                    identitySource, identityTenantId, identityUserId, supervisorTraceId, null, null);
+        }
         public PageBridgeExecutionRequest(String sessionId, String projectCode, String agentId,
                                           String currentPageKey, String targetPageKey, String targetRoute,
                                           String actionKey, Map<String, Object> args, boolean confirmRequired,
@@ -96,7 +165,7 @@ public interface RuntimeControlCatalogClient {
                                           String identityTenantId, String identityUserId) {
             this(sessionId, projectCode, agentId, currentPageKey, targetPageKey, targetRoute, actionKey,
                     args, confirmRequired, confirmationTimeoutMs, executionTimeoutMs,
-                    identitySource, identityTenantId, identityUserId, null);
+                    identitySource, identityTenantId, identityUserId, null, null, null);
         }
     }
 

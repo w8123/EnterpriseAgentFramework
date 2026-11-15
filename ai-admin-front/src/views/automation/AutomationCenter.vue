@@ -305,6 +305,12 @@
             title="该目标没有可用于自动化的已发布版本"
             source="backdrop"
           />
+          <LiquidGlassNotice
+            type="info"
+            title="以你的员工身份运行"
+            description="每次运行时，自动化以最后保存它的人在该业务系统里的账号办事，业务系统按这个人的权限放行；写操作仍需审批，自动化不会自动执行。没有为你配置「运行时用户映射」时，改用不代表任何人的服务账号，需要员工身份的接口会被拒绝。"
+            source="backdrop"
+          />
         </section>
 
         <section class="form-section">

@@ -223,9 +223,6 @@ describe('useAiCodingTask', () => {
     mocks.createAiCodingTask.mockImplementationOnce(() => new Promise((resolve) => {
       resolvePending = resolve
     }))
-    mocks.issueAiCodingHandoff.mockResolvedValueOnce({
-      data: handoff('old-project-task'),
-    })
     const kernel = useAiCodingTask()
 
     const pendingCreate = kernel.createTask({} as never)
@@ -235,6 +232,7 @@ describe('useAiCodingTask', () => {
     })
     await pendingCreate
 
+    expect(mocks.issueAiCodingHandoff).not.toHaveBeenCalled()
     expect(kernel.tasks.value).toEqual([])
     expect(kernel.selectedTaskDetail.value).toBeNull()
     expect(kernel.latestHandoff.value).toBeNull()

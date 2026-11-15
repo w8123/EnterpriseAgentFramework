@@ -18,7 +18,10 @@
       <p v-if="current.blockingReason && current.status === 'BLOCKED'" class="auth-warning" role="status">{{ current.blockingReason }}</p>
       <el-form-item label="服务地址" :error="originError">
         <el-input v-model="origin" placeholder="https://erp.example.com" :disabled="!canWrite" aria-label="服务地址" />
-        <small class="auth-hint">只填协议、域名和端口，比如 https://erp.example.com:8443；接口路径会自动拼上。</small>
+        <small class="auth-hint">只填协议、域名和端口，比如 https://erp.example.com:8443；接口路径会自动拼上。
+          <template v-if="isPlatformAdmin">业务系统在内网或本机？先到 <el-button link type="primary" @click="egressDialog = true">内网地址白名单</el-button> 里加上它的主机。</template>
+          <template v-else>业务系统在内网或本机时，请平台管理员先把它的主机加入内网地址白名单。</template>
+        </small>
       </el-form-item>
       <el-form-item label="鉴权方式">
         <el-radio-group v-model="authMode" :disabled="!canWrite">
@@ -33,18 +36,21 @@
             :disabled="!canWrite || credentialsLoading" aria-label="凭据">
             <el-option v-for="item in eligibleCredentials" :key="item.credentialRef" :label="`${item.name} / ${item.type === 'BEARER' ? 'Bearer' : 'API Key'}`" :value="item.credentialRef" />
           </el-select>
-          <el-button v-if="canManageCredential" @click="credentialDialog = true">新建凭据</el-button>
+          <el-button v-if="canManageCredential && selectedCredential" @click="openCredential(selectedCredential)">更新凭据</el-button>
+          <el-button v-if="canManageCredential" @click="openCredential(null)">新建凭据</el-button>
         </div>
         <small v-if="!credentialsLoading && !eligibleCredentials.length" class="auth-hint">
-          还没有这种类型的凭据。{{ canManageCredential ? '点「新建凭据」，把 Token 或 API Key 填进去。' : '请联系有凭据管理权限的同事新建。' }}
+          还没有这种类型的凭据。{{ canManageCredential ? '点「新建凭据」，填固定的 Token / API Key，或者让平台用账号密码登录换令牌。' : '请联系有凭据管理权限的同事新建。' }}
         </small>
       </el-form-item>
+      <p v-if="refreshNote" class="auth-hint" role="status">{{ refreshNote }}</p>
       <p v-if="saveError" class="auth-warning" role="alert">{{ saveError }}</p>
       <p v-if="!current.configurationAllowed" class="auth-warning">当前还不能配置：请先接纳至少一个 API 的契约。</p>
     </el-form>
     <CredentialCreateDialog v-if="current" v-model="credentialDialog" project-only :project-id="projectId" :project-code="projectCode"
       :allowed-types="['API_KEY_HEADER', 'BEARER']" :initial-type="authMode === 'API_KEY_HEADER' ? 'API_KEY_HEADER' : 'BEARER'"
-      @created="credentialCreated" />
+      :editing="editingCredential" @created="credentialCreated" @updated="credentialUpdated" />
+    <HttpEgressHostDialog v-if="isPlatformAdmin" v-model="egressDialog" :suggested-host="originHost" />
     <template #footer>
       <el-button @click="emit('update:modelValue', false)">关闭</el-button>
       <el-button v-if="current" type="primary" :loading="saving" :disabled="!canWrite || !current.configurationAllowed" @click="save">保存</el-button>
@@ -57,9 +63,12 @@ import { computed, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import AppDialog from '@/components/common/AppDialog.vue'
 import CredentialCreateDialog from '@/components/credential/CredentialCreateDialog.vue'
+import HttpEgressHostDialog from './HttpEgressHostDialog.vue'
+import { platformSessionUser } from '@/auth/platformSession'
+import { hasPlatformPermission, PLATFORM_PERMISSION_ADMIN } from '@/auth/platformAccess'
 import { LiquidGlassNotice } from '@/components/common/liquid-glass'
 import { getHttpApiProjectDefaultConnection, saveHttpApiProjectDefaultConnection } from '@/api/httpApi'
-import { listWorkflowCredentials } from '@/api/workflowCredential'
+import { listWorkflowCredentials, refreshHttpApiFlowCredential } from '@/api/workflowCredential'
 import type { HttpApiProjectDefaultConnection } from '@/types/httpApi'
 import type { WorkflowCredential } from '@/types/workflowCredential'
 
@@ -87,10 +96,21 @@ const credentialRef = ref('')
 const credentials = ref<WorkflowCredential[]>([])
 const credentialsLoading = ref(false)
 const credentialDialog = ref(false)
+const editingCredential = ref<WorkflowCredential | null>(null)
+const egressDialog = ref(false)
+const refreshNote = ref('')
+const isPlatformAdmin = computed(() => hasPlatformPermission(platformSessionUser.value?.permissions, PLATFORM_PERMISSION_ADMIN))
+const originHost = computed(() => { try { return new URL(origin.value.trim()).hostname } catch { return '' } })
 let sequence = 0
 
 const eligibleCredentials = computed(() => credentials.value.filter(item => item.scope === 'PROJECT'
   && item.projectCode === props.projectCode && item.type === authMode.value))
+
+const selectedCredential = computed(() => eligibleCredentials.value.find(item => item.credentialRef === credentialRef.value) || null)
+function openCredential(item: WorkflowCredential | null) {
+  editingCredential.value = item
+  credentialDialog.value = true
+}
 
 watch(() => props.modelValue, open => { if (open) void load() })
 
@@ -101,7 +121,7 @@ function originOf(url?: string | null) {
 async function load() {
   if (!props.sampleApiId) return
   const mine = ++sequence
-  loading.value = true; loadError.value = ''; saveError.value = ''; originError.value = ''; current.value = null
+  loading.value = true; loadError.value = ''; saveError.value = ''; originError.value = ''; refreshNote.value = ''; current.value = null
   try {
     const { data } = await getHttpApiProjectDefaultConnection(props.sampleApiId)
     if (mine !== sequence) return
@@ -126,6 +146,21 @@ function credentialCreated(item: WorkflowCredential) {
   credentials.value = [...credentials.value.filter(entry => entry.credentialRef !== item.credentialRef), item]
   credentialRef.value = item.credentialRef
 }
+/** 凭据内容变了：已发布的查询流程直接换上新凭据，写入流程按规则仍要重新发布。 */
+async function credentialUpdated(item: WorkflowCredential) {
+  credentialCreated(item)
+  try {
+    const { data } = await refreshHttpApiFlowCredential({ projectId: props.projectId, projectCode: props.projectCode })
+    const parts: string[] = []
+    if (data.refreshed) parts.push(`已让 ${data.refreshed} 个已发布的查询接口用上新凭据，不用重新发布`)
+    if (data.writesNeedRepublish) parts.push(`${data.writesNeedRepublish} 个写入接口的流程为了安全需要重新发布后才用新凭据`)
+    if (data.otherNeedRepublish) parts.push(`${data.otherNeedRepublish} 个接口的契约或连接也变了，需要重新发布流程`)
+    refreshNote.value = parts.length ? `凭据已更新：${parts.join('；')}。` : ''
+    if (data.refreshed) ElMessage.success(`已让 ${data.refreshed} 个查询接口用上新凭据`)
+  } catch {
+    refreshNote.value = '凭据已更新，但没能自动让已发布的流程用上新凭据，请到流程里重新发布。'
+  }
+}
 async function save() {
   if (!current.value || !props.sampleApiId || saving.value || !props.canWrite) return
   saveError.value = ''; originError.value = ''
@@ -139,8 +174,10 @@ async function save() {
       credentialRef: authMode.value === 'NONE' ? null : credentialRef.value, expectedRevision: current.value.revision ?? null })
     ElMessage.success('接口鉴权已保存，本项目的 API 会默认使用')
     emit('update:modelValue', false)
-  } catch {
-    saveError.value = '保存失败：配置可能刚被别人改过，请重新打开后再试'
+  } catch (error) {
+    // 后端给了中文原因（比如内网地址被拦）就原样告诉用户，否则多半是并发修改
+    const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message
+    saveError.value = message && /[\u4e00-\u9fa5]/.test(message) ? `保存失败：${message}` : '保存失败：配置可能刚被别人改过，请重新打开后再试'
   } finally { saving.value = false }
 }
 </script>

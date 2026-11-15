@@ -50,6 +50,7 @@
       <button type="button" :disabled="clearBlocked" @click="onClearContext">{{ clearing ? (locale === 'en-US' ? 'Clearing…' : '清除中…') : (locale === 'en-US' ? 'Clear' : '清除') }}</button>
     </div>
     <div v-if="clearError" class="eaf-chat-auth is-error" role="alert">{{ clearError }}</div>
+    <div v-if="navigationError" class="eaf-chat-auth is-error" role="alert">{{ navigationError }}</div>
     <EmbedAiToolPanel
       v-if="aiToolOpen"
       :api-base="apiBase"
@@ -64,6 +65,15 @@
       :locale="locale"
       @close="memoryOpen = false"
     />
+    <EmbedShortcutBar
+      v-if="authState.status === 'ready' && !memoryOpen && !aiToolOpen && shortcutsEnabled && shortcutsActive"
+      :api-base="apiBase"
+      :get-token="() => resolveToken('send')"
+      :route="currentRoute"
+      :locale="locale"
+      :disabled="clearBlocked"
+      @pick="onSend"
+    />
     <ConversationView
       class="eaf-chat__conversation"
       :inert="memoryOpen || aiToolOpen"
@@ -75,6 +85,7 @@
       :placeholder="placeholder"
       :force-composer-disabled="authState.status !== 'ready' || clearing"
       :resolve-status-hint="resolveEmbedStatusHint"
+      :fetch-approval-status="controller.approvalStatus"
       @send="onSend"
       @stop="onStop"
       @retry="onConversationRetry"
@@ -99,6 +110,7 @@ import type { ConversationEventEnvelope } from '@/conversation/core/conversation
 import type { EafPageBridge } from './eafPageBridge'
 import EmbedAiToolPanel from './EmbedAiToolPanel.vue'
 import EmbedMemoryPanel from './EmbedMemoryPanel.vue'
+import EmbedShortcutBar from './EmbedShortcutBar.vue'
 import { buildEafChatSessionPayload, type EafPageDescriptor } from './embedSession'
 import { extractEmbedPublicMetadata } from '@/conversation/core/adapters/adaptEmbedEvent'
 import type {
@@ -143,6 +155,8 @@ const props = withDefaults(defineProps<{
   aiToolPanel?: boolean
   /** The SDK shell owns the entry; standalone hosts keep the text entry. */
   aiToolHeaderEntry?: boolean
+  /** Show 快捷操作 a manager recommended for the current page (主动感知). */
+  shortcutsEnabled?: boolean
   onEvent?: (event: EmbedChatHostEvent) => void
   onError?: (error: EafChatError) => void
   onAuthStateChange?: (state: EafChatAuthState) => void
@@ -156,6 +170,7 @@ const props = withDefaults(defineProps<{
   preferStream: true,
   memoryPanel: true,
   aiToolPanel: true,
+  shortcutsEnabled: true,
   tokenTimeoutMs: 10_000,
 })
 
@@ -165,11 +180,12 @@ const aiToolOpen = ref(false)
 let aiToolTrigger: HTMLElement | null = null
 const clearConfirm = ref(false)
 const clearError = ref('')
+const navigationError = ref('')
 const clearing = ref(false)
 const sending = ref(false)
 const hasSession = ref(false)
 const pageRebinding = ref(false)
-const clearBlocked = computed(() => clearing.value || sending.value || pageRebinding.value
+const clearBlocked = computed(() => clearing.value || sending.value || pageRebinding.value || documentContinuationBusy.value || pageTransferBusy.value
   || ['sending', 'streaming', 'waiting'].includes(snapshot.value.turnStatus))
 const authState = ref<EafChatAuthState>({
   phase: 'token',
@@ -184,6 +200,12 @@ let context: Record<string, unknown> = { ...props.context }
 // swaps these bindings after the target page has registered its actions.
 let activeBridge = props.bridge
 let activePage = props.page
+const currentRoute = ref(buildEafChatSessionPayload(props.bridge, props.page).route)
+// Shortcuts load only once the employee actually opens the chat, so an idle page makes no extra requests.
+const shortcutsActive = ref(false)
+function activateShortcuts() {
+  shortcutsActive.value = true
+}
 let cachedToken = ''
 let cachedTokenExpiresAt = 0
 let disposed = false
@@ -191,6 +213,11 @@ let tokenAttempt = 0
 let tokenRequest: Promise<string> | null = null
 let tokenAbortController: AbortController | null = null
 let rebindAbortController: AbortController | null = null
+let continuationAbortController: AbortController | null = null
+const attemptedDocumentContinuations = new Set<string>()
+const documentContinuationBusy = ref(false)
+const pageTransferBusy = ref(false)
+let pageTransferAbortController: AbortController | null = null
 let lastSubmittedMessage = ''
 let pendingSend: {
   resolve: (value: EmbedChatHostMessageResponse) => void
@@ -462,6 +489,7 @@ const transport = createEmbedTransport({
     ...buildEafChatSessionPayload(activeBridge, activePage),
   } as Record<string, unknown>),
   preferStream: props.preferStream,
+  restoreHistory: true,
   onUnauthorized: () => refreshToken('unauthorized'),
 })
 
@@ -634,7 +662,7 @@ async function sendMessage(message: string): Promise<EmbedChatHostMessageRespons
   }
   const text = message.trim()
   if (!text) return {}
-  if (pendingSend || sending.value || clearing.value) {
+  if (pendingSend || sending.value || clearing.value || documentContinuationBusy.value || pageTransferBusy.value) {
     throw new Error('Another message is still in flight')
   }
   sending.value = true
@@ -665,6 +693,7 @@ async function clearContext() {
     await controller.clearSession()
     lastSubmittedMessage = ''
     clearConfirm.value = false
+    props.onEvent?.({ type: 'context.cleared', data: {}, sessionId: sessionId || undefined })
   } finally {
     clearing.value = false
   }
@@ -695,6 +724,139 @@ function getExistingSessionId() {
   return sessionId || null
 }
 
+async function restoreHistory() {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (!sessionId) throw new Error('An authenticated Embed session is required to restore history')
+  if (sending.value || pendingSend || clearing.value) throw new Error('Conversation is busy')
+  return controller.restore()
+}
+
+async function preparePageTransfer() {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (!sessionId || clearBlocked.value || pendingSend) throw new Error('The conversation is not ready to move')
+  const current = sessionId
+  const bridge = activeBridge
+  pageTransferBusy.value = true
+  const abort = new AbortController()
+  pageTransferAbortController = abort
+  try {
+    const token = await resolveToken('send')
+    if (disposed || abort.signal.aborted || sessionId !== current || activeBridge !== bridge) {
+      throw new DOMException('The page session changed', 'AbortError')
+    }
+    const response = await fetch(`${props.apiBase}/chat/sessions/${encodeURIComponent(current)}/page-transfers`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: '{}', signal: abort.signal,
+    })
+    if (!response.ok) throw new Error(`Unable to prepare page transfer: HTTP ${response.status}`)
+    const payload = await response.json()
+    const data = payload?.data
+    if (disposed || abort.signal.aborted || sessionId !== current || activeBridge !== bridge) {
+      throw new DOMException('The page session changed', 'AbortError')
+    }
+    if ((payload?.code && payload.code !== 200 && payload.code !== 0)
+        || typeof data?.transferTicket !== 'string' || !/^[A-Za-z0-9_-]{32,128}$/.test(data.transferTicket)
+        || typeof data.expiresInSeconds !== 'number' || !Number.isFinite(data.expiresInSeconds)
+        || data.expiresInSeconds <= 0 || data.expiresInSeconds > 86400) throw new Error('Invalid page transfer response')
+    return { sessionId: current, transferTicket: data.transferTicket, expiresInSeconds: data.expiresInSeconds }
+  } finally {
+    if (pageTransferAbortController === abort) pageTransferAbortController = null
+    pageTransferBusy.value = false
+  }
+}
+
+async function claimPageTransfer(transfer: { sessionId: string; transferTicket: string }) {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (sessionId || pageRebinding.value || pageTransferBusy.value || sending.value || pendingSend || clearing.value
+      || !activePage?.pageKey || !transfer?.sessionId || !/^[A-Za-z0-9_-]{32,128}$/.test(transfer.transferTicket)) {
+    throw new Error('The page transfer cannot be claimed')
+  }
+  pageRebinding.value = true
+  const abort = new AbortController()
+  pageTransferAbortController = abort
+  try {
+    const token = await refreshToken('page-navigation')
+    const target = buildEafChatSessionPayload(activeBridge, activePage)
+    const url = `${props.apiBase}/chat/sessions/${encodeURIComponent(transfer.sessionId)}/page-transfers/claim`
+    const init: RequestInit = { method: 'POST', signal: abort.signal,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ transferTicket: transfer.transferTicket, bridgeActions: target.bridgeActions, sdkVersion: target.sdkVersion }) }
+    let response: Response | undefined
+    try { response = await fetch(url, init) } catch (error) {
+      if (!(error instanceof TypeError) || abort.signal.aborted) throw error
+    }
+    if ((!response || [502, 503, 504].includes(response.status)) && !abort.signal.aborted) response = await fetch(url, init)
+    if (!response || disposed || abort.signal.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
+    const payload = await response.json()
+    if (disposed || abort.signal.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
+    const bound = payload?.data
+    if (!response.ok || (payload?.code && payload.code !== 200 && payload.code !== 0)
+        || bound?.sessionId !== transfer.sessionId || bound.pageKey !== target.pageKey
+        || bound.pageInstanceId !== target.pageInstanceId || bound.route !== target.route) {
+      throw new Error('Page transfer was not confirmed')
+    }
+    updateSessionId(transfer.sessionId)
+    props.onTokenChanged?.(token)
+  } finally {
+    if (pageTransferAbortController === abort) pageTransferAbortController = null
+    pageRebinding.value = false
+  }
+}
+
+async function continueDocumentNavigation(navigationRequestId: string, cancel = false) {
+  if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
+  if (!sessionId || !navigationRequestId || pageRebinding.value || sending.value || clearing.value) {
+    throw new Error('The target session is not ready for navigation continuation')
+  }
+  if (attemptedDocumentContinuations.has(navigationRequestId)) {
+    throw new Error('The navigation continuation was already submitted; check its result')
+  }
+  if (documentContinuationBusy.value) throw new Error('A navigation continuation is already in progress')
+  documentContinuationBusy.value = true
+  if (cancel) navigationError.value = ''
+  const expectedSessionId = sessionId
+  const expectedBridge = activeBridge
+  const expectedPage = activePage
+  const ensureCurrent = () => {
+    if (disposed || clearing.value || sending.value || pendingSend || pageRebinding.value || sessionId !== expectedSessionId
+        || activeBridge !== expectedBridge || activePage !== expectedPage || abort?.signal.aborted) {
+      throw new DOMException('The page session changed before continuation', 'AbortError')
+    }
+  }
+  let abort: AbortController | undefined
+  try {
+    const token = await resolveToken('send')
+    ensureCurrent()
+    abort = new AbortController()
+    continuationAbortController = abort
+    const response = await fetch(`${props.apiBase}/chat/sessions/${encodeURIComponent(sessionId)}`
+      + `/page-bridge/navigations/${encodeURIComponent(navigationRequestId)}/${cancel ? 'cancelled-interaction' : 'interaction'}`, {
+      headers: { Authorization: `Bearer ${token}` }, signal: abort.signal,
+    })
+    ensureCurrent()
+    if (!response.ok) throw new Error(`Navigation continuation is not ready: HTTP ${response.status}`)
+    const payload = await response.json()
+    ensureCurrent()
+    const data = payload?.data
+    if ((payload?.code && payload.code !== 200 && payload.code !== 0)
+        || data?.navigationRequestId !== navigationRequestId || typeof data?.interactionId !== 'string'
+        || !/^wfi_[a-f0-9]{32}$/.test(data.interactionId)) {
+      throw new Error('Invalid navigation continuation response')
+    }
+    // Mark before the POST. An uncertain write outcome must not be retried automatically.
+    attemptedDocumentContinuations.add(navigationRequestId)
+    await controller.submitInteraction(data.interactionId, cancel ? 'cancel' : 'confirm', {})
+  } catch (error) {
+    if (cancel && !disposed) navigationError.value = props.locale === 'en-US'
+      ? 'The cancellation could not be confirmed. Check the conversation before continuing.'
+      : '取消状态尚未确认，请核对当前对话后再继续。'
+    throw error
+  } finally {
+    if (continuationAbortController === abort) continuationAbortController = null
+    documentContinuationBusy.value = false
+  }
+}
+
 async function ensureHostSession(): Promise<string> {
   if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
   await resolveToken('send')
@@ -709,9 +871,14 @@ async function rebindPage(
   bridge: EafPageBridge,
   page: EafPageDescriptor,
   navigationRequestId: string,
+  resumeSessionId?: string,
 ) {
   if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
-  if (!sessionId) throw new Error('An active Embed chat session is required before page rebinding')
+  const targetSessionId = resumeSessionId || sessionId
+  if (!targetSessionId) throw new Error('An active Embed chat session is required before page rebinding')
+  if (resumeSessionId && (sessionId || sending.value || pendingSend)) {
+    throw new Error('A page navigation can only be resumed in an unused chat host')
+  }
   if (!navigationRequestId) throw new Error('A platform navigation request id is required before page rebinding')
   if (pageRebinding.value || clearing.value) throw new Error('Page navigation is already in progress')
 
@@ -725,6 +892,7 @@ async function rebindPage(
     if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
     activeBridge = bridge
     activePage = page
+    currentRoute.value = buildEafChatSessionPayload(bridge, page).route
     switched = true
     const token = await refreshToken('page-navigation')
     if (disposed) throw new DOMException('The operation was aborted.', 'AbortError')
@@ -732,7 +900,7 @@ async function rebindPage(
     rebindAbortController = rebindController
     // v2 guarantees replay cannot restore an obsolete page; older Control
     // versions must fail closed instead of receiving an unsafe retry.
-    const rebindUrl = `${props.apiBase}/chat/sessions/${encodeURIComponent(sessionId)}/page-bridge/rebind-v2`
+    const rebindUrl = `${props.apiBase}/chat/sessions/${encodeURIComponent(targetSessionId)}/page-bridge/rebind-v2`
     const targetPayload = buildEafChatSessionPayload(activeBridge, activePage)
     const rebindRequest: RequestInit = {
       method: 'POST',
@@ -773,18 +941,22 @@ async function rebindPage(
       throw error
     }
     const bound = payload.data
-    if (!bound || bound.sessionId !== sessionId || bound.pageKey !== targetPayload.pageKey
+    if (!bound || bound.sessionId !== targetSessionId || bound.pageKey !== targetPayload.pageKey
         || bound.pageInstanceId !== targetPayload.pageInstanceId || bound.route !== targetPayload.route) {
       const error = tokenError('PAGE_NAVIGATION_REBIND_INVALID_RESPONSE',
         'Page navigation rebind returned an invalid target', undefined, response.status)
       error.phase = 'page-action'
       throw error
     }
+    // An MPA host must not adopt the supplied session id until Control has
+    // verified the target token, principal and the pending navigation.
+    if (resumeSessionId) updateSessionId(targetSessionId)
     props.onTokenChanged?.(token)
   } catch (error) {
     if (switched) {
       activeBridge = previousBridge
       activePage = previousPage
+      currentRoute.value = buildEafChatSessionPayload(previousBridge, previousPage).route
       cachedToken = ''
       cachedTokenExpiresAt = 0
       if (!disposed) props.onTokenChanged?.('')
@@ -892,6 +1064,10 @@ function disposeHost() {
   tokenAbortController = null
   rebindAbortController?.abort()
   rebindAbortController = null
+  continuationAbortController?.abort()
+  continuationAbortController = null
+  pageTransferAbortController?.abort()
+  pageTransferAbortController = null
   if (pendingSend) {
     const waiter = pendingSend
     pendingSend = null
@@ -905,6 +1081,7 @@ onUnmounted(() => {
 })
 
 defineExpose({
+  activateShortcuts,
   busy: clearBlocked,
   sendMessage,
   clearContext,
@@ -913,6 +1090,10 @@ defineExpose({
   setContext,
   getSessionId,
   getExistingSessionId,
+  restoreHistory,
+  preparePageTransfer,
+  claimPageTransfer,
+  continueDocumentNavigation,
   ensureHostSession,
   rebindPage,
   openMemories,

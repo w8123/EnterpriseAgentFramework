@@ -56,6 +56,40 @@ public class RuntimeWorkflowResourceBindingService {
                 .toList();
     }
 
+    /** Called while the owning Workflow row is locked by Studio's save transaction. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void ensureReviewedTarget(RuntimeWorkflowDefinitionEntity workflow, String pageKey) {
+        if (workflow == null || !StringUtils.hasText(workflow.getId()) || workflow.getProjectId() == null
+                || !StringUtils.hasText(workflow.getProjectCode()) || !StringUtils.hasText(pageKey)
+                || !pageKey.equals(pageKey.trim())) {
+            throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_BINDING_INVALID", "页面工作流缺少有效的项目或目标页面");
+        }
+        List<BindingView> active = list(workflow.getId());
+        List<BindingView> targets = active.stream()
+                .filter(item -> RESOURCE_PAGE.equals(item.resourceType()) && ROLE_TARGET.equals(item.bindingRole()))
+                .toList();
+        if (targets.size() > 1 || targets.size() == 1 && (!pageKey.equals(targets.get(0).resourceKey())
+                || !Objects.equals(workflow.getProjectId(), targets.get(0).projectId())
+                || !Objects.equals(workflow.getProjectCode(), targets.get(0).projectCode()))) {
+            throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_BINDING_CONFLICT", "页面工作流已绑定其他目标页面，请先核对现有绑定");
+        }
+        if (!targets.isEmpty()) return;
+        if (active.stream().anyMatch(item -> RESOURCE_PAGE.equals(item.resourceType()) && pageKey.equals(item.resourceKey()))) {
+            throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_BINDING_CONFLICT", "目标页面已作为关联页面绑定，请先核对现有绑定");
+        }
+        RuntimeWorkflowResourceBindingEntity entity = new RuntimeWorkflowResourceBindingEntity();
+        entity.setWorkflowId(workflow.getId());
+        entity.setProjectId(workflow.getProjectId());
+        entity.setProjectCode(workflow.getProjectCode());
+        entity.setResourceType(RESOURCE_PAGE);
+        entity.setResourceKey(pageKey);
+        entity.setBindingRole(ROLE_TARGET);
+        entity.setStatus("ACTIVE");
+        entity.setCreatedAt(LocalDateTime.now());
+        entity.setUpdatedAt(entity.getCreatedAt());
+        mapper.insert(entity);
+    }
+
     @Transactional
     public List<BindingView> replace(
             RuntimeWorkflowDefinitionEntity workflow,

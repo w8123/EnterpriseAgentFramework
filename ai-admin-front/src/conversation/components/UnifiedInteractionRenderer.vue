@@ -117,11 +117,22 @@
 
     <!-- confirm -->
     <div v-else-if="kind === 'confirm'" class="reachai-interaction__confirm">
-      <p>{{ request.message || '请确认是否继续。' }}</p>
+      <p class="reachai-interaction__confirm-message">{{ request.message || '请确认是否继续。' }}</p>
+      <p v-if="request.extension?.approvalBlocked === true" role="status">操作内容未能完整展示，不能确认执行。请缩小操作范围，或在业务页面核对并操作。</p>
       <div v-if="showActionButtons" class="reachai-interaction__actions">
         <button type="button" :disabled="isDisabled" @click="emitCancel">取消</button>
         <button type="button" :disabled="isDisabled" @click="submit('reject', { confirm: false })">拒绝</button>
-        <button type="button" class="is-primary" :disabled="isDisabled" @click="submit('confirm', { confirm: true })">确认</button>
+        <button type="button" class="is-primary" :disabled="isDisabled || request.extension?.approvalBlocked === true" @click="submit('confirm', { confirm: true })">确认</button>
+      </div>
+    </div>
+
+    <!-- 指定审批人的人工确认：发起人这边只等待、可撤回；审批人决定后自动继续 -->
+    <div v-else-if="kind === 'approval_pending'" class="reachai-interaction__approval" data-testid="approval-pending">
+      <p class="reachai-interaction__approval-status" aria-live="polite">{{ approvalText }}</p>
+      <p v-if="approvalComment" class="reachai-interaction__approval-comment">意见：{{ approvalComment }}</p>
+      <div v-if="state === 'waiting' && !approvalSettled" class="reachai-interaction__actions">
+        <button v-if="!approvalFetcher" type="button" :disabled="isDisabled" @click="submit('continue', {})">刷新进度</button>
+        <button type="button" :disabled="isDisabled || approvalContinuing" @click="emitCancel">撤回</button>
       </div>
     </div>
 
@@ -283,7 +294,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, nextTick, reactive, ref, watch, type Component } from 'vue'
+import { computed, defineComponent, h, inject, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, type Component } from 'vue'
+import { APPROVAL_STATUS_FETCHER } from '../core/approvalStatusContext'
+import type { ApprovalStatusView } from '../transports/transportTypes'
 import type { InteractionRenderState, UiFieldPayload, UiRequestV1, UiActionPayload } from '../core/conversationTypes'
 import {
   getCustomInteractionRenderer,
@@ -618,6 +631,85 @@ function submitChoice() {
   }
 }
 
+// ---- 指定审批人：轮询审批进度，有了决定就带着它继续（服务端只认审批人的决定）----
+const APPROVAL_POLL_MS = 10_000
+const approvalFetcherGetter = inject(APPROVAL_STATUS_FETCHER, () => undefined)
+const approvalFetcher = computed(() => approvalFetcherGetter())
+const approvalView = ref<ApprovalStatusView | null>(null)
+const approvalContinuing = ref(false)
+let approvalTimer: ReturnType<typeof setTimeout> | null = null
+let approvalStopped = false
+
+const approvalExtension = computed(() => {
+  const ext = props.request.extension as Record<string, unknown> | undefined
+  const approval = ext?.assignedApproval
+  return approval && typeof approval === 'object' ? approval as Record<string, unknown> : {}
+})
+const approvalAssignees = computed(() => String(approvalView.value?.assignees || approvalExtension.value.assignees || '指定审批人'))
+const approvalStatus = computed(() => String(approvalView.value?.status || approvalExtension.value.status || 'PENDING').toUpperCase())
+const approvalSettled = computed(() => ['WITHDRAWN', 'EXPIRED', 'CONTINUED_APPROVED', 'CONTINUED_REJECTED', 'COMPLETED', 'FAILED']
+  .includes(approvalStatus.value))
+const approvalComment = computed(() => String(approvalView.value?.comment || approvalExtension.value.comment || ''))
+const approvalText = computed(() => {
+  const who = String(approvalView.value?.approverName || approvalExtension.value.approverName || '审批人')
+  let status = approvalStatus.value
+  if (state.value === 'resolved' && (status === 'APPROVED' || status === 'REJECTED')) status = `CONTINUED_${status}`
+  switch (status) {
+    case 'APPROVED': return `${who} 已批准，正在继续执行…`
+    case 'REJECTED': return `${who} 已拒绝，正在继续处理…`
+    case 'CONTINUED_APPROVED': return `${who} 已批准`
+    case 'CONTINUED_REJECTED': return `${who} 已拒绝`
+    case 'WITHDRAWN': return '已撤回'
+    case 'EXPIRED': return '审批已超时，这次运行已结束'
+    default:
+      if (state.value === 'cancelled') return '已撤回'
+      if (state.value === 'resolved') return '已处理'
+      return `已提交给 ${approvalAssignees.value} 审批，处理后会在这里自动继续。`
+  }
+})
+
+function stopApprovalPolling() {
+  approvalStopped = true
+  if (approvalTimer) clearTimeout(approvalTimer)
+  approvalTimer = null
+}
+
+async function pollApproval() {
+  approvalTimer = null
+  const fetcher = approvalFetcher.value
+  if (approvalStopped || !fetcher || kind.value !== 'approval_pending' || state.value !== 'waiting') return
+  const view = await fetcher(props.request.interactionId).catch(() => null)
+  if (approvalStopped) return
+  if (view) approvalView.value = view
+  const status = String(view?.status || '').toUpperCase()
+  if ((status === 'APPROVED' || status === 'REJECTED') && view?.sessionStatus !== 'RESUMING' && !approvalContinuing.value) {
+    approvalContinuing.value = true
+    stopApprovalPolling()
+    // 动作内容由服务端按审批人的决定替换，这里只是请求「继续」。
+    submit('continue', {})
+    return
+  }
+  if (approvalSettled.value) {
+    stopApprovalPolling()
+    return
+  }
+  approvalTimer = setTimeout(() => { void pollApproval() }, APPROVAL_POLL_MS)
+}
+
+onMounted(() => {
+  if (kind.value === 'approval_pending' && state.value === 'waiting') void pollApproval()
+})
+watch(state, (next) => {
+  if (kind.value !== 'approval_pending') return
+  if (next === 'waiting' && !approvalTimer && !approvalContinuing.value) {
+    approvalStopped = false
+    void pollApproval()
+  } else if (next !== 'waiting') {
+    stopApprovalPolling()
+  }
+})
+onBeforeUnmount(stopApprovalPolling)
+
 function emitCancel() {
   if (isDisabled.value) return
   emit('cancel')
@@ -634,6 +726,20 @@ function retryLast() {
 </script>
 
 <style scoped>
+.reachai-interaction__approval p {
+  margin: 0 0 6px;
+}
+
+.reachai-interaction__approval-status {
+  color: var(--reachai-chat-text, #1e293b);
+  font-weight: 600;
+}
+
+.reachai-interaction__approval-comment {
+  color: var(--reachai-chat-muted, #64748b);
+  font-size: 13px;
+}
+
 .reachai-interaction {
   border: 1px solid var(--reachai-chat-glass-border-soft, var(--reachai-chat-border, #d7e0de));
   border-radius: var(--reachai-chat-radius, 12px);
@@ -744,6 +850,10 @@ function retryLast() {
 .reachai-interaction__list-summary {
   color: var(--reachai-chat-text-muted, #5b6b69);
   font-size: 12px;
+}
+.reachai-interaction__confirm-message {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .reachai-interaction__list-item {
   min-width: 0;

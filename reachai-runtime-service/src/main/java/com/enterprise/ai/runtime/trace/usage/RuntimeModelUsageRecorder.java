@@ -56,6 +56,15 @@ public class RuntimeModelUsageRecorder {
         return rows == null ? List.of() : rows;
     }
 
+    /** Runs of the in-system assistant by how they were answered (reasoning, fixed flow, plain chat). */
+    public List<java.util.Map<String, Object>> decisionRoutes(String projectCode, int days) {
+        int safeDays = days <= 0 ? 30 : Math.min(days, 90);
+        String project = StringUtils.hasText(projectCode) ? projectCode.trim() : null;
+        List<java.util.Map<String, Object>> rows =
+                mapper.selectDecisionRoutes(LocalDateTime.now().minusDays(safeDays), project);
+        return rows == null ? List.of() : rows;
+    }
+
     /** Business runs for the audit export, newest first, at most {@code limit} (capped at 50 000). */
     public List<RuntimeAuditRunRow> auditRuns(String projectCode, int days, int limit) {
         int safeDays = days <= 0 ? 30 : Math.min(days, 90);

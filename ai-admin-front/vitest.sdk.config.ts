@@ -14,7 +14,7 @@ export default defineConfig({
   },
   test: {
     environment: 'happy-dom',
-    include: ['src/sdk/**/*.test.ts', 'src/conversation/components/**/*.test.ts', 'src/views/EmployeePortal.test.ts', 'src/components/memory/**/*.test.ts'],
+    include: ['src/sdk/**/*.test.ts', 'src/conversation/components/**/*.test.ts', 'src/views/EmployeePortal.test.ts', 'src/components/memory/**/*.test.ts', 'src/components/agent/agentEmbed.test.ts'],
     css: false,
   },
 })

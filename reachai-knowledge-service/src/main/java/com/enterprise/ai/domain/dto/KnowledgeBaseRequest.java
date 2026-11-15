@@ -17,13 +17,19 @@ public class KnowledgeBaseRequest {
 
     private String description;
 
-    @NotBlank(message = "请选择向量模型；还没有的话先到模型中心添加一个向量模型")
+    /** 本地知识库必填；外部知识库不需要。 */
     private String embeddingModelInstanceId;
 
     private String rerankModelInstanceId;
 
-    @NotBlank(message = "请选择对话模型；还没有的话先到模型中心添加一个对话模型")
+    /** 本地知识库必填；外部知识库不需要。 */
     private String llmModelInstanceId;
+
+    /** LOCAL（默认）/ EXTERNAL。 */
+    private String sourceType;
+
+    /** sourceType=EXTERNAL 时的外部连接。 */
+    private ExternalKnowledgeConnectionRequest external;
 
     private String workspaceId;
 

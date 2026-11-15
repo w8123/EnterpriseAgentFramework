@@ -35,6 +35,40 @@ class RuntimeEvalDeterministicJudgeTest {
     }
 
     @Test
+    void anAnswerGivenAfterAFailedCapabilityCallFails() {
+        Map<String, Object> expected = Map.of("success", true, "capabilityLastCallFailed", false);
+        var failedCall = judge.evaluate(Map.of("success", true, "answer", "抱歉，我没查到",
+                "metadata", Map.of("capabilityLastCallFailed", true), "steps", List.of()), expected, defaultSuite(), 10);
+        var worked = judge.evaluate(Map.of("success", true, "answer", "有 3 个订单",
+                "metadata", Map.of("capabilityLastCallFailed", false), "steps", List.of()), expected, defaultSuite(), 10);
+        var notReported = judge.evaluate(Map.of("success", true, "answer", "有 3 个订单",
+                "metadata", Map.of(), "steps", List.of()), expected, defaultSuite(), 10);
+
+        assertFalse(failedCall.passed());
+        assertTrue(worked.passed());
+        assertTrue(notReported.passed());
+    }
+
+    @Test
+    void anAnswerMadeUpWithoutBusinessDataFailsAutomaticEvaluation() {
+        Map<String, Object> expected = Map.of("success", true, "usedBusinessData", true,
+                "answerContainsAny", List.of("订单", "客户"));
+        var guessed = judge.evaluate(Map.of("success", true, "answer", "最近有 3 个订单",
+                "metadata", Map.of("capabilityCallCount", 0, "workflowCallCount", 0), "steps", List.of()),
+                expected, defaultSuite(), 10);
+        var queried = judge.evaluate(Map.of("success", true, "answer", "最近有 3 个订单",
+                "metadata", Map.of("capabilityCallCount", 1), "steps", List.of()),
+                expected, defaultSuite(), 10);
+        var offTopic = judge.evaluate(Map.of("success", true, "answer", "好的",
+                "metadata", Map.of("workflowCallCount", 1), "steps", List.of()),
+                expected, defaultSuite(), 10);
+
+        assertFalse(guessed.passed());
+        assertTrue(queried.passed());
+        assertFalse(offTopic.passed());
+    }
+
+    @Test
     void requiredLatencyBudgetFailsTheAggregateGate() {
         Map<String, Object> suite = Map.of(
                 "passThreshold", 0.5,

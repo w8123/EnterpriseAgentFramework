@@ -45,6 +45,7 @@ public final class AiCodingTaskStateMachine {
                 ExecutionStatus.FAILED,
                 ExecutionStatus.CANCELLED));
         values.put(ExecutionStatus.RESULT_APPLIED, EnumSet.of(
+                ExecutionStatus.RESULT_SUBMITTED,
                 ExecutionStatus.ACCEPTANCE_READY,
                 ExecutionStatus.COMPLETED,
                 ExecutionStatus.FAILED,

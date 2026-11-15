@@ -133,7 +133,13 @@ class AiCodingTaskDeliveryService {
                     duplicate,
                     json.readJsonOrNull(duplicate.getApplicationResultJson()));
         }
-        stateChanges.requireStatus(task, ExecutionStatus.RUNNING);
+        AiCodingTaskKindProvider provider = providerRegistry.require(task.getTaskKind());
+        boolean revisingApplied = AiCodingTaskStateChanges.status(task) == ExecutionStatus.RESULT_APPLIED;
+        if (revisingApplied) {
+            requireAcceptanceTraceSelection(taskId, sanitizedContent, provider);
+        } else {
+            stateChanges.requireStatus(task, ExecutionStatus.RUNNING);
+        }
         AiCodingTaskValues.requiredText(clientEventId, "clientEventId");
         if (stateChanges.findClientEvent(taskId, clientEventId) != null) {
             throw new IllegalStateException(
@@ -176,7 +182,6 @@ class AiCodingTaskDeliveryService {
                 ActorType.AI_CODING,
                 artifact.getReportedBy());
 
-        AiCodingTaskKindProvider provider = providerRegistry.require(task.getTaskKind());
         ArtifactApplyResult result = providerExecutor.apply(
                 provider,
                 readModels.descriptor(task),
@@ -192,7 +197,7 @@ class AiCodingTaskDeliveryService {
             artifactMapper.updateById(artifact);
             stateChanges.transition(
                     task,
-                    ExecutionStatus.RUNNING,
+                    revisingApplied ? ExecutionStatus.RESULT_APPLIED : ExecutionStatus.RUNNING,
                     null,
                     "ARTIFACT_REJECTED",
                     artifact.getValidationMessage(),
@@ -447,8 +452,8 @@ class AiCodingTaskDeliveryService {
                         .last("LIMIT 1"));
     }
 
-    JsonNode latestAppliedApplicationResult(String taskId) {
-        AiCodingTaskArtifactEntity artifact = artifactMapper.selectOne(
+    private AiCodingTaskArtifactEntity latestAppliedArtifact(String taskId) {
+        return artifactMapper.selectOne(
                 Wrappers.<AiCodingTaskArtifactEntity>lambdaQuery()
                         .eq(AiCodingTaskArtifactEntity::getTaskId, taskId)
                         .eq(
@@ -456,9 +461,34 @@ class AiCodingTaskDeliveryService {
                                 ArtifactProcessingStatus.APPLIED.name())
                         .orderByDesc(AiCodingTaskArtifactEntity::getArtifactId)
                         .last("LIMIT 1"));
+    }
+
+    JsonNode latestAppliedApplicationResult(String taskId) {
+        AiCodingTaskArtifactEntity artifact = latestAppliedArtifact(taskId);
         return artifact == null
                 ? null
                 : json.readJsonOrNull(artifact.getApplicationResultJson());
+    }
+
+    private void requireAcceptanceTraceSelection(
+            String taskId, JsonNode revised, AiCodingTaskKindProvider provider) {
+        if (!provider.allowsAcceptanceTraceSelection() || !revised.isObject()
+                || !revised.path("traceId").isTextual()
+                || !StringUtils.hasText(revised.path("traceId").textValue())) {
+            throw new IllegalStateException("only a browser acceptance trace selection may revise an applied report");
+        }
+        AiCodingTaskArtifactEntity previousArtifact = latestAppliedArtifact(taskId);
+        JsonNode previous = previousArtifact == null ? null : json.readJsonOrNull(previousArtifact.getContentJson());
+        if (previous == null || !previous.isObject()) {
+            throw new IllegalStateException("an applied browser acceptance report is required");
+        }
+        ObjectNode expected = ((ObjectNode) previous).deepCopy();
+        ObjectNode actual = ((ObjectNode) revised).deepCopy();
+        expected.remove("traceId");
+        actual.remove("traceId");
+        if (!expected.equals(actual)) {
+            throw new IllegalStateException("only traceId may change in an applied browser acceptance report");
+        }
     }
 
     private void requireContract(

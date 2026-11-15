@@ -1,12 +1,16 @@
 package com.enterprise.ai.control.aicoding.api;
 
 import com.enterprise.ai.control.identity.PlatformPrincipal;
+import com.enterprise.ai.control.identity.PlatformAiConnectionService;
+import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
 import com.enterprise.ai.control.aicoding.application.AiCodingPowerShellBootstrapFactory;
 import com.enterprise.ai.control.aicoding.application.AiCodingHandoffApplicationService;
 import com.enterprise.ai.control.aicoding.application.ProjectOnboardingCreationLock;
 import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ReadinessItem;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ActivationClient;
+import com.enterprise.ai.control.aicoding.domain.AiCodingTaskModels.ActivationCommand;
 import com.enterprise.ai.control.aicoding.persistence.AiCodingProjectCredentialPolicyMapper;
 import com.enterprise.ai.control.identity.PlatformBearerAuthService;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
@@ -76,6 +80,7 @@ import static org.mockito.ArgumentMatchers.anyString;
                 "reachai.auth.local.bootstrap-admin.enabled=false",
                 "reachai.skill.builtin-bootstrap-enabled=false",
                 "reachai.ai-coding-task.secret-pepper=test-only-ai-coding-http-secret-pepper",
+                "reachai.ai-coding-task.legacy-handoff-enabled=true",
                 "reachai.context.personal-memory.outbox-enabled=false",
                 "reachai.context.personal-memory.lifecycle-enabled=false"
         })
@@ -109,6 +114,12 @@ class AiCodingTaskProtocolHttpTest {
 
     @MockBean
     private PlatformBearerAuthService platformAuth;
+
+    @MockBean
+    private PlatformAiConnectionService platformAiConnections;
+
+    @MockBean
+    private PlatformAuthAuditService platformAudit;
 
     @MockBean
     private PlatformEmbedE2eEvidenceService embedE2eEvidenceService;
@@ -174,6 +185,90 @@ class AiCodingTaskProtocolHttpTest {
                         List.of("ADMIN"),
                         List.of("*"),
                         List.of(new PlatformPermissionGrant("*", "GLOBAL", "*")))));
+    }
+
+    @Test
+    void platformMcpClaimsConsoleTaskAndEnforcesConnectionBindingOverHttp() {
+        var session = platformAuth.resolveBearerSession("Bearer " + PLATFORM_TOKEN).orElseThrow();
+        when(platformAiConnections.authenticate("fixture-connection-1")).thenReturn(Optional.of(
+                new PlatformAiConnectionService.ConnectionIdentity(101L, "CODEX", session)));
+        when(platformAiConnections.authenticate("fixture-connection-2")).thenReturn(Optional.of(
+                new PlatformAiConnectionService.ConnectionIdentity(102L, "CODEX", session)));
+        String taskId = createPageMapTask().path("taskId").asText();
+        JsonNode issued = requireBody(exchange(HttpMethod.POST,
+                "/api/ai-coding-console/tasks/" + taskId + "/claim-codes", objectMapper.createObjectNode(), PLATFORM_TOKEN));
+        String code = issued.path("activationCode").asText();
+        assertTrue(code.startsWith("rhc_"));
+        assertFalse(issued.has("taskToken"));
+
+        JsonNode claimed = mcpCall("fixture-connection-1", "reachai_ai_coding_task_claim",
+                Map.of("taskId", taskId, "claimCode", code));
+        assertTrue(claimed.has("result"), claimed.toString());
+        assertFalse(claimed.path("result").path("isError").asBoolean(), claimed.toString());
+        assertEquals(taskId, claimed.path("result").path("structuredContent").path("data").path("taskId").asText(), claimed.toString());
+        assertFalse(claimed.toString().contains("rtt_"));
+        JsonNode started = mcpCall("fixture-connection-1", "reachai_ai_coding_task_event",
+                Map.of("taskId", taskId, "clientEventId", "fixture-start", "eventType", "STARTED", "message", "开始扫描"));
+        assertTrue(started.has("result"), started.toString());
+        assertFalse(started.path("result").path("isError").asBoolean(), started.toString());
+        JsonNode context = mcpCall("fixture-connection-1", "reachai_ai_coding_task_context", Map.of("taskId", taskId));
+        assertTrue(context.has("result"), context.toString());
+        assertFalse(context.path("result").path("isError").asBoolean(), context.toString());
+        assertEquals(taskId, context.path("result").path("structuredContent").path("data").path("task").path("taskId").asText());
+        assertEquals("RUNNING", context.path("result").path("structuredContent").path("data").path("task").path("executionStatus").asText());
+        JsonNode forbidden = mcpCall("fixture-connection-2", "reachai_ai_coding_task_context", Map.of("taskId", taskId));
+        assertTrue(forbidden.path("result").path("isError").asBoolean());
+        JsonNode reused = mcpCall("fixture-connection-2", "reachai_ai_coding_task_claim",
+                Map.of("taskId", taskId, "claimCode", code));
+        assertTrue(reused.path("result").path("isError").asBoolean());
+    }
+
+    private JsonNode mcpCall(String token, String tool, Map<String, Object> arguments) {
+        var headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set(HttpHeaders.ACCEPT, "application/json, text/event-stream");
+        headers.set("MCP-Protocol-Version", "2025-11-25");
+        var body = Map.of("jsonrpc", "2.0", "id", 1, "method", "tools/call",
+                "params", Map.of("name", tool, "arguments", arguments));
+        return requireBody(rest.exchange("http://localhost:" + port + "/mcp/platform", HttpMethod.POST,
+                new HttpEntity<>(body, headers), JsonNode.class));
+    }
+
+    @Test
+    void existingOnboardingTaskCanMoveFromLegacyTokenToMcp() {
+        var session = platformAuth.resolveBearerSession("Bearer " + PLATFORM_TOKEN).orElseThrow();
+        when(platformAiConnections.authenticate("fixture-onboarding-connection")).thenReturn(Optional.of(
+                new PlatformAiConnectionService.ConnectionIdentity(103L, "CODEX", session)));
+        Map<String, Object> project = Map.of("id", 8L, "projectId", 8L, "projectCode", "onboarding-migration",
+                "name", "Migration fixture", "projectKind", "REGISTERED", "environment", "dev",
+                "registryCredentialConfigured", true, "aiCodingAccess", Map.of("enabled", true));
+        when(capabilityClient.getProjectById(8L)).thenReturn(project);
+        when(capabilityClient.getOnboardingProjectById(8L)).thenReturn(project);
+        when(capabilityClient.getReadinessFacts(8L)).thenReturn(Map.of("instanceExists", false, "online", false));
+        ObjectNode command = objectMapper.createObjectNode();
+        command.put("projectId", 8).put("projectCode", "onboarding-migration").put("taskKind", "PROJECT_ONBOARDING")
+                .put("executorProvider", "TRAE").put("title", "项目接入").put("objective", "完成项目接入");
+        command.putArray("targets").addObject().put("targetType", "PROJECT").put("targetKey", "onboarding-migration")
+                .put("targetRole", "PRIMARY").put("accessMode", "READ_WRITE");
+        String taskId = requireBody(exchange(HttpMethod.POST, "/api/ai-coding-console/tasks", command, PLATFORM_TOKEN))
+                .path("taskId").asText();
+        var legacy = handoffService.issue(taskId, "http://localhost:" + port, "tester");
+        var active = handoffService.activate(legacy.handoffId(),
+                new ActivationCommand(AiCodingHandoffApplicationService.ACTIVATION_SCHEMA, legacy.activationCode(),
+                        new ActivationClient("TRAE", "legacy-terminal")), "http://localhost:" + port);
+        String code = requireBody(exchange(HttpMethod.POST, "/api/ai-coding-console/tasks/" + taskId + "/claim-codes",
+                objectMapper.createObjectNode(), PLATFORM_TOKEN)).path("activationCode").asText();
+        assertEquals(HttpStatus.UNAUTHORIZED, exchange(HttpMethod.GET,
+                "/api/ai-coding/tasks/" + taskId + "/context", null, active.taskToken()).getStatusCode());
+        JsonNode claimed = mcpCall("fixture-onboarding-connection", "reachai_ai_coding_task_claim",
+                Map.of("taskId", taskId, "claimCode", code));
+        assertTrue(claimed.has("result"), claimed.toString());
+        assertFalse(claimed.path("result").path("isError").asBoolean(), claimed.toString());
+        JsonNode context = mcpCall("fixture-onboarding-connection", "reachai_ai_coding_task_context", Map.of("taskId", taskId));
+        assertTrue(context.has("result"), context.toString());
+        assertFalse(context.path("result").path("isError").asBoolean(), context.toString());
+        assertEquals(taskId, context.path("result").path("structuredContent").path("data").path("task").path("taskId").asText());
     }
 
     @Test

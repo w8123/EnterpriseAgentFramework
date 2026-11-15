@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /** Opt-in MCP payload capture boundary with recursive secret redaction and a hard size cap. */
 @Component
@@ -20,7 +21,8 @@ public class McpAuditPayloadSanitizer {
 
     private static final Set<String> SECRET_KEY_PARTS = Set.of(
             "authorization", "credential", "password", "passwd", "secret", "token",
-            "apikey", "api_key", "cookie", "sessionkey", "privatekey");
+            "apikey", "cookie", "sessionkey", "privatekey", "claimcode", "activationcode");
+    private static final Pattern TASK_SECRET = Pattern.compile("(?i)\\b(?:rhc|rtt)_[a-z0-9._~-]{8,}\\b");
     private static final int MAX_DEPTH = 12;
     private static final int MAX_COLLECTION_ITEMS = 200;
 
@@ -41,7 +43,10 @@ public class McpAuditPayloadSanitizer {
     }
 
     private Object sanitize(Object value, int depth) {
-        if (value == null || value instanceof String || value instanceof Number
+        if (value instanceof String text) {
+            return TASK_SECRET.matcher(text).replaceAll("[redacted]");
+        }
+        if (value == null || value instanceof Number
                 || value instanceof Boolean || value instanceof Enum<?>) {
             return value;
         }
@@ -75,7 +80,7 @@ public class McpAuditPayloadSanitizer {
 
     private boolean secretKey(String value) {
         String normalized = value == null ? "" : value.replace("-", "")
-                .replace(".", "").toLowerCase(Locale.ROOT);
+                .replace(".", "").replace("_", "").toLowerCase(Locale.ROOT);
         return SECRET_KEY_PARTS.stream().anyMatch(normalized::contains);
     }
 }

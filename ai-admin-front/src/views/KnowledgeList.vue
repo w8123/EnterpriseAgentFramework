@@ -109,6 +109,18 @@
 
           <!-- 核心资产：单行通透内联微晶指标（Inline Glass Stats） -->
           <div class="kb-liquid-card__stats-row">
+            <template v-if="kb.sourceType === 'EXTERNAL'">
+              <span class="stat-chip">
+                <el-icon><Connection /></el-icon>
+                <small>外部 · {{ externalLabel(kb) }}</small>
+              </span>
+              <span class="stat-chip">
+                <el-icon><Files /></el-icon>
+                <strong>{{ kb.external?.datasets?.length ?? 0 }}</strong>
+                <small>远端库</small>
+              </span>
+            </template>
+            <template v-else>
             <span class="stat-chip">
               <el-icon><Document /></el-icon>
               <strong>{{ kb.fileCount ?? 0 }}</strong>
@@ -119,6 +131,7 @@
               <strong>{{ kb.chunkCount ?? 0 }}</strong>
               <small>段落</small>
             </span>
+            </template>
             <span
               class="stat-chip stat-chip--agent"
               :class="{ 'is-connected': agentSummaryBadge(kb.code).connected }"
@@ -156,7 +169,7 @@
                       <el-icon><Right /></el-icon>
                       <span>查看详情</span>
                     </el-dropdown-item>
-                    <el-dropdown-item command="files">
+                    <el-dropdown-item v-if="kb.sourceType !== 'EXTERNAL'" command="files">
                       <el-icon><Document /></el-icon>
                       <span>文件管理</span>
                     </el-dropdown-item>
@@ -191,6 +204,9 @@
             <el-button type="primary" link @click="router.push(`/knowledge/${row.code}`)">
               {{ row.name }}
             </el-button>
+            <el-tag v-if="row.sourceType === 'EXTERNAL'" size="small" type="warning" effect="plain" class="kb-source-tag">
+              外部 · {{ externalLabel(row) }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="code" label="编码" min-width="140">
@@ -275,6 +291,19 @@
       >
         <section class="glass-dialog-section glass-surface-control">
           <GlassSectionHeader
+            title="知识来源"
+            description="本地知识库把文件存进 ReachAI；外部知识库直接检索 RAGFlow、腾讯 ima、Dify 里已有的资料。"
+          >
+            <template #icon><el-icon><Connection /></el-icon></template>
+          </GlassSectionHeader>
+          <el-radio-group v-model="form.sourceType" class="knowledge-source-switch">
+            <el-radio-button value="LOCAL">本地知识库（上传文件）</el-radio-button>
+            <el-radio-button value="EXTERNAL">外部知识库（RAGFlow / ima / Dify）</el-radio-button>
+          </el-radio-group>
+        </section>
+
+        <section class="glass-dialog-section glass-surface-control">
+          <GlassSectionHeader
             title="基础信息"
             description="定义知识库的名称、唯一编码与用途说明。"
             meta="3 项"
@@ -304,7 +333,17 @@
           </div>
         </section>
 
-        <section class="glass-dialog-section glass-surface-control">
+        <section v-if="isExternalForm" class="glass-dialog-section glass-surface-control">
+          <GlassSectionHeader
+            title="外部连接"
+            description="内容留在外部系统里维护，检索时实时调用，结果和本地知识库一起排序。"
+          >
+            <template #icon><el-icon><Connection /></el-icon></template>
+          </GlassSectionHeader>
+          <ExternalKnowledgeConnectionFields v-model="externalForm" />
+        </section>
+
+        <section v-else class="glass-dialog-section glass-surface-control">
           <GlassSectionHeader
             title="模型配置"
             description="选择向量化、重排与回答生成所使用的模型实例。"
@@ -314,7 +353,7 @@
           </GlassSectionHeader>
 
           <div class="glass-dialog-grid">
-            <el-form-item label="向量模型" prop="embeddingModelInstanceId">
+            <el-form-item label="向量模型" prop="embeddingModelInstanceId" required>
               <el-select
                 v-model="form.embeddingModelInstanceId"
                 filterable
@@ -339,7 +378,7 @@
                 </template>
               </el-select>
             </el-form-item>
-            <el-form-item label="回答模型" prop="llmModelInstanceId">
+            <el-form-item label="回答模型" prop="llmModelInstanceId" required>
               <el-select
                 v-model="form.llmModelInstanceId"
                 filterable
@@ -396,7 +435,8 @@
 
       <template #hint>
         <el-icon><InfoFilled /></el-icon>
-        向量模型与回答模型为必选项，创建后仍可继续调整；更换向量模型需要重新解析已有文件。
+        <template v-if="isExternalForm">外部知识库对所有调用方开放检索，不支持逐文件授权；密钥加密保存，之后不会再显示。</template>
+        <template v-else>向量模型与回答模型为必选项，创建后仍可继续调整；更换向量模型需要重新解析已有文件。</template>
       </template>
       <template #footer>
         <LiquidGlassButton @click="dialogVisible = false">取消</LiquidGlassButton>
@@ -424,6 +464,7 @@ import GlassSectionHeader from '@/components/common/GlassSectionHeader.vue'
 import ModelSelectEmptyState from '@/components/model/ModelSelectEmptyState.vue'
 import KnowledgeAttachAgentDialog from './knowledge/KnowledgeAttachAgentDialog.vue'
 import KnowledgeDependencyNotice from './knowledge/KnowledgeDependencyNotice.vue'
+import ExternalKnowledgeConnectionFields from './knowledge/ExternalKnowledgeConnectionFields.vue'
 import { computed, ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePlatformCan } from '@/auth/usePlatformCan'
@@ -455,7 +496,7 @@ import { LiquidGlassButton, LiquidGlassFilterBar, LiquidGlassInput, LiquidGlassS
 import { useKnowledgeStore } from '@/store/knowledge'
 import { createKnowledge, deleteKnowledge, getKnowledgeUsage } from '@/api/knowledge'
 import { getModelInstances } from '@/api/model'
-import type { KnowledgeBase, KnowledgeBaseForm, KnowledgeUsage } from '@/types/knowledge'
+import type { ExternalKnowledgeConnectionForm, KnowledgeBase, KnowledgeBaseForm, KnowledgeUsage } from '@/types/knowledge'
 import { usageFor, usageSummary, agentNames } from './knowledge/knowledgeDetailModel'
 import { formatRelativeTime } from '@/utils/relativeTime'
 import type { ModelInstance } from '@/types/model'
@@ -617,16 +658,37 @@ const form = reactive<KnowledgeBaseForm>({
   embeddingModelInstanceId: '',
   rerankModelInstanceId: '',
   llmModelInstanceId: '',
+  sourceType: 'LOCAL',
 })
 
+function emptyExternalForm(): ExternalKnowledgeConnectionForm {
+  return { provider: 'RAGFLOW', baseUrl: '', clientId: '', apiKey: '', datasets: [] }
+}
+const externalForm = ref<ExternalKnowledgeConnectionForm>(emptyExternalForm())
+const isExternalForm = computed(() => form.sourceType === 'EXTERNAL')
+
+function externalLabel(kb: KnowledgeBase) {
+  return kb.external?.providerName || kb.externalProvider || '外部'
+}
+
+/** One fixed rule set: model fields are only required for local bases (changing rules would re-validate untouched fields). */
+function requiredForLocal(message: string) {
+  return {
+    trigger: 'change',
+    validator: (_rule: unknown, value: unknown, callback: (error?: Error) => void) => {
+      if (isExternalForm.value || value) callback()
+      else callback(new Error(message))
+    },
+  }
+}
 const formRules: FormRules = {
   name: [{ required: true, message: '请输入知识库名称', trigger: 'blur' }],
   code: [
     { required: true, message: '请输入知识库编码', trigger: 'blur' },
     { pattern: /^[a-zA-Z][a-zA-Z0-9_]*$/, message: '编码只能包含字母、数字和下划线，且以字母开头', trigger: 'blur' },
   ],
-  embeddingModelInstanceId: [{ required: true, message: '请选择向量模型', trigger: 'change' }],
-  llmModelInstanceId: [{ required: true, message: '请选择回答模型', trigger: 'change' }],
+  embeddingModelInstanceId: [requiredForLocal('请选择向量模型')],
+  llmModelInstanceId: [requiredForLocal('请选择回答模型')],
 }
 
 function resetForm() {
@@ -636,6 +698,8 @@ function resetForm() {
   form.embeddingModelInstanceId = ''
   form.rerankModelInstanceId = ''
   form.llmModelInstanceId = ''
+  form.sourceType = 'LOCAL'
+  externalForm.value = emptyExternalForm()
 }
 
 function openCreateDialog() {
@@ -728,9 +792,27 @@ async function handleSubmit() {
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
 
+  if (isExternalForm.value) {
+    const external = externalForm.value
+    if (!external.provider || !external.baseUrl.trim() && external.provider !== 'IMA') {
+      ElMessage.warning('请填写外部系统的服务地址')
+      return
+    }
+    if (!external.apiKey?.trim()) {
+      ElMessage.warning('请填写 API Key')
+      return
+    }
+    if (external.datasets.length === 0) {
+      ElMessage.warning('请先测试连接，并勾选至少一个远端知识库')
+      return
+    }
+  }
+
   submitLoading.value = true
   try {
-    await createKnowledge(form)
+    await createKnowledge(isExternalForm.value
+      ? { name: form.name, code: form.code, description: form.description, sourceType: 'EXTERNAL', external: externalForm.value } as KnowledgeBaseForm
+      : { ...form, sourceType: 'LOCAL' })
     ElMessage.success('创建成功')
     dialogVisible.value = false
     await knowledgeStore.fetchList()
@@ -776,6 +858,15 @@ onMounted(() => {
 </script>
 
 <style scoped lang="scss">
+.knowledge-source-switch {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.kb-source-tag {
+  margin-left: 6px;
+}
+
 // 卡片网格：精简紧凑，单卡片小巧精致，多卡片优雅排布
 .knowledge-card-grid {
   display: grid;

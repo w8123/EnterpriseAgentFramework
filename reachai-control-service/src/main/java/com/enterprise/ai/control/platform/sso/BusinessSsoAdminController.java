@@ -40,6 +40,7 @@ import java.util.regex.Pattern;
 public class BusinessSsoAdminController {
 
     private static final Pattern CODE = Pattern.compile("[a-z][a-z0-9-]{1,27}");
+    private static final Pattern ROLE = Pattern.compile("[A-Za-z0-9_:-]{1,64}");
     private static final Pattern HEADER_NAME = Pattern.compile("[A-Za-z0-9-]{1,64}");
     private static final Set<String> RESERVED_HEADERS = Set.of("authorization", "host", "cookie", "content-type",
             "content-length", "accept", "connection", "transfer-encoding");
@@ -74,10 +75,12 @@ public class BusinessSsoAdminController {
             secretCipher = cipher.encrypt(command.clientSecret().trim());
         }
         boolean active = Boolean.TRUE.equals(command.active());
-        if (active && !StringUtils.hasText(secretCipher)) throw badRequest("启用前请填写 Client Secret");
+        boolean passwordMode = BusinessSsoProvider.MODE_PASSWORD.equalsIgnoreCase(command.mode());
+        if (active && !passwordMode && !StringUtils.hasText(secretCipher)) throw badRequest("启用前请填写 Client Secret");
         BusinessSsoProvider saved;
         try {
-            saved = store.save(new BusinessSsoProvider(normalizedCode,
+            saved = store.save(passwordMode ? passwordProvider(normalizedCode, command, active)
+                    : new BusinessSsoProvider(normalizedCode,
                     required(command.label(), "按钮名称", 64),
                     required(command.projectCode(), "业务系统", 64),
                     url(command.authorizeUrl(), "登录页地址"),
@@ -89,18 +92,46 @@ public class BusinessSsoAdminController {
                     required(command.userIdPath(), "用户 ID 字段", 64),
                     optional(command.userNamePath(), 64),
                     headers(command.extraHeaders()),
-                    active));
+                    active, BusinessSsoProvider.MODE_OAUTH, null, role(command.defaultRole()),
+                    command.employeeToken()));
         } catch (IllegalArgumentException conflict) {
             throw conflict(conflict.getMessage());
         }
         Map<String, Object> details = new LinkedHashMap<>();
         details.put("providerCode", saved.code());
         details.put("providerType", BusinessSsoProvider.TYPE);
+        details.put("mode", saved.mode());
         details.put("projectCode", saved.projectCode());
+        details.put("employeeToken", saved.employeeToken());
         details.put("status", saved.active() ? "ACTIVE" : "INACTIVE");
         details.put("clientSecretChanged", StringUtils.hasText(command.clientSecret()));
         audit.record(actor, "PLATFORM_AUTH_PROVIDER_SAVED", "AUTH_PROVIDER", saved.code(), details);
         return ResponseEntity.ok(view(saved));
+    }
+
+    /** 账号密码验证: only the system's login API is needed; nothing is registered in the business system. */
+    private static BusinessSsoProvider passwordProvider(String code, SsoProviderCommand command, boolean active) {
+        String body = required(command.loginBody(), "登录请求内容", 2000);
+        if (!body.contains("{{username}}") || !(body.contains("{{password}}") || body.contains("{{password_md5}}"))) {
+            throw badRequest("登录请求内容里要有 {{username}} 和 {{password}}（或 {{password_md5}}）");
+        }
+        String userInfoUrl = StringUtils.hasText(command.userInfoUrl()) ? url(command.userInfoUrl(), "用户信息地址") : null;
+        // Required: a token in the answer is the only proof the business system accepted the password.
+        String tokenPath = required(command.tokenPath(), "登录令牌字段", 64);
+        String tokenHeader = optional(command.tokenHeader(), 64);
+        if (tokenHeader != null && !HEADER_NAME.matcher(tokenHeader).matches()) throw badRequest("令牌请求头不合法");
+        String prefix = command.tokenPrefix();
+        if (prefix != null && (prefix.length() > 32 || prefix.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7f))) {
+            throw badRequest("令牌前缀不合法");
+        }
+        return new BusinessSsoProvider(code,
+                required(command.label(), "按钮名称", 64),
+                required(command.projectCode(), "业务系统", 64),
+                null, url(command.tokenUrl(), "登录接口地址"), userInfoUrl, null, null, null,
+                optional(command.userIdPath(), 64), optional(command.userNamePath(), 64),
+                headers(command.extraHeaders()), active, BusinessSsoProvider.MODE_PASSWORD,
+                new BusinessSsoProvider.PasswordLogin(command.loginContentType(), body, tokenPath, tokenHeader, prefix),
+                role(command.defaultRole()), command.employeeToken());
     }
 
     private PlatformAuthenticatedSession requireAdmin(HttpServletRequest request) {
@@ -115,7 +146,16 @@ public class BusinessSsoAdminController {
         return new SsoProviderView(provider.code(), provider.label(), provider.projectCode(), provider.authorizeUrl(),
                 provider.tokenUrl(), provider.userInfoUrl(), provider.clientId(), provider.clientSecretPresent(),
                 provider.scope(), provider.userIdPath(), provider.userNamePath(), provider.extraHeaders(),
-                provider.active());
+                provider.active(), provider.mode(), provider.passwordLogin().contentType(),
+                provider.passwordLogin().body(), provider.passwordLogin().tokenPath(),
+                provider.passwordLogin().tokenHeader(), provider.passwordLogin().tokenPrefix(), provider.defaultRole(),
+                provider.employeeToken());
+    }
+
+    private static String role(String value) {
+        String text = optional(value, 64);
+        if (text != null && !ROLE.matcher(text).matches()) throw badRequest("默认角色只能用字母、数字、下划线、横线和冒号");
+        return text;
     }
 
     private static String required(String value, String label, int max) {
@@ -179,12 +219,17 @@ public class BusinessSsoAdminController {
     public record SsoProviderView(String code, String label, String projectCode, String authorizeUrl,
                                   String tokenUrl, String userInfoUrl, String clientId, boolean clientSecretPresent,
                                   String scope, String userIdPath, String userNamePath,
-                                  Map<String, String> extraHeaders, boolean active) {
+                                  Map<String, String> extraHeaders, boolean active, String mode,
+                                  String loginContentType, String loginBody, String tokenPath,
+                                  String tokenHeader, String tokenPrefix, String defaultRole,
+                                  String employeeToken) {
     }
 
     public record SsoProviderCommand(String label, String projectCode, String authorizeUrl, String tokenUrl,
                                      String userInfoUrl, String clientId, String clientSecret, String scope,
                                      String userIdPath, String userNamePath, Map<String, String> extraHeaders,
-                                     Boolean active) {
+                                     Boolean active, String mode, String loginContentType, String loginBody,
+                                     String tokenPath, String tokenHeader, String tokenPrefix,
+                                     String defaultRole, String employeeToken) {
     }
 }

@@ -173,6 +173,55 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
         return HttpApiRequestPolicy.requiresWriteConfirmation(current.owner().acceptedContract().path("sideEffect").asText()) ? "WRITE" : null;
     }
 
+    /**
+     * After a project credential was replaced, lets the published read-only flows of that system use it
+     * without a new flow version (so nothing that points at the flow version has to be republished).
+     * Only the credential may have changed: a changed contract, source or connection still needs a
+     * republish, and so does every flow that writes.
+     */
+    public CredentialRefresh refreshReadOnlyCredentialPins(Long projectId, String projectCode) {
+        if (projectId == null || projectId <= 0 || !StringUtils.hasText(projectCode)) {
+            throw new IllegalArgumentException("projectId 和 projectCode 必填");
+        }
+        int refreshed = 0;
+        int current = 0;
+        int writes = 0;
+        int other = 0;
+        for (RuntimeWorkflowHttpApiPinEntity row : pins.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<RuntimeWorkflowHttpApiPinEntity>lambdaQuery()
+                        .eq(RuntimeWorkflowHttpApiPinEntity::getProjectId, projectId)
+                        .eq(RuntimeWorkflowHttpApiPinEntity::getProjectCode, projectCode.trim())
+                        .isNotNull(RuntimeWorkflowHttpApiPinEntity::getWorkflowVersionId))) {
+            Current now;
+            try {
+                now = current(row.getApiId(), row.getQualifiedName(), row.getProjectId(), row.getProjectCode());
+            } catch (RuntimeException changed) {
+                other++;
+                continue;
+            }
+            String credentialRevision = now.credential() == null ? null : now.credential().revision();
+            if (!Objects.equals(row.getEnvironment(), now.owner().environment())
+                    || !Objects.equals(row.getAcceptedContractHash(), now.owner().acceptedContractHash())
+                    || !Objects.equals(row.getSourceSetRevision(), now.owner().sourceSetRevision())
+                    || !Objects.equals(row.getConnectionRevision(), now.connection().revision())) {
+                other++;
+            } else if (Objects.equals(row.getCredentialRevision(), credentialRevision)) {
+                current++;
+            } else if (HttpApiRequestPolicy.requiresWriteConfirmation(
+                    now.owner().acceptedContract().path("sideEffect").asText())) {
+                writes++;
+            } else {
+                row.setCredentialRevision(credentialRevision);
+                if (pins.updateById(row) == 1) refreshed++;
+            }
+        }
+        return new CredentialRefresh(refreshed, current, writes, other);
+    }
+
+    /** refreshed: now on the new credential; writesNeedRepublish / otherNeedRepublish: left as they were. */
+    public record CredentialRefresh(int refreshed, int alreadyCurrent, int writesNeedRepublish, int otherNeedRepublish) {
+    }
+
     private Current checkedCurrent(RuntimeWorkflowHttpApiPinEntity row) {
         Current current = current(row.getApiId(), row.getQualifiedName(), row.getProjectId(), row.getProjectCode());
         if (!Objects.equals(row.getEnvironment(), current.owner().environment())
@@ -273,6 +322,7 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
             HttpApiRequestPolicy.BoundRequest bound;
             try {
                 var contract = current.owner().acceptedContract();
+                if (!write) fillPagingDefaults(contract, query);
                 // A required object with no present optional fields is {}, not an absent body.
                 // Optional absence stays null; mapped nulls and required fields are still validated by bind.
                 boolean requiredObjectBody = "object".equals(contract.path("requestBody").path("schema").path("type").asText())
@@ -304,14 +354,24 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
                     return new Invocation(false, "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED", null, null, null,
                             sideEffect, "UNCONFIRMED");
                 }
-                return new Invocation(false, response.code(), null, status, null, sideEffect,
-                        preDispatch ? "NOT_DISPATCHED" : "CONFIRMED");
+                // A failed sign-in is the admin's to fix; its plain reason is carried to the answer.
+                return new Invocation(false, response.code(),
+                        "RUNTIME_HTTP_LOGIN_FAILED".equals(response.code()) ? response.body() : null, status, null,
+                        sideEffect, preDispatch ? "NOT_DISPATCHED" : "CONFIRMED");
             }
             if (write && !HttpApiRequestPolicy.confirmsResponse(current.owner().acceptedContract(), response.parsedBody())) {
                 return new Invocation(false, "HTTP_API_WORKFLOW_RESULT_UNCONFIRMED", null, status, null,
                         sideEffect, "UNCONFIRMED");
             }
             Object result = response.parsedBody() == null ? response.body() : response.parsedBody();
+            if (!write) {
+                String businessError = businessError(response.parsedBody());
+                if (businessError != null) {
+                    // HTTP 200 carrying the system's own failure (not signed in, bad paging, ...): not a result.
+                    return new Invocation(false, "HTTP_API_BUSINESS_ERROR", businessError, status, null,
+                            sideEffect, "CONFIRMED");
+                }
+            }
             return new Invocation(true, "RUNTIME_HTTP_API_EXECUTED", protection.protect(result),
                     response.statusCode(), null, sideEffect, "CONFIRMED");
         } catch (RuntimeException unavailable) {
@@ -321,10 +381,66 @@ public class RuntimeWorkflowHttpApiService implements RuntimeHttpApiToolExecutio
         }
     }
 
+    /**
+     * The failure a business system reports inside an HTTP 200 body, or null. Deliberately narrow: an
+     * explicit {@code success=false}, or an HTTP-like error number (400-599) in a code field with no data.
+     */
+    static String businessError(Object parsedBody) {
+        java.util.Map<?, ?> body;
+        if (parsedBody instanceof java.util.Map<?, ?> map) {
+            body = map;
+        } else if (parsedBody instanceof com.fasterxml.jackson.databind.JsonNode node && node.isObject()) {
+            body = new com.fasterxml.jackson.databind.ObjectMapper().convertValue(node, java.util.Map.class);
+        } else {
+            return null;
+        }
+        boolean failed = Boolean.FALSE.equals(body.get("success"));
+        if (!failed) {
+            boolean payload = false;
+            for (String key : java.util.List.of("data", "result", "rows", "list", "records", "items", "content")) {
+                if (body.get(key) != null) payload = true;
+            }
+            if (!payload) {
+                for (String key : java.util.List.of("code", "resultCode", "errcode", "errorCode", "errCode", "status")) {
+                    Object value = body.get(key);
+                    Long number = value instanceof Number n ? Long.valueOf(n.longValue())
+                            : value instanceof String text && text.matches("\\d{3}") ? Long.valueOf(text) : null;
+                    if (number != null && number >= 400 && number <= 599) failed = true;
+                }
+            }
+        }
+        if (!failed) return null;
+        for (String key : java.util.List.of("message", "msg", "resultMsg", "errmsg", "errorMessage", "error")) {
+            if (body.get(key) instanceof String text && !text.isBlank()) {
+                return text.length() > 200 ? text.substring(0, 200) : text;
+            }
+        }
+        return "业务系统返回了失败结果";
+    }
+
+    /**
+     * A list query without its paging parameters gets the first page of ten. Many systems reject a list
+     * call without them (or with a size below their minimum) even when the contract marks them optional,
+     * and a hint in a flow's field description only reaches flows generated after the hint was written.
+     */
+    static void fillPagingDefaults(com.fasterxml.jackson.databind.JsonNode contract, Map<String, Object> query) {
+        for (com.fasterxml.jackson.databind.JsonNode parameter : contract.path("parameters")) {
+            String name = parameter.path("name").asText("");
+            String type = parameter.path("schema").path("type").asText("");
+            if ("PATH".equals(parameter.path("location").asText()) || name.isEmpty()
+                    || !("integer".equals(type) || "number".equals(type))) continue;
+            Object given = query.get(name);
+            if (given != null && StringUtils.hasText(String.valueOf(given))) continue;
+            String lower = name.toLowerCase(java.util.Locale.ROOT);
+            if (lower.matches("page|pageno|pagenum|pagenumber|pageindex|current|currentpage")) query.put(name, 1);
+            else if (lower.matches("pagesize|size|limit|rows|perpage|per_page|page_size")) query.put(name, 10);
+        }
+    }
+
     private static boolean preDispatchCode(String code) {
         return code != null && (code.startsWith("RUNTIME_HTTP_EGRESS_") || Set.of(
                 "RUNTIME_HTTP_CREDENTIAL_REVISION_CHANGED", "RUNTIME_HTTP_CREDENTIAL_DENIED",
-                "RUNTIME_HTTP_CREDENTIAL_UNAVAILABLE", "RUNTIME_HTTP_URL_REQUIRED",
+                "RUNTIME_HTTP_CREDENTIAL_UNAVAILABLE", "RUNTIME_HTTP_URL_REQUIRED", "RUNTIME_HTTP_LOGIN_FAILED",
                 "RUNTIME_HTTP_CREDENTIAL_TYPE_UNSUPPORTED").contains(code));
     }
 

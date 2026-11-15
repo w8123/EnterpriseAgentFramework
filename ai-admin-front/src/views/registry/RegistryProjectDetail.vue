@@ -474,8 +474,8 @@
             <div class="ai-coding-credential-grid">
               <label>
                 <span>
-                  <strong>交接包激活有效期</strong>
-                  <small>交接码只能成功使用一次，超时后需要重新签发。</small>
+                  <strong>领取码有效期</strong>
+                  <small>领取码只能成功使用一次，超时后需要重新生成。</small>
                 </span>
                 <span class="ai-coding-duration-control">
                   <el-input-number
@@ -491,8 +491,8 @@
 
               <label>
                 <span>
-                  <strong>任务 Token 有效期</strong>
-                  <small>AI Coding 客户端激活后，用于持续回传进度、问题和结果。</small>
+                  <strong>任务连接有效期</strong>
+                  <small>AI 工具领取任务后，可在有效期内回传进度、问题和结果。</small>
                 </span>
                 <span class="ai-coding-duration-control">
                   <el-input-number
@@ -509,7 +509,7 @@
 
             <div class="ai-coding-credential-actions">
               <p>
-                保存后只影响新签发或新激活的交接包。已经丢失 taskToken 的任务仍需重新生成交接包。
+                保存后只影响新生成的领取码或新建立的任务连接。连接到期后需要重新领取。
               </p>
               <el-button
                 type="primary"

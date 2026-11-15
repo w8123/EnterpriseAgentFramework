@@ -194,6 +194,56 @@ public class BusinessUserSyncService {
                 binding.getExternalUserName(), List.copyOf(roles)));
     }
 
+    /**
+     * The business account a mapped platform user acts as: the binding must still be ACTIVE and its
+     * business user enabled, otherwise nobody is returned and callers fall back to less privilege.
+     */
+    public Optional<BusinessSystemAccount> activeAccountByExternalUser(String tenantId, String appId,
+                                                                       String externalUserId) {
+        if (!StringUtils.hasText(appId) || !StringUtils.hasText(externalUserId)) return Optional.empty();
+        String tenant = tenant(tenantId);
+        List<ExternalUserBindingEntity> bindings = externalUserBindingMapper.selectList(
+                new LambdaQueryWrapper<ExternalUserBindingEntity>()
+                        .eq(ExternalUserBindingEntity::getTenantId, tenant)
+                        .eq(ExternalUserBindingEntity::getAppId, appId.trim())
+                        .eq(ExternalUserBindingEntity::getExternalUserId, externalUserId.trim())
+                        .eq(ExternalUserBindingEntity::getStatus, STATUS_ACTIVE));
+        Set<Long> users = new LinkedHashSet<>();
+        for (ExternalUserBindingEntity binding : bindings) {
+            if (binding.getBusinessUserId() != null) users.add(binding.getBusinessUserId());
+        }
+        // One business account must belong to exactly one person; anything else is ambiguous.
+        if (users.size() != 1) return Optional.empty();
+        return activeAccount(tenant, users.iterator().next(), appId.trim())
+                .filter(account -> externalUserId.trim().equals(account.externalUserId()));
+    }
+
+    /**
+     * The business user behind an account the business system already synced. Read-only: it never
+     * creates a user, links an account or changes roles, so an unknown account stays unknown.
+     */
+    public Optional<Long> activeBusinessUserId(String tenantId, String appId, String externalUserId) {
+        if (!StringUtils.hasText(appId) || !StringUtils.hasText(externalUserId)) return Optional.empty();
+        String tenant = tenant(tenantId);
+        String system = appId.trim();
+        String account = externalUserId.trim();
+        ExternalUserBindingEntity binding = externalUserBindingMapper.selectOne(
+                new LambdaQueryWrapper<ExternalUserBindingEntity>()
+                        .eq(ExternalUserBindingEntity::getTenantId, tenant)
+                        .eq(ExternalUserBindingEntity::getAppId, system)
+                        .eq(ExternalUserBindingEntity::getExternalUserId, account)
+                        .eq(ExternalUserBindingEntity::getStatus, STATUS_ACTIVE)
+                        .last("limit 1"));
+        // Default MySQL collations can be case-insensitive; verify the returned opaque identity exactly.
+        if (binding == null || binding.getBusinessUserId() == null || !tenant.equals(binding.getTenantId())
+                || !system.equals(binding.getAppId()) || !account.equals(binding.getExternalUserId())
+                || !STATUS_ACTIVE.equalsIgnoreCase(binding.getStatus())) {
+            return Optional.empty();
+        }
+        return hasActiveOrigin(tenant, binding.getBusinessUserId(), system, account)
+                ? Optional.of(binding.getBusinessUserId()) : Optional.empty();
+    }
+
     private BusinessUserEntity createScopedUser(String tenantId, String displayName, LocalDateTime now) {
         BusinessUserEntity created = new BusinessUserEntity();
         created.setTenantId(tenantId);

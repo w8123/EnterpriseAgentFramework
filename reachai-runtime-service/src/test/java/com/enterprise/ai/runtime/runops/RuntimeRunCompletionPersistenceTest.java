@@ -124,6 +124,18 @@ class RuntimeRunCompletionPersistenceTest {
         assertNull(mapper.selectById(1L).getSuspensionReason());
     }
 
+    @ParameterizedTest
+    @EnumSource(value = Path.class, names = {"AGENT", "WORKFLOW"})
+    void successfulCancellationAcknowledgementPersistsCancelledOutcome(Path path) {
+        seed(path.name(), "SUSPENDED");
+        finish(path, true, "RUNTIME_GRAPH_CANCELLED");
+        var current = mapper.selectById(1L);
+        assertEquals("CANCELLED", current.getStatus());
+        assertEquals("RUNTIME_GRAPH_CANCELLED", current.getErrorCode());
+        assertNull(current.getSuspensionReason());
+        assertNotNull(current.getEndedAt());
+    }
+
     @Test
     void skillSnapshotWriteCannotRestoreStaleLifecycleFields() throws Exception {
         seed("AGENT", "RUNNING");

@@ -70,16 +70,62 @@ public class WorkflowHttpClient {
     private final ObjectMapper objectMapper;
     private final WorkflowHttpEgressPolicy egressPolicy;
     private final RuntimeWorkflowCredentialService credentialService;
+    private final EmployeeBusinessTokenSource employeeTokens;
+    private final Map<String, LoginToken> loginTokens = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Map<String, Object> loginLocks = new java.util.concurrent.ConcurrentHashMap<>();
 
     public WorkflowHttpClient(ObjectMapper objectMapper,
                               WorkflowHttpEgressPolicy egressPolicy,
                               RuntimeWorkflowCredentialService credentialService) {
+        this(objectMapper, egressPolicy, credentialService, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public WorkflowHttpClient(ObjectMapper objectMapper,
+                              WorkflowHttpEgressPolicy egressPolicy,
+                              RuntimeWorkflowCredentialService credentialService,
+                              @org.springframework.lang.Nullable EmployeeBusinessTokenSource employeeTokens) {
+        this.employeeTokens = employeeTokens;
         this.objectMapper = objectMapper;
         this.egressPolicy = egressPolicy == null ? WorkflowHttpEgressPolicy.productionDefault() : egressPolicy;
         this.credentialService = credentialService;
     }
 
     public HttpExecutionResult execute(HttpExecutionRequest request) {
+        // [0] the shared sign-in whose token was sent, [1] set when the employee's own token was sent
+        String[] loginKey = new String[2];
+        HttpExecutionResult result = executeOnce(request, loginKey);
+        if (loginKey[1] != null && loginExpired(result)) {
+            // The business system no longer accepts the employee's own token. Forget it and decide again:
+            // a system that insists on own tokens then asks the employee to sign in, others use the shared
+            // credential. The rejected call did nothing there, so repeating it is safe for writes too.
+            employeeTokens.expired(request.identity());
+            result = executeOnce(request, new String[2]);
+        } else if (loginKey[0] != null && loginExpired(result)) {
+            // The business system no longer accepts the cached token: sign in again and repeat once.
+            // The rejected call did nothing there, so repeating it is safe for writes too.
+            loginTokens.remove(loginKey[0]);
+            result = executeOnce(request, new String[2]);
+        }
+        return result;
+    }
+
+    /** HTTP 401, or the same thing said inside a 200 body by systems that always answer 200. */
+    static boolean loginExpired(HttpExecutionResult result) {
+        if (result == null) return false;
+        if (result.statusCode() == 401) return true;
+        if (result.statusCode() < 200 || result.statusCode() >= 300 || !(result.parsedBody() instanceof Map<?, ?> body)) {
+            return false;
+        }
+        for (String key : List.of("code", "resultCode", "errcode", "errorCode", "errCode", "status")) {
+            Object value = body.get(key);
+            String text = value == null ? "" : String.valueOf(value);
+            if ("401".equals(text) || "419".equals(text)) return true;
+        }
+        return false;
+    }
+
+    private HttpExecutionResult executeOnce(HttpExecutionRequest request, String[] loginKey) {
         long started = System.currentTimeMillis();
         try {
             String method = normalizeMethod(request.method());
@@ -104,7 +150,7 @@ public class WorkflowHttpClient {
                     }
                 });
             }
-            CredentialInjection credential = injectCredential(headers, queryParams, request);
+            CredentialInjection credential = injectCredential(headers, queryParams, request, loginKey);
             String url = appendQuery(request.url(), queryParams);
             ResolvedTarget target = resolveAndValidate(url, false);
 
@@ -220,7 +266,8 @@ public class WorkflowHttpClient {
 
     private CredentialInjection injectCredential(Map<String, String> headers,
                                                  Map<String, String> queryParams,
-                                                 HttpExecutionRequest request) {
+                                                 HttpExecutionRequest request,
+                                                 String[] loginKey) {
         if (!StringUtils.hasText(request.credentialRef())) {
             return CredentialInjection.none();
         }
@@ -248,14 +295,27 @@ public class WorkflowHttpClient {
         Map<String, Object> secret = credential.secret() == null ? Map.of() : credential.secret();
         String type = WorkflowCredentialTypes.normalizeType(credential.type());
         Set<String> sensitive = WorkflowCredentialTypes.sensitiveHeaderNames(secret, type);
+        Map<String, Object> login = WorkflowCredentialTypes.login(secret);
+        String ownToken = employeeToken(identity, request.url(), type);
+        if (ownToken != null) loginKey[1] = "own";
+        String loginToken = null;
+        if (login != null && ownToken == null) {
+            // The sign-in settings are part of the key, so a changed password signs in afresh at once.
+            String key = credential.credentialRef() + ":" + credential.revision() + ":" + login.hashCode();
+            loginToken = loginToken(key, login, identity);
+            loginKey[0] = key;
+        }
         switch (type) {
             case WorkflowCredentialTypes.BEARER -> {
-                String token = firstText(secret, "token");
+                String token = ownToken != null ? ownToken : loginToken != null ? loginToken : firstText(secret, "token");
                 headers.put("Authorization", "Bearer " + token);
             }
             case WorkflowCredentialTypes.API_KEY_HEADER -> {
                 String headerName = firstText(secret, "headerName");
-                String headerValue = firstText(secret, "apiKey");
+                // An own token is sent the way this system's tokens are sent: with the sign-in prefix, if any.
+                String prefix = login == null ? "" : String.valueOf(login.getOrDefault("prefix", ""));
+                String headerValue = ownToken != null ? prefix + ownToken
+                        : loginToken != null ? prefix + loginToken : firstText(secret, "apiKey");
                 headers.put(headerName, headerValue);
                 sensitive.add(headerName.toLowerCase(Locale.ROOT));
             }
@@ -289,6 +349,138 @@ public class WorkflowHttpClient {
                     "Unsupported credential type for HTTP_REQUEST: " + type);
         }
         return new CredentialInjection(true, sensitive);
+    }
+
+    /**
+     * 「用员工自己的令牌调用」: the employee's own business-system token for this call, or null to use the
+     * project's shared credential. Only for a verified employee, only for a system whose login entry turned
+     * it on, and only towards the addresses that entry itself talks to.
+     */
+    private String employeeToken(WorkflowExecutionIdentity identity, String url, String type) {
+        if (employeeTokens == null || identity == null || !identity.userTrusted()
+                || !(identity.source() == WorkflowExecutionIdentity.Source.MCP_EMPLOYEE
+                || identity.source() == WorkflowExecutionIdentity.Source.AUTOMATION_EMPLOYEE)
+                || !StringUtils.hasText(identity.projectCode()) || !StringUtils.hasText(identity.userId())) {
+            return null;
+        }
+        EmployeeBusinessTokenSource.Resolution own = employeeTokens.resolve(identity);
+        if (own == null || EmployeeBusinessTokenSource.OFF.equals(own.mode()) || !own.origins().contains(origin(url))) {
+            return null;
+        }
+        boolean required = EmployeeBusinessTokenSource.REQUIRED.equals(own.mode());
+        if (!WorkflowCredentialTypes.BEARER.equals(type) && !WorkflowCredentialTypes.API_KEY_HEADER.equals(type)) {
+            if (required) {
+                throw new WorkflowHttpExecutionException("RUNTIME_HTTP_EMPLOYEE_TOKEN_UNSUPPORTED",
+                        "这个系统要求用员工自己的令牌调用，但项目凭据不是「Bearer 令牌」或「请求头 API Key」，请管理员调整接口鉴权");
+            }
+            return null;
+        }
+        if (own.token() == null && required) {
+            throw new WorkflowHttpExecutionException("RUNTIME_HTTP_EMPLOYEE_LOGIN_REQUIRED",
+                    "这个系统要求用你自己的业务账号调用，但你还没登录或登录已过期："
+                            + "请打开 ReachAI 登录页，用业务系统账号重新登录一次后再试");
+        }
+        return own.token();
+    }
+
+    /** {@code scheme://host:port}, the form login entries' addresses are compared in; "" when not a URL. */
+    private static String origin(String url) {
+        try {
+            URI uri = URI.create(url == null ? "" : url.trim());
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            if (!StringUtils.hasText(uri.getHost())) return "";
+            return scheme + "://" + uri.getHost().toLowerCase(Locale.ROOT) + ":" + effectivePort(uri);
+        } catch (IllegalArgumentException invalid) {
+            return "";
+        }
+    }
+
+    /**
+     * The token a sign-in credential currently holds, signing in when there is none or it is too old.
+     * A failed sign-in is remembered for a minute so a wrong password is not retried on every call,
+     * which could lock the account in the business system.
+     */
+    private String loginToken(String key, Map<String, Object> login, WorkflowExecutionIdentity identity) {
+        Object lock = loginLocks.computeIfAbsent(key, ignored -> new Object());
+        synchronized (lock) {
+            long now = System.currentTimeMillis();
+            LoginToken cached = loginTokens.get(key);
+            if (cached != null && cached.expiresAt() > now) {
+                if (cached.token() == null) {
+                    throw new WorkflowHttpExecutionException("RUNTIME_HTTP_LOGIN_FAILED", cached.failure());
+                }
+                return cached.token();
+            }
+            if (loginTokens.size() > 2000) loginTokens.clear();
+            try {
+                String token = signIn(login, identity);
+                long ttlMs = ((Number) login.getOrDefault("ttlMinutes", 30)).longValue() * 60_000L;
+                loginTokens.put(key, new LoginToken(token, null, now + ttlMs));
+                return token;
+            } catch (WorkflowHttpExecutionException failed) {
+                loginTokens.put(key, new LoginToken(null, failed.getMessage(), now + 60_000L));
+                throw failed;
+            }
+        }
+    }
+
+    private String signIn(Map<String, Object> login, WorkflowExecutionIdentity identity) {
+        String method = String.valueOf(login.getOrDefault("method", "POST"));
+        String body = String.valueOf(login.getOrDefault("body", ""));
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Accept", "application/json");
+        boolean sendsBody = "POST".equals(method) && StringUtils.hasText(body);
+        if (sendsBody) headers.put("Content-Type", String.valueOf(login.get("contentType")));
+        HttpExecutionResult response = executeOnce(new HttpExecutionRequest(method, String.valueOf(login.get("url")),
+                null, headers, sendsBody ? "raw" : "none", sendsBody ? body : null, 15_000, null, identity, null,
+                false), new String[2]);
+        if (response.code() != null && response.code().startsWith("RUNTIME_HTTP_EGRESS_")) {
+            throw new WorkflowHttpExecutionException(response.code(), "登录地址被 HTTP 出站策略拒绝");
+        }
+        if (!response.success()) {
+            throw new WorkflowHttpExecutionException("RUNTIME_HTTP_LOGIN_FAILED", "登录业务系统换取令牌失败："
+                    + (response.statusCode() > 0 ? "登录接口返回 HTTP " + response.statusCode() : "登录接口连不上"));
+        }
+        String token = extractLoginToken(response.parsedBody(), String.valueOf(login.getOrDefault("tokenPath", "")));
+        if (token == null) {
+            String said = loginMessage(response.parsedBody());
+            throw new WorkflowHttpExecutionException("RUNTIME_HTTP_LOGIN_FAILED", "登录业务系统换取令牌失败："
+                    + (said != null ? "登录接口说「" + said + "」" : "登录接口的返回里没有找到令牌，请核对令牌位置"));
+        }
+        return token;
+    }
+
+    /** The token at the configured dotted path, or at the places login APIs most often put it. */
+    static String extractLoginToken(Object parsedBody, String tokenPath) {
+        List<String> paths = StringUtils.hasText(tokenPath) ? List.of(tokenPath.trim()) : List.of(
+                "data.token", "data.accessToken", "data.access_token", "result.token", "result.accessToken",
+                "token", "accessToken", "access_token", "data", "result");
+        for (String path : paths) {
+            Object current = parsedBody;
+            for (String part : path.split("\\.")) {
+                current = current instanceof Map<?, ?> map ? map.get(part) : null;
+            }
+            if (current instanceof String || current instanceof Number) {
+                String token = String.valueOf(current).trim();
+                if (!token.isEmpty() && token.length() <= 4096 && !token.contains("\r") && !token.contains("\n")) {
+                    return token;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String loginMessage(Object parsedBody) {
+        if (!(parsedBody instanceof Map<?, ?> body)) return null;
+        for (String key : List.of("message", "msg", "resultMsg", "errmsg", "errorMessage", "error")) {
+            if (body.get(key) instanceof String text && !text.isBlank()) {
+                return text.length() > 100 ? text.substring(0, 100) : text;
+            }
+        }
+        return null;
+    }
+
+    private record LoginToken(String token, String failure, long expiresAt) {
     }
 
     private ResolvedTarget resolveAndValidate(String rawUri, boolean redirect) {

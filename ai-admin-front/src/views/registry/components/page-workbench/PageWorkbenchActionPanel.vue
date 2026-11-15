@@ -17,6 +17,7 @@ import {
   pageWorkbenchHumanText,
   pageWorkbenchRiskLabel,
 } from '@/utils/pageWorkbenchPresentation'
+import PageActionEffectReviewDialog from './PageActionEffectReviewDialog.vue'
 
 const props = defineProps<{
   page: ProjectPage
@@ -28,6 +29,7 @@ const emit = defineEmits<{
 }>()
 
 const selectedActionId = ref<number | null>(null)
+const reviewOpen = ref(false)
 
 watch(
   [
@@ -65,7 +67,7 @@ function isWriteAction(action: ProjectPageAction) {
 function actionExecutionText(action: ProjectPageAction) {
   return isWriteAction(action)
     ? `写操作 · ${action.confirmRequired ? '执行前确认' : '确认规则待补全'}`
-    : '只读操作 · 无需确认'
+    : '只读声明 · 确认要求以运行时为准'
 }
 
 function actionSourceText(action: ProjectPageAction) {
@@ -164,7 +166,7 @@ function actionSourceText(action: ProjectPageAction) {
             <p>{{ pageWorkbenchHumanText(selectedAction.description, '当前操作尚未提供中文说明。') }}</p>
             <dl>
               <div><dt>操作类型</dt><dd>{{ selectedAction.actionType }}</dd></div>
-              <div><dt>执行确认</dt><dd>{{ selectedAction.confirmRequired ? '必须由用户确认' : '无需额外确认' }}</dd></div>
+              <div><dt>目录确认声明</dt><dd>{{ selectedAction.confirmRequired ? '需要用户确认' : '未声明确认；以运行时为准' }}</dd></div>
               <div><dt>权限键</dt><dd>{{ selectedAction.permissionKey || '未单独声明' }}</dd></div>
               <div><dt>实现引用</dt><dd>{{ selectedAction.implementationRef || '尚未同步' }}</dd></div>
             </dl>
@@ -177,6 +179,7 @@ function actionSourceText(action: ProjectPageAction) {
         <footer>
           <span><el-icon><Lock /></el-icon>SDK 与扫描操作由来源同步；此处只维护手动操作。</span>
           <div>
+            <el-button @click="reviewOpen = true">审核操作效果</el-button>
             <el-button :icon="EditPen" @click="emit('edit', page)">维护手动操作</el-button>
             <el-button type="primary" :icon="VideoPlay" @click="emit('debug', page, selectedAction)">在真实页面调试</el-button>
           </div>
@@ -191,5 +194,11 @@ function actionSourceText(action: ProjectPageAction) {
         <p>登记后即可在 AI 实施和调试验证中使用，不需要先进入独立操作页面。</p>
       </div>
     </div>
+    <PageActionEffectReviewDialog
+      v-model="reviewOpen"
+      :project-code="page.projectCode"
+      :page-key="page.pageKey"
+      :action-key="selectedAction?.actionKey || ''"
+    />
   </section>
 </template>

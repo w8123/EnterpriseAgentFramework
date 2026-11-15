@@ -104,6 +104,11 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
     }
 
     @Override
+    public boolean allowsAcceptanceTraceSelection() {
+        return BROWSER_ACCEPTANCE.equals(taskKind);
+    }
+
+    @Override
     public TaskContract contract() {
         return contract;
     }
@@ -196,8 +201,8 @@ final class PageWorkbenchTaskProvider implements AiCodingTaskKindProvider {
                 requiredChecks
                         .add("Return the exact Runtime traceId produced by the accepted browser scenario when available.")
                         .add("When the target Workflow contains INTERACTION/PRESENT_OUTPUT, verify the real SSE contains ui.requested and verify an actual list_card/output_card/card/detail DOM is visible with the business result; report both facts in structuredPresentation.")
-                        .add("If the current page exposes an ACTIVE write action, exercise at least one confirmation-gated write through the real assistant, verify the persisted result, and restore the original business state before submitting the artifact.")
-                        .add("Record whether state restoration was required, whether it passed, and concrete evidence in stateRestoration. A report with an un-restored mutation cannot pass.");
+                        .add("For an ACTIVE write action, verify the real confirmation-gated behavior and its actual effect. A form-fill-only action must be verified in the page without submitting or claiming a persisted change; do not treat the WRITE risk level alone as proof of persistence. Execute persistent business mutations only within the user's authorized scope.")
+                        .add("Record whether a persistent mutation actually required restoration, whether restoration passed, and concrete evidence in stateRestoration; for a form-fill-only action record required=false and evidence that no save occurred. An un-restored mutation cannot pass.");
             }
         }
         root.putObject("instructions")

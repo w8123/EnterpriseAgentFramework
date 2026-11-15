@@ -7,6 +7,21 @@ import java.util.Locale;
 public final class KnowledgeBaseSettings {
     private KnowledgeBaseSettings() { }
 
+    public static final String SOURCE_LOCAL = "LOCAL";
+    public static final String SOURCE_EXTERNAL = "EXTERNAL";
+
+    /** External knowledge bases keep their content in another system and are searched through a connector. */
+    public static boolean isExternal(KnowledgeBase kb) {
+        return kb != null && SOURCE_EXTERNAL.equalsIgnoreCase(kb.getSourceType());
+    }
+
+    /** File upload, chunk import and re-embedding only exist for knowledge bases stored in ReachAI. */
+    public static void requireLocal(KnowledgeBase kb) {
+        if (isExternal(kb)) {
+            throw new IllegalArgumentException("这是外部知识库，内容请在外部系统里维护，这里不能上传文件或修改段落");
+        }
+    }
+
     public static String requireVectorCollectionName(KnowledgeBase kb) {
         if (kb == null || kb.getVectorCollectionName() == null || kb.getVectorCollectionName().isBlank()) {
             throw new IllegalStateException("知识库缺少物理向量集合身份");

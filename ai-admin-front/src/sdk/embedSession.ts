@@ -1,6 +1,8 @@
 import type { EafPageBridge } from './eafPageBridge'
 
 const SDK_VERSION = '1.0.0-SNAPSHOT'
+/** Reserved transport capability, not an application-provided action. */
+export const DOCUMENT_NAVIGATION_CAPABILITY = '__reachai.document-navigation.v1'
 
 export interface EafPageDescriptor {
   pageKey: string
@@ -30,7 +32,9 @@ export function buildEafChatSessionPayload(bridge: EafPageBridge, page?: EafPage
     pageKey: page?.pageKey,
     pageInstanceId: bridge.pageInstanceId,
     route: bridge.route || (typeof location !== 'undefined' ? location.pathname : '/'),
-    bridgeActions: bridge.registeredActions,
+    bridgeActions: bridge.documentNavigation
+      ? [...bridge.registeredActions, DOCUMENT_NAVIGATION_CAPABILITY]
+      : bridge.registeredActions,
     sdkVersion: SDK_VERSION,
   }
 }

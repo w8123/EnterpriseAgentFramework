@@ -110,6 +110,46 @@ describe('createAgentDebugTransport', () => {
 describe('createEmbedTransport', () => {
   const originalFetch = globalThis.fetch
 
+  it('restores authorized history in order, including across an empty page', async () => {
+    const pages = [
+      { epoch: '7', messages: [{ id: 3, role: 'assistant', text: 'answer', createdAt: '2026-01-01T00:00:03' }], nextBeforeId: 3 },
+      { epoch: '7', messages: [], nextBeforeId: 2 },
+      { epoch: '7', messages: [{ id: 1, role: 'user', text: 'question', createdAt: '2026-01-01T00:00:01' }], nextBeforeId: null },
+    ]
+    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ data: pages.shift() }), { status: 200 }))
+    const transport = createEmbedTransport({ apiBase: '/embed', tokenProvider: () => 'target-token',
+      getSessionId: () => 'same-session', setSessionId: () => {}, fetchImpl, restoreHistory: true })
+    const snapshot = await transport.restoreSession!()
+    expect(snapshot?.messages.map(message => message.blocks[0])).toMatchObject([
+      { type: 'text', text: 'question' }, { type: 'text', text: 'answer' },
+    ])
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toContain('beforeId=3')
+    expect(String(fetchImpl.mock.calls[1]?.[0])).toContain('expectedEpoch=7')
+    transport.dispose()
+  })
+
+  it('discards a restore when the history epoch changes between pages', async () => {
+    const pages = [
+      { epoch: '7', messages: [{ id: 3, role: 'user', text: 'old', createdAt: '2026-01-01T00:00:03' }], nextBeforeId: 3 },
+      { epoch: '8', messages: [], nextBeforeId: null },
+    ]
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ data: pages.shift() }), { status: 200 }))
+    const transport = createEmbedTransport({ apiBase: '/embed', tokenProvider: () => 'target-token',
+      getSessionId: () => 'same-session', setSessionId: () => {}, fetchImpl, restoreHistory: true })
+    await expect(transport.restoreSession!()).rejects.toThrow('history changed')
+    transport.dispose()
+  })
+
+  it('does not restore history when authorization is denied', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 403 }))
+    const transport = createEmbedTransport({ apiBase: '/embed', tokenProvider: () => 'target-token',
+      getSessionId: () => 'same-session', setSessionId: () => {}, fetchImpl, restoreHistory: true })
+    await expect(transport.restoreSession!()).rejects.toThrow('HTTP 403')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    transport.dispose()
+  })
+
   it.each(['network', 'http', 'eof', 'broken'])('reports an unconfirmed outcome without resending after %s', async (mode) => {
     const encoder = new TextEncoder()
     const fetchImpl = vi.fn(async () => {

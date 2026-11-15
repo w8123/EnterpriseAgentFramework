@@ -1,4 +1,4 @@
-export type BusinessSsoPresetKey = 'yudao' | 'oidc'
+export type BusinessSsoPresetKey = 'yudao' | 'oidc' | 'password'
 
 interface PresetValues {
   authorizeUrl: string
@@ -8,6 +8,12 @@ interface PresetValues {
   userIdPath: string
   userNamePath: string
   headers: string
+  mode: 'OAUTH' | 'PASSWORD'
+  loginContentType?: 'JSON' | 'FORM'
+  loginBody?: string
+  tokenPath?: string
+  tokenHeader?: string
+  tokenPrefix?: string
   code?: string
   label?: string
   projectCode?: string
@@ -44,6 +50,7 @@ export const businessSsoPresets: Record<BusinessSsoPresetKey, BusinessSsoPreset>
         userIdPath: 'data.id',
         userNamePath: 'data.nickname',
         headers: 'tenant-id: 1',
+        mode: 'OAUTH',
       }
     },
   },
@@ -60,6 +67,29 @@ export const businessSsoPresets: Record<BusinessSsoPresetKey, BusinessSsoPreset>
         userIdPath: 'sub',
         userNamePath: 'name',
         headers: '',
+        mode: 'OAUTH',
+      }
+    },
+  },
+  password: {
+    label: '只有登录接口',
+    hint: '业务系统不用做任何改动：员工在 ReachAI 登录页输入业务系统的账号密码，ReachAI 调业务系统自己的登录接口验证，不保存密码。',
+    fill: (origin) => {
+      const base = trimOrigin(origin) || 'https://业务系统地址'
+      return {
+        authorizeUrl: '',
+        tokenUrl: `${base}/login`,
+        userInfoUrl: '',
+        scope: '',
+        userIdPath: '',
+        userNamePath: '',
+        headers: '',
+        mode: 'PASSWORD',
+        loginContentType: 'JSON',
+        loginBody: '{"username":"{{username}}","password":"{{password}}"}',
+        tokenPath: 'data.token',
+        tokenHeader: 'Authorization',
+        tokenPrefix: 'Bearer ',
       }
     },
   },

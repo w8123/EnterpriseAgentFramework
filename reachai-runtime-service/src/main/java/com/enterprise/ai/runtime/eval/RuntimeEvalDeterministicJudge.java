@@ -77,8 +77,17 @@ class RuntimeEvalDeterministicJudge {
         for (String fragment : stringList(expected.get("answerNotContains"))) {
             check(checks, "answerNotContains:" + fragment, true, !answer.contains(fragment));
         }
+        List<String> anyOf = stringList(expected.get("answerContainsAny"));
+        if (!anyOf.isEmpty()) {
+            check(checks, "answerContainsAny", true, anyOf.stream().anyMatch(answer::contains));
+        }
 
         Map<String, Object> metadata = json.map(response.get("metadata"));
+        if (expected.containsKey("usedBusinessData")) {
+            // The answer came from the business system (a capability call or a Workflow), not from the model alone.
+            boolean used = number(metadata.get("capabilityCallCount")) + number(metadata.get("workflowCallCount")) > 0;
+            check(checks, "usedBusinessData", booleanValue(expected.get("usedBusinessData"), true), used);
+        }
         minimum(checks, expected, metadata, "minWorkflowCalls", "workflowCallCount");
         maximum(checks, expected, metadata, "maxWorkflowCalls", "workflowCallCount");
         minimum(checks, expected, metadata, "minPlanCount", "planCount");
@@ -91,6 +100,11 @@ class RuntimeEvalDeterministicJudge {
         if (expected.containsKey("interactionPending")) {
             check(checks, "interactionPending", booleanValue(expected.get("interactionPending"), false),
                     Boolean.TRUE.equals(metadata.get("interactionPending")));
+        }
+        if (expected.containsKey("capabilityLastCallFailed")) {
+            // Absent means no capability call failed, so runs that never report it are not punished.
+            check(checks, "capabilityLastCallFailed", booleanValue(expected.get("capabilityLastCallFailed"), false),
+                    Boolean.TRUE.equals(metadata.get("capabilityLastCallFailed")));
         }
         json.map(expected.get("metadataEquals")).forEach((name, value) ->
                 check(checks, "metadata." + name, value, metadata.get(name)));
@@ -127,6 +141,10 @@ class RuntimeEvalDeterministicJudge {
                 .orElse("Deterministic assertions failed");
         return new ScoreResult(key, type, score, allPassed, weight, required, reason,
                 Map.of("checks", List.copyOf(checks), "passedCount", passed, "checkCount", checks.size()));
+    }
+
+    private static long number(Object value) {
+        return value instanceof Number number ? number.longValue() : 0L;
     }
 
     private String stepEvidence(Map<String, Object> step, String key) {

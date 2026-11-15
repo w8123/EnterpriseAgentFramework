@@ -16,6 +16,7 @@ export type BuiltinRendererKey =
   | 'list_card'
   | 'output_card'
   | 'page_action'
+  | 'approval_pending'
   | 'custom'
 
 export interface InteractionRendererContext {
@@ -45,6 +46,7 @@ const COMPONENT_TO_KIND: Record<string, BuiltinRendererKey> = {
   list_card: 'list_card',
   output_card: 'output_card',
   page_action: 'page_action',
+  approval_pending: 'approval_pending',
   custom: 'custom',
 }
 

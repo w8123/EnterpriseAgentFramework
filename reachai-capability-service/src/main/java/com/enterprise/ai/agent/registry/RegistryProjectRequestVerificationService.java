@@ -95,6 +95,7 @@ public class RegistryProjectRequestVerificationService {
                 || !("POST".equals(method) || "DELETE".equals(method))
                 || !(path.startsWith(INGRESS_PREFIX + project + "/biz-index/")
                     || ("POST".equals(method) && ("/api/embed/token/exchange".equals(path)
+                        || ("/api/activity-ingress/projects/" + project + "/events").equals(path)
                         || "/api/embed/token/business-session/revoke".equals(path))))
                 || path.contains("?") || path.contains("#") || path.contains("..")
                 || request.appKey().length() > 128 || request.nonce().length() > 128

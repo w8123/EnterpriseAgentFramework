@@ -118,6 +118,11 @@
             </div>
             <el-icon class="menu-icon"><component :is="entry.icon" /></el-icon>
             <span class="menu-label">{{ entry.label }}</span>
+            <span
+              v-if="entry.index === AI_APPROVALS_PATH && workflowApprovalCount > 0"
+              class="menu-badge"
+              :aria-label="`${workflowApprovalCount} 条待审批`"
+            >{{ workflowApprovalCount > 99 ? '99+' : workflowApprovalCount }}</span>
           </el-menu-item>
 
           <el-sub-menu
@@ -443,9 +448,12 @@ import { useProjectStore } from '@/store/project'
 import { usePageProjectScope } from '@/composables/usePageProjectScope'
 import { resolveActiveMenu, resolveOpenGroups } from './sidebarMenu'
 import RoleSwitchDialog from './RoleSwitchDialog.vue'
-import { findSidebarWorkspace, type SidebarWorkspaceKey } from './sidebarWorkspaces'
+import { AI_APPROVALS_PATH, findSidebarWorkspace, type SidebarWorkspaceKey } from './sidebarWorkspaces'
 import { useSidebarWorkspace } from '@/composables/useSidebarWorkspace'
+import { useWorkflowApprovalCount } from '@/composables/useWorkflowApprovalCount'
 import { useSidebarKeyboardNavigation } from './useSidebarKeyboardNavigation'
+
+const { count: workflowApprovalCount } = useWorkflowApprovalCount()
 
 const props = withDefaults(defineProps<{
   collapsed?: boolean
@@ -819,6 +827,20 @@ async function handleLogout() {
 </script>
 
 <style scoped lang="scss">
+.menu-badge {
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-danger, #f56c6c);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+
 /*
  * Glass Workbench v2 玻璃侧栏（对齐 Figma：浮动玻璃卡 + 分组标题 + 精致激活态）。
  * 标题/文字/图标/分隔消费全局语义角色；交互与激活态跟随 data-brand，

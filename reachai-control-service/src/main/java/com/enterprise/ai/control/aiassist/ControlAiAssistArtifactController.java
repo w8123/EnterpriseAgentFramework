@@ -37,6 +37,13 @@ public class ControlAiAssistArtifactController {
         return ControlGoSdkArtifactSupport.packageResponse(packageFilename, digest);
     }
 
+    @GetMapping("/php-sdk/{filename}")
+    public ResponseEntity<byte[]> downloadPhpSdk(@PathVariable("filename") String filename) throws IOException {
+        boolean digest = filename != null && filename.endsWith(".sha256");
+        String packageFilename = digest ? filename.substring(0, filename.length() - ".sha256".length()) : filename;
+        return ControlPhpSdkArtifactSupport.packageResponse(packageFilename, digest);
+    }
+
     @GetMapping("/node-sdk/{filename}")
     public ResponseEntity<byte[]> downloadNodeSdk(@PathVariable("filename") String filename) throws IOException {
         boolean digest = filename != null && filename.endsWith(".sha256");

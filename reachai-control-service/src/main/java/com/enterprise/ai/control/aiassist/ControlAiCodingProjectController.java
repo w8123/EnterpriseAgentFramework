@@ -1,6 +1,7 @@
 package com.enterprise.ai.control.aiassist;
 
 import com.enterprise.ai.control.client.capability.CapabilityProjectOnboardingClient;
+import com.enterprise.ai.control.aicoding.application.AiCodingTaskProperties;
 import com.enterprise.ai.control.client.runtime.RuntimeProxyClient;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,9 +34,13 @@ public class ControlAiCodingProjectController {
     private final RuntimeProxyClient runtimeClient;
     private final ControlProjectAgentProvisioningService provisioningService;
     private ControlAiCodingWorkflowAttachmentGateway attachmentGateway;
+    private AiCodingTaskProperties taskProperties = new AiCodingTaskProperties();
 
     @org.springframework.beans.factory.annotation.Autowired
     void setAttachmentGateway(ControlAiCodingWorkflowAttachmentGateway gateway) { this.attachmentGateway = gateway; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setTaskProperties(AiCodingTaskProperties properties) { this.taskProperties = properties; }
 
     public ControlAiCodingProjectController(CapabilityProjectOnboardingClient capabilityClient,
                                             RuntimeProxyClient runtimeClient,
@@ -284,7 +289,7 @@ public class ControlAiCodingProjectController {
         return new AiCodingGatewayEndpoints(
                 root + "/manifest",
                 root + "/onboarding-manifest",
-                baseUrl + "/api/ai-coding/handoffs/{handoffId}/activate",
+                taskProperties.isLegacyHandoffEnabled() ? baseUrl + "/api/ai-coding/handoffs/{handoffId}/activate" : null,
                 taskProtocol + "/context",
                 taskProtocol + "/heartbeat",
                 taskProtocol + "/events",

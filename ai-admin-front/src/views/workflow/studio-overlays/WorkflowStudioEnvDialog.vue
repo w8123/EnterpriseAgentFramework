@@ -52,6 +52,10 @@ function apply() {
       error.value = `名称「${name || '（空）'}」只能用字母、数字和下划线，且不能以数字开头`
       return
     }
+    if (name === 'reachaiTrustedPageDraft') {
+      error.value = '受限页面草稿标识由构建功能管理，请勿在环境变量中手动填写'
+      return
+    }
     if (SECRET_HINT.test(name)) {
       error.value = `「${name}」看起来是密钥，请改用 Workflow 凭据`
       return

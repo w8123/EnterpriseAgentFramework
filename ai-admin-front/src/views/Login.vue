@@ -178,13 +178,19 @@
 
         <div v-if="businessLogins.length" class="business-logins" aria-label="用业务系统账号登录">
           <span class="business-logins__divider">或者</span>
-          <a
-            v-for="item in businessLogins"
-            :key="item.code"
-            class="business-login-button"
-            :href="businessLoginStartUrl(item.code)"
-            >{{ businessLoginText(item.label) }}</a
-          >
+          <template v-for="item in businessLogins" :key="item.code">
+            <button
+              v-if="item.mode === 'PASSWORD'"
+              type="button"
+              class="business-login-button"
+              @click="openBusinessPassword(item)"
+            >
+              {{ businessLoginText(item.label) }}
+            </button>
+            <a v-else class="business-login-button" :href="businessLoginStartUrl(item.code)">{{
+              businessLoginText(item.label)
+            }}</a>
+          </template>
           <p class="business-logins__hint">员工直接用业务系统的账号进来，不用另外记 ReachAI 密码。</p>
         </div>
 
@@ -196,6 +202,33 @@
         </details>
       </section>
     </div>
+    <AppDialog
+      v-model="businessPassword.open"
+      :title="businessLoginText(businessPassword.label)"
+      width="420px"
+      description="输入你在这个业务系统里的账号和密码。ReachAI 只用它向业务系统核对一次身份，不会保存密码。"
+    >
+      <el-form label-position="top" @submit.prevent="submitBusinessPassword">
+        <el-form-item label="业务系统账号">
+          <el-input v-model="businessPassword.username" autocomplete="username" aria-label="业务系统账号" />
+        </el-form-item>
+        <el-form-item label="密码">
+          <el-input
+            v-model="businessPassword.password"
+            type="password"
+            show-password
+            autocomplete="current-password"
+            aria-label="密码"
+            @keyup.enter="submitBusinessPassword"
+          />
+        </el-form-item>
+        <p v-if="businessPassword.error" class="business-password-error" role="alert">{{ businessPassword.error }}</p>
+      </el-form>
+      <template #footer>
+        <el-button @click="businessPassword.open = false">取消</el-button>
+        <el-button type="primary" :loading="businessPassword.busy" @click="submitBusinessPassword">登录</el-button>
+      </template>
+    </AppDialog>
   </main>
 </template>
 
@@ -205,9 +238,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Collection, Connection, Cpu, Link, MagicStick, TrendCharts } from '@element-plus/icons-vue'
 import axios from 'axios'
+import AppDialog from '@/components/common/AppDialog.vue'
 import {
   applyPlatformLogin,
   businessLoginStartUrl,
+  businessPasswordLogin,
   listBusinessLoginButtons,
   loginPlatform,
   type BusinessLoginButton,
@@ -371,6 +406,36 @@ function businessLoginText(label: string) {
   const before = /^[A-Za-z0-9]/.test(name) ? ' ' : ''
   const after = /[A-Za-z0-9]$/.test(name) ? ' ' : ''
   return `用${before}${name}${after}账号登录`
+}
+
+/** 账号密码验证: the system has only a login API, so its account is typed here and checked by the system itself. */
+const businessPassword = reactive({ open: false, code: '', label: '', username: '', password: '', error: '', busy: false })
+
+function openBusinessPassword(item: BusinessLoginButton) {
+  Object.assign(businessPassword, { open: true, code: item.code, label: item.label, username: '', password: '', error: '' })
+}
+
+async function submitBusinessPassword() {
+  if (businessPassword.busy) return
+  if (!businessPassword.username.trim() || !businessPassword.password) {
+    businessPassword.error = '请输入账号和密码'
+    return
+  }
+  businessPassword.busy = true
+  businessPassword.error = ''
+  try {
+    const { data } = await businessPasswordLogin(businessPassword.code, businessPassword.username, businessPassword.password)
+    if (data?.location) {
+      businessPassword.password = ''
+      window.location.assign(data.location)
+      return
+    }
+    businessPassword.error = data?.message || '登录失败，请稍后再试'
+  } catch {
+    businessPassword.error = '登录失败，请检查网络后再试'
+  } finally {
+    businessPassword.busy = false
+  }
 }
 
 async function loadBusinessLogins() {
@@ -1232,7 +1297,16 @@ async function handleLogin() {
   content: '';
 }
 
+.business-password-error {
+  margin: 0;
+  color: var(--el-color-danger);
+  font-size: 13px;
+}
+
 .business-login-button {
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;

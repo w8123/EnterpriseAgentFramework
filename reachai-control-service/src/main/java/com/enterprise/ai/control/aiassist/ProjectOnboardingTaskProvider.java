@@ -144,9 +144,10 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         boolean python = "python".equals(selectedLanguage);
         boolean node = "node".equals(selectedLanguage);
         boolean go = "go".equals(selectedLanguage);
+        boolean php = "php".equals(selectedLanguage);
         implementation.put("secretEnvironmentVariable", csharp ? "ReachAI__AppSecret"
-                : python || node || go ? "REACHAI_APP_SECRET" : "REACHAI_REGISTRY_APP_SECRET");
-        if (csharp || python || node || go) {
+                : python || node || go || php ? "REACHAI_APP_SECRET" : "REACHAI_REGISTRY_APP_SECRET");
+        if (csharp || python || node || go || php) {
             implementation.putNull("secretSetupCommandTemplate");
         } else {
             implementation.put("secretSetupCommandTemplate",
@@ -161,7 +162,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         implementation.put("embedProxyPath", "/api/reachai/embed/**");
         implementation.put(
                 "embedTokenExchangeClient",
-                "Use the business-language SDK's token broker/client (Java: com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient; C#: the ASP.NET Core ReachAI SDK; Python: the FastAPI ReachAI SDK; Node: the Express ReachAI SDK; Go: the net/http ReachAI SDK). "
+                "Use the business-language SDK's token broker/client (Java: com.enterprise.ai.reach.spring.ReachAiEmbedTokenClient; C#: the ASP.NET Core ReachAI SDK; Python: the FastAPI ReachAI SDK; Node: the Express ReachAI SDK; Go: the net/http ReachAI SDK; PHP: the ReachAI PHP SDK for native PHP/Laravel/ThinkPHP). "
                         + "The business broker only resolves its authenticated user and forwards the SDK-owned page identity; "
                         + "do not reimplement ReachAI signing or wrapped response parsing.");
         implementation.put(
@@ -435,7 +436,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
                         observedAfter);
         String sdkLanguage = sdkLanguage(task, facts);
         facts = factsForLanguage(sdkLanguage, facts);
-        if ("python".equals(sdkLanguage) || "node".equals(sdkLanguage) || "go".equals(sdkLanguage)) {
+        if (Set.of("python", "node", "go", "php").contains(sdkLanguage)) {
             // The existing browser evidence is scoped to a project, not a specific SDK instance.
             e2eEvidence = EmbedConversationEvidence.pending(
                     "项目级 Embed 会话无法证明来自 " + sdkLanguage + " 实例，请另行完成真实浏览器验收。");
@@ -445,6 +446,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
             case "python" -> ControlPythonSdkArtifactSupport.integritySha256() != null;
             case "node" -> ControlNodeSdkArtifactSupport.integritySha256() != null;
             case "go" -> ControlGoSdkArtifactSupport.integritySha256() != null;
+            case "php" -> ControlPhpSdkArtifactSupport.integritySha256() != null;
             case "java" -> ControlJavaSdkArtifactSupport.integritySha256(
                     ControlJavaSdkArtifactSupport.CAPABILITY_SDK, "jar") != null
                     && ControlJavaSdkArtifactSupport.integritySha256(
@@ -464,7 +466,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
     }
 
     static Map<String, Object> factsForLanguage(String language, Map<String, Object> facts) {
-        if (!"python".equals(language) && !"node".equals(language) && !"go".equals(language)) return facts == null ? Map.of() : facts;
+        if (!Set.of("python", "node", "go", "php").contains(language)) return facts == null ? Map.of() : facts;
         Map<String, Object> scoped = new java.util.LinkedHashMap<>(facts == null ? Map.of() : facts);
         if (!language.equalsIgnoreCase(String.valueOf(scoped.get("sdkLanguage")))) {
             scoped.put("instanceExists", false);
@@ -498,6 +500,7 @@ public class ProjectOnboardingTaskProvider implements AiCodingTaskKindProvider {
         if ("python".equalsIgnoreCase(language.trim())) return "python";
         if ("node".equalsIgnoreCase(language.trim())) return "node";
         if ("go".equalsIgnoreCase(language.trim())) return "go";
+        if ("php".equalsIgnoreCase(language.trim())) return "php";
         return "unknown";
     }
 

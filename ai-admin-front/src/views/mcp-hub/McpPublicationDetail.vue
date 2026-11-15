@@ -173,11 +173,34 @@ async function reload() {
   try {
     const { data } = await getMcpPublication(publicationId.value)
     detail.value = data
+    void loadResolvedToolNames()
   } catch (error) {
     loadError.value = extractErrorMessage(error)
   } finally {
     loading.value = false
   }
+}
+
+// ── 对外工具名：没有别名时，AI 看到的是来源工具的真实名称 ──
+const resolvedToolNames = ref<Record<number, string>>({})
+
+async function loadResolvedToolNames() {
+  if (!detail.value?.items.some(item => !item.alias)) return
+  try {
+    const { data } = await resolveMcpPublicationPreview(publicationId.value, { quiet: true })
+    resolvedToolNames.value = Object.fromEntries((data ?? [])
+      .filter(row => row.resolvable && row.tool?.name)
+      .map(row => [row.itemId, row.tool!.name]))
+  } catch {
+    // 拿不到解析结果时退回显示来源方法名，不打扰用户。
+    resolvedToolNames.value = {}
+  }
+}
+
+/** 列表里显示的对外工具名：别名 → 解析出的真实名称 → 来源引用里的方法名。 */
+function exposedToolName(row: { id: number; alias?: string | null; sourceRef: string }) {
+  if (row.alias) return row.alias
+  return resolvedToolNames.value[row.id] ?? row.sourceRef.split(':').pop() ?? row.sourceRef
 }
 
 // ── 发布信息编辑 ──
@@ -529,7 +552,11 @@ function copyText(text: string) {
 // ── Tab 4：接入指引 ──
 const jsonrpcEndpoint = `${window.location.origin}/mcp`
 const manifestEndpoint = `${window.location.origin}/mcp/manifest`
-const publicationName = computed(() => detail.value?.publication.name ?? 'reachai')
+// 客户端配置里的服务名只能用英文字母、数字、下划线和连字符；中文名称换成 reachai-<编号>
+const publicationName = computed(() => {
+  const name = detail.value?.publication.name ?? ''
+  return /^[A-Za-z0-9_-]+$/.test(name) ? name : `reachai-${publicationId.value || 'mcp'}`
+})
 const sampleToolName = computed(() => {
   const fromPreview = previewRows.value?.find((row) => row.resolvable && row.tool)?.tool?.name
   return fromPreview ?? availableToolNames.value[0] ?? '<TOOL_NAME>'
@@ -700,8 +727,8 @@ onMounted(reload)
                 <el-table-column label="对外工具 / 说明" min-width="280">
                   <template #default="{ row }">
                     <div class="item-identity">
-                      <code v-if="row.alias">{{ row.alias }}</code>
-                      <strong v-else>沿用来源工具名</strong>
+                      <code>{{ exposedToolName(row) }}</code>
+                      <small v-if="!row.alias" class="item-identity__hint">沿用来源名称</small>
                       <span v-if="row.descriptionOverride">{{ row.descriptionOverride }}</span>
                     </div>
                   </template>
@@ -1380,6 +1407,11 @@ onMounted(reload)
   strong {
     color: var(--text-primary);
     font-weight: 600;
+  }
+
+  .item-identity__hint {
+    color: var(--text-tertiary, var(--text-secondary));
+    font-size: 11px;
   }
 
   span {

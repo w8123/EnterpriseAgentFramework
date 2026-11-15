@@ -8,6 +8,7 @@ import com.enterprise.ai.runtime.execution.TrustedControlTiming;
 import com.enterprise.ai.runtime.execution.RuntimeSupervisorApprovalPort;
 import com.enterprise.ai.runtime.execution.RuntimeSessionClearPort;
 import com.enterprise.ai.runtime.execution.RuntimeInteractionResumeService;
+import com.enterprise.ai.runtime.execution.RuntimeWorkflowApprovalService;
 import com.enterprise.ai.runtime.execution.RuntimeAgentRunLifecyclePort;
 import com.enterprise.ai.runtime.execution.RuntimeAgentExecutionCancellation;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
@@ -279,6 +280,24 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
         Map<String, Object> resumeRequest = new LinkedHashMap<>(body);
         Map<String, Object> result = interactionResumeService.resume(interactionId, resumeRequest, ownership);
         String resumeCode = text(result.get("code"));
+        if (RuntimeWorkflowApprovalService.PENDING_CODE.equals(resumeCode)) {
+            // Nothing ran: the named approvers have not decided yet. Keep the run open and the card as is.
+            Map<String, Object> pending = new LinkedHashMap<>();
+            pending.put("success", true);
+            pending.put("answer", text(result.get("answer")));
+            putIfPresent(pending, "sessionId", text(body.get("sessionId")));
+            putIfPresent(pending, "runId", text(result.get("runId")));
+            putIfPresent(pending, "traceId", text(result.get("traceId")));
+            Map<String, Object> metadata = new LinkedHashMap<>();
+            metadata.put("code", resumeCode);
+            metadata.put("interactionId", result.get("interactionId"));
+            metadata.put("interactionPending", true);
+            metadata.put("approvalPending", true);
+            metadata.put("status", WorkflowExecutionStatus.SUSPENDED.name());
+            pending.put("metadata", metadata);
+            if (result.get("uiRequest") != null) pending.put("uiRequest", result.get("uiRequest"));
+            return pending;
+        }
         if ("RUNTIME_INTERACTION_FORBIDDEN".equals(resumeCode)
                 || "RUNTIME_INTERACTION_EXPIRED".equals(resumeCode)
                 || "RUNTIME_INTERACTION_CONFLICT".equals(resumeCode)
@@ -508,7 +527,6 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                             "interactionId", interactionId,
                             "interactionPending", false));
                 } else {
-                    originalInput.put("agentId", decision.agentId());
                     originalInput.put("traceId", traceId);
                     originalInput.put("__resumeExistingTrace", true);
                     Long approvedConfig = decision.agentConfigVersionId();
@@ -518,6 +536,7 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
                     if (approvedContext.config() == null) {
                         throw new IllegalArgumentException("Approved Agent configuration is no longer available");
                     }
+                    originalInput.put("agentId", resumedAgentId(originalInput, approvedContext.agent(), decision.agentId(), trustedIdentity));
                     response = executeResolvedContext(originalInput, detailed, decision.grant(), eventSink, cancellation,
                             approvedContext, false, trustedIdentity, personalMemory);
                 }
@@ -842,4 +861,20 @@ public class RuntimeAgentExecutionService implements RuntimePublishedAgentExecut
     private String newTraceId() {
         return UUID.randomUUID().toString().replace("-", "");
     }
+    private String resumedAgentId(Map<String, Object> originalInput,
+            com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView pinnedAgent,
+            String pinnedAgentId, WorkflowExecutionIdentity trustedIdentity) {
+        if (trustedIdentity == null || trustedIdentity.source() != WorkflowExecutionIdentity.Source.EMBED_SESSION) {
+            return pinnedAgentId;
+        }
+        String saved = text(originalInput.get("agentId"));
+        if (!trustedIdentity.canResolveUserAcl() || pinnedAgent == null || !StringUtils.hasText(saved)
+                || !java.util.Objects.equals(pinnedAgent.id(), pinnedAgentId)
+                || !java.util.Objects.equals(pinnedAgent.projectCode(), trustedIdentity.projectCode())
+                || !(java.util.Objects.equals(saved, pinnedAgent.id()) || java.util.Objects.equals(saved, pinnedAgent.keySlug()))) {
+            throw new IllegalArgumentException("Invalid Embed Agent identity in approval checkpoint");
+        }
+        return saved;
+    }
+
 }

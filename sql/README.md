@@ -40,6 +40,10 @@ mysql --default-character-set=utf8mb4 -h localhost -u root -p < sql/initV2.sql
 - [upgrade-20261104-project-business-page-url.sql](upgrade-20261104-project-business-page-url.sql)：为项目增加可选的业务系统页面地址。
 - [upgrade-20261105-http-api-manual-source.sql](upgrade-20261105-http-api-manual-source.sql)：HTTP API 来源增加 MANUAL（页面手动填写、粘贴 curl、智能体通过 MCP 上传），只追加枚举值。
 - [upgrade-20261108-model-usage-cost.sql](upgrade-20261108-model-usage-cost.sql)：费用统计新增两张表（Runtime 每次调用模型的 Token、模型价格），不改已有表；先执行再换 Runtime / 模型服务。
+- [upgrade-20261109-knowledge-external-sources.sql](upgrade-20261109-knowledge-external-sources.sql)：外部知识库（RAGFlow / 腾讯 ima / Dify），knowledge_base 增加 source_type、external_provider、external_config、external_secret 四列；已有知识库视为本地。先执行再换知识服务。
+- [upgrade-20261109-activity-perception.sql](upgrade-20261109-activity-perception.sql)：主动感知新增三张 Control 表（员工操作记录、采集设置、AI 归纳结果），不改已有表；先执行再换 Control。
+- [upgrade-20261112-page-action-contract-hash.sql](upgrade-20261112-page-action-contract-hash.sql)：Control 页面动作事件新增可空目录摘要和草稿审核 pin 列；先核对实际结构并执行，再升级 Control。旧的未完成页面动作需要重新发起。
+- [upgrade-20261112-page-action-effect-review.sql](upgrade-20261112-page-action-effect-review.sql)：Control 新增页面动作效应审核与失效版本表；旧动作默认没有审核，不授予新权限。
 
 MySQL DDL 可能隐式提交。执行前核对目标与恢复路径；执行后回读表、列、索引、必要种子及中文，确认业务配置保留。升级完成不自动更新发布 pin、重启进程或证明业务验收通过。
 

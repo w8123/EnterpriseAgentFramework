@@ -4,6 +4,7 @@ import {
   createEafPageBridge,
   type PageActionRequest,
 } from './eafPageBridge'
+import { buildEafChatSessionPayload, DOCUMENT_NAVIGATION_CAPABILITY } from './embedSession'
 
 function request(partial: Partial<PageActionRequest> = {}): PageActionRequest {
   return {
@@ -19,6 +20,15 @@ function request(partial: Partial<PageActionRequest> = {}): PageActionRequest {
 }
 
 describe('createEafPageBridge pre-execution confirm', () => {
+  it('advertises document navigation only when explicitly enabled with a handler', () => {
+    const spa = createEafPageBridge({ onNavigate: () => {} })
+    const missingHandler = createEafPageBridge({ documentNavigation: true })
+    const document = createEafPageBridge({ documentNavigation: true, onNavigate: () => {} })
+    expect(buildEafChatSessionPayload(spa).bridgeActions).not.toContain(DOCUMENT_NAVIGATION_CAPABILITY)
+    expect(buildEafChatSessionPayload(missingHandler).bridgeActions).not.toContain(DOCUMENT_NAVIGATION_CAPABILITY)
+    expect(buildEafChatSessionPayload(document).bridgeActions).toContain(DOCUMENT_NAVIGATION_CAPABILITY)
+    expect(document.registeredActions).not.toContain(DOCUMENT_NAVIGATION_CAPABILITY)
+  })
   it('does not claim or run an action replaced while confirmation is open', async () => {
     let decide!: (accepted: boolean) => void
     const decision = new Promise<boolean>((resolve) => { decide = resolve })
@@ -145,6 +155,65 @@ describe('createEafPageBridge pre-execution confirm', () => {
     nativeConfirm.mockRestore()
   })
 
+  it('shows the full action and long parameters as text before execution', async () => {
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const value = `${'很长的内容'.repeat(150)}<img src=x onerror=alert(1)>末尾`
+    const pending = bridge.handleEvent(request({ confirm: true, args: { value } }))
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+    const displayed = dialog.querySelector<HTMLElement>('[aria-label="操作内容"]')!
+    expect(dialog.textContent).toContain('page.search.applyFilters')
+    expect(displayed.textContent).toContain(value)
+    expect(displayed.querySelector('img')).toBeNull()
+    expect(displayed.style.overflow).toBe('auto')
+    expect(displayed.tabIndex).toBe(0)
+    expect(handler).not.toHaveBeenCalled()
+    Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === '确认执行')!.click()
+    await expect(pending).resolves.toMatchObject({ status: 'SUCCESS' })
+    expect(handler).toHaveBeenCalledWith({ value }, expect.anything())
+  })
+
+  it('does not permit confirmation when the arguments cannot be displayed', async () => {
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const circular: Record<string, unknown> = {}
+    circular.self = circular
+    const pending = bridge.handleEvent(request({ confirm: true, args: circular }))
+    await expect(pending).resolves.toMatchObject({ status: 'FAILED' })
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('executes the displayed parameter snapshot even if the original request changes while confirming', async () => {
+    const handler = vi.fn()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', handler)
+    const original = request({ confirm: true, args: { profile: { nickname: '原值' } } })
+    const pending = bridge.handleEvent(original)
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+    expect(dialog.textContent).toContain('原值')
+    ;(original.args!.profile as Record<string, unknown>).nickname = '被改写'
+    original.args = { profile: { nickname: '另一个值' } }
+    original.actionKey = 'another.action'
+    Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === '确认执行')!.click()
+    await expect(pending).resolves.toMatchObject({ status: 'SUCCESS', actionKey: 'page.search.applyFilters' })
+    expect(handler).toHaveBeenCalledWith({ profile: { nickname: '原值' } }, expect.objectContaining({
+      actionKey: 'page.search.applyFilters', args: { profile: { nickname: '原值' } },
+    }))
+  })
+
+  it.each([undefined, NaN, Infinity, () => {}, Symbol('value')])(
+    'rejects arguments JSON would silently alter or omit', async (value) => {
+      const handler = vi.fn()
+      const bridge = createEafPageBridge()
+      bridge.registerAction('page.search.applyFilters', handler)
+      await expect(bridge.handleEvent(request({ confirm: true, args: { value } }))).resolves.toMatchObject({ status: 'FAILED' })
+      expect(handler).not.toHaveBeenCalled()
+    },
+  )
+
   it('returns USER_CANCELLED when the default confirmation is cancelled', async () => {
     const handler = vi.fn(async () => ({ ok: true }))
     const bridge = createEafPageBridge()
@@ -157,6 +226,27 @@ describe('createEafPageBridge pre-execution confirm', () => {
 
     await expect(pending).resolves.toMatchObject({ status: 'USER_CANCELLED' })
     expect(handler).not.toHaveBeenCalled()
+  })
+
+  it('keeps keyboard focus inside the default confirmation and restores it on cancel', async () => {
+    const origin = document.createElement('button')
+    document.body.append(origin)
+    origin.focus()
+    const bridge = createEafPageBridge()
+    bridge.registerAction('page.search.applyFilters', vi.fn())
+    const pending = bridge.handleEvent(request({ confirm: true }))
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]')!
+    const args = dialog.querySelector<HTMLElement>('[aria-label="操作内容"]')!
+    const confirm = Array.from(dialog.querySelectorAll('button')).find(button => button.textContent === '确认执行')!
+    expect(document.activeElement).toBe(confirm)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(args)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true }))
+    expect(document.activeElement).toBe(confirm)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await expect(pending).resolves.toMatchObject({ status: 'USER_CANCELLED' })
+    expect(document.activeElement).toBe(origin)
+    origin.remove()
   })
 
   it('closes the default confirmation when the client is disposed', async () => {

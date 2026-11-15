@@ -19,6 +19,34 @@ import static org.mockito.Mockito.when;
 
 class MilvusVectorServiceTest {
     @Test
+    void searchOnReleasedCollectionLoadsItAndRetriesOnce() {
+        var client = mock(MilvusServiceClient.class);
+        R<io.milvus.grpc.SearchResults> notLoaded = R.failed(io.milvus.grpc.ErrorCode.UnexpectedError, "collection not loaded");
+        R<io.milvus.grpc.SearchResults> ok = R.success(io.milvus.grpc.SearchResults.newBuilder()
+                .setResults(io.milvus.grpc.SearchResultData.newBuilder().setNumQueries(1).setTopK(0).addTopks(0)).build());
+        when(client.search(any(io.milvus.param.dml.SearchParam.class))).thenReturn(notLoaded, ok);
+        when(client.loadCollection(any())).thenReturn(R.success());
+        var results = new MilvusVectorService(client).search(com.enterprise.ai.vector.VectorSearchRequest.builder()
+                .collectionName("kb").queryVector(List.of(0.1f, 0.2f)).topK(3).build());
+        assertEquals(0, results.size());
+        verify(client).loadCollection(any());
+        verify(client, org.mockito.Mockito.times(2)).search(any(io.milvus.param.dml.SearchParam.class));
+    }
+
+    @Test
+    void searchStillFailingAfterLoadReportsTheFailure() {
+        var client = mock(MilvusServiceClient.class);
+        R<io.milvus.grpc.SearchResults> down = R.failed(io.milvus.grpc.ErrorCode.UnexpectedError, "down");
+        when(client.search(any(io.milvus.param.dml.SearchParam.class))).thenReturn(down);
+        when(client.loadCollection(any())).thenReturn(R.failed(io.milvus.grpc.ErrorCode.UnexpectedError, "down"));
+        var service = new MilvusVectorService(client);
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> service.search(
+                com.enterprise.ai.vector.VectorSearchRequest.builder()
+                        .collectionName("kb").queryVector(List.of(0.1f)).topK(3).build()));
+        verify(client, org.mockito.Mockito.times(2)).search(any(io.milvus.param.dml.SearchParam.class));
+    }
+
+    @Test
     void exactIdentityDeletionQuotesLegacyCharactersAsOneLiteral() throws Exception {
         var client = mock(MilvusServiceClient.class);
         when(client.delete(any(io.milvus.param.dml.DeleteParam.class))).thenReturn(R.success(MutationResult.newBuilder().build()));

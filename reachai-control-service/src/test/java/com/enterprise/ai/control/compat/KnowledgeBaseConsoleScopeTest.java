@@ -27,6 +27,7 @@ import static org.springframework.test.web.client.match.MockRestRequestMatchers.
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 class KnowledgeBaseConsoleScopeTest {
@@ -57,6 +58,33 @@ class KnowledgeBaseConsoleScopeTest {
                 .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("{\"code\":200}"));
         mvc.perform(post("/ai/knowledge/base").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"code\":\"kb\",\"name\":\"KB\",\"scope\":\"PROJECT\",\"projectCode\":\"orders\"}")
+                .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isOk());
+        knowledge.verify();
+    }
+
+    @Test
+    void externalConnectionTestsAndChangesNeedKnowledgeWrite() throws Exception {
+        // A fresh draft needs write in the scope it names.
+        mvc.perform(post("/ai/knowledge/external/test").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"provider\":\"RAGFLOW\",\"baseUrl\":\"http://10.0.0.5\",\"apiKey\":\"k\"}")
+                .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isForbidden());
+        // Re-using a saved key needs write on that base.
+        doReturn(ResponseEntity.status(403).build()).when(catalog).baseForWrite(session, "finance-kb");
+        mvc.perform(post("/ai/knowledge/external/test").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"provider\":\"RAGFLOW\",\"baseUrl\":\"http://10.0.0.5\",\"kbCode\":\"finance-kb\"}")
+                .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isForbidden());
+        mvc.perform(put("/ai/knowledge/base/finance-kb/external").contentType(MediaType.APPLICATION_JSON).content("{}")
+                .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isForbidden());
+
+        knowledge.expect(requestTo("http://knowledge/ai/knowledge/external/test")).andExpect(method(HttpMethod.POST))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("{\"code\":200,\"data\":[]}"));
+        knowledge.expect(requestTo("http://knowledge/ai/knowledge/base/orders-kb/external")).andExpect(method(HttpMethod.PUT))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("{\"code\":200}"));
+        mvc.perform(post("/ai/knowledge/external/test").contentType(MediaType.APPLICATION_JSON)
+                .content("{\"provider\":\"RAGFLOW\",\"baseUrl\":\"http://10.0.0.5\",\"apiKey\":\"k\",\"scope\":\"PROJECT\",\"projectCode\":\"orders\"}")
+                .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isOk());
+        doReturn(ResponseEntity.ok(Map.of("scope", "PROJECT"))).when(catalog).baseForWrite(session, "orders-kb");
+        mvc.perform(put("/ai/knowledge/base/orders-kb/external").contentType(MediaType.APPLICATION_JSON).content("{}")
                 .requestAttr(PlatformConsoleAuthInterceptor.SESSION_REQUEST_ATTRIBUTE, session)).andExpect(status().isOk());
         knowledge.verify();
     }

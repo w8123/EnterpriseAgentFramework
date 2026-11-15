@@ -153,6 +153,34 @@ class McpEmployeeProtocolServiceTest {
     }
 
     @Test
+    void platformEvalAccountReadsWithoutACallPermissionRule() {
+        connect(LocalDateTime.now().plusDays(1), "yudao-erp");
+        when(sync.activeAccount(eq("default"), eq(7L), eq("yudao-erp"))).thenReturn(Optional.of(new BusinessSystemAccount(
+                "yudao-erp", McpEmployeeProtocolService.PLATFORM_EVAL_USER, "ReachAI 评测账号",
+                List.of(McpEmployeeProtocolService.PLATFORM_EVAL_ROLE))));
+        when(sync.hasActiveOrigin(any(), any(), any(), any())).thenReturn(true);
+        when(acl.decide(any(), any(), any(), any(), any())).thenReturn("DENY");
+        when(gateway.executeAsEmployee(any())).thenReturn(new McpRuntimeExecutionGateway.ExecutionOutcome(
+                true, "OK", Map.of("data", List.of()), "9", "mcp_t", null));
+        var session = service.authenticate(KEY);
+
+        assertTrue(service.callTool(session, "erpStockPage", Map.of()).result().success());
+    }
+
+    @Test
+    void platformEvalAccountNeedsEmployeeAccessAndIsSyncedAsReadOnlyRole() {
+        assertEquals("MCP_EMPLOYEE_ACCESS_DISABLED", assertThrows(McpDomainException.class,
+                () -> service.ensurePlatformEvalAccount("default", "unknown-system")).code());
+
+        assertEquals("reachai-eval", service.ensurePlatformEvalAccount(null, "yudao-erp"));
+        ArgumentCaptor<BusinessUserSyncService.AttestedBusinessUser> user =
+                ArgumentCaptor.forClass(BusinessUserSyncService.AttestedBusinessUser.class);
+        verify(sync).sync(user.capture());
+        assertEquals("yudao-erp", user.getValue().appId());
+        assertEquals(List.of(McpEmployeeProtocolService.PLATFORM_EVAL_ROLE), user.getValue().roles());
+    }
+
+    @Test
     void allowedCallRunsAsTheEmployeesAccountInThatSystem() {
         AiToolConnection connection = connect(LocalDateTime.now().plusDays(1), "yudao-erp", "crm");
         when(acl.decide(eq(List.of("sales")), eq(3L), eq("crm"), eq("TOOL"), eq("crm.search")))

@@ -193,6 +193,15 @@ public class RuntimeWorkflowCredentialService {
     private Map<String, Object> mask(Map<String, Object> secret) {
         Map<String, Object> masked = new LinkedHashMap<>();
         secret.forEach((key, value) -> masked.put(key, maskValue(value)));
+        // How to sign in is settings an admin must be able to read back; only what is sent stays hidden.
+        if (secret.get(WorkflowCredentialTypes.LOGIN) instanceof Map<?, ?> login) {
+            Map<String, Object> shown = new LinkedHashMap<>();
+            login.forEach((key, value) -> shown.put(String.valueOf(key),
+                    "body".equals(key) ? maskValue(value) : value));
+            masked.put(WorkflowCredentialTypes.LOGIN, shown);
+            masked.remove("token");
+            masked.remove("apiKey");
+        }
         return masked;
     }
 

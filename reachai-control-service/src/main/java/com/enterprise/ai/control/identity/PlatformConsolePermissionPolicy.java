@@ -73,6 +73,8 @@ public final class PlatformConsolePermissionPolicy {
             // Projects and business capabilities (developers, project scoped in controllers).
             rule("/api/platform/registry-enrollments/**", List.of(PLATFORM_WRITE), List.of(PLATFORM_WRITE)),
             projectRule("/api/registry/projects/*/instances/**", List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
+            projectRule("/api/registry/projects/*/page-workbench/pages/*/actions/*/effect-review/**",
+                    List.of(EMBED_READ), List.of(EMBED_MANAGE)),
             projectRule("/api/registry/projects/*/page-workbench/**",
                     List.of(PLATFORM_READ), List.of(PLATFORM_WRITE)),
             // The bare project list feeds every project picker; callers without platform:read
@@ -111,6 +113,9 @@ public final class PlatformConsolePermissionPolicy {
             rule("/api/agents/**", List.of(AGENT_READ), List.of(AGENT_READ)),
             rule("/api/market/**", List.of(AGENT_READ), List.of(AGENT_PUBLISH)),
             rule("/api/runtime/evals/**", List.of(AGENT_EVALUATE), List.of(AGENT_EVALUATE)),
+            rule("/api/runtime/project-evals", List.of(AGENT_EVALUATE), List.of(AGENT_EVALUATE)),
+            rule("/api/runtime/project-evals/**", List.of(AGENT_EVALUATE), List.of(AGENT_EVALUATE)),
+            rule("/api/learned-flows/**", List.of(AGENT_READ), List.of(AGENT_READ)),
             rule("/api/runtime/agents/route-evaluation", List.of(AGENT_EVALUATE), List.of(AGENT_EVALUATE)),
             rule("/api/runtime/agents/sessions/**", List.of(AGENT_DEBUG), List.of(AGENT_DEBUG)),
             rule("/api/runtime/debug-sessions/**",

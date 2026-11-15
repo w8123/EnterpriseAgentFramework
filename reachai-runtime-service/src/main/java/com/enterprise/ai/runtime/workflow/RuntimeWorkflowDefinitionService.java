@@ -179,6 +179,17 @@ public class RuntimeWorkflowDefinitionService {
         return resourceBindingService.list(workflowId);
     }
 
+    /** Keep Studio's reviewed draft and target binding in the same locked transaction. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void ensureReviewedPageTarget(String workflowId, String pageKey) {
+        RuntimeWorkflowDefinitionEntity workflow = lockForWrite(workflowId);
+        RuntimeWorkflowEditingPolicy.requireUserEditable(workflow);
+        if (!WorkflowSemanticValues.KIND_PAGE_ASSISTANT.equals(workflow.getWorkflowKind())) {
+            throw new RuntimeWorkflowEditingException("WORKFLOW_PAGE_DRAFT_INVALID", "受限页面草稿只能用于页面副驾驶 Workflow");
+        }
+        resourceBindingService.ensureReviewedTarget(workflow, pageKey);
+    }
+
     @Transactional
     public RuntimeWorkflowDefinitionEntity update(String id,
                                                   RuntimeWorkflowDefinitionEntity update,

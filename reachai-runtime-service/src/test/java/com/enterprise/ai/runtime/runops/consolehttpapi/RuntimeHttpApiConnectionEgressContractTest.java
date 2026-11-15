@@ -49,7 +49,7 @@ class RuntimeHttpApiConnectionEgressContractTest {
                         .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsBytes(command)))
                 .andExpect(status().isConflict()).andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value(errorCode))
-                .andExpect(jsonPath("$.message").value("服务地址被 HTTP 出站策略拒绝，请由管理员核对目标主机白名单；连接未保存"));
+                .andExpect(jsonPath("$.message").value("服务地址是内网或本机地址，被出站策略拒绝，连接未保存。请平台管理员在「接口鉴权」里点「内网地址白名单」，把这个主机加进去，再保存一次"));
         verifyNoInteractions(mapper, credentials);
     }
 

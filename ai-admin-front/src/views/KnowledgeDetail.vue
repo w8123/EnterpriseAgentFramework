@@ -13,12 +13,15 @@
       <template #tags>
         <el-tag effect="plain" size="small">{{ kbCode }}</el-tag>
         <StatusTag :label="accessModeLabel(kbInfo?.accessMode)" :tone="kbInfo?.accessMode === 'FILE_GRANTS' ? 'warning' : 'success'" />
+        <StatusTag v-if="isExternal" :label="`外部 · ${kbInfo?.external?.providerName || kbInfo?.externalProvider}`" tone="warning" />
       </template>
       <template #meta>
         <div class="knowledge-header-meta">
           <MetricStrip presentation="inline" source="wallpaper" :items="knowledgeMetrics" aria-label="知识库指标" />
           <span class="knowledge-header-meta__text">
-            <template v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }} · </template>回答模型 {{ modelName(kbInfo?.llmModelInstanceId) }}
+            <template v-if="kbInfo?.projectCode">项目 {{ kbInfo.projectCode }} · </template>
+            <template v-if="isExternal">内容在 {{ kbInfo?.external?.providerName || kbInfo?.externalProvider }} 里维护，检索时实时调用</template>
+            <template v-else>回答模型 {{ modelName(kbInfo?.llmModelInstanceId) }}</template>
           </span>
         </div>
       </template>
@@ -55,8 +58,9 @@
     </LiquidGlassCard>
 
     <LiquidGlassTabs v-model="activeTab" source="wallpaper" class="knowledge-tabs">
-      <el-tab-pane label="文件" name="files">
-        <KnowledgeFilesTab :key="kbCode" :kb-code="kbCode" :kb="kbInfo" :active="activeTab === 'files'" @changed="refreshSummary" />
+      <el-tab-pane :label="isExternal ? '外部连接' : '文件'" name="files">
+        <ExternalKnowledgeConnectionTab v-if="isExternal" :kb-code="kbCode" :kb="kbInfo" @saved="fetchKbInfo" />
+        <KnowledgeFilesTab v-else-if="kbInfo" :key="kbCode" :kb-code="kbCode" :kb="kbInfo" :active="activeTab === 'files'" @changed="refreshSummary" />
       </el-tab-pane>
       <el-tab-pane label="检索测试" name="retrieval">
         <KnowledgeRetrievalTab :kb-code="kbCode" :kb="kbInfo" @recorded="hitsTabRef?.refresh()" />
@@ -91,6 +95,7 @@ import type { MetricStripItem } from '@/components/common/glassWorkbench'
 import { getKnowledgeList, getKnowledgeStats, getKnowledgeUsage } from '@/api/knowledge'
 import type { KnowledgeBase, KnowledgeStats, KnowledgeUsage } from '@/types/knowledge'
 import KnowledgeFilesTab from './knowledge/KnowledgeFilesTab.vue'
+import ExternalKnowledgeConnectionTab from './knowledge/ExternalKnowledgeConnectionTab.vue'
 import KnowledgeRetrievalTab from './knowledge/KnowledgeRetrievalTab.vue'
 import KnowledgeHitsTab from './knowledge/KnowledgeHitsTab.vue'
 import KnowledgeSettingsTab from './knowledge/KnowledgeSettingsTab.vue'
@@ -115,7 +120,10 @@ const hitsTabRef = ref<InstanceType<typeof KnowledgeHitsTab> | null>(null)
 const { loadModelNames, modelName } = useModelNames()
 
 const usage = computed(() => usageFor(usages.value, kbCode))
-const knowledgeMetrics = computed<MetricStripItem[]>(() => [
+const isExternal = computed(() => kbInfo.value?.sourceType === 'EXTERNAL')
+const knowledgeMetrics = computed<MetricStripItem[]>(() => isExternal.value ? [
+  { key: 'datasets', label: '远端库', value: kbInfo.value?.external?.datasets?.length ?? 0, tone: 'brand' },
+] : [
   { key: 'files', label: '文件', value: stats.value?.fileCount ?? 0 },
   { key: 'chunks', label: '段落', value: stats.value?.chunkCount ?? 0 },
   { key: 'active', label: '启用段落', value: stats.value?.activeChunkCount ?? 0 },

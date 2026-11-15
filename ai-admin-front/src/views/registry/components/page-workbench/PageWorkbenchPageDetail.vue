@@ -51,9 +51,12 @@ const props = defineProps<{
   journey?: PageAccessJourney | null
   findings?: PageAnalysisFinding[]
   task?: AiCodingTask | null
+  implementationTask?: AiCodingTask | null
   taskDetail?: AiCodingTaskDetail | null
   taskDetailLoading?: boolean
   tasks?: AiCodingTask[]
+  tasksLoading?: boolean
+  tasksLoadError?: string
   workflow?: PublishedPageWorkflow | null
   readiness?: PageIntegrationReadiness | null
   readinessLoading?: boolean
@@ -171,19 +174,24 @@ watch(retargetManualGoal, (value) => {
 })
 
 watch(() => props.task?.taskId, (taskId, previousTaskId) => {
-  if (previousTaskId && taskId !== previousTaskId) retargetMode.value = false
+  if (!props.busy && previousTaskId && taskId !== previousTaskId) retargetMode.value = false
 })
 
-watch(() => props.journey?.stage, (stage) => {
-  if (stage !== 'AI_IMPLEMENTATION') retargetMode.value = false
+watch(() => props.journey?.stage, () => {
+  if (!props.busy) retargetMode.value = false
 })
 
 const selectedFindings = computed(() => (props.findings || []).filter(
   (item) => item.status === 'KEPT',
 ))
 
+const goalTask = computed(() => props.implementationTask
+  || (props.task?.taskKind === 'CODE_IMPLEMENTATION' ? props.task : null))
+
+watch(() => goalTask.value?.taskId, () => { retargetMode.value = false })
+
 const currentGoalSelection = computed(() => readPageImplementationGoalSelection(
-  props.task,
+  goalTask.value,
   props.findings || [],
 ))
 
@@ -195,8 +203,18 @@ const goalsEditable = computed(() => !goalsLocked.value)
 
 const canAdjustImplementationTargets = computed(() => Boolean(
   goalsLocked.value
-    && props.task?.taskKind === 'CODE_IMPLEMENTATION'
+    && props.journey?.status !== 'UNAVAILABLE'
+    && !props.tasksLoadError
 ))
+
+const goalLockMessage = computed(() => {
+  if (props.tasksLoadError) return '活动记录加载失败，请刷新后再调整接入目标。'
+  if (!canAdjustImplementationTargets.value) return '当前状态暂不可用，请刷新后再调整接入目标。'
+  if (props.busy || props.tasksLoading) return '正在处理当前操作，请稍后调整接入目标。'
+  return goalTask.value
+    ? '点击“调整接入目标”修改；确认后将按新目标重新实施。'
+    : '点击“调整接入目标”，选择希望 AI 实施的页面改造。'
+})
 
 const goalHeading = computed(() => {
   if (retargetMode.value) return '调整接入目标'
@@ -306,7 +324,9 @@ const flowNavNodes = computed<FlowNavNode[]>(() => {
       || Boolean(stage && stage !== 'GOAL_SELECTION')
     ))
 
-  const goalsDone = !unavailable && completedSteps >= 1
+  const analysisWithoutImplementation = !goalTask.value
+    && ['PAGE_READONLY_ANALYSIS', 'PAGE_MAP_SCAN'].includes(props.task?.taskKind || journey?.activeTaskKind || '')
+  const goalsDone = !unavailable && completedSteps >= 1 && !analysisWithoutImplementation
   const implementationDone = !unavailable && completedSteps >= 3
   const diagnosticsDone = journeyComplete || readiness?.status === 'PASS'
   const debugDone = journeyComplete
@@ -575,10 +595,16 @@ function runPrimary() {
 }
 
 function beginRetarget() {
+  if (!canAdjustImplementationTargets.value || props.busy || props.tasksLoading) return
   const selection = currentGoalSelection.value
-  retargetManualGoal.value = selection.manualGoal
-  retargetManualGoalAdded.value = Boolean(selection.manualGoal)
-  retargetFindingIds.value = [...selection.findingIds]
+  const availableIds = new Set((props.findings || []).map((finding) => finding.id))
+  retargetFindingIds.value = selection.findingIds.filter((id) => availableIds.has(id))
+  retargetManualGoal.value = [
+    selection.manualGoal,
+    ...selection.items.filter((item) => item.source !== 'MANUAL'
+      && (!item.findingId || !availableIds.has(item.findingId))).map((item) => item.content),
+  ].filter(Boolean).join('\n')
+  retargetManualGoalAdded.value = Boolean(retargetManualGoal.value)
   retargetMode.value = true
 }
 
@@ -590,7 +616,7 @@ function cancelRetarget() {
 }
 
 function runRetarget() {
-  if (!props.journey) return
+  if (!props.journey || props.busy || props.tasksLoading || props.tasksLoadError || !canStartImplementation.value) return
   emit('retarget', props.page, props.journey, {
     manualGoal: activeManualGoalAdded.value ? activeManualGoal.value.trim() : '',
     findingIds: activeSelectedFindings.value.map((finding) => finding.id),
@@ -842,27 +868,24 @@ function openDiagnostics() {
         >
           <div>
             <h2>{{ goalHeading }}</h2>
-            <p v-if="retargetMode">已回填当前活动目标；确认前不会影响正在进行的 AI 实施。</p>
+            <p v-if="retargetMode">已回填可用的接入目标；确认前不会影响当前活动。</p>
+            <p v-if="!goalsLocked && tasksLoadError" role="alert">活动记录加载失败，请刷新后再确认接入目标。</p>
           </div>
           <div class="page-detail-goal-heading-actions">
-            <el-tooltip
-              v-if="goalsLocked && canAdjustImplementationTargets"
-              content="调整接入目标"
-              placement="top"
-              :show-after="200"
-            >
-              <el-button
-                :icon="EditPen"
-                plain
-                circle
-                type="success"
-                aria-label="调整接入目标"
-                :disabled="busy"
-                @click="beginRetarget"
-              />
-            </el-tooltip>
+            <el-button
+              v-if="canAdjustImplementationTargets"
+              :icon="EditPen"
+              plain
+              type="success"
+              aria-label="调整接入目标"
+              :disabled="busy || tasksLoading"
+              @click="beginRetarget"
+            >调整接入目标</el-button>
             <el-button v-if="retargetMode" :disabled="busy" @click="cancelRetarget">
               取消调整
+            </el-button>
+            <el-button v-if="!goalsLocked && tasksLoadError" :loading="busy || tasksLoading" @click="emit('refresh')">
+              刷新活动记录
             </el-button>
           </div>
         </header>
@@ -879,13 +902,16 @@ function openDiagnostics() {
                 v-if="goalsLocked"
                 class="target-source-locked"
                 role="status"
-                aria-label="当前活动目标已锁定"
+                :aria-label="goalTask ? '当前活动目标已锁定' : '尚未确认接入目标'"
               >
                 <span class="goal-lock-state" aria-hidden="true">
                   <el-icon><Lock /></el-icon>
                 </span>
-                <strong>当前活动目标已锁定</strong>
-                <small>如需修改，请点击右上角绿色编辑图标</small>
+                <strong>{{ goalTask ? '当前活动目标已锁定' : '尚未确认接入目标' }}</strong>
+                <small>{{ goalLockMessage }}</small>
+                <el-button v-if="tasksLoadError" :loading="busy || tasksLoading" @click="emit('refresh')">
+                  刷新活动记录
+                </el-button>
               </div>
               <template v-else>
               <section class="manual-target-section">
@@ -898,6 +924,7 @@ function openDiagnostics() {
                 <article>
                   <el-input
                     v-model="activeManualGoal"
+                    aria-label="人工描述接入目标"
                     type="textarea"
                     :rows="2"
                     placeholder="例如：查询当前用户可见的数据权限，并把结果显示在页面中"
@@ -1061,22 +1088,22 @@ function openDiagnostics() {
               </div>
               <div v-else class="onboarding-target-empty">
                 <el-icon><Aim /></el-icon><strong>尚未选择目标</strong
-                ><small>{{ goalsLocked ? '当前活动未返回可展示目标' : '从左侧添加' }}</small>
+                ><small>{{ goalsLocked ? goalLockMessage : '从左侧添加' }}</small>
               </div>
               <footer>
                 <el-button
                   type="primary"
-                  :loading="!goalsLocked && busy"
-                  :disabled="!goalsLocked && !canStartImplementation"
+                  :loading="!goalsLocked && (busy || tasksLoading)"
+                  :disabled="!goalsLocked && (busy || tasksLoading || Boolean(tasksLoadError) || !canStartImplementation)"
                   @click="runGoalsPrimaryAction"
                   >{{
                     goalsLocked
-                      ? '查看 AI 实施进度'
+                      ? '查看接入进度'
                       : (retargetMode ? '确认新目标并重新实施' : '确认并开始接入')
                   }}<el-icon><ArrowRight /></el-icon></el-button
                 ><small v-if="!goalsLocked">{{
                   retargetMode
-                    ? '确认后会取消当前活动并创建新的 AI 实施任务。'
+                    ? '确认时会说明需要结束的活动，并按新目标开始代码实施。'
                     : '默认交给 Codex；其他工具仍可从高级任务入口选择。'
                 }}</small>
               </footer>
@@ -1187,7 +1214,7 @@ function openDiagnostics() {
                   effect="plain"
                   >{{ pageWorkbenchRiskLabel(action.riskLevel) }}</el-tag
                 ><small
-                  >{{ action.confirmRequired ? '执行前必须确认' : '无需额外确认' }}</small
+                  >{{ action.confirmRequired ? '声明执行前确认' : '确认要求以运行时为准' }}</small
                 ></span
               >
             </article>

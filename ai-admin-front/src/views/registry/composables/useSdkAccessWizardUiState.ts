@@ -2,7 +2,7 @@ import { reactive, ref } from 'vue'
 import type { SdkAccessWizardManualChecks, SdkAccessWizardStepKey } from './useSdkAccessWizardProgress'
 
 export type SdkAccessMode = 'manual' | 'ai-coding'
-export type SdkAccessLanguage = 'java' | 'csharp' | 'python' | 'node' | 'go'
+export type SdkAccessLanguage = 'java' | 'csharp' | 'python' | 'node' | 'go' | 'php'
 
 export const sdkAccessLanguageOptions = [
   { value: 'java', label: 'Java / Spring' },
@@ -10,6 +10,7 @@ export const sdkAccessLanguageOptions = [
   { value: 'python', label: 'Python / FastAPI' },
   { value: 'node', label: 'Node.js / Express' },
   { value: 'go', label: 'Go / net/http' },
+  { value: 'php', label: 'PHP / Laravel / ThinkPHP' },
 ] as const satisfies ReadonlyArray<{ value: SdkAccessLanguage; label: string }>
 
 export function useSdkAccessWizardUiState() {

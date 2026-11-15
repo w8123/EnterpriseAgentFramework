@@ -127,6 +127,8 @@ export async function logoutPlatform() {
 export interface BusinessLoginButton {
   code: string
   label: string
+  /** OAUTH: jump to the system's own login page. PASSWORD: type the system account here. */
+  mode?: 'OAUTH' | 'PASSWORD'
 }
 
 export interface BusinessSsoProviderView {
@@ -143,6 +145,15 @@ export interface BusinessSsoProviderView {
   userNamePath?: string
   extraHeaders: Record<string, string>
   active: boolean
+  mode?: 'OAUTH' | 'PASSWORD'
+  loginContentType?: 'JSON' | 'FORM'
+  loginBody?: string
+  tokenPath?: string
+  tokenHeader?: string
+  tokenPrefix?: string
+  defaultRole?: string
+  /** 「用员工自己的令牌调用」：OFF 不用，PREFERRED 优先用，REQUIRED 只用员工自己的 */
+  employeeToken?: 'OFF' | 'PREFERRED' | 'REQUIRED'
 }
 
 export interface BusinessSsoProviderList {
@@ -154,17 +165,34 @@ export interface BusinessSsoProviderList {
 export interface BusinessSsoProviderCommand {
   label: string
   projectCode: string
-  authorizeUrl: string
+  authorizeUrl?: string
   tokenUrl: string
-  userInfoUrl: string
-  clientId: string
+  userInfoUrl?: string
+  clientId?: string
+  mode?: 'OAUTH' | 'PASSWORD'
+  loginContentType?: 'JSON' | 'FORM'
+  loginBody?: string
+  tokenPath?: string
+  tokenHeader?: string
+  tokenPrefix?: string
+  defaultRole?: string
+  employeeToken?: 'OFF' | 'PREFERRED' | 'REQUIRED'
   /** Empty keeps the stored secret. */
   clientSecret?: string
   scope?: string
-  userIdPath: string
+  userIdPath?: string
   userNamePath?: string
   extraHeaders: Record<string, string>
   active: boolean
+}
+
+/** 账号密码验证: ReachAI asks the business system's login API; answers where to go or why it was refused. */
+export function businessPasswordLogin(code: string, username: string, password: string) {
+  return controlRequest.post<{ location?: string; message?: string }>(
+    `/api/platform/auth/sso/${encodeURIComponent(code)}/password`,
+    { username, password },
+    { platformAuthFailure: 'ignore', errorFeedback: 'local' },
+  )
 }
 
 export function listBusinessLoginButtons() {

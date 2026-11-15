@@ -8,6 +8,7 @@ export const sdkGuideUrls = {
   python: `${repositoryDocsUrl}/reachai-python/README.md`,
   node: `${repositoryDocsUrl}/reachai-node/README.md`,
   go: `${repositoryDocsUrl}/reachai-go/README.md`,
+  php: `${repositoryDocsUrl}/reachai-php/README.md`,
 }
 
 export type AiOnboardingStepStatus =

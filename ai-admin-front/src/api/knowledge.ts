@@ -12,6 +12,9 @@ import type {
   KnowledgeOpsDashboard,
   KnowledgeQaAttachResult,
   KnowledgeUsage,
+  ExternalKnowledgeProvider,
+  ExternalKnowledgeConnectionForm,
+  ExternalKnowledgeDataset,
 } from '@/types/knowledge'
 import type { ApiResult } from '@/types/import'
 import type { DocumentImportJob } from '@/types/import'
@@ -42,6 +45,27 @@ export function getKnowledgeList() {
 
 export function createKnowledge(data: KnowledgeBaseForm) {
   return request.post<ApiResult<void>>('/knowledge/base', data)
+}
+
+// ==================== 外部知识库 ====================
+
+export function getExternalKnowledgeProviders() {
+  return request.get<ApiResult<ExternalKnowledgeProvider[]>>('/knowledge/external/providers')
+}
+
+/** 测试连接并列出远端可选的库；连接失败时返回 code≠200 和中文原因。 */
+export function testExternalKnowledge(data: ExternalKnowledgeConnectionForm) {
+  return request.post<ApiResult<ExternalKnowledgeDataset[]>>('/knowledge/external/test', data, {
+    timeout: 60000,
+    errorFeedback: 'local',
+  })
+}
+
+export function updateExternalKnowledge(code: string, data: ExternalKnowledgeConnectionForm) {
+  return request.put<ApiResult<void>>(`/knowledge/base/${encodeURIComponent(code)}/external`, data, {
+    timeout: 60000,
+    errorFeedback: 'local',
+  })
 }
 
 export function deleteKnowledge(code: string) {

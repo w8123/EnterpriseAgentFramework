@@ -12,6 +12,10 @@ import java.util.Optional;
 @Repository
 public class MybatisMcpCallLogReader implements McpCallLogReader {
 
+    static final String TOOL_CALL_METHOD = "tools/call";
+    /** 查审批进度只是轮询，不是员工让 AI 办的事。 */
+    static final String APPROVAL_STATUS_TOOL = "reachai_approval_status";
+
     private final McpCallLogMapper callLogMapper;
 
     public MybatisMcpCallLogReader(McpCallLogMapper callLogMapper) {
@@ -56,6 +60,10 @@ public class MybatisMcpCallLogReader implements McpCallLogReader {
         }
         var query = Wrappers.<McpCallLogEntity>lambdaQuery()
                 .in(McpCallLogEntity::getConnectionId, connectionIds)
+                // 员工看的是「AI 替我办了哪些事」：握手、工具列表、传输层错误这些协议行不算。
+                .eq(McpCallLogEntity::getMethod, TOOL_CALL_METHOD)
+                .isNotNull(McpCallLogEntity::getToolName)
+                .ne(McpCallLogEntity::getToolName, APPROVAL_STATUS_TOOL)
                 .orderByDesc(McpCallLogEntity::getId)
                 .last("LIMIT " + Math.max(1, Math.min(limit, 200)));
         return callLogMapper.selectList(query).stream().map(this::toEntry).map(Entry::withoutBodies).toList();

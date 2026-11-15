@@ -33,6 +33,11 @@ public class RuntimeWorkflowManagementService {
         return definitions.listResourceBindings(workflowId);
     }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void ensureReviewedPageTarget(String workflowId, String pageKey) {
+        definitions.ensureReviewedPageTarget(workflowId, pageKey);
+    }
+
     public Optional<RuntimeWorkflowDefinitionView> findById(String workflowId) {
         return definitions.findById(workflowId).map(RuntimeWorkflowDefinitionView::fromEntity);
     }

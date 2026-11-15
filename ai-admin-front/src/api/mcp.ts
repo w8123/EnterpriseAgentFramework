@@ -1,5 +1,9 @@
 import { controlRequest } from './request'
 import type {
+  ActivityInsight,
+  ActivityInsightGeneration,
+  ActivityReport,
+  ActivitySetting,
   AiCostReport,
   AiUsageReport,
   McpWriteApproval,
@@ -62,8 +66,9 @@ export function removeMcpPublicationItem(publicationId: number, itemId: number) 
   return controlRequest.delete<{ ok: boolean }>(`${ROOT}/publications/${publicationId}/items/${itemId}`)
 }
 
-export function resolveMcpPublicationPreview(publicationId: number) {
-  return controlRequest.post<McpResolvePreviewRow[]>(`${ROOT}/publications/${publicationId}/resolve-preview`)
+export function resolveMcpPublicationPreview(publicationId: number, options: { quiet?: boolean } = {}) {
+  return controlRequest.post<McpResolvePreviewRow[]>(`${ROOT}/publications/${publicationId}/resolve-preview`, undefined,
+    options.quiet ? { errorFeedback: 'local' } : undefined)
 }
 
 export function precheckMcpPublication(publicationId: number) {
@@ -174,6 +179,64 @@ export function getAiUsageReport(params?: { days?: number; projectCode?: string 
 
 export function getAiCostReport(params?: { days?: number; projectCode?: string }, signal?: AbortSignal) {
   return controlRequest.get<AiCostReport>(`${ROOT}/usage/cost`, { params, signal, errorFeedback: 'local' })
+}
+
+/** 推理与流程：业务系统内的助手按回答方式统计的次数、平均耗时和 Token。 */
+export interface AiDecisionRouteRow {
+  route: 'REASONING' | 'FLOW' | 'CHAT' | string
+  runs: number
+  avgLatencyMs: number
+  avgTokens: number
+  totalTokens: number
+}
+
+export function getAiDecisionRoutes(params: { days?: number; projectCode?: string }, signal?: AbortSignal) {
+  return controlRequest.get<AiDecisionRouteRow[]>(`${ROOT}/usage/routes`, { params, signal, errorFeedback: 'local' })
+}
+
+/** 主动感知：员工在业务系统里的操作、搜索和失败。 */
+export function getActivityReport(params: { days?: number; projectCode?: string }, signal?: AbortSignal) {
+  return controlRequest.get<ActivityReport>(`${ROOT}/usage/activity`, { params, signal, errorFeedback: 'local' })
+}
+
+export function getActivitySetting(projectCode: string) {
+  return controlRequest.get<ActivitySetting>(`${ROOT}/usage/activity/settings`, {
+    params: { projectCode },
+    errorFeedback: 'local',
+  })
+}
+
+export function updateActivitySetting(projectCode: string, data: Partial<ActivitySetting>) {
+  return controlRequest.put<ActivitySetting>(`${ROOT}/usage/activity/settings`, data, {
+    params: { projectCode },
+    errorFeedback: 'local',
+  })
+}
+
+export function getActivityInsights(projectCode: string) {
+  return controlRequest.get<ActivityInsight[]>(`${ROOT}/usage/activity/insights`, {
+    params: { projectCode },
+    errorFeedback: 'local',
+  })
+}
+
+export function generateActivityInsights(projectCode: string, data: { days?: number; modelInstanceId?: string }) {
+  return controlRequest.post<ActivityInsightGeneration>(`${ROOT}/usage/activity/insights/generate`, data, {
+    params: { projectCode },
+    errorFeedback: 'local',
+    timeout: 180000,
+  })
+}
+
+export function updateActivityInsight(
+  projectCode: string,
+  id: number,
+  data: { status?: string; title?: string; advice?: string; shortcutPrompt?: string },
+) {
+  return controlRequest.put<ActivityInsight>(`${ROOT}/usage/activity/insights/${id}`, data, {
+    params: { projectCode },
+    errorFeedback: 'local',
+  })
 }
 
 /** 审计记录 CSV；文件名和行数在响应头里。 */

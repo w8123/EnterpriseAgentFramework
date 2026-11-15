@@ -1,5 +1,5 @@
 import type { AiPromptScenario } from '../aiPromptScenarios'
-import { PLATFORM_PREAMBLE, PLATFORM_RULES } from '../promptHelpers'
+import { AI_CODING_TASK_RULES, PLATFORM_PREAMBLE, PLATFORM_RULES } from '../promptHelpers'
 
 const scenario: AiPromptScenario = {
   key: 'page-workbench',
@@ -24,6 +24,8 @@ const scenario: AiPromptScenario = {
 4. 执行中用 reachai_ai_coding_task_event 写真实进度，有歧义用 reachai_ai_coding_task_ask 提问，长时间构建前后调用 reachai_ai_coding_task_heartbeat。
 5. 在真实浏览器里自检页面动作，再用 reachai_ai_coding_task_artifact 提交结果。
 6. 返回 ACCEPTANCE_READY 或 COMPLETED 时告诉我「现在可以回到 ReachAI 验收」；其他状态如实说明。
+
+${AI_CODING_TASK_RULES}
 
 ${PLATFORM_RULES}`,
 }

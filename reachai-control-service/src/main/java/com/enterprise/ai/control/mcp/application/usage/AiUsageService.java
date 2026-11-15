@@ -135,8 +135,11 @@ public class AiUsageService {
             person.operation(row.projectCode(), row.toolName()).add(row.calls(), row.failed());
             ChannelAcc channelAcc = channels.get(channel);
             channelAcc.people.add(person.key);
-            channelAcc.uses += row.calls();
-            channelAcc.failed += row.failed();
+            // In-system conversations are counted in turns from the chat itself, not again per capability call.
+            if (!CHANNEL_EMBED.equals(channel)) {
+                channelAcc.uses += row.calls();
+                channelAcc.failed += row.failed();
+            }
             OperationAcc operation = operations.computeIfAbsent(operationKey(row.projectCode(), row.toolName()),
                     ignored -> new OperationAcc(row.projectCode(), row.toolName()));
             operation.calls += row.calls();
@@ -281,11 +284,17 @@ public class AiUsageService {
         return head.length() > 40 ? head.substring(0, 40) + "…" : head;
     }
 
+    private static final String ASSISTANT_TOOL_KIND = "ASSISTANT";
+
     static String channel(String toolKind) {
         if (toolKind == null) {
             return "OTHER";
         }
         String normalized = toolKind.trim().toUpperCase(java.util.Locale.ROOT);
+        if (ASSISTANT_TOOL_KIND.equals(normalized)) {
+            // The assistant inside the business system acted for the employee: that is the in-system conversation.
+            return CHANNEL_EMBED;
+        }
         return CHANNELS.contains(normalized) && !CHANNEL_EMBED.equals(normalized) ? normalized : "OTHER";
     }
 

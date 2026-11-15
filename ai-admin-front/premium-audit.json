@@ -3,7 +3,7 @@
     {
       "category": "violation",
       "file": "src/views/KnowledgeList.vue",
-      "line": 150,
+      "line": 163,
       "message": "Enabled literal button has no detectable action or submit behavior.",
       "remediation": "Connect the button to a real action, make it a submit button, or disable/remove it.",
       "ruleId": "affordance.actionless-button",

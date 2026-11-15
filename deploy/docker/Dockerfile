@@ -77,7 +77,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 COPY ai-admin-front ./
 # SDK 包会带上 Control 里的嵌入对话速查文档
 COPY reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding/references /src/reachai-control-service/src/main/resources/ai-assist/skills/reachai-onboarding/references
-RUN npm run build
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build
 
 FROM eclipse-temurin:17-jre AS server
 ARG REACHAI_VERSION=dev
@@ -100,6 +100,9 @@ LABEL org.opencontainers.image.title="ReachAI web" \
       org.opencontainers.image.source="https://github.com/w8123/EnterpriseAgentFramework-dev" \
       org.opencontainers.image.version="${REACHAI_VERSION}"
 COPY --from=frontend /src/ai-admin-front/dist /usr/share/nginx/html
+COPY --from=frontend /src/ai-admin-front/dist/sdk/embed-chat/versions /opt/reachai-sdk-versions
 COPY deploy/docker/nginx.conf /etc/nginx/templates/default.conf.template
+COPY deploy/docker/40-publish-embed-versions.sh /docker-entrypoint.d/40-publish-embed-versions.sh
+RUN chmod +x /docker-entrypoint.d/40-publish-embed-versions.sh
 # nginx 官方镜像启动时把模板里的 ${REACHAI_CONTROL_UPSTREAM} 换成实际地址
 ENV REACHAI_CONTROL_UPSTREAM=reachai-control:18603 NGINX_ENVSUBST_FILTER=^REACHAI_

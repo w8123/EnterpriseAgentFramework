@@ -36,6 +36,98 @@ import static org.mockito.Mockito.when;
 class RuntimeGraphSpecExecutorTest {
 
     @Test
+    void trustedDraftSendsOnlyConfirmedOptionalValuesAndIgnoresFlattenedSpoof() throws Exception {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        String graph = """
+                {"env":{"reachaiTrustedPageDraft":true},"entryNodeId":"input","exitNodeIds":["action"],"nodes":[
+                 {"id":"input","type":"USER_INPUT","config":{"outputAlias":"params","fields":[
+                   {"name":"nickname","type":"string","required":false,"source":"input.nickname"},
+                   {"name":"address","type":"string","required":false,"source":"input.address"}]}},
+                 {"id":"action","type":"PAGE_ACTION",
+                 "config":{"pageKey":"personal","actionKey":"fill","inputMapping":{
+                   "nickname":"params.nickname","address":"params.address"}}}],"edges":[{"from":"input","to":"action"}]}
+                """;
+        var declaration = Map.<String, Object>of("approvalId", 7L, "revision", 3L,
+                "catalogHash", "a".repeat(64), "projectCode", "mall", "pageKey", "personal", "actionKey", "fill",
+                "fieldLabels", Map.of("nickname", "昵称", "address", "地址"));
+        var marker = com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.fromRuntime(
+                Map.of("declaration", declaration, "graphHash", java.util.HexFormat.of().formatHex(
+                        java.security.MessageDigest.getInstance("SHA-256").digest(graph.getBytes(java.nio.charset.StandardCharsets.UTF_8)))), Map.of("nickname", "Alice"), List.of("电话"));
+        marker = com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.fromCheckpoint(marker.checkpoint());
+        var input = new java.util.LinkedHashMap<String, Object>();
+        input.put("sessionId", "s1"); input.put("agentId", "bot"); input.put("projectCode", "mall");
+        input.put("message", "帮我改资料，昵称 Alice，电话 17888888008");
+        input.put("params.nickname", "attacker"); input.put("params", Map.of("nickname", "attacker", "address", "injected"));
+        input.put(com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY, marker);
+        var result = executor.execute(graph, input, WorkflowExecutionIdentity.fromEmbedSession(7L, "mall", "user"));
+        assertTrue(result.success());
+        assertTrue(result.answer().contains("昵称"));
+        assertTrue(result.answer().contains("未列出的内容未处理"));
+        assertTrue(result.answer().contains("这些条目未处理：电话"));
+        assertFalse(result.answer().contains("17888888008"));
+        assertFalse(result.answer().contains("电话已"));
+        var captured = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control).executePageBridge(captured.capture());
+        assertEquals(Map.of("nickname", "Alice"), captured.getValue().args());
+        assertTrue(captured.getValue().confirmRequired());
+        assertEquals(7L, captured.getValue().effectApprovalId());
+        assertEquals(3L, captured.getValue().effectApprovalRevision());
+    }
+
+    @Test
+    void markedGraphCannotExecuteThroughDirectOrForgedContext() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        var executor = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        String graph = "{\"env\":{\"reachaiTrustedPageDraft\":true},\"entryNodeId\":\"action\",\"exitNodeIds\":[\"action\"],\"nodes\":[{\"id\":\"action\",\"type\":\"PAGE_ACTION\",\"config\":{\"pageKey\":\"page\",\"actionKey\":\"fill\"}}]}";
+        var direct = executor.execute(graph, Map.of("sessionId", "s", "projectCode", "p"));
+        assertFalse(direct.success()); assertEquals("RUNTIME_PAGE_DRAFT_AUTH_REQUIRED", direct.code());
+        var forged = executor.execute(graph, Map.of("sessionId", "s", "projectCode", "p",
+                com.enterprise.ai.runtime.execution.context.TrustedPageDraftExecution.CONTEXT_KEY, Map.of("graphHash", "a".repeat(64))));
+        assertFalse(forged.success()); assertEquals("RUNTIME_PAGE_DRAFT_AUTH_REQUIRED", forged.code());
+        verifyNoInteractions(control);
+    }
+
+    @Test
+    void documentNavigationSuspendsAndResumesTheSamePageActionWithoutReplayingEarlierNodes() {
+        var control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(false,
+                        "PAGE_BRIDGE_DOCUMENT_NAVIGATION_REQUIRED", "WAITING",
+                        Map.of("navigationRequestId", "nav-1", "pageKey", "personal", "route", "/personal"), List.of()),
+                new RuntimeControlCatalogClient.PageBridgeExecutionResponse(true,
+                        "PAGE_BRIDGE_COMPLETED", "SUCCESS", Map.of(), List.of()));
+        var target = new RuntimeGraphSpecExecutor(new ObjectMapper(), mock(RuntimeModelServiceClient.class), capabilityClient, control);
+        String graph = """
+                {"entryNodeId":"lookup","exitNodeIds":["action"],"nodes":[
+                  {"id":"lookup","type":"TOOL","ref":{"qualifiedName":"orders:query"}},
+                  {"id":"action","type":"PAGE_ACTION","config":{"pageKey":"personal","actionKey":"fill","route":"/personal"}}
+                ],"edges":[{"from":"lookup","to":"action"}]}
+                """;
+        var input = Map.<String, Object>of("sessionId", "s1", "agentId", "bot", "projectCode", "mall");
+        var waiting = target.execute(graph, input);
+        assertTrue(waiting.isWaitingUser());
+        assertEquals(1, capabilityClient.requests.size());
+        assertTrue(waiting.uiRequest() instanceof Map<?, ?>);
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) ((Map<?, ?>) waiting.uiRequest()).get("behavior")).get("readonly"));
+        assertEquals(Boolean.TRUE, ((Map<?, ?>) ((Map<?, ?>) waiting.uiRequest()).get("behavior")).get("blocking"));
+        var resumedState = new java.util.LinkedHashMap<String, Object>(waiting.resumeCheckpoint());
+        resumedState.put(com.enterprise.ai.runtime.execution.interaction.WorkflowInteractionCodes.RESUME_CONTEXT_KEY,
+                Map.of("nodeId", "action", "interactionId", waiting.interactionId(), "action", "confirm", "values", Map.of()));
+        var resumed = target.executeFromNode(graph, resumedState, "action");
+        assertTrue(resumed.success());
+        assertEquals(1, capabilityClient.requests.size());
+        var requests = ArgumentCaptor.forClass(RuntimeControlCatalogClient.PageBridgeExecutionRequest.class);
+        verify(control, org.mockito.Mockito.times(2)).executePageBridge(requests.capture());
+        assertEquals(null, requests.getAllValues().get(0).resumeNavigationRequestId());
+        assertEquals(waiting.interactionId(), requests.getAllValues().get(0).navigationInteractionId());
+        assertEquals("nav-1", requests.getAllValues().get(1).resumeNavigationRequestId());
+        assertEquals(waiting.interactionId(), requests.getAllValues().get(1).navigationInteractionId());
+    }
+
+    @Test
     void pageActionOptionalExtractDefaultsDoNotSupplyAbsentFields() {
         var control = mock(RuntimeControlCatalogClient.class);
         when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
@@ -750,7 +842,7 @@ class RuntimeGraphSpecExecutorTest {
     }
 
     @Test
-    void treatsBusinessTerminalPageActionAsCompletedWorkflowOutcome() {
+    void stopsOnPageActionPreconditionFailureAndPreservesVerifiedOutcome() {
         RuntimeControlCatalogClient controlClient = mock(RuntimeControlCatalogClient.class);
         RuntimeGraphSpecExecutor pageExecutor = new RuntimeGraphSpecExecutor(
                 new ObjectMapper(), modelClient, capabilityClient, controlClient);
@@ -774,8 +866,8 @@ class RuntimeGraphSpecExecutorTest {
                 "projectCode", "qmssmp",
                 "pageKey", "teamArchive.list"));
 
-        assertTrue(result.success());
-        assertEquals("RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL", result.code());
+        assertFalse(result.success());
+        assertEquals("PAGE_BRIDGE_PRECONDITION_FAILED", result.code());
         assertEquals("Select a row before opening details", result.answer());
         assertEquals("BUSINESS_TERMINAL", result.metadata().get("outcomeClass"));
         @SuppressWarnings("unchecked")
@@ -786,7 +878,44 @@ class RuntimeGraphSpecExecutorTest {
         @SuppressWarnings("unchecked")
         List<Map<String, Object>> traces = (List<Map<String, Object>>) result.metadata()
                 .get("workflowNodeTraces");
-        assertEquals("BUSINESS_TERMINAL", traces.get(0).get("status"));
+        assertEquals("FAILED", traces.get(0).get("status"));
+    }
+
+    @Test
+    void pageActionFailureOrCancellationCannotReachAnUnconditionalSuccessAnswer() {
+        String graph = """
+                {"entryNodeId":"fill","exitNodeIds":["answer"],"nodes":[
+                  {"id":"fill","type":"PAGE_ACTION","config":{"pageKey":"personal","actionKey":"fill"}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"个人信息已填写"}}
+                ],"edges":[{"from":"fill","to":"answer","condition":"always"}]}
+                """;
+        for (String status : List.of("PRECONDITION_FAILED", "USER_CANCELLED", "CANCELLED")) {
+            RuntimeControlCatalogClient control = mock(RuntimeControlCatalogClient.class);
+            when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                    true, "PAGE_BRIDGE_BUSINESS_TERMINAL", status, Map.of("message", "操作未执行"), List.of()));
+            var tested = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+            var result = tested.execute(graph, Map.of("sessionId", "s1", "agentId", "a", "projectCode", "mall"));
+            assertFalse(result.success(), status);
+            assertEquals("PRECONDITION_FAILED".equals(status) ? "PAGE_BRIDGE_PRECONDITION_FAILED" : "RUNTIME_GRAPH_CANCELLED", result.code());
+            assertFalse("个人信息已填写".equals(result.answer()), status);
+            assertEquals("fill", result.nodeId());
+        }
+    }
+
+    @Test
+    void pageActionNoDataRemainsRoutableForReadOnlyPresentation() {
+        RuntimeControlCatalogClient control = mock(RuntimeControlCatalogClient.class);
+        when(control.executePageBridge(any())).thenReturn(new RuntimeControlCatalogClient.PageBridgeExecutionResponse(
+                true, "PAGE_BRIDGE_BUSINESS_TERMINAL", "NO_DATA", Map.of(), List.of()));
+        var tested = new RuntimeGraphSpecExecutor(new ObjectMapper(), modelClient, capabilityClient, control);
+        var result = tested.execute("""
+                {"entryNodeId":"read","exitNodeIds":["answer"],"nodes":[
+                  {"id":"read","type":"PAGE_ACTION","config":{"pageKey":"personal","actionKey":"read"}},
+                  {"id":"answer","type":"ANSWER","config":{"template":"没有匹配数据"}}
+                ],"edges":[{"from":"read","to":"answer","condition":"always"}]}
+                """, Map.of("sessionId", "s1", "agentId", "a", "projectCode", "mall"));
+        assertTrue(result.success());
+        assertEquals("没有匹配数据", result.answer());
     }
 
     @Test

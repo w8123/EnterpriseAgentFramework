@@ -1,12 +1,12 @@
 import { adaptEmbedEvent, expandEmbedAdapted } from '../core/adapters/adaptEmbedEvent'
 import type { ConversationEventEnvelope } from '../core/conversationEvents'
 import { createEvent } from '../core/conversationEvents'
-import type { ConversationTurnInput } from '../core/conversationTypes'
+import type { ConversationSnapshot, ConversationTurnInput } from '../core/conversationTypes'
 import { parseSseStream, isAbortError } from '../core/parseSseStream'
 import { createAttemptIdempotencyKey } from '../core/buildInteractionIdempotencyKey'
 import { canFallbackFromStreamFailure } from '../core/streamFallbackPolicy'
 import { isBlockingUiRequest, isCardOnlyUiRequest } from '../core/normalizeUiRequest'
-import type { ConversationTransport } from './transportTypes'
+import type { ApprovalStatusView, ConversationTransport } from './transportTypes'
 
 export interface EmbedTransportOptions {
   apiBase: string
@@ -22,8 +22,11 @@ export interface EmbedTransportOptions {
   messagesJsonPath?: (sessionId: string) => string
   interactionSubmitPath?: (sessionId: string, interactionId: string) => string
   interactionSubmitStreamPath?: (sessionId: string, interactionId: string) => string
+  interactionApprovalStatusPath?: (sessionId: string, interactionId: string) => string
   sessionsPath?: string
   fetchImpl?: typeof fetch
+  /** Explicitly allow the host to restore server-authorized message history. */
+  restoreHistory?: boolean
 }
 
 export function createEmbedTransport(options: EmbedTransportOptions): ConversationTransport {
@@ -400,18 +403,95 @@ export function createEmbedTransport(options: EmbedTransportOptions): Conversati
     }
   }
 
+  async function approvalStatus(interactionId: string): Promise<ApprovalStatusView | null> {
+    const sessionId = options.getSessionId()
+    if (!sessionId || !interactionId || disposed) return null
+    const path = options.interactionApprovalStatusPath?.(sessionId, interactionId)
+      || `/chat/sessions/${encodeURIComponent(sessionId)}/interactions/${encodeURIComponent(interactionId)}/approval-status`
+    try {
+      const response = await authorizedFetch(resolveUrl(path), { method: 'GET' })
+      if (!response.ok) return null
+      const payload = await response.json() as { data?: ApprovalStatusView } & Partial<ApprovalStatusView>
+      const view = (payload && typeof payload === 'object' && 'data' in payload ? payload.data : payload) as ApprovalStatusView | undefined
+      return view && typeof view.status === 'string' ? view : null
+    } catch {
+      return null
+    }
+  }
+
   return {
     kind: 'embed',
+    approvalStatus,
     capabilities: {
       eventStreaming: preferStream,
       tokenStreaming: true,
       abort: true,
-      restore: false,
+      restore: options.restoreHistory === true,
       structuredInitialInput: false,
       pageActions: true,
     },
     startTurn,
     resumeInteraction,
+    async restoreSession(): Promise<ConversationSnapshot | null> {
+      if (disposed || !options.restoreHistory) return null
+      const sessionId = options.getSessionId()
+      if (!sessionId) return null
+      const controller = new AbortController()
+      abortControllers.add(controller)
+      try {
+        let cursor: string | undefined
+        let epoch: string | undefined
+        let complete = false
+        let messages: ConversationSnapshot['messages'] = []
+        for (let page = 0; page < 100; page += 1) {
+          const suffix = `${cursor ? `&beforeId=${encodeURIComponent(cursor)}` : ''}`
+            + `${epoch ? `&expectedEpoch=${encodeURIComponent(epoch)}` : ''}`
+          const response = await authorizedFetch(resolveUrl(
+            `/chat/sessions/${encodeURIComponent(sessionId)}/history?limit=100${suffix}`,
+          ), { method: 'GET' }, controller.signal)
+          if (!response.ok) throw httpError('Embed history restore failed', response.status)
+          const envelope = await response.json()
+          if (envelope?.code && envelope.code !== 200 && envelope.code !== 0) {
+            throw new Error('Embed history restore failed')
+          }
+          const pageEpoch = envelope?.data?.epoch
+          if (typeof pageEpoch !== 'string' || !/^[1-9]\d*$/.test(pageEpoch)
+              || (epoch && epoch !== pageEpoch)) throw new Error('Embed history changed during restore')
+          epoch = pageEpoch
+          const rows: unknown = envelope?.data?.messages
+          if (!Array.isArray(rows) || rows.length > 100) throw new Error('Invalid Embed history response')
+          const pageMessages: ConversationSnapshot['messages'] = rows.map((row: unknown) => {
+          if (!row || typeof row !== 'object') throw new Error('Invalid Embed history message')
+          const item = row as Record<string, unknown>
+          if ((item.role !== 'user' && item.role !== 'assistant') || typeof item.text !== 'string'
+              || (typeof item.id !== 'string' && (typeof item.id !== 'number' || !Number.isSafeInteger(item.id)))
+              || !/^[1-9]\d*$/.test(String(item.id)) || typeof item.createdAt !== 'string') {
+            throw new Error('Invalid Embed history message')
+          }
+          return {
+            id: `history-${String(item.id)}`,
+            role: item.role,
+            status: 'completed',
+            createdAt: item.createdAt,
+            blocks: [{ id: `history-text-${String(item.id)}`, type: 'text', text: item.text, status: 'completed' }],
+          }
+          })
+          messages = [...pageMessages, ...messages]
+          const next = envelope?.data?.nextBeforeId
+          if (next == null) { complete = true; break }
+          if (typeof next === 'number' && !Number.isSafeInteger(next)) throw new Error('Invalid Embed history cursor')
+          const nextCursor = String(next)
+          if (!/^[1-9]\d*$/.test(nextCursor) || (cursor && BigInt(nextCursor) >= BigInt(cursor))) {
+            throw new Error('Invalid Embed history cursor')
+          }
+          cursor = nextCursor
+        }
+        if (!complete) throw new Error('Embed history exceeds the restore limit')
+        return { sessionId, turnStatus: 'idle', messages }
+      } finally {
+        abortControllers.delete(controller)
+      }
+    },
     async clearSession() {
       if (disposed) throw new Error('Embed transport disposed')
       const sessionId = options.getSessionId()

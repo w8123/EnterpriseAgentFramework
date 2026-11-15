@@ -61,7 +61,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, provide, ref } from 'vue'
+import { APPROVAL_STATUS_FETCHER, type ApprovalStatusFetcher } from '../core/approvalStatusContext'
 import type {
   ConversationMessage,
   ConversationSnapshot,
@@ -90,6 +91,8 @@ const props = withDefaults(defineProps<{
   resolveStatusHint?: (message: ConversationMessage) => string | undefined
   /** Shell 安全思考详情；Embed 不得注入 Supervisor / 节点 / Trace */
   resolveThinkingPresentation?: (message: ConversationMessage) => ConversationThinkingPresentation | undefined
+  /** 查询「指定审批人」的审批进度；不传时等待审批卡片只显示状态，不自动继续。 */
+  fetchApprovalStatus?: ApprovalStatusFetcher
 }>(), {
   density: 'comfortable',
   chrome: 'panel',
@@ -110,6 +113,8 @@ const emit = defineEmits<{
   'interaction-submit': [interactionId: string, action: string, values: Record<string, unknown>]
   'interaction-cancel': [interactionId: string]
 }>()
+
+provide(APPROVAL_STATUS_FETCHER, () => props.fetchApprovalStatus)
 
 const AVATAR_HIDE_MAX_WIDTH = 480
 const conversationEl = ref<HTMLElement | null>(null)

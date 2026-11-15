@@ -18,6 +18,7 @@ export default defineConfig({
       'src/utils/studio*.test.ts',
       'src/utils/workflowTemplates.test.ts',
       'src/utils/workflowExchange.test.ts',
+      'src/utils/workflowForeignImport/**/*.test.ts',
     ],
     css: false,
   },

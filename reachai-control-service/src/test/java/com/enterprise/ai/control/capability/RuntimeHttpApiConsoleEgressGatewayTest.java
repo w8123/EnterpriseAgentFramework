@@ -26,7 +26,7 @@ class RuntimeHttpApiConsoleEgressGatewayTest {
             assertEquals(409, result.getStatusCode().value());
             var body = (Map<?, ?>) result.getBody();
             assertEquals(code, body.get("code"));
-            assertEquals("服务地址被 HTTP 出站策略拒绝，请由管理员核对目标主机白名单；连接未保存", body.get("message"));
+            assertEquals("服务地址是内网或本机地址，被出站策略拒绝，连接未保存。请平台管理员在「接口鉴权」里点「内网地址白名单」，把这个主机加进去，再保存一次", body.get("message"));
             assertFalse(body.toString().contains("private-upstream-detail"));
         }
     }

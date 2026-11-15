@@ -273,17 +273,9 @@ export interface ManagedApprovalDecisionRequest {
 }
 
 export interface AiCodingHandoffPackage {
-  schema: 'reachai.ai-coding.handoff-package.v1' | string
   taskId: string
-  handoffId: string
-  protocolVersion: string
-  executorProvider: AiCodingExecutorProvider
-  activationUrl: string
   activationCode: string
   activationExpiresAt: string
-  prompt: string
-  promptCharacters: number
-  promptCharacterLimit?: number
 }
 
 export interface AiCodingAcceptanceRequest {

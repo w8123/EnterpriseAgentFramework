@@ -16,11 +16,11 @@ ReachAI 地址：`{{reachaiUrl}}`（如果和你连接 MCP 用的地址不同，
 
 ## 步骤
 
-1. 在登录后的公共页头 / 母版页里引入同一版本的样式和脚本：
+1. 打开 `{{reachaiUrl}}/sdk/embed-chat/manifest.json`，读取 `version`，并用这个完整摘要替换下面两个 `SDK_VERSION`。在登录后的公共页头 / 母版页里引入同一版本的样式和脚本：
 
 ```html
-<link rel="stylesheet" href="{{reachaiUrl}}/sdk/embed-chat/style.css">
-<script src="{{reachaiUrl}}/sdk/embed-chat/reachai-chat-embed.umd.js"></script>
+<link rel="stylesheet" href="{{reachaiUrl}}/sdk/embed-chat/versions/SDK_VERSION/style.css">
+<script src="{{reachaiUrl}}/sdk/embed-chat/versions/SDK_VERSION/reachai-chat-embed.umd.js"></script>
 <div id="reachai-chat"></div>
 <script>
 async function reachAiToken(context) {
@@ -56,7 +56,7 @@ async function reachAiToken(context) {
 
 2. 只在登录后的页面引入；登录页、退出页不要引入。
 3. 如果业务系统有内容安全策略（CSP），把 `{{reachaiUrl}}` 加到 `script-src`、`style-src`、`img-src`、`connect-src`。
-4. 想自己托管脚本时，把 `/sdk/embed-chat/` 下的 `reachai-chat-embed.umd.js`、`style.css` 和图片一起复制，保持相对路径不变。
+4. 想自己托管脚本时，把该版本目录下的 `reachai-chat-embed.umd.js`、`style.css` 和图片一起复制，保持相对路径不变。
 
 ### Web Component（简单场景）
 

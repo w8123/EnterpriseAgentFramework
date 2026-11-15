@@ -137,6 +137,13 @@ public interface RuntimeProxyClient {
             @RequestParam(value = "projectCode", required = false) String projectCode,
             @RequestParam("days") int days);
 
+    /** 业务系统内助手的回答方式统计（推理 / 固定流程 / 普通对话）。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/usage/decision-routes")
+    ResponseEntity<List<Map<String, Object>>> runOpsDecisionRoutes(
+            @RequestHeader Map<String, String> headers,
+            @RequestParam(value = "projectCode", required = false) String projectCode,
+            @RequestParam("days") int days);
+
     /** 审计导出用的业务运行明细（不含对话内容）。 */
     @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/usage/audit-runs")
     ResponseEntity<List<Map<String, Object>>> runOpsAuditRuns(
@@ -463,6 +470,61 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> attachKnowledgeQaWorkflow(@PathVariable("agentId") String agentId,
                                                      @RequestBody Map<String, Object> body);
 
+    @RequestMapping(method = RequestMethod.GET, path = "/api/agents/{agentId}/learned-flows")
+    ResponseEntity<Object> listLearnedFlows(@PathVariable("agentId") String agentId,
+                                            @RequestParam(value = "days", required = false) Integer days);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/learned-flows/pending")
+    ResponseEntity<Object> listPendingLearnedFlows(@RequestParam(value = "projectCode", required = false) String projectCode,
+                                                   @RequestParam(value = "days", required = false) Integer days);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/learned-flows/draft")
+    ResponseEntity<Object> draftLearnedFlow(@PathVariable("agentId") String agentId,
+                                            @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/agents/{agentId}/learned-flows/enable")
+    ResponseEntity<Object> enableLearnedFlow(@PathVariable("agentId") String agentId,
+                                             @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/http-api-flows")
+    ResponseEntity<Object> generateHttpApiFlows(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/http-api-flows/credential-refresh")
+    ResponseEntity<Object> refreshHttpApiFlowCredential(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/workflows/http-api-flows/names")
+    ResponseEntity<Object> suggestHttpApiFlowNames(@RequestBody Map<String, Object> body);
+
+    /** 内网地址白名单：平台管理员允许调用的内网主机。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/http-egress-hosts")
+    ResponseEntity<Object> listHttpEgressHosts();
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/http-egress-hosts")
+    ResponseEntity<Object> addHttpEgressHost(@RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/http-egress-hosts/{id}")
+    ResponseEntity<Object> removeHttpEgressHost(@PathVariable("id") Long id);
+
+    /** 每个业务系统的自动评测：设置、自动出题、立即评测、通过率汇总。 */
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/project-evals")
+    ResponseEntity<Map<String, Object>> projectEvalSummary(
+            @RequestParam(value = "projectCode", required = false) String projectCode);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/project-evals/{projectCode}/setting")
+    ResponseEntity<Object> projectEvalSetting(@PathVariable("projectCode") String projectCode);
+
+    @RequestMapping(method = RequestMethod.PUT, path = "/api/runtime/project-evals/{projectCode}/setting")
+    ResponseEntity<Object> saveProjectEvalSetting(@PathVariable("projectCode") String projectCode,
+                                                  @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/project-evals/{projectCode}/questions")
+    ResponseEntity<Object> generateProjectEvalQuestions(@PathVariable("projectCode") String projectCode,
+                                                        @RequestBody Map<String, Object> body);
+
+    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/project-evals/{projectCode}/runs")
+    ResponseEntity<Object> runProjectEval(@PathVariable("projectCode") String projectCode,
+                                          @RequestBody Map<String, Object> body);
+
     @RequestMapping(method = RequestMethod.GET, path = "/api/workflows/knowledge-usage")
     ResponseEntity<Object> listKnowledgeUsage(@RequestParam("knowledgeBaseCodes") List<String> knowledgeBaseCodes);
 
@@ -484,6 +546,12 @@ public interface RuntimeProxyClient {
 
     @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/debug-sessions/{sessionId}/cancel")
     ResponseEntity<Object> cancelRuntimeDebugSession(@PathVariable("sessionId") String sessionId, @RequestHeader Map<String, String> signedHeaders);
+
+    @RequestMapping(method = RequestMethod.GET, path = "/internal/runtime/workflow-approvals/{interactionId}/runner-status")
+    ResponseEntity<Map<String, Object>> workflowApprovalRunnerStatus(@PathVariable("interactionId") String interactionId,
+                                                                     @RequestParam("sessionId") String sessionId,
+                                                                     @RequestParam(value = "userId", required = false) String userId,
+                                                                     @RequestParam(value = "appId", required = false) String appId);
 
     @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/interactions/human-approvals")
     ResponseEntity<Object> listHumanApprovals(@RequestParam(value = "agentId", required = false) String agentId,

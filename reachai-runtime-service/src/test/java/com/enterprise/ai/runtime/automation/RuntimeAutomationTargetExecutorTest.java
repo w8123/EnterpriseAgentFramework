@@ -43,6 +43,7 @@ class RuntimeAutomationTargetExecutorTest {
     private final RuntimeWorkflowDefinitionEntity workflow = new RuntimeWorkflowDefinitionEntity();
     private final RuntimeAutomationEntity automation = new RuntimeAutomationEntity();
     private final RuntimeAutomationVersionEntity target = new RuntimeAutomationVersionEntity();
+    private final RuntimeControlCatalogClient runAsControl = mock(RuntimeControlCatalogClient.class);
     private RuntimeAutomationTargetExecutor executor;
 
     @BeforeEach
@@ -91,7 +92,8 @@ class RuntimeAutomationTargetExecutorTest {
                 traceEvidence,
                 mock(RuntimeAutomationInteractionTerminationService.class),
                 new RuntimeAutomationJsonSupport(json),
-                scheduler);
+                scheduler,
+                new RuntimeAutomationRunAs(runAsControl));
     }
 
     @AfterEach
@@ -171,6 +173,63 @@ class RuntimeAutomationTargetExecutorTest {
         assertEquals("AUTOMATION_TARGET_VERSION_UNAVAILABLE", result.code());
         assertFalse(result.retryable());
         verifyNoInteractions(agentExecution, model);
+    }
+
+    @Test
+    void runsAsTheEmployeeWhoSavedTheVersionWhenControlConfirmsTheirAccount() {
+        agentTarget(true, "ACTIVE");
+        target.setCreatedBy("platform-user:7");
+        when(runAsControl.resolveAutomationRunAs(any())).thenReturn(
+                new RuntimeControlCatalogClient.AutomationRunAsResolution("RESOLVED", "default", "staff01", List.of("sales")));
+
+        var result = run(Map.of());
+
+        assertTrue(result.success(), result.code());
+        assertEquals("EMPLOYEE", result.metadata().get("automationRunAs"));
+        var request = ArgumentCaptor.forClass(RuntimeControlCatalogClient.AutomationRunAsRequest.class);
+        verify(runAsControl).resolveAutomationRunAs(request.capture());
+        assertEquals("platform-user:7", request.getValue().actorId());
+        assertEquals("orders", request.getValue().projectCode());
+        var identity = ArgumentCaptor.forClass(com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.class);
+        verify(agentExecution).executePublishedConfig(eq("agent-a"), eq(11L), anyMap(), eq(true), any(), any(), identity.capture());
+        assertEquals(com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.Source.AUTOMATION_EMPLOYEE,
+                identity.getValue().source());
+        assertTrue(identity.getValue().canResolveUserAcl());
+        assertEquals("staff01", identity.getValue().userId());
+        assertEquals(List.of("sales"), identity.getValue().roles());
+    }
+
+    @Test
+    void keepsTheServiceAccountAndExplainsWhyWhenNoEmployeeIsMapped() {
+        agentTarget(true, "ACTIVE");
+        target.setCreatedBy("platform-user:7");
+        when(runAsControl.resolveAutomationRunAs(any())).thenReturn(
+                new RuntimeControlCatalogClient.AutomationRunAsResolution("AUTOMATION_RUN_AS_NO_MAPPING", null, null, List.of()));
+        when(agentExecution.executePublishedConfig(eq("agent-a"), eq(11L), anyMap(), eq(true), any(), any(), any()))
+                .thenReturn(Map.of("success", false, "code", "CAPABILITY_BUSINESS_IDENTITY_REQUIRED",
+                        "answer", "该业务方法要求经过验证的业务用户身份和签名调用"));
+
+        var result = run(Map.of());
+
+        assertFalse(result.success());
+        assertEquals("SERVICE_ACCOUNT", result.metadata().get("automationRunAs"));
+        assertTrue(result.message().contains("运行时用户映射"), result.message());
+        var identity = ArgumentCaptor.forClass(com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.class);
+        verify(agentExecution).executePublishedConfig(eq("agent-a"), eq(11L), anyMap(), eq(true), any(), any(), identity.capture());
+        assertEquals(com.enterprise.ai.runtime.identity.WorkflowExecutionIdentity.Source.AUTOMATION, identity.getValue().source());
+        assertFalse(identity.getValue().canResolveUserAcl());
+    }
+
+    @Test
+    void controlOutageFallsBackToTheServiceAccountInsteadOfFailingTheRun() {
+        agentTarget(true, "ACTIVE");
+        target.setCreatedBy("platform-user:7");
+        when(runAsControl.resolveAutomationRunAs(any())).thenThrow(new IllegalStateException("down"));
+
+        var result = run(Map.of());
+
+        assertTrue(result.success(), result.code());
+        assertEquals("SERVICE_ACCOUNT", result.metadata().get("automationRunAs"));
     }
 
     private void agentTarget(boolean enabled, String status) {

@@ -13,10 +13,15 @@
 | Runtime compatibility paths: `POST /api/runtime/debug-sessions`, `/stream`, `GET /{sessionId}`, `POST /{sessionId}/submit`, `/submit/stream`, `/cancel` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `GET /internal/control/page-actions` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `GET /internal/control/page-actions/lookup` | `reachai-control-service` | `reachai-runtime-service` | No |
+| `POST /internal/control/page-action-effects/resolve` | `reachai-control-service` | `reachai-runtime-service` | No；Runtime HMAC 对请求体签名，仅返回当前仍有效的管理员动作效应审核 |
 | `GET /internal/control/page-actions/{projectCode}/{pageKey}/{actionKey}` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/page-bridge/execute` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/page-bridge/resolve-context` | `reachai-control-service` | `reachai-runtime-service` | No |
+| `POST /internal/control/automation-run-as/resolve` | `reachai-control-service` | `reachai-runtime-service` | No；每次自动化运行前，Control 按保存人的运行时用户映射和业务账号状态返回员工身份，查不到时 Runtime 用服务账号 |
+| `POST /internal/control/employee-business-tokens/resolve`, `POST /internal/control/employee-business-tokens/expired` | `reachai-control-service` | `reachai-runtime-service` | No；「用员工自己的令牌调用」：Runtime 为员工调用业务系统前问 Control 用哪个令牌（员工登录时业务系统给的令牌只存 Control 内存，最长 7 天），业务系统拒绝时通知 Control 忘掉；答复不缓存超过 60 秒，不写日志 |
 | `POST /internal/runtime/workflows/ai-coding/page-assistant/smoke-test` | `reachai-runtime-service` | `reachai-control-service` | No；Control 验证页面令牌及 Workflow 项目权限后签名用户与请求体；Runtime 复核项目和会话，真实页面动作逐项确认 |
+| `POST /internal/control/assistant-capabilities/search` | `reachai-control-service` | `reachai-runtime-service` | No |
+| `POST /internal/control/assistant-capabilities/call` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/agent-skills/resolve-execution` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `GET /internal/control/agent-skills/{skillId}/versions/{versionId}` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `GET /internal/control/agent-skills/{skillId}/versions/{versionId}/package` | `reachai-control-service` | `reachai-runtime-service` | No |
@@ -29,6 +34,8 @@
 | `GET /internal/runtime/page-workbench/projects/{projectCode}/execution-readiness` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/runops/workflow-candidates/drafts` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/runops/traces/{traceId}/replay` | `reachai-runtime-service` | `reachai-control-service` | No |
+| `POST /internal/runtime/workflow-approvals/query`, `POST /internal/runtime/workflow-approvals/{interactionId}/decision` | `reachai-runtime-service` | `reachai-control-service` | No；签名的平台会话身份（审批人运行时用户）+ 签名请求体里的账号名、角色与项目范围；只记录决定，流程由发起人自己的会话继续 |
+| `GET /internal/runtime/workflow-approvals/{interactionId}/runner-status` | `reachai-runtime-service` | `reachai-control-service` | No；Control 先校验调用者拥有该会话，Runtime 再按会话（及用户）匹配 |
 | `GET /internal/runtime/automations/readiness` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `GET /internal/runtime/automations` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/automations` | `reachai-runtime-service` | `reachai-control-service` | No |
@@ -49,6 +56,7 @@
 | `POST /internal/capability/api-market/entries/{entryKey}/integrations`, `PUT /internal/capability/api-market/integrations/{id}/status` | `reachai-capability-service` | `reachai-control-service` | No |
 | `POST /internal/runtime/http-api-invocations`, `GET /internal/runtime/http-api-invocations/{invocationId}` | `reachai-runtime-service` | `reachai-control-service` | No |
 | `GET /internal/runtime/agent-tool-references` | `reachai-runtime-service` | `reachai-capability-service` | No |
+| `GET /internal/runtime/http-egress-hosts` | `reachai-runtime-service` | `reachai-capability-service` | No |
 | `GET /internal/capability/health` | `reachai-capability-service` | `reachai-control-service` | No |
 | `POST /internal/capability/http-apis/{apiId}/execution-context` | `reachai-capability-service` | `reachai-runtime-service` | No |
 | `POST /internal/capability/business-methods/{qualifiedName}/execution-context` | `reachai-capability-service` | `reachai-runtime-service` | No |
