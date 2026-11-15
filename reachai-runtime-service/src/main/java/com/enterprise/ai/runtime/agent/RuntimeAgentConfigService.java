@@ -108,6 +108,11 @@ public class RuntimeAgentConfigService {
                 .last("LIMIT 1")));
     }
 
+    /** Immutable active configuration for callers outside the Agent persistence owner. */
+    public Optional<RuntimeAgentConfigSnapshot> resolveActiveSnapshot(String agentId) {
+        return resolveActive(agentId).map(RuntimeAgentConfigSnapshot::fromEntity);
+    }
+
     public Optional<RuntimeAgentConfigVersionEntity> resolveDisplayConfig(String agentId) {
         RuntimeAgentConfigVersionEntity draft = configMapper.selectOne(
                 Wrappers.<RuntimeAgentConfigVersionEntity>lambdaQuery()

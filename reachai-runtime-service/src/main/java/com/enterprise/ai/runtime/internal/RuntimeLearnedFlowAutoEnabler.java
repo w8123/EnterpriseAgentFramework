@@ -1,8 +1,6 @@
 package com.enterprise.ai.runtime.internal;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingEntity;
-import com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingMapper;
+import com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup;
 import com.enterprise.ai.runtime.internal.RuntimeLearnedFlowService.FlowRequest;
 import com.enterprise.ai.runtime.internal.RuntimeLearnedFlowService.PendingView;
 import lombok.extern.slf4j.Slf4j;
@@ -28,10 +26,10 @@ public class RuntimeLearnedFlowAutoEnabler {
     static final int MAX_PER_AGENT = 3;
 
     private final RuntimeLearnedFlowService flows;
-    private final RuntimeProjectEvalSettingMapper settings;
+    private final RuntimeProjectEvalSettingLookup settings;
     private final boolean enabled;
 
-    public RuntimeLearnedFlowAutoEnabler(RuntimeLearnedFlowService flows, RuntimeProjectEvalSettingMapper settings,
+    public RuntimeLearnedFlowAutoEnabler(RuntimeLearnedFlowService flows, RuntimeProjectEvalSettingLookup settings,
                                          @Value("${reachai.learned-flow.auto-enable:true}") boolean enabled) {
         this.flows = flows;
         this.settings = settings;
@@ -41,16 +39,15 @@ public class RuntimeLearnedFlowAutoEnabler {
     @Scheduled(cron = "${reachai.learned-flow.auto-enable-cron:0 37 * * * *}")
     public void run() {
         if (!enabled) return;
-        List<RuntimeProjectEvalSettingEntity> projects;
+        List<String> projects;
         try {
-            projects = settings.selectList(Wrappers.<RuntimeProjectEvalSettingEntity>lambdaQuery()
-                    .eq(RuntimeProjectEvalSettingEntity::getAutoEnableReadonlyFlows, true));
+            projects = settings.autoEnableProjects();
         } catch (RuntimeException unavailable) {
             log.debug("learned flow auto-enable skipped: {}", unavailable.getMessage());
             return;
         }
-        for (RuntimeProjectEvalSettingEntity project : projects) {
-            enableFor(project.getProjectCode());
+        for (String project : projects) {
+            enableFor(project);
         }
     }
 

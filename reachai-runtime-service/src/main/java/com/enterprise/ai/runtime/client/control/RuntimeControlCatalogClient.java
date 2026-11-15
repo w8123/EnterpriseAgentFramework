@@ -48,13 +48,21 @@ public interface RuntimeControlCatalogClient {
 
     /** 「用员工自己的令牌调用」: what to call a business system with for this employee. Never log the answer. */
     @PostMapping("/internal/control/employee-business-tokens/resolve")
-    com.enterprise.ai.runtime.execution.http.EmployeeBusinessTokenSource.Resolution resolveEmployeeBusinessToken(
+    EmployeeBusinessTokenResolution resolveEmployeeBusinessToken(
             @RequestBody EmployeeBusinessTokenSubject subject);
 
     @PostMapping("/internal/control/employee-business-tokens/expired")
     Map<String, Object> employeeBusinessTokenExpired(@RequestBody EmployeeBusinessTokenSubject subject);
 
     record EmployeeBusinessTokenSubject(String tenantId, String projectCode, String externalUserId) {
+    }
+
+    record EmployeeBusinessTokenResolution(String mode, List<String> origins, String token) {
+        @Override
+        public String toString() {
+            return "EmployeeBusinessTokenResolution[mode=" + mode + ", origins=" + origins
+                    + ", token=" + (token == null ? "none" : "***") + "]";
+        }
     }
 
     record AutomationRunAsRequest(String tenantId, String actorId, Long projectId, String projectCode) {

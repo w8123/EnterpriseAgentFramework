@@ -496,13 +496,13 @@ public interface RuntimeProxyClient {
     ResponseEntity<Object> suggestHttpApiFlowNames(@RequestBody Map<String, Object> body);
 
     /** 内网地址白名单：平台管理员允许调用的内网主机。 */
-    @RequestMapping(method = RequestMethod.GET, path = "/api/runtime/http-egress-hosts")
+    @RequestMapping(method = RequestMethod.GET, path = "/api/platform/http-egress-hosts")
     ResponseEntity<Object> listHttpEgressHosts();
 
-    @RequestMapping(method = RequestMethod.POST, path = "/api/runtime/http-egress-hosts")
+    @RequestMapping(method = RequestMethod.POST, path = "/api/platform/http-egress-hosts")
     ResponseEntity<Object> addHttpEgressHost(@RequestBody Map<String, Object> body);
 
-    @RequestMapping(method = RequestMethod.DELETE, path = "/api/runtime/http-egress-hosts/{id}")
+    @RequestMapping(method = RequestMethod.DELETE, path = "/api/platform/http-egress-hosts/{id}")
     ResponseEntity<Object> removeHttpEgressHost(@PathVariable("id") Long id);
 
     /** 每个业务系统的自动评测：设置、自动出题、立即评测、通过率汇总。 */

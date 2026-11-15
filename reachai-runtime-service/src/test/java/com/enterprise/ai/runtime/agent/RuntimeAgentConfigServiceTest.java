@@ -25,6 +25,33 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RuntimeAgentConfigServiceTest {
+    @Test
+    void activeConfigurationSnapshotDoesNotExposeTheOwnersMutableRow() {
+        var configs = mock(RuntimeAgentConfigVersionMapper.class);
+        var agents = mock(RuntimeAgentMapper.class);
+        var service = new RuntimeAgentConfigService(configs, mock(RuntimeAgentWorkflowToolMapper.class),
+                mock(RuntimeAgentSkillBindingMapper.class), mock(RuntimeAgentRemoteBindingMapper.class),
+                agents, mock(RuntimeWorkflowToolCatalogQuery.class), new ObjectMapper());
+        var agent = new RuntimeAgentEntity();
+        agent.setId("agent-1");
+        agent.setActiveConfigVersionId(7L);
+        when(agents.selectById("agent-1")).thenReturn(agent);
+        var config = new RuntimeAgentConfigVersionEntity();
+        config.setId(7L);
+        config.setAgentId("agent-1");
+        config.setStatus("ACTIVE");
+        config.setModelInstanceId("model-1");
+        config.setToolCatalogMode("PROJECT_CAPABILITIES");
+        when(configs.selectById(7L)).thenReturn(config);
+
+        var snapshot = service.resolveActiveSnapshot("agent-1").orElseThrow();
+        config.setModelInstanceId("mutated");
+
+        assertEquals("model-1", snapshot.getModelInstanceId());
+        assertEquals("PROJECT_CAPABILITIES", snapshot.getToolCatalogMode());
+        assertEquals(7L, snapshot.getId());
+    }
+
     @org.junit.jupiter.api.BeforeAll
     static void initializeAgentSqlMetadata() {
         com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(

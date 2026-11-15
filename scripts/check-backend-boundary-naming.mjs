@@ -519,8 +519,11 @@ assertIncludes(
   'reachai-control-service/src/main/java/com/enterprise/ai/control/aiassist/ControlAiAssistSkillController.java',
   '@RequestMapping("/api/ai-assist")')
 assertIncludes(
+  'reachai-control-service/src/main/java/com/enterprise/ai/control/aicoding/application/AiCodingHandoffPromptFactory.java',
+  'package com.enterprise.ai.control.aicoding.application;')
+assertIncludes(
   'ai-admin-front/scripts/check-page-workbench-ui.mjs',
-  'AiCodingHandoffPromptFactory.java')
+  'src/components/ai-access/prompts/page-workbench.ts')
 assertIncludes('reachai-model-service/pom.xml', '<name>ReachAI Model Gateway Service</name>')
 assertNotIncludes('reachai-model-service/pom.xml', '<name>AI Model Service</name>')
 assertIncludes('reachai-knowledge-service/pom.xml', '<name>ReachAI Knowledge Retrieval Service</name>')

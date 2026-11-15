@@ -159,10 +159,10 @@ public class AgentScopeSupervisorRuntimeAdapter implements SupervisorRuntimeAdap
         this.capabilityToolbox = toolbox;
     }
 
-    private com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup projectEvalSettings;
+    private SupervisorProjectEvalSettings projectEvalSettings;
 
     @Autowired(required = false)
-    void setProjectEvalSettings(com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup settings) {
+    void setProjectEvalSettings(SupervisorProjectEvalSettings settings) {
         this.projectEvalSettings = settings;
     }
 

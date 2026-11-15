@@ -676,7 +676,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'me/ai-connections',
         name: 'MyPlatformAiConnections',
         component: () => import('@/views/me/AiToolAccess.vue'),
-        meta: { breadcrumb: [{ title: '我的' }, { title: 'AI 工具接入' }], title: 'AI 工具接入', layoutMode: 'standard' },
+        meta: { breadcrumb: [{ title: '我的' }, { title: 'AI 工具接入' }], title: 'AI 工具接入', layoutMode: 'standard', hideSidebarProjectPanel: true },
       },
       {
         path: 'me/ai-approvals',

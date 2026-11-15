@@ -1,9 +1,7 @@
-package com.enterprise.ai.runtime.supervisor;
+package com.enterprise.ai.runtime.workflow;
 
 import com.enterprise.ai.agent.graph.GraphSpec;
 import com.enterprise.ai.common.page.TrustedPageDraftInputContract;
-import com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget;
-import com.enterprise.ai.runtime.workflow.RuntimeWorkflowPublishedVersionView;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,7 +39,7 @@ public final class TrustedPageActionWorkflowGuard {
     /** A lookup hint only; this is not an authorization or an attestation. */
     public record Candidate(String projectCode, String pageKey, String actionKey) { }
 
-    public Optional<Candidate> candidate(RuntimeResolvedWorkflowTarget target) {
+    public Optional<Candidate> candidate(RuntimeTrustedWorkflowTarget target) {
         if (target == null || target.workflow() == null || target.version() == null
                 || !"ACTIVE".equalsIgnoreCase(target.version().getStatus())
                 || !hasText(target.version().getGraphSpecSnapshotJson())
@@ -114,7 +112,7 @@ public final class TrustedPageActionWorkflowGuard {
     }
 
     /** Returns empty for any ambiguous, malformed, dynamic, unreviewed or unsupported graph. */
-    public Optional<Pin> pin(RuntimeResolvedWorkflowTarget target, TrustedActionDeclaration declaration) {
+    public Optional<Pin> pin(RuntimeTrustedWorkflowTarget target, TrustedActionDeclaration declaration) {
         if (!validDeclaration(declaration) || target == null || target.workflow() == null
                 || target.version() == null) return Optional.empty();
         RuntimeWorkflowPublishedVersionView version = target.version();
@@ -160,7 +158,7 @@ public final class TrustedPageActionWorkflowGuard {
     }
 
     /** The declaration must be fetched afresh from authenticated Control after user confirmation. */
-    public boolean matches(Pin original, RuntimeResolvedWorkflowTarget current, TrustedActionDeclaration currentDeclaration) {
+    public boolean matches(Pin original, RuntimeTrustedWorkflowTarget current, TrustedActionDeclaration currentDeclaration) {
         return original != null && pin(current, currentDeclaration).filter(original::equals).isPresent();
     }
 

@@ -27,7 +27,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PlatformAiConnectionService {
     static final String TOKEN_PREFIX = "rpi_";
-    private static final int MAX_TTL_DAYS = 30;
+    private static final int MAX_TTL_DAYS = 180;
     private static final Set<String> TOOL_KINDS = Set.of("CODEX", "CLAUDE_CODE", "OTHER");
     private static final TypeReference<List<String>> ROLES = new TypeReference<>() { };
     private static final TypeReference<List<PlatformPermissionGrant>> GRANTS = new TypeReference<>() { };
@@ -49,7 +49,7 @@ public class PlatformAiConnectionService {
                 : command.toolKind().trim().toUpperCase(Locale.ROOT).replace('-', '_');
         if (!TOOL_KINDS.contains(kind)) throw badRequest("unsupported AI tool kind");
         int days = command.ttlDays() == null ? MAX_TTL_DAYS : command.ttlDays();
-        if (days < 1 || days > MAX_TTL_DAYS) throw badRequest("ttlDays must be between 1 and 30");
+        if (days < 1 || days > MAX_TTL_DAYS) throw badRequest("ttlDays must be between 1 and " + MAX_TTL_DAYS);
 
         byte[] secret = new byte[32];
         random.nextBytes(secret);

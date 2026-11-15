@@ -40,6 +40,7 @@
                   <el-option label="1 天" :value="1" />
                   <el-option label="7 天" :value="7" />
                   <el-option label="30 天" :value="30" />
+                  <el-option label="180 天" :value="180" />
                 </LiquidGlassSelect>
               </label>
             </div>
@@ -148,11 +149,11 @@ const createError = ref('')
 const creating = ref(false)
 const revokingId = ref<number | null>(null)
 const created = ref<CreatedPlatformAiConnection | null>(null)
-const toolKind = ref<AiToolKind>('CLAUDE_CODE')
-const clientId = ref<AiClientId>('CLAUDE_CODE')
+const toolKind = ref<AiToolKind>('OTHER')
+const clientId = ref<AiClientId>('WORKBUDDY')
 const selectedClient = computed(() => PLATFORM_AI_TOOL_OPTIONS.find(tool => tool.value === clientId.value)!)
 const createdClientId = ref<AiClientId>('CLAUDE_CODE')
-const form = reactive<{ label: string; ttlDays: number }>({ label: '', ttlDays: 7 })
+const form = reactive<{ label: string; ttlDays: number }>({ label: '', ttlDays: 180 })
 
 watch(clientId, (_value, previous) => {
   const previousLabel = PLATFORM_AI_TOOL_OPTIONS.find(tool => tool.value === previous)?.label

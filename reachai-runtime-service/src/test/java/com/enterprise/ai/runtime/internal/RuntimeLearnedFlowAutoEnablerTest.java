@@ -1,6 +1,6 @@
 package com.enterprise.ai.runtime.internal;
 
-import com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingMapper;
+import com.enterprise.ai.runtime.eval.RuntimeProjectEvalSettingLookup;
 import com.enterprise.ai.runtime.internal.RuntimeLearnedFlowService.CandidateView;
 import com.enterprise.ai.runtime.internal.RuntimeLearnedFlowService.PendingView;
 import org.junit.jupiter.api.Test;
@@ -21,7 +21,7 @@ class RuntimeLearnedFlowAutoEnablerTest {
 
     private final RuntimeLearnedFlowService flows = mock(RuntimeLearnedFlowService.class);
     private final RuntimeLearnedFlowAutoEnabler enabler =
-            new RuntimeLearnedFlowAutoEnabler(flows, mock(RuntimeProjectEvalSettingMapper.class), true);
+            new RuntimeLearnedFlowAutoEnabler(flows, mock(RuntimeProjectEvalSettingLookup.class), true);
 
     @Test
     void enablesOnlyRequestsRepeatedOftenEnoughAndAFewPerAssistant() {

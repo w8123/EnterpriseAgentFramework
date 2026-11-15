@@ -24,7 +24,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -474,14 +473,14 @@ final class RuntimeActionNodeHandlers {
                 putIfPresent(metadata, "pageBridgeStatus", response.status());
                 putIfPresent(metadata, "pageBridgePhases", response.phases());
                 putIfPresent(metadata, "pageBridgeData", response.data());
-                Map<String, Object> pageActionSummary = pageActionResultSummary(actionKey, response);
+                Map<String, Object> pageActionSummary = RuntimePageActionResults.pageActionResultSummary(actionKey, response);
                 metadata.put("pageActionResultSummary", pageActionSummary);
                 // Trace stays useful without replaying business rows or raw bridge data.
                 metadata.put("traceSummary", pageActionSummary);
                 if (response.data() != null) {
                     metadata.put("structuredOutput", response.data());
                 }
-                if (isBusinessTerminalPageAction(response)) {
+                if (RuntimePageActionResults.isBusinessTerminalPageAction(response)) {
                     metadata.put("outcomeClass", "BUSINESS_TERMINAL");
                     metadata.put("businessOutcome", response.status());
                 }
@@ -494,25 +493,25 @@ final class RuntimeActionNodeHandlers {
                         node.getId(), "PAGE_ACTION",
                         List.of(step("execute-page-action", node.getId())), metadata);
             }
-            if (isBusinessTerminalPageAction(response)) {
+            if (RuntimePageActionResults.isBusinessTerminalPageAction(response)) {
                 String status = text(response.status());
                 // These outcomes explicitly prove the requested operation did not
                 // happen. Stop the graph and the Supervisor continuation rather
                 // than allowing an unconditional success ANSWER downstream.
                 if ("PRECONDITION_FAILED".equalsIgnoreCase(status)) {
                     return new RuntimeGraphSpecExecutionResult(
-                            false, "PAGE_BRIDGE_PRECONDITION_FAILED", pageActionBusinessMessage(response),
+                            false, "PAGE_BRIDGE_PRECONDITION_FAILED", RuntimePageActionResults.pageActionBusinessMessage(response),
                             node.getId(), "PAGE_ACTION",
                             List.of(step("execute-page-action", node.getId())), metadata);
                 }
                 if ("USER_CANCELLED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status)) {
                     return new RuntimeGraphSpecExecutionResult(
-                            false, "RUNTIME_GRAPH_CANCELLED", pageActionBusinessMessage(response),
+                            false, "RUNTIME_GRAPH_CANCELLED", RuntimePageActionResults.pageActionBusinessMessage(response),
                             node.getId(), "PAGE_ACTION",
                             List.of(step("execute-page-action", node.getId())), metadata);
                 }
                 return new RuntimeGraphSpecExecutionResult(
-                        true, "RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL", pageActionBusinessMessage(response),
+                        true, "RUNTIME_PAGE_ACTION_BUSINESS_TERMINAL", RuntimePageActionResults.pageActionBusinessMessage(response),
                         node.getId(), "PAGE_ACTION",
                         List.of(step("execute-page-action", node.getId())), metadata);
             }
@@ -646,119 +645,6 @@ final class RuntimeActionNodeHandlers {
         if (value != null) {
             target.put(key, value);
         }
-    }
-
-    /** Keeps only action state, an aggregate count, and an optional short business message. */
-    private Map<String, Object> pageActionResultSummary(String actionKey,
-                                                        PageBridgeExecutionResponse response) {
-        Map<String, Object> summary = new LinkedHashMap<>();
-        summary.put("actionKey", actionKey);
-        summary.put("success", response.success());
-        String status = firstText(response.status(), response.success() ? "SUCCESS" : "FAILED");
-        summary.put("status", status);
-        if (isBusinessTerminalPageAction(response)) {
-            summary.put("outcomeClass", "BUSINESS_TERMINAL");
-            summary.put("businessOutcome", status);
-        }
-        Long total = null;
-        String message = null;
-        for (Map<String, Object> payload : pageActionPayloadCandidates(mapValue(response.data()))) {
-            if (!StringUtils.hasText(message)) message = safePageActionMessage(payload.get("message"));
-            if (total == null) total = pageActionCount(payload);
-        }
-        if (StringUtils.hasText(message)) {
-            summary.put("message", message);
-        } else if (isBusinessTerminalPageAction(response)) {
-            summary.put("message", pageActionBusinessMessage(response));
-        }
-        if (total != null) {
-            summary.put("total", total);
-            summary.put("empty", total == 0L);
-        }
-        if (pageActionPayloadCandidates(mapValue(response.data())).stream()
-                .anyMatch(payload -> Boolean.TRUE.equals(payload.get("userConfirmed")))) {
-            summary.put("userConfirmed", true);
-        }
-        return Map.copyOf(summary);
-    }
-
-    private boolean isBusinessTerminalPageAction(PageBridgeExecutionResponse response) {
-        if (response == null || !response.success()) return false;
-        if ("PAGE_BRIDGE_BUSINESS_TERMINAL".equalsIgnoreCase(response.code())) return true;
-        String status = text(response.status());
-        return "NO_DATA".equalsIgnoreCase(status)
-                || "PRECONDITION_FAILED".equalsIgnoreCase(status)
-                || "USER_CANCELLED".equalsIgnoreCase(status)
-                || "CANCELLED".equalsIgnoreCase(status);
-    }
-
-    private String pageActionBusinessMessage(PageBridgeExecutionResponse response) {
-        for (Map<String, Object> payload : pageActionPayloadCandidates(
-                mapValue(response == null ? null : response.data()))) {
-            String message = safePageActionMessage(payload.get("message"));
-            if (StringUtils.hasText(message)) return message;
-        }
-        String status = response == null ? null : text(response.status());
-        if ("NO_DATA".equalsIgnoreCase(status)) return "未查询到符合条件的数据。";
-        if ("PRECONDITION_FAILED".equalsIgnoreCase(status)) {
-            return "当前业务状态不满足执行该页面操作的条件。";
-        }
-        if ("USER_CANCELLED".equalsIgnoreCase(status) || "CANCELLED".equalsIgnoreCase(status)) {
-            return "已取消本次页面操作。";
-        }
-        return "页面操作已结束，未产生可继续执行的业务结果。";
-    }
-
-    private List<Map<String, Object>> pageActionPayloadCandidates(Map<String, Object> root) {
-        if (root == null || root.isEmpty()) return List.of();
-        List<Map<String, Object>> candidates = new ArrayList<>();
-        candidates.add(root);
-        for (int index = 0; index < candidates.size() && index < 4; index++) {
-            Map<String, Object> candidate = candidates.get(index);
-            for (String nestedKey : List.of("data", "result", "payload")) {
-                Map<String, Object> nested = mapValue(candidate.get(nestedKey));
-                if (nested != null && !candidates.contains(nested)) candidates.add(nested);
-            }
-        }
-        return candidates;
-    }
-
-    private Long pageActionCount(Map<String, Object> payload) {
-        for (String countKey : List.of("total", "totalCount", "rowCount", "count")) {
-            Long count = nonNegativeIntegralCount(payload.get(countKey));
-            if (count != null) return count;
-        }
-        for (String collectionKey : List.of("records", "rows", "items", "list", "courses")) {
-            Object value = payload.get(collectionKey);
-            if (value instanceof Collection<?> collection) return (long) collection.size();
-        }
-        return null;
-    }
-
-    private Long nonNegativeIntegralCount(Object value) {
-        if (value instanceof Number number) {
-            double decimal = number.doubleValue();
-            long integral = number.longValue();
-            return Double.isFinite(decimal) && decimal == integral && integral >= 0 ? integral : null;
-        }
-        if (value instanceof CharSequence sequence) {
-            String text = sequence.toString().trim();
-            if (text.matches("\\d+")) {
-                try {
-                    return Long.parseLong(text);
-                } catch (NumberFormatException ignored) {
-                    return null;
-                }
-            }
-        }
-        return null;
-    }
-
-    private String safePageActionMessage(Object value) {
-        if (!(value instanceof CharSequence sequence)) return null;
-        String message = sequence.toString().trim();
-        if (!StringUtils.hasText(message)) return null;
-        return message.length() <= 240 ? message : message.substring(0, 240);
     }
 
     private Map<String, Object> buildHttpApiInput(GraphSpec.Node node, Map<String, Object> context) {

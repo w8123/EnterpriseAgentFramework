@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '@/App.vue'
 import MainLayout from './MainLayout.vue'
 import { useAppStore } from '@/store/app'
+import { routes } from '@/router'
 
 vi.mock('@/composables/useTheme', () => ({ useTheme: () => ({ theme: 'light' }) }))
 vi.mock('@/composables/usePageProjectScope', () => ({ providePageProjectScope: vi.fn() }))
@@ -34,6 +35,9 @@ async function resize(nextWidth: number) {
 }
 async function setup(path = '/capabilities', desktopCollapsed = false) {
   const page = { template: '<div />' }
+  const aiConnectionsRoute = routes.find(route => route.path === '/')?.children
+    ?.find(route => route.path === 'me/ai-connections')
+  if (!aiConnectionsRoute) throw new Error('AI 工具接入路由不存在')
   const router = createRouter({ history: createMemoryHistory(), routes: [
     { path: '/capabilities', component: page, meta: { compactSidebarOnNarrow: true } },
     { path: '/capabilities/detail', component: page, meta: { compactSidebarOnNarrow: true } },
@@ -43,6 +47,7 @@ async function setup(path = '/capabilities', desktopCollapsed = false) {
     // Mirrors the real router: the overview hides the sidebar project panel through route meta.
     { path: '/dashboard', component: page, meta: { hideSidebarProjectPanel: true } },
     { path: '/getting-started', component: page, meta: { hideSidebarProjectPanel: true } },
+    { path: '/me/ai-connections', component: page, meta: aiConnectionsRoute.meta },
   ] })
   await router.push(path)
   const pinia = createPinia()
@@ -269,5 +274,20 @@ describe('MainLayout route continuity', () => {
     await router.push('/capabilities')
     await flushPromises()
     expect(view.findComponent({ name: 'AppSidebar' }).props('hideProjectPanel')).toBe(false)
+  })
+
+  it('hides the project selector on AI tool access and restores it when navigating away', async () => {
+    const { view, router } = await setup('/capabilities')
+    const sidebar = () => view.findComponent({ name: 'AppSidebar' }).props('hideProjectPanel')
+    expect(sidebar()).toBe(false)
+    await router.push('/me/ai-connections')
+    await flushPromises()
+    expect(sidebar()).toBe(true)
+    await router.push('/me/ai-connections?tab=prompts')
+    await flushPromises()
+    expect(sidebar()).toBe(true)
+    await router.push('/capabilities')
+    await flushPromises()
+    expect(sidebar()).toBe(false)
   })
 })

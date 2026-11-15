@@ -12,12 +12,12 @@
 
 ## 第 1 步：连接你的 AI 工具
 
-在工作台侧栏点「AI 工具接入」：
+在工作台侧栏点「AI 工具接入」。平台连接按你的账号权限授权，无需在侧栏选择项目：
 
 ![我的 AI 工具接入](../images/manual/dev-ai-connections.webp)
 
-1. **选择 AI 工具**：Claude Code、Codex、WorkBuddy、TRAE、豆包、Cursor、Gemini CLI、OpenClaw、Hermes Agent，或兼容 MCP 的企业自建智能体。
-2. 在工具列表下方获取安装提示词或生成接入配置，按页面提示复制使用。需要修改凭据名称或默认 7 天的有效期时，展开「凭据设置」。凭据的权限和你的账号一样，账号权限减少时自动收紧。
+1. **选择 AI 工具**：WorkBuddy、Claude Code、Codex、TRAE、豆包、Cursor、Gemini CLI、OpenClaw、Hermes Agent，或兼容 MCP 的企业自建智能体。
+2. 在工具列表下方获取安装提示词或生成接入配置，按页面提示复制使用。需要修改凭据名称或默认 180 天的有效期时，展开「凭据设置」。凭据的权限和你的账号一样，账号权限减少时自动收紧。
 3. 把安装提示词粘贴给你的 AI 工具，让它添加连接并检查工具列表。
 
 安装提示词里有你的个人密钥，只显示一次，不要分享给别人。

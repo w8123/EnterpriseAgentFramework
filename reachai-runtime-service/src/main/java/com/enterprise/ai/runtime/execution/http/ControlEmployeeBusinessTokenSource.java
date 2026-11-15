@@ -36,7 +36,7 @@ public class ControlEmployeeBusinessTokenSource implements EmployeeBusinessToken
         Remembered known = remembered.get(key);
         if (known != null && known.until() > now) return known.resolution();
         try {
-            Resolution answer = control.resolveEmployeeBusinessToken(subject(employee));
+            var answer = control.resolveEmployeeBusinessToken(subject(employee));
             Resolution resolution = answer == null ? Resolution.NONE
                     : new Resolution(answer.mode(), answer.origins(), answer.token());
             boolean missing = !OFF.equals(resolution.mode()) && resolution.token() == null;

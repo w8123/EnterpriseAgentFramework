@@ -1,11 +1,14 @@
 package com.enterprise.ai.runtime.eval;
 
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.enterprise.ai.runtime.supervisor.SupervisorProjectEvalSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.util.Optional;
+import java.util.List;
 
 /**
  * Reads one system's evaluation settings for the Agent runtime. Depends only on the settings table so
@@ -15,11 +18,12 @@ import java.util.Optional;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class RuntimeProjectEvalSettingLookup {
+public class RuntimeProjectEvalSettingLookup implements SupervisorProjectEvalSettings {
 
     private final RuntimeProjectEvalSettingMapper settingMapper;
 
     /** The evaluation account of a system, for an evaluation run of its assistant; empty when none is set. */
+    @Override
     public Optional<EvalAccount> evalAccount(String projectCode) {
         RuntimeProjectEvalSettingEntity setting = find(projectCode);
         if (setting == null || !StringUtils.hasText(setting.getEvalUserId())) return Optional.empty();
@@ -42,6 +46,10 @@ public class RuntimeProjectEvalSettingLookup {
         }
     }
 
-    public record EvalAccount(String tenantId, String userId) {
+    /** Systems whose administrator opted in to automatic read-only flow publication. */
+    public List<String> autoEnableProjects() {
+        return settingMapper.selectList(Wrappers.<RuntimeProjectEvalSettingEntity>lambdaQuery()
+                        .eq(RuntimeProjectEvalSettingEntity::getAutoEnableReadonlyFlows, true))
+                .stream().map(RuntimeProjectEvalSettingEntity::getProjectCode).toList();
     }
 }

@@ -21,6 +21,7 @@
 | `POST /internal/control/employee-business-tokens/resolve`, `POST /internal/control/employee-business-tokens/expired` | `reachai-control-service` | `reachai-runtime-service` | No；「用员工自己的令牌调用」：Runtime 为员工调用业务系统前问 Control 用哪个令牌（员工登录时业务系统给的令牌只存 Control 内存，最长 7 天），业务系统拒绝时通知 Control 忘掉；答复不缓存超过 60 秒，不写日志 |
 | `POST /internal/runtime/workflows/ai-coding/page-assistant/smoke-test` | `reachai-runtime-service` | `reachai-control-service` | No；Control 验证页面令牌及 Workflow 项目权限后签名用户与请求体；Runtime 复核项目和会话，真实页面动作逐项确认 |
 | `POST /internal/control/assistant-capabilities/search` | `reachai-control-service` | `reachai-runtime-service` | No |
+| `POST /internal/control/assistant-capabilities/read-catalog` | `reachai-control-service` | `reachai-runtime-service` | No；服务签名验证后按业务身份读取获准调用的只读能力目录，供项目评测生成问题 |
 | `POST /internal/control/assistant-capabilities/call` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `POST /internal/control/agent-skills/resolve-execution` | `reachai-control-service` | `reachai-runtime-service` | No |
 | `GET /internal/control/agent-skills/{skillId}/versions/{versionId}` | `reachai-control-service` | `reachai-runtime-service` | No |
@@ -102,6 +103,7 @@
 | `GET /internal/model/instances`, `GET /internal/model/instances/{id}` | `reachai-model-service` | `reachai-runtime-service`, `reachai-control-service` | No；Model 验证精确 body、原始路径和查询参数的服务 HMAC，持久化 nonce 防重放；Runtime 仅读列表，管理限 Control |
 | `GET /internal/model/instance-prices` | `reachai-model-service` | `reachai-control-service` | No；服务 HMAC；只返回每百万 Token 输入/输出价格和币种，供 /usage 费用估算 |
 | `GET /internal/runtime/usage/model-tokens`, `GET /internal/runtime/usage/audit-runs` | `reachai-runtime-service` | `reachai-control-service` | No；服务 HMAC，仅接受 Control 调用；按天/人/系统/入口/模型汇总 Token，及审计导出用的运行明细（不含对话内容） |
+| `GET /internal/runtime/usage/decision-routes` | `reachai-runtime-service` | `reachai-control-service` | No；服务 HMAC，仅接受 Control 调用；按项目与时间窗统计业务助手使用推理、直达流程和普通对话的次数 |
 | `POST /internal/knowledge/retrieval/query` | `reachai-knowledge-service` | `reachai-runtime-service` | No |
 | `POST /internal/knowledge/personal-memories/events` | `reachai-knowledge-service` | `reachai-control-service` | No |
 | `POST /internal/knowledge/personal-memories/query` | `reachai-knowledge-service` | `reachai-control-service` | No |

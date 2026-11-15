@@ -51,4 +51,3 @@ export function revokePageActionEffect(projectCode: string, pageKey: string, act
     expectedCatalogHash: approval.catalogHash,
   }, { errorFeedback: 'local' })
 }
-

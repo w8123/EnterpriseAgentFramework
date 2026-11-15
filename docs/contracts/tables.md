@@ -67,6 +67,8 @@
 | `runtime_session_retention_audit` | `reachai-runtime-service` | - | Metadata-only policy, Legal Hold, clear, purge, recovery, and failure audit; no conversation body or raw actor ID |
 | `runtime_tool_result_artifact` | `reachai-runtime-service` | - | Session-scoped encrypted large Tool output with bounded read and ciphertext TTL scrubbing; not personal memory |
 | `runtime_trace_span` | `reachai-runtime-service` | - | Runtime generic trace span child event |
+| `runtime_http_egress_host` | `reachai-runtime-service` | - | Workflow HTTP 出站目标的项目级主机批准记录 |
+| `runtime_project_eval_setting` | `reachai-runtime-service` | - | 项目评测账号、调度和只读直达流程自动启用设置 |
 | `runtime_agent_workflow_credential` | `reachai-runtime-service` | - | Workflow credential vault metadata |
 | `runtime_agent` | `reachai-runtime-service` | - | Runtime agent catalog |
 | `runtime_agent_config_version` | `reachai-runtime-service` | - | Versioned Agent Supervisor configuration |

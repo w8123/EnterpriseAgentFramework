@@ -2,6 +2,7 @@ package com.enterprise.ai.control.platform;
 
 import com.enterprise.ai.control.identity.*;
 import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
+import com.enterprise.ai.control.pageworkbench.application.PageActionEffectReviewStore;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.ActionView;
 import com.enterprise.ai.control.pageworkbench.application.PageWorkbenchContract.PageView;
 import com.enterprise.ai.control.pageworkbench.persistence.*;
@@ -25,7 +26,8 @@ class PageActionEffectReviewServiceTest {
     private final PageActionEffectGenerationMapper generations = mock(PageActionEffectGenerationMapper.class);
     private final PageActionEffectReviewMapper reviews = mock(PageActionEffectReviewMapper.class);
     private final PlatformAuthAuditService audit = mock(PlatformAuthAuditService.class);
-    private final PageActionEffectReviewService service = new PageActionEffectReviewService(catalog, generations, reviews, audit, json);
+    private final PageActionEffectReviewService service = new PageActionEffectReviewService(catalog,
+            new PageActionEffectReviewStore(generations, reviews), audit, json);
     private final AtomicLong revision = new AtomicLong(0);
     private final AtomicReference<PageActionEffectReviewEntity> latest = new AtomicReference<>();
     private final PlatformAuthenticatedSession actor = mock(PlatformAuthenticatedSession.class);

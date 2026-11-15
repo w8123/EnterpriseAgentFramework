@@ -101,7 +101,8 @@ class PageActionEffectReviewTransactionTest {
         target.setEffectGenerations(generations);
         var manager = new DataSourceTransactionManager(source);
         PageCatalogApplicationService catalog = transactional(target, manager);
-        var reviewTarget = new PageActionEffectReviewService(catalog, generations, sql.getMapper(PageActionEffectReviewMapper.class),
+        var reviewTarget = new PageActionEffectReviewService(catalog,
+                new PageActionEffectReviewStore(generations, sql.getMapper(PageActionEffectReviewMapper.class)),
                 mock(PlatformAuthAuditService.class), json);
         PageActionEffectReviewService reviews = transactional(reviewTarget, manager);
         var actor = mock(PlatformAuthenticatedSession.class);

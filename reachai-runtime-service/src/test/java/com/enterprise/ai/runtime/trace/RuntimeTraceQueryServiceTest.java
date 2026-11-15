@@ -8,14 +8,35 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.LinkedHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 class RuntimeTraceQueryServiceTest {
+
+    @Test
+    void capabilityEvidenceIsDetachedFromMapperRowsAndCannotBeMutatedByCallers() {
+        var spans = mock(RuntimeTraceSpanMapper.class);
+        var service = new RuntimeTraceQueryService(mock(RuntimeToolCallLogMapper.class), spans, new ObjectMapper());
+        var since = LocalDateTime.parse("2026-11-15T10:00:00");
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("traceId", "trace-1");
+        row.put("outputSummary", null);
+        when(spans.selectCapabilityCalls("agent-1", since, 25)).thenReturn(List.of(row));
+
+        var evidence = service.findSuccessfulCapabilityCalls("agent-1", since, 25);
+        row.put("traceId", "changed");
+
+        assertEquals("trace-1", evidence.get(0).get("traceId"));
+        assertTrue(evidence.get(0).containsKey("outputSummary"));
+        assertThrows(UnsupportedOperationException.class, () -> evidence.get(0).put("traceId", "caller"));
+        assertThrows(UnsupportedOperationException.class, () -> evidence.clear());
+    }
 
     @Test
     void mergesToolLogsAndTraceSpansIntoSortedTraceNodes() {

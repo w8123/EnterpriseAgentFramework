@@ -2,7 +2,7 @@ package com.enterprise.ai.runtime.eval;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
-import com.enterprise.ai.runtime.agent.RuntimeAgentConfigVersionEntity;
+import com.enterprise.ai.runtime.agent.RuntimeAgentConfigSnapshot;
 import com.enterprise.ai.runtime.agent.RuntimeAgentExecutionView;
 import com.enterprise.ai.runtime.agent.RuntimeAgentIdentityQuery;
 import com.enterprise.ai.runtime.agent.RuntimeAgentToolCatalogMode;
@@ -183,8 +183,8 @@ public class RuntimeProjectEvalService {
             throw new IllegalArgumentException("评测账号在这个业务系统里没有只读能力，先在「MCP 互联中心」给员工发布查询类能力");
         }
         int wanted = setting.getQuestionCount() == null ? DEFAULT_QUESTIONS : setting.getQuestionCount();
-        String model = agentConfigs.resolveActive(setting.getAgentId())
-                .map(RuntimeAgentConfigVersionEntity::getModelInstanceId).orElse(null);
+        String model = agentConfigs.resolveActiveSnapshot(setting.getAgentId())
+                .map(RuntimeAgentConfigSnapshot::getModelInstanceId).orElse(null);
         java.util.concurrent.atomic.AtomicReference<String> sampleProblem = new java.util.concurrent.atomic.AtomicReference<>(
                 "这些能力都需要先知道某条记录才能查，没有能直接读一页数据的列表能力");
         Map<String, String> samples = samples(setting, tools, wanted, sampleProblem);
@@ -553,7 +553,7 @@ public class RuntimeProjectEvalService {
         if (!StringUtils.hasText(setting.getEvalUserId())) {
             throw new IllegalArgumentException("请先填写只读评测账号（业务系统里的员工账号编号）");
         }
-        RuntimeAgentConfigVersionEntity config = agentConfigs.resolveActive(setting.getAgentId()).orElse(null);
+        RuntimeAgentConfigSnapshot config = agentConfigs.resolveActiveSnapshot(setting.getAgentId()).orElse(null);
         if (config == null || !RuntimeAgentToolCatalogMode.projectCapabilities(config.getToolCatalogMode())) {
             throw new IllegalArgumentException("这个助手没有打开「使用业务系统的全部能力」，自动评测测不到业务能力");
         }

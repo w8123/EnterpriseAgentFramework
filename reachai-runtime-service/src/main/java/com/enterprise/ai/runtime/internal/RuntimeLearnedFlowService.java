@@ -5,7 +5,7 @@ import com.enterprise.ai.runtime.agent.RuntimeAgentConfigService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentService;
 import com.enterprise.ai.runtime.agent.RuntimeAgentView;
 import com.enterprise.ai.runtime.client.capability.RuntimeCapabilityCatalogClient;
-import com.enterprise.ai.runtime.trace.RuntimeTraceSpanMapper;
+import com.enterprise.ai.runtime.trace.RuntimeCapabilityCallQuery;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.AttachRequest;
 import com.enterprise.ai.runtime.workflow.RuntimeWorkflowAgentAttachmentPort.AttachmentResult;
@@ -49,7 +49,7 @@ public class RuntimeLearnedFlowService {
 
     private final RuntimeAgentService agentService;
     private final RuntimeAgentConfigService agentConfigService;
-    private final RuntimeTraceSpanMapper spanMapper;
+    private final RuntimeCapabilityCallQuery capabilityCalls;
     private final RuntimeCapabilityCatalogClient catalog;
     private final RuntimeWorkflowManagementService workflows;
     private final RuntimeWorkflowAiCodingService workflowAiCodingService;
@@ -60,7 +60,7 @@ public class RuntimeLearnedFlowService {
     public List<CandidateView> candidates(String agentId, Integer days) {
         RuntimeAgentView agent = requireAgent(agentId);
         int window = Math.max(1, Math.min(90, days == null ? 30 : days));
-        List<Map<String, Object>> rows = spanMapper.selectCapabilityCalls(
+        List<Map<String, Object>> rows = capabilityCalls.findSuccessfulCapabilityCalls(
                 agent.id(), LocalDateTime.now().minusDays(window), SPAN_LIMIT);
         // One capability call per run only: a run that needed several steps is not a single-step flow.
         Map<String, List<Map<String, Object>>> byTrace = new LinkedHashMap<>();
@@ -328,7 +328,7 @@ public class RuntimeLearnedFlowService {
     }
 
     private String activeAgentModel(String agentId) {
-        return agentConfigService.resolveActive(agentId).map(config -> config.getModelInstanceId()).orElse(null);
+        return agentConfigService.resolveActiveSnapshot(agentId).map(config -> config.getModelInstanceId()).orElse(null);
     }
 
     static String keySlug(String sourceRef) {

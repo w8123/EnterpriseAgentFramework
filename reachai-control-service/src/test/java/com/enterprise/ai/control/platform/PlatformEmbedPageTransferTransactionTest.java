@@ -3,6 +3,7 @@ package com.enterprise.ai.control.platform;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean;
 import com.enterprise.ai.control.pageworkbench.persistence.ProjectPageMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageTransferTargetLookup;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mybatis.spring.SqlSessionTemplate;
@@ -243,7 +244,9 @@ class PlatformEmbedPageTransferTransactionTest {
         historyTarget.setSessionMapper(sql.getMapper(PlatformEmbedSessionMapper.class));
         var history = proxy(historyTarget, manager);
         var turns = proxy(new PlatformEmbedTurnLeaseService(sql.getMapper(PlatformEmbedSessionMapper.class), sql.getMapper(PlatformEmbedChatEventMapper.class), history, new ObjectMapper()), manager);
-        var transfers = proxy(new PlatformEmbedPageTransferService(sessionService, turns, sql.getMapper(PlatformEmbedChatEventMapper.class), sql.getMapper(ProjectPageMapper.class), new ObjectMapper()), manager);
+        var transfers = proxy(new PlatformEmbedPageTransferService(sessionService, turns,
+                sql.getMapper(PlatformEmbedChatEventMapper.class),
+                new PageTransferTargetLookup(sql.getMapper(ProjectPageMapper.class)), new ObjectMapper()), manager);
         var clears = proxy(new PlatformEmbedContextClearService(sessionService, history, sql.getMapper(PlatformPageActionEventMapper.class), new ObjectMapper()), manager);
         var session = sql.getMapper(PlatformEmbedSessionMapper.class).selectById(1L);
         return new Fixture(jdbc, session, history, turns, transfers, clears, claims("home", "source-instance", "/index", "user", "business"), claims("personal", "target-instance", "/personal", "user", "business"));

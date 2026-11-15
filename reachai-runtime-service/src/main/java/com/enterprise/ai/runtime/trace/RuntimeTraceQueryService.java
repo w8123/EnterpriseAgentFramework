@@ -20,7 +20,7 @@ import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
-public class RuntimeTraceQueryService implements RuntimeTraceRecordQuery {
+public class RuntimeTraceQueryService implements RuntimeTraceRecordQuery, RuntimeCapabilityCallQuery {
 
     private static final TypeReference<List<Map<String, Object>>> CANDIDATES_TYPE = new TypeReference<>() {
     };
@@ -28,6 +28,12 @@ public class RuntimeTraceQueryService implements RuntimeTraceRecordQuery {
     private final RuntimeToolCallLogMapper toolLogMapper;
     private final RuntimeTraceSpanMapper spanMapper;
     private final ObjectMapper objectMapper;
+
+    @Override
+    public List<Map<String, Object>> findSuccessfulCapabilityCalls(String agentId, LocalDateTime since, int limit) {
+        return spanMapper.selectCapabilityCalls(agentId, since, limit).stream()
+                .map(row -> Collections.unmodifiableMap(new LinkedHashMap<>(row))).toList();
+    }
 
     @Override
     public RuntimeTraceRecords findRecords(String traceId) {

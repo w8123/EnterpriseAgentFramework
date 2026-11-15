@@ -35,10 +35,10 @@ export const AI_TOOL_OPTIONS: AiToolOption[] = [
 
 /** Client-specific guidance shares the existing OTHER connection protocol. */
 export const PLATFORM_AI_TOOL_OPTIONS: AiToolOption[] = [
-  AI_TOOL_OPTIONS[0]!, AI_TOOL_OPTIONS[1]!,
   { value: 'WORKBUDDY', kind: 'OTHER', label: 'WorkBuddy', hint: '办公助手', icon: workbuddyIcon, manual: true,
     guide: '打开「连接器 → 自定义连接器」，按生成的接入配置添加服务，再信任并启用连接器。',
     docsUrl: 'https://www.workbuddy.cn/docs/workbuddy/From-Beginner-to-Expert-Guide/Function-Description/Connector' },
+  AI_TOOL_OPTIONS[0]!, AI_TOOL_OPTIONS[1]!,
   { value: 'TRAE', kind: 'OTHER', label: 'TRAE', hint: '编程助手', icon: traeIcon, manual: true,
     guide: '打开「设置 → MCP」，添加自定义远程服务，填写生成的服务地址与认证信息。',
     docsUrl: 'https://docs.trae.cn/ide_add-mcp-servers' },

@@ -34,6 +34,23 @@ class PlatformAiConnectionServiceTest {
     }
 
     @Test
+    void defaultsTo180DaysAndRejectsLongerCredentials() {
+        Fixture fixture = fixture();
+        doAnswer(call -> {
+            PlatformAiConnectionEntity entity = call.getArgument(0);
+            entity.setId(19L);
+            return 1;
+        }).when(fixture.mapper).insert(any(PlatformAiConnectionEntity.class));
+        var actor = session(7L, List.of(), List.of());
+        var created = fixture.service.create(actor,
+                new PlatformAiConnectionService.CreateConnection("WorkBuddy", "OTHER", null));
+        assertEquals(created.connection().createdAt().plusDays(180), created.connection().expiresAt());
+        var error = assertThrows(ResponseStatusException.class, () -> fixture.service.create(actor,
+                new PlatformAiConnectionService.CreateConnection("WorkBuddy", "OTHER", 181)));
+        assertEquals(HttpStatus.BAD_REQUEST, error.getStatusCode());
+    }
+
+    @Test
     void createsAnOwnerBoundConnectionAndStoresOnlyAOneWayTokenDigest() {
         Fixture fixture = fixture();
         doAnswer(call -> {

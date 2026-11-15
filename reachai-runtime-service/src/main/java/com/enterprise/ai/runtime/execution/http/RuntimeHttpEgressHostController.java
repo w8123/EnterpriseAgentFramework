@@ -21,7 +21,7 @@ public class RuntimeHttpEgressHostController {
     private final RuntimeHttpEgressHostService service;
     private final WorkflowHttpEgressPolicy policy;
 
-    @GetMapping("/api/runtime/http-egress-hosts")
+    @GetMapping("/api/platform/http-egress-hosts")
     public Map<String, Object> list() {
         return Map.of("hosts", service.list(), "allowPrivateNetworks", policy.allowsPrivateNetworks(),
                 "environmentHosts", List.copyOf(policy.environmentAllowlist()));
@@ -35,12 +35,12 @@ public class RuntimeHttpEgressHostController {
         return List.copyOf(hosts);
     }
 
-    @PostMapping("/api/runtime/http-egress-hosts")
+    @PostMapping("/api/platform/http-egress-hosts")
     public RuntimeHttpEgressHostEntity add(@RequestBody Map<String, Object> body) {
         return service.add(text(body.get("host")), text(body.get("note")), text(body.get("createdBy")));
     }
 
-    @DeleteMapping("/api/runtime/http-egress-hosts/{id}")
+    @DeleteMapping("/api/platform/http-egress-hosts/{id}")
     public Map<String, Object> remove(@PathVariable Long id) {
         service.remove(id);
         return Map.of("removed", true);

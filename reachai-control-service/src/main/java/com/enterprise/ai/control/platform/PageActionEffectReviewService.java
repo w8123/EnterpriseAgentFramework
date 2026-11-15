@@ -1,14 +1,12 @@
 package com.enterprise.ai.control.platform;
 
-import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.enterprise.ai.control.identity.PlatformAuthenticatedSession;
 import com.enterprise.ai.common.page.TrustedPageDraftInputContract;
 import com.enterprise.ai.control.identity.PlatformAuthAuditService;
 import com.enterprise.ai.control.identity.PlatformPermissions;
 import com.enterprise.ai.control.pageworkbench.application.PageCatalogApplicationService;
-import com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectGenerationMapper;
-import com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectReviewEntity;
-import com.enterprise.ai.control.pageworkbench.persistence.PageActionEffectReviewMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageActionEffectReviewStore;
+import com.enterprise.ai.control.pageworkbench.application.PageActionEffectReviewStore.Review;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -32,8 +30,7 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PageActionEffectReviewService {
     private final PageCatalogApplicationService catalog;
-    private final PageActionEffectGenerationMapper generations;
-    private final PageActionEffectReviewMapper reviews;
+    private final PageActionEffectReviewStore reviews;
     private final PlatformAuthAuditService audit;
     private final ObjectMapper objectMapper;
 
@@ -41,7 +38,7 @@ public class PageActionEffectReviewService {
     public ContractPreview preview(PlatformAuthenticatedSession actor, String projectCode, String pageKey, String actionKey) {
         requirePublisher(actor, projectCode);
         var locked = locked(projectCode, pageKey, actionKey);
-        Long revision = generations.lock(locked.action().id());
+        Long revision = reviews.lockGeneration(locked.action().id());
         return new ContractPreview(locked.page().id(), locked.action().id(), locked.page().projectCode(),
                 locked.page().pageKey(), locked.action().actionKey(), locked.page().routePattern(),
                 locked.action().title(), locked.action().description(), locked.action().implementationRef(),
@@ -74,22 +71,21 @@ public class PageActionEffectReviewService {
         if ("PAGE_LOCAL_DRAFT".equals(command.effect())) validateTrustedDraft(locked.page().projectCode(),
                 locked.page().pageKey(), locked.action().actionKey(), locked.action().title(), locked.page().routePattern(),
                 command.implementationVersion().trim(), command.targetAlias().trim(), locked.action().inputSchema());
-        long currentRevision = generation(locked.action().id(), locked.page().id());
+        long currentRevision = reviews.generation(locked.action().id(), locked.page().id());
         if (currentRevision != command.expectedRevision()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "effect review changed; refresh before approval");
         }
         long revision = currentRevision + 1;
-        generations.invalidateAction(locked.action().id());
-        var row = newRecord(actor, locked, revision, "APPROVED");
-        row.setEffect(command.effect());
-        row.setCatalogHash(hash);
-        row.setImplementationVersion(command.implementationVersion().trim());
-        row.setTargetAlias(command.targetAlias().trim());
-        try { row.setFieldLabelsJson(objectMapper.writeValueAsString(fieldLabels)); }
+        reviews.invalidateAction(locked.action().id());
+        String fieldLabelsJson;
+        try { fieldLabelsJson = objectMapper.writeValueAsString(fieldLabels); }
         catch (com.fasterxml.jackson.core.JsonProcessingException invalid) {
             throw new IllegalArgumentException("field labels cannot be serialized", invalid);
         }
-        reviews.insert(row);
+        var row = reviews.insert(newRecord(actor, locked, revision, "APPROVED").toBuilder()
+                .effect(command.effect()).catalogHash(hash)
+                .implementationVersion(command.implementationVersion().trim())
+                .targetAlias(command.targetAlias().trim()).fieldLabelsJson(fieldLabelsJson).build());
         audit.record(actor, "PAGE_ACTION_EFFECT_APPROVED", "PAGE_ACTION", String.valueOf(locked.action().id()),
                 Map.of("projectCode", projectCode, "approvalId", row.getId(), "effect", row.getEffect(), "revision", revision));
         return view(row, locked, true);
@@ -111,10 +107,9 @@ public class PageActionEffectReviewService {
                 || !Objects.equals(current.catalogHash(), command.expectedCatalogHash())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "effect review changed; refresh before revocation");
         }
-        long revision = generation(locked.action().id(), locked.page().id());
-        generations.invalidateAction(locked.action().id());
-        var row = newRecord(actor, locked, revision + 1, "REVOKED");
-        reviews.insert(row);
+        long revision = reviews.generation(locked.action().id(), locked.page().id());
+        reviews.invalidateAction(locked.action().id());
+        var row = reviews.insert(newRecord(actor, locked, revision + 1, "REVOKED"));
         audit.record(actor, "PAGE_ACTION_EFFECT_REVOKED", "PAGE_ACTION", String.valueOf(locked.action().id()),
                 Map.of("projectCode", projectCode, "reviewId", row.getId(), "revision", revision + 1));
     }
@@ -129,11 +124,9 @@ public class PageActionEffectReviewService {
         if (!TransactionSynchronizationManager.isActualTransactionActive()) throw new IllegalStateException("transaction is required");
         var locked = catalog.findActiveActionAndPageForUpdate(projectCode, pageKey, actionKey).orElse(null);
         if (locked == null) return Optional.empty();
-        Long generation = generations.lock(locked.action().id());
+        Long generation = reviews.lockGeneration(locked.action().id());
         if (generation == null) return Optional.empty();
-        var row = reviews.selectOne(Wrappers.<PageActionEffectReviewEntity>lambdaQuery()
-                .eq(PageActionEffectReviewEntity::getActionId, locked.action().id())
-                .orderByDesc(PageActionEffectReviewEntity::getId).last("LIMIT 1"));
+        var row = reviews.latest(locked.action().id());
         if (row == null || !"APPROVED".equals(row.getDecision()) || !Objects.equals(generation, row.getRevision())
                 || !Objects.equals(row.getPageId(), locked.page().id())
                 || !Objects.equals(row.getProjectId(), locked.page().projectId())
@@ -211,21 +204,13 @@ public class PageActionEffectReviewService {
         return catalog.findActiveActionAndPageForUpdate(project, page, action)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "active page action not found"));
     }
-    private long generation(Long actionId, Long pageId) {
-        Long current = generations.lock(actionId);
-        if (current != null) return current;
-        generations.create(actionId, pageId);
-        return 0;
-    }
-    private PageActionEffectReviewEntity newRecord(PlatformAuthenticatedSession actor,
+    private Review newRecord(PlatformAuthenticatedSession actor,
             PageCatalogApplicationService.LockedPageAction locked, long revision, String decision) {
-        var row = new PageActionEffectReviewEntity();
-        row.setActionId(locked.action().id()); row.setPageId(locked.page().id());
-        row.setProjectId(locked.page().projectId()); row.setProjectCode(locked.page().projectCode());
-        row.setPageKey(locked.page().pageKey()); row.setActionKey(locked.action().actionKey());
-        row.setRevision(revision); row.setDecision(decision); row.setActorUserId(actor.user().getId());
-        row.setActorSessionId(actor.sessionId()); row.setCreatedAt(LocalDateTime.now());
-        return row;
+        return Review.builder().actionId(locked.action().id()).pageId(locked.page().id())
+                .projectId(locked.page().projectId()).projectCode(locked.page().projectCode())
+                .pageKey(locked.page().pageKey()).actionKey(locked.action().actionKey())
+                .revision(revision).decision(decision).actorUserId(actor.user().getId())
+                .actorSessionId(actor.sessionId()).createdAt(LocalDateTime.now()).build();
     }
     private static void requirePublisher(PlatformAuthenticatedSession actor, String projectCode) {
         if (actor == null || actor.user() == null || actor.user().getId() == null || !StringUtils.hasText(actor.sessionId()))
@@ -235,7 +220,7 @@ public class PageActionEffectReviewService {
                 || !actor.hasResourcePermission(PlatformPermissions.EMBED_MANAGE, "PROJECT", null, projectCode))
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "project publish and embed management permissions are required");
     }
-    private ActiveApproval view(PageActionEffectReviewEntity row, PageCatalogApplicationService.LockedPageAction locked, boolean active) {
+    private ActiveApproval view(Review row, PageCatalogApplicationService.LockedPageAction locked, boolean active) {
         Map<String, String> labels;
         try { labels = objectMapper.readValue(row.getFieldLabelsJson(), new com.fasterxml.jackson.core.type.TypeReference<>() { }); }
         catch (Exception invalid) { throw new IllegalStateException("review field labels are unavailable", invalid); }

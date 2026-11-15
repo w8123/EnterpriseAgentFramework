@@ -1,8 +1,7 @@
 package com.enterprise.ai.control.platform;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import com.enterprise.ai.control.pageworkbench.persistence.ProjectPageEntity;
-import com.enterprise.ai.control.pageworkbench.persistence.ProjectPageMapper;
+import com.enterprise.ai.control.pageworkbench.application.PageTransferTargetLookup;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +30,7 @@ public class PlatformEmbedPageTransferService {
     private final PlatformEmbedSessionService sessions;
     private final PlatformEmbedTurnLeaseService turns;
     private final PlatformEmbedChatEventMapper events;
-    private final ProjectPageMapper pages;
+    private final PageTransferTargetLookup pages;
     private final ObjectMapper json;
 
     public record TransferTicket(String transferTicket, int expiresInSeconds) { }
@@ -90,13 +89,10 @@ public class PlatformEmbedPageTransferService {
         if (!"ISSUED".equals(event.getRole()) || !same(saved.get("sourceInstance"), session.getPageInstanceId())) {
             throw new IllegalArgumentException("page transfer is no longer current");
         }
-        ProjectPageEntity page = pages.selectOne(Wrappers.<ProjectPageEntity>lambdaQuery()
-                .eq(ProjectPageEntity::getProjectCode, session.getProjectCode())
-                .eq(ProjectPageEntity::getPageKey, claims.getPageKey())
-                .last("LIMIT 1 FOR UPDATE"));
-        if (page == null || !Objects.equals(page.getProjectCode(), session.getProjectCode())
-                || !Objects.equals(page.getPageKey(), claims.getPageKey()) || !"ACTIVE".equals(page.getLifecycleStatus())
-                || !PlatformEmbedPublicController.routeMatches(page.getRoutePattern(), claims.getRoute())) {
+        var page = pages.forUpdate(session.getProjectCode(), claims.getPageKey()).orElse(null);
+        if (page == null || !Objects.equals(page.projectCode(), session.getProjectCode())
+                || !Objects.equals(page.pageKey(), claims.getPageKey()) || !"ACTIVE".equals(page.lifecycleStatus())
+                || !PlatformEmbedPublicController.routeMatches(page.routePattern(), claims.getRoute())) {
             throw new IllegalArgumentException("target page is unavailable");
         }
         PlatformEmbedTurnLeaseService.IdleSnapshot snapshot = turns.idleSnapshot(session);

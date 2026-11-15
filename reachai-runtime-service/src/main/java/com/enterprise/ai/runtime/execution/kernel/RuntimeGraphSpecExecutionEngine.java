@@ -1211,7 +1211,7 @@ public final class RuntimeGraphSpecExecutionEngine {
         nodeOutputs.put(node.getId(), output);
         context.put("nodeOutput", nodeOutputs);
         if ("PAGE_ACTION".equals(nodeType)) {
-            rememberPageActionResult(context, result);
+            RuntimePageActionResults.rememberPageActionResult(context, result);
         }
         String outputAlias = nodeOutputAlias(node);
         if (StringUtils.hasText(outputAlias)
@@ -1225,29 +1225,6 @@ public final class RuntimeGraphSpecExecutionEngine {
         Object previousOutput = context.get("lastOutput");
         rememberOutputPath(context, "previousOutput", previousOutput);
         rememberOutputPath(context, "lastOutput", output);
-    }
-
-    private void rememberPageActionResult(Map<String, Object> context,
-                                          RuntimeGraphSpecExecutionResult result) {
-        if (result.metadata() == null) {
-            return;
-        }
-        Map<String, Object> summary = mapValue(result.metadata().get("pageActionResultSummary"));
-        if (summary == null || summary.isEmpty()) {
-            return;
-        }
-        List<Map<String, Object>> history = new ArrayList<>();
-        Object existing = context.get("pageActionResults");
-        if (existing instanceof List<?> items) {
-            for (Object item : items) {
-                Map<String, Object> previous = mapValue(item);
-                if (previous != null && !previous.isEmpty()) {
-                    history.add(Map.copyOf(previous));
-                }
-            }
-        }
-        history.add(Map.copyOf(summary));
-        context.put("pageActionResults", List.copyOf(history));
     }
 
     private String nodeOutputAlias(GraphSpec.Node node) {

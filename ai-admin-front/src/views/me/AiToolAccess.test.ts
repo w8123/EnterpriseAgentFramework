@@ -74,6 +74,16 @@ afterEach(() => {
 })
 
 describe('AI 工具接入 (console)', () => {
+  it('defaults to WorkBuddy and a 180-day credential', async () => {
+    await mountPage()
+    const tools = document.querySelectorAll('.ai-setup__tool')
+    expect(tools[0].getAttribute('data-tool-kind')).toBe('WORKBUDDY')
+    expect((tools[0].querySelector('input') as HTMLInputElement).checked).toBe(true)
+    expect(wrapper!.text()).toContain('有效期 180 天')
+    button('生成接入配置').click()
+    await flushPromises()
+    expect(mocks.create).toHaveBeenCalledWith({ label: '我的 WorkBuddy', toolKind: 'OTHER', ttlDays: 180 })
+  })
   it('updates workspace copy and only suggests capabilities returned for the account', async () => {
     owner.value = { userId: 7, username: 'admin', roles: ['PLATFORM_ADMIN'], permissions: ['*'] }
     mocks.capabilities.mockResolvedValue({ data: [
@@ -126,7 +136,7 @@ describe('AI 工具接入 (console)', () => {
     button('生成接入配置').click()
     await flushPromises()
 
-    expect(mocks.create).toHaveBeenCalledWith({ label: `我的 ${clientLabel}`, toolKind: 'OTHER', ttlDays: 7 })
+    expect(mocks.create).toHaveBeenCalledWith({ label: `我的 ${clientLabel}`, toolKind: 'OTHER', ttlDays: 180 })
     const prompt = document.querySelector('[data-testid="install-prompt"]')?.textContent ?? ''
     expect(prompt).toContain(clientLabel)
     expect(prompt).toContain('Streamable HTTP')
@@ -174,7 +184,7 @@ describe('AI 工具接入 (console)', () => {
     expect(wrapper!.get<HTMLDetailsElement>('.ai-setup__scope').element.open).toBe(false)
     await startCreate()
 
-    expect(mocks.create).toHaveBeenCalledWith({ label: '我的 Codex', toolKind: 'CODEX', ttlDays: 7 })
+    expect(mocks.create).toHaveBeenCalledWith({ label: '我的 Codex', toolKind: 'CODEX', ttlDays: 180 })
     const prompt = document.querySelector('[data-testid="install-prompt"]')?.textContent ?? ''
     expect(prompt).toContain('export REACHAI_PLATFORM_AI_TOKEN_19="rpi_one_time_secret"')
     expect(prompt).toContain('bearer_token_env_var = "REACHAI_PLATFORM_AI_TOKEN_19"')

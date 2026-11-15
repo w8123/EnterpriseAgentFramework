@@ -149,17 +149,17 @@ public class RuntimeWorkflowReleaseValidationService {
         }
         try {
             String workflowId = StringUtils.hasText(workflow.getId()) ? workflow.getId() : "preview";
-            var target = new com.enterprise.ai.runtime.agent.RuntimeResolvedWorkflowTarget(null,
+            var target = new RuntimeTrustedWorkflowTarget.Snapshot(
                     RuntimeWorkflowExecutionView.builder().id(workflowId).projectCode(workflow.getProjectCode()).build(),
                     RuntimeWorkflowPublishedVersionView.builder().id(1L).workflowId(workflowId).version("validation")
                             .status("ACTIVE").graphSpecSnapshotJson(graphJson).build());
-            var guard = new com.enterprise.ai.runtime.supervisor.TrustedPageActionWorkflowGuard();
+            var guard = new TrustedPageActionWorkflowGuard();
             var candidate = guard.candidate(target).orElseThrow();
             var approved = controlCatalogClient.resolvePageEffect(new RuntimeControlCatalogClient.TrustedPageEffectRequest(
                     candidate.projectCode(), candidate.pageKey(), candidate.actionKey()));
             if (approved == null) throw new IllegalArgumentException("review unavailable");
             String schema = approved.inputSchema() instanceof String s ? s : objectMapper.writeValueAsString(approved.inputSchema());
-            var declaration = new com.enterprise.ai.runtime.supervisor.TrustedPageActionWorkflowGuard.TrustedActionDeclaration(
+            var declaration = new TrustedPageActionWorkflowGuard.TrustedActionDeclaration(
                     approved.approvalId(), approved.revision(), approved.pageId(), approved.actionId(), approved.projectCode(),
                     approved.pageKey(), approved.actionKey(), approved.effect(), approved.catalogHash(), approved.implementationVersion(),
                     approved.targetAlias(), approved.actionTitle(), approved.actionDescription(), approved.routePattern(), schema,
