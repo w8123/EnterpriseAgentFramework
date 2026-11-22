@@ -778,10 +778,10 @@ public class McpPlatformProtocolService {
                     List.of("taskId", "clientEventId", "artifactKey", "contract", "content"), false),
             new Tool("reachai_ai_coding_task_verify", "请 ReachAI 对已领取任务做一项平台校验（例如 SDK_SYNC），verificationKey 取自任务上下文。",
                     PlatformPermissions.PLATFORM_WRITE, Map.of("taskId", text("任务标识"), "verificationKey", text("校验项")), List.of("taskId", "verificationKey"), false),
-            new Tool("reachai_integration_guide", "读取按框架写的接入教程（Markdown），里面的 ReachAI 地址和项目编码已填成真实值。topic 可选：embed-vue、embed-react、embed-angular、embed-script、sdk-java、sdk-csharp、sdk-python、sdk-node、sdk-go、sdk-php。",
-                    null, Map.of("topic", Map.of("type", "string", "enum", List.of("embed-vue", "embed-react", "embed-angular", "embed-script",
-                            "sdk-java", "sdk-csharp", "sdk-python", "sdk-node", "sdk-go", "sdk-php"), "description", "教程"),
-                    "projectCode", text("项目编码，可选")), List.of("topic")),
+            new Tool("reachai_integration_guide", "执行平台任务前按需读取操作指引：接入教程、Workflow、Agent、MCP 发布、知识导入和任务交接。省略 topic 获取目录，再按目标读取相关主题；不要求用户挑选技术模板。地址和项目编码自动填入，读取指引不授予执行权限。",
+                    null, Map.of("topic", Map.of("type", "string", "enum", McpPlatformIntegrationService.GUIDE_TOPICS.keySet().stream().sorted().toList(),
+                            "description", "指引主题；省略时返回目录"),
+                    "projectCode", text("项目编码，可选")), List.of()),
             new Tool("reachai_doctor", "一键体检一个业务系统的 ReachAI 接入：项目权限、SDK 实例是否在线、业务页面、嵌入接入策略、可用模型、MCP 发布和各服务状态；每项给出结果和修法，并附上需要在业务仓库本地检查的清单（localChecks）。只读。",
                     PlatformPermissions.PLATFORM_READ, Map.of("projectCode", text("项目编码")), List.of("projectCode")),
             new Tool("reachai_project_onboarding_start", "接入当前业务仓库：先识别技术栈，用 reachai_projects_list 确认目标项目，然后为已有项目创建或续接项目接入任务并绑定当前连接。全新项目先读取 reachai_integration_guide 和 reachai_onboarding_resources，通过 reachai_onboarding_enrollment_request 申请本人审核，批准后用 reachai_onboarding_enrollment_execute 获取一次性令牌，完成 SDK 首次注册后再启动任务。新建任务时返回 projectAgentProvisioning；状态不是 READY 时告知用户，UNKNOWN 时先核查页面助手，不自动重试。返回任务后读取任务上下文并回报进度。结果未知时先查询任务。",
@@ -1726,7 +1726,7 @@ public class McpPlatformProtocolService {
                     body.remove("taskId");
                     yield aiCoding.agent(identity, requiredText(arguments, "taskId"), AI_CODING_AGENT_STEPS.get(name), body);
                 }
-                case "reachai_integration_guide" -> integration.guide(requiredText(arguments, "topic"), optionalText(arguments, "projectCode"));
+                case "reachai_integration_guide" -> integration.guide(optionalText(arguments, "topic"), optionalText(arguments, "projectCode"));
                 case "reachai_doctor" -> integration.doctor(identity, projectCode(arguments));
                 case "reachai_ai_coding_task_cancel" -> aiCoding.cancel(identity, requiredText(arguments, "taskId"));
                 case "reachai_ai_coding_question_answer" -> aiCoding.answer(identity, requiredText(arguments, "taskId"),

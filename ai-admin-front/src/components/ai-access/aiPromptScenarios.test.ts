@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  AI_PROMPT_SCENARIOS, findAiPromptScenario, groupAiPromptScenarios, missingAiPromptVariables, renderAiPrompt,
+  AI_PROMPT_SCENARIOS, findAiPromptScenario, missingAiPromptVariables, renderAiPrompt,
 } from './aiPromptScenarios'
 
 describe('aiPromptScenarios', () => {
@@ -12,8 +12,8 @@ describe('aiPromptScenarios', () => {
     ]))
     for (const item of AI_PROMPT_SCENARIOS) {
       expect(item.title).toMatch(/\S/)
-      const used = [...item.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map(match => match[1])
       const declared = new Set(['reachaiUrl', ...item.variables.map(variable => variable.name)])
+      const used = [...item.template.matchAll(/\{\{\s*(\w+)\s*\}\}/g)].map(match => match[1])
       for (const name of used) expect(declared.has(name!), `${item.key} uses undeclared {{${name}}}`).toBe(true)
     }
   })
@@ -24,9 +24,8 @@ describe('aiPromptScenarios', () => {
     expect(missingAiPromptVariables(scenario, { projectCode: 'yudao' })).toEqual([])
     const text = renderAiPrompt(scenario, { projectCode: 'yudao' })
     expect(text).toContain('projectCode="yudao"')
-    expect(text).toContain('reachai_project_onboarding_start')
-    expect(text).toContain('reachai_ai_coding_task_context')
-    expect(text).toContain('OTHER')
+    expect(text).toContain('reachai_integration_guide（topic="project-workbench-onboarding"')
+    expect(text).not.toContain('STARTED')
     expect(text).not.toContain('reachai_ai_coding_task_claim')
     expect(text).not.toContain('claimCode')
     expect(text).not.toMatch(/\{\{/)
@@ -36,27 +35,21 @@ describe('aiPromptScenarios', () => {
     const scenario = findAiPromptScenario('project-onboarding')!
     expect(missingAiPromptVariables(scenario, {})).toEqual([])
     const text = renderAiPrompt(scenario, {})
-    expect(text).toContain('reachai_project_onboarding_start')
-    expect(text).toContain('reachai_onboarding_enrollment_request')
-    expect(text).toContain('待办与审核')
+    expect(text).toContain('reachai_integration_guide（topic="project-onboarding"）')
   })
 
-  it.each(['page-workbench', 'ai-coding-task'])('uses a one-time MCP claim and task recovery rules for %s', (key) => {
+  it.each(['page-workbench', 'ai-coding-task'])('hands off actual task context and defers operation rules to the guide for %s', (key) => {
     const scenario = findAiPromptScenario(key)!
     const text = renderAiPrompt(scenario, { projectCode: 'orders', taskId: 'task-1', claimCode: 'fixture-code' })
-    expect(text).toContain('reachai_ai_coding_task_claim')
-    expect(text).toContain('reachai_ai_coding_task_context')
-    expect(text).toContain('requiredBeforeEditing=true')
-    expect(text).toContain('WAITING_USER')
-    expect(text).toContain('RESULT_APPLIED')
+    expect(text).toContain(`reachai_integration_guide（topic="${key}"`)
+    expect(text).toContain('taskId="task-1"，claimCode="fixture-code"')
+    expect(text).not.toContain('STARTED')
     expect(text).not.toContain('PowerShell')
     expect(text).not.toContain('taskToken=')
   })
 
-  it('marks optional blanks as unspecified and groups by category order', () => {
+  it('marks optional context as unspecified rather than inventing a target', () => {
     const scenario = findAiPromptScenario('workflow-draft')!
-    expect(renderAiPrompt(scenario, {})).toContain('项目：（未指定）')
-    const groups = groupAiPromptScenarios(AI_PROMPT_SCENARIOS)
-    expect(groups[0]!.category).toBe('onboarding')
+    expect(renderAiPrompt(scenario, {})).toContain('projectCode="（未指定）"')
   })
 })

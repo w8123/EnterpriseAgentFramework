@@ -72,14 +72,6 @@
           </AiAccessSetup>
         </div>
 
-        <LiquidGlassCard v-show="tab === 'prompts'" class="employee-portal__card" data-testid="portal-prompts">
-          <AiPromptLibrary
-            connection="employee"
-            intro="接好 AI 工具后，复制这些提示词粘贴给它就能开始办事。"
-            :initial-values="{ systemName: me?.systemName ?? '' }"
-          />
-        </LiquidGlassCard>
-
         <LiquidGlassCard v-show="tab === 'capabilities'" class="employee-portal__card" data-testid="portal-capabilities">
           <AiCapabilityList
             :groups="capabilityGroups"
@@ -169,7 +161,6 @@ import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
 import AiCapabilityList from '@/components/ai-access/AiCapabilityList.vue'
 import AiCredentialTable from '@/components/ai-access/AiCredentialTable.vue'
 import AiCallRecords from '@/components/ai-access/AiCallRecords.vue'
-import AiPromptLibrary from '@/components/ai-access/AiPromptLibrary.vue'
 import {
   aiToolLabel, buildInstallPrompt, isToday,
   type AiCallRecord, type AiCapabilityGroup, type AiCredentialRow, type AiToolKind,
@@ -225,7 +216,6 @@ const TOKEN_KEY = EMPLOYEE_PORTAL_TOKEN_KEY
 // 员工的「AI 工具接入」：照宝塔 MCP 面板分成接入与体验、我能办的事、访问凭据、任务记录，外加我的审批、我的助手（全屏对话）和我的记忆。
 const tabs = [
   { key: 'setup', label: '接入与体验' },
-  { key: 'prompts', label: '提示词库' },
   { key: 'capabilities', label: '我能办的事' },
   { key: 'credentials', label: '访问凭据' },
   { key: 'records', label: '任务记录' },

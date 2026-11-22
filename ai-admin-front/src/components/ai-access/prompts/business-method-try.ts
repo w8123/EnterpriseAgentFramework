@@ -1,5 +1,5 @@
 import type { AiPromptScenario } from '../aiPromptScenarios'
-import { PLATFORM_PREAMBLE, PLATFORM_RULES } from '../promptHelpers'
+import { PLATFORM_PREAMBLE } from '../promptHelpers'
 
 const scenario: AiPromptScenario = {
   key: 'business-method-try',
@@ -12,14 +12,11 @@ const scenario: AiPromptScenario = {
   variables: [{ name: 'projectCode', label: '项目编码', required: true }],
   template: `${PLATFORM_PREAMBLE}
 
-帮我检查 ReachAI 项目「{{projectCode}}」已接入的业务方法。
+请先读取 reachai_integration_guide（topic="business-method-try"，projectCode="{{projectCode}}"）提供的操作指引，再按指引完成本次任务。
 
-1. 用 reachai_business_methods_list 列出全部，标出缺少中文说明、参数说明不清或读写类型可疑的。
-2. 对只读方法：先 reachai_business_method_invocation_context 固定契约，再 reachai_business_method_invoke_read_only 试调用，记录结果。
-3. 说明需要补的地方用 reachai_business_capability_semantic_generate 生成草稿给我看，不要直接保存。
-4. 最后给我一张表：方法、读写、试调用结果、建议。
-
-${PLATFORM_RULES}`,
+任务：检查并试用已接入的业务方法
+上下文：projectCode="{{projectCode}}"
+我的需求：<请在这里补充真实需求>`,
 }
 
 export default scenario

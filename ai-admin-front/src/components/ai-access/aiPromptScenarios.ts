@@ -27,6 +27,12 @@ export interface AiPromptVariable {
   required?: boolean
 }
 
+export interface AiPromptExample {
+  title: string
+  /** 仅作表达需求的参考，不生成任务或复制内容。 */
+  description: string
+}
+
 export interface AiPromptScenario {
   /** kebab-case，全局唯一。 */
   key: string
@@ -35,11 +41,13 @@ export interface AiPromptScenario {
   audience: AiPromptAudience[]
   /** platform = ReachAI 平台连接（/mcp/platform）；employee = 员工连接（/mcp/employee）。 */
   connection: 'platform' | 'employee'
-  /** 一句话说明，提示词库卡片上显示。 */
+  /** 功能交接的一句话说明。 */
   summary: string
   variables: AiPromptVariable[]
   /** 提示词正文，变量写成 {{name}}。 */
   template: string
+  /** 功能弹窗中的静态示例；未提供时展示实际任务的交接入口。 */
+  examples?: AiPromptExample[]
   /** 接好后可以试的一句话。 */
   tryAfter?: string
   order?: number
@@ -108,15 +116,4 @@ export function renderAiPrompt(scenario: AiPromptScenario, context: AiPromptCont
       return value === null || value === undefined || String(value).trim() === '' ? '（未指定）' : String(value)
     })
     .trim()
-}
-
-export function groupAiPromptScenarios(scenarios: readonly AiPromptScenario[]) {
-  const groups = new Map<AiPromptCategory, AiPromptScenario[]>()
-  for (const scenario of scenarios) {
-    const list = groups.get(scenario.category) ?? []
-    list.push(scenario)
-    groups.set(scenario.category, list)
-  }
-  return CATEGORY_ORDER.filter(category => groups.has(category))
-    .map(category => ({ category, label: AI_PROMPT_CATEGORY_LABELS[category], scenarios: groups.get(category)! }))
 }

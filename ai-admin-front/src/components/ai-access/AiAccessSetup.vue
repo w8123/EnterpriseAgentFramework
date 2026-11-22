@@ -116,18 +116,12 @@
     </section>
 
     <footer v-if="tryPhrases.length || $slots.footer" class="ai-setup__footer">
-      <details v-if="tryPhrases.length" class="ai-setup__examples">
-        <summary class="ai-setup__disclosure">
-          <el-icon aria-hidden="true"><ChatLineRound /></el-icon>
-          接入后，试着说
-          <el-icon class="ai-setup__chevron" aria-hidden="true"><ArrowDown /></el-icon>
-        </summary>
-        <button v-for="phrase in tryPhrases" :key="phrase" type="button" :aria-label="`复制示例：${phrase}`" @click="copyPhrase(phrase)">
-          <span>{{ phrase }}</span><el-icon aria-hidden="true"><Select v-if="copiedPhrase === phrase" /><CopyDocument v-else /></el-icon>
-        </button>
-        <p v-if="copiedPhrase" class="ai-setup__copied" role="status">示例已复制</p>
-        <p v-if="phraseCopyFailed" class="ai-setup__error" role="alert">复制失败，请选中文本手动复制。</p>
-      </details>
+      <section v-if="tryPhrases.length" class="ai-setup__examples" aria-label="接入后，试着说">
+        <h3>接入后，试着说</h3>
+        <ul>
+          <li v-for="phrase in tryPhrases" :key="phrase">{{ phrase }}</li>
+        </ul>
+      </section>
       <slot name="footer" />
     </footer>
   </LiquidGlassCard>
@@ -136,7 +130,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, useId, watch } from 'vue'
 import { ElIcon } from 'element-plus'
-import { ArrowDown, ArrowRight, ChatLineRound, Check, Connection, CopyDocument, Document, Lock, Select, Setting, TopRight } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Check, Connection, CopyDocument, Document, Lock, Setting, TopRight } from '@element-plus/icons-vue'
 import { LiquidGlassButton, LiquidGlassCard } from '@/components/common/liquid-glass'
 import { AI_TOOL_OPTIONS, type AiClientId, type AiToolKind, type AiToolOption } from './aiAccess'
 
@@ -169,8 +163,6 @@ const connectionHeading = ref<HTMLElement>()
 const promptPreview = ref<HTMLDetailsElement>()
 const copied = ref(false)
 const promptCopyFailed = ref(false)
-const copiedPhrase = ref('')
-const phraseCopyFailed = ref(false)
 let copyGeneration = 0
 
 watch(() => props.prompt, (prompt) => {
@@ -200,17 +192,6 @@ async function copyPrompt() {
     copied.value = false
     promptCopyFailed.value = true
     if (promptPreview.value) promptPreview.value.open = true
-  }
-}
-
-async function copyPhrase(phrase: string) {
-  try {
-    await navigator.clipboard.writeText(phrase)
-    copiedPhrase.value = phrase
-    phraseCopyFailed.value = false
-  } catch {
-    copiedPhrase.value = ''
-    phraseCopyFailed.value = true
   }
 }
 
@@ -378,10 +359,10 @@ details[open] > summary .ai-setup__chevron { transform: rotate(180deg); }
   margin-block-start: var(--layout-section-gap);
 }
 .ai-setup__examples { min-width: 0; color: var(--text-secondary); }
-.ai-setup__examples button { display: flex; width: 100%; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border: 0; border-bottom: 1px solid var(--border-divider); background: transparent; color: inherit; font: inherit; font-size: 12px; line-height: 1.7; text-align: left; cursor: pointer; }
-.ai-setup__examples button:hover { color: var(--brand-on-surface); }
-.ai-setup__examples button .el-icon { flex-shrink: 0; color: inherit; opacity: 0.7; }
-.ai-setup :is(summary, a, pre, .ai-setup__examples button):focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
+.ai-setup__examples h3 { margin: 0; font-size: 13px; font-weight: 600; line-height: 1.7; }
+.ai-setup__examples ul { display: grid; gap: 4px; margin: 6px 0 0; padding-inline-start: 18px; font-size: 12px; line-height: 1.8; }
+.ai-setup__examples li { overflow-wrap: anywhere; }
+.ai-setup :is(summary, a, pre):focus-visible { outline: 2px solid var(--border-focus); outline-offset: 3px; }
 
 @container (min-width: 840px) {
   .ai-setup__connection-content {

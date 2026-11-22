@@ -31,6 +31,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 class McpPlatformIntegrationServiceTest {
     private final McpPlatformProjectPagesPort pages = mock(McpPlatformProjectPagesPort.class);
@@ -60,6 +61,33 @@ class McpPlatformIntegrationServiceTest {
             assertTrue(markdown.contains("https://reachai.example.com") || !topic.startsWith("embed"), topic);
         }
         assertEquals(400, service.guide("php", "orders").getStatusCode().value());
+    }
+
+    @Test
+    void discoversOperationAndFrameworkGuidesWithoutReadingBusinessData() {
+        Map<?, ?> catalog = (Map<?, ?>) service.guide(null, null).getBody();
+        Map<?, ?> topics = (Map<?, ?>) catalog.get("topics");
+        assertTrue(topics.containsKey("workflow-draft"));
+        assertTrue(topics.containsKey("ai-coding-task"));
+        assertTrue(topics.containsKey("sdk-java"));
+        assertFalse(catalog.containsKey("markdown"));
+        assertEquals(400, service.guide("../../application", "orders").getStatusCode().value());
+        verifyNoInteractions(pages, embed, models, publications, status);
+    }
+
+    @Test
+    void operationGuidesKeepRevisionApprovalAndTaskRecoveryRules() {
+        String workflow = (String) ((Map<?, ?>) service.guide("workflow-draft", "orders").getBody()).get("markdown");
+        assertTrue(workflow.contains("reachai_workflow_preview_patch"));
+        assertTrue(workflow.contains("reachai_workflow_trial_read_only"));
+        assertTrue(workflow.contains("我同意后再 reachai_workflow_request_publish"));
+        assertTrue(workflow.contains("不要换用 SQL"));
+        assertFalse(workflow.contains("aiCodingKey"));
+        String task = (String) ((Map<?, ?>) service.guide("ai-coding-task", null).getBody()).get("markdown");
+        assertTrue(task.contains("requiredBeforeEditing=true"));
+        assertTrue(task.contains("WAITING_USER"));
+        assertTrue(task.contains("RESULT_APPLIED"));
+        assertTrue(task.contains("不要再次使用已消费的领取码"));
     }
 
     @Test

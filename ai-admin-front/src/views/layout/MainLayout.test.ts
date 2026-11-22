@@ -283,7 +283,7 @@ describe('MainLayout route continuity', () => {
     await router.push('/me/ai-connections')
     await flushPromises()
     expect(sidebar()).toBe(true)
-    await router.push('/me/ai-connections?tab=prompts')
+    await router.push('/me/ai-connections?tab=credentials')
     await flushPromises()
     expect(sidebar()).toBe(true)
     await router.push('/capabilities')

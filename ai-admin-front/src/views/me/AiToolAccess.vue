@@ -51,13 +51,6 @@
         </AiAccessSetup>
       </el-tab-pane>
 
-      <el-tab-pane label="提示词库" name="prompts">
-        <template #label><el-icon aria-hidden="true"><Document /></el-icon>提示词库</template>
-        <LiquidGlassCard source="wallpaper">
-          <AiPromptLibrary connection="platform" />
-        </LiquidGlassCard>
-      </el-tab-pane>
-
       <el-tab-pane label="我能办的事" name="capabilities">
         <template #label><el-icon aria-hidden="true"><Grid /></el-icon>我能办的事</template>
         <LiquidGlassCard source="wallpaper">
@@ -98,8 +91,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useRoute } from 'vue-router'
-import { Clock, Connection, Document, Grid, Key } from '@element-plus/icons-vue'
+import { Clock, Connection, Grid, Key } from '@element-plus/icons-vue'
 import {
   createPlatformAiConnection,
   listPlatformAiCalls,
@@ -124,7 +116,6 @@ import AiAccessSetup from '@/components/ai-access/AiAccessSetup.vue'
 import AiCapabilityList from '@/components/ai-access/AiCapabilityList.vue'
 import AiCredentialTable from '@/components/ai-access/AiCredentialTable.vue'
 import AiCallRecords from '@/components/ai-access/AiCallRecords.vue'
-import AiPromptLibrary from '@/components/ai-access/AiPromptLibrary.vue'
 import {
   buildInstallPrompt, isToday, PLATFORM_AI_TOOL_OPTIONS,
   type AiCallRecord, type AiCapabilityGroup, type AiClientId, type AiCredentialRow, type AiToolKind,
@@ -132,7 +123,6 @@ import {
 import { platformAiSetup } from './platformAiSetup'
 
 // 管理端的「AI 工具接入」：和员工门户同一套界面，授权范围是 ReachAI 平台本身。
-const route = useRoute()
 const { currentWorkspace } = useSidebarWorkspace()
 const workspaceDescription = computed(() => ({
   developer: '用你习惯的 AI 工具，协助接入业务系统、改造项目和开发智能体。',
@@ -141,7 +131,7 @@ const workspaceDescription = computed(() => ({
   my: '用你习惯的 AI 工具，连接 ReachAI，让 AI 协助你完成工作。',
   all: '用你习惯的 AI 工具，连接 ReachAI，让 AI 协助你完成工作。',
 })[currentWorkspace.value.key])
-const tab = ref<'setup' | 'prompts' | 'capabilities' | 'credentials' | 'records'>(route?.query?.tab === 'prompts' ? 'prompts' : 'setup')
+const tab = ref<'setup' | 'capabilities' | 'credentials' | 'records'>('setup')
 const connections = ref<PlatformAiConnection[]>([])
 const loading = ref(false)
 const error = ref('')
@@ -186,6 +176,7 @@ const installPrompt = computed(() => {
     configContent: setup.content,
     secretVariable: setup.variable,
     secret: value.token,
+    platformGuides: true,
   })
 })
 

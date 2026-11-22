@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 
 /**
- * Read-only help for people connecting a business system: per-framework setup guides filled with this project's real
+ * Read-only help for connected AI tools: discoverable operation and framework guides filled with this project's real
  * values ({@code reachai_integration_guide}) and a one-call check-up of what ReachAI sees for the project
  * ({@code reachai_doctor}). Every check goes through the same owner ports and permissions as the console pages, and a
  * failing check never stops the others.
@@ -38,17 +38,32 @@ import java.util.function.Supplier;
 public class McpPlatformIntegrationService {
 
     /** Guide topics and the files under {@code ai-assist/guides/}. */
-    public static final Map<String, String> GUIDE_TOPICS = Map.of(
-            "embed-vue", "Vue 3 页面接入嵌入对话",
-            "embed-react", "React 页面接入嵌入对话",
-            "embed-angular", "Angular 页面接入嵌入对话",
-            "embed-script", "script 标签 / Web Component 接入嵌入对话",
-            "sdk-java", "Java（Spring Boot 2.7 / 3）后端接入",
-            "sdk-csharp", "C#（ASP.NET Core）后端接入",
-            "sdk-python", "Python（FastAPI）后端接入",
-            "sdk-node", "Node.js（Express）后端接入",
-            "sdk-go", "Go（net/http）后端接入",
-            "sdk-php", "PHP（原生 PHP / Laravel / ThinkPHP）后端接入");
+    public static final Map<String, String> GUIDE_TOPICS = Map.ofEntries(
+            Map.entry("platform-basics", "平台操作通用规则"),
+            Map.entry("project-onboarding", "从当前仓库接入 ReachAI"),
+            Map.entry("project-workbench-onboarding", "接入业务系统（项目接入工作台）"),
+            Map.entry("project-overview", "查看项目接入情况"),
+            Map.entry("page-workbench", "业务页面接入任务"),
+            Map.entry("workflow-draft", "创建或修改 Workflow"),
+            Map.entry("agent-config", "调整智能体配置"),
+            Map.entry("mcp-publication", "开放能力给员工 AI 工具"),
+            Map.entry("knowledge-import", "导入知识库文档"),
+            Map.entry("http-api-import", "整理和导入 HTTP 接口"),
+            Map.entry("business-method-try", "检查并试用业务方法"),
+            Map.entry("capability-retrofit", "业务能力改造"),
+            Map.entry("doctor-project", "业务系统接入体检"),
+            Map.entry("run-diagnose", "分析失败运行"),
+            Map.entry("ai-coding-task", "编程任务交接与状态恢复"),
+            Map.entry("embed-vue", "Vue 3 页面接入嵌入对话"),
+            Map.entry("embed-react", "React 页面接入嵌入对话"),
+            Map.entry("embed-angular", "Angular 页面接入嵌入对话"),
+            Map.entry("embed-script", "script 标签 / Web Component 接入嵌入对话"),
+            Map.entry("sdk-java", "Java（Spring Boot 2.7 / 3）后端接入"),
+            Map.entry("sdk-csharp", "C#（ASP.NET Core）后端接入"),
+            Map.entry("sdk-python", "Python（FastAPI）后端接入"),
+            Map.entry("sdk-node", "Node.js（Express）后端接入"),
+            Map.entry("sdk-go", "Go（net/http）后端接入"),
+            Map.entry("sdk-php", "PHP（原生 PHP / Laravel / ThinkPHP）后端接入"));
 
     private static final Set<String> ONLINE = Set.of("UP", "ONLINE", "HEALTHY", "RUNNING", "ACTIVE");
 
@@ -61,6 +76,11 @@ public class McpPlatformIntegrationService {
 
     public ResponseEntity<?> guide(String topic, String projectCode) {
         String key = topic == null ? "" : topic.trim().toLowerCase(Locale.ROOT);
+        if (key.isEmpty()) {
+            return ResponseEntity.ok(Map.of(
+                    "topics", new java.util.TreeMap<>(GUIDE_TOPICS),
+                    "nextStep", "按用户目标选择 topic，再调用本工具读取对应操作指引；不需要用户挑选或复制技术模板。"));
+        }
         if (!GUIDE_TOPICS.containsKey(key)) {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("message", "未知的教程，可选：" + String.join("、", GUIDE_TOPICS.keySet().stream().sorted().toList()));
@@ -68,6 +88,7 @@ public class McpPlatformIntegrationService {
             return ResponseEntity.badRequest().body(body);
         }
         String template = readGuide(key);
+        if (!"platform-basics".equals(key)) template = readGuide("platform-basics") + "\n\n---\n\n" + template;
         String baseUrl = publicBaseUrl();
         String text = template
                 .replace("{{reachaiUrl}}", baseUrl == null ? "（你连接 MCP 用的 ReachAI 地址）" : baseUrl)

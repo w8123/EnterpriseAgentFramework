@@ -1,5 +1,5 @@
 import type { AiPromptScenario } from '../aiPromptScenarios'
-import { PLATFORM_PREAMBLE, PLATFORM_RULES } from '../promptHelpers'
+import { PLATFORM_PREAMBLE } from '../promptHelpers'
 
 const scenario: AiPromptScenario = {
   key: 'workflow-draft',
@@ -15,15 +15,25 @@ const scenario: AiPromptScenario = {
   ],
   template: `${PLATFORM_PREAMBLE}
 
-帮我在 ReachAI 里做一个 Workflow（项目：{{projectCode}}；已有 Workflow：{{workflowKey}}）。我要它做的事：<在这里写一句话，例如「每天查库存低于安全线的商品并汇总」>
+请先读取 reachai_integration_guide（topic="workflow-draft"，projectCode="{{projectCode}}"）提供的操作指引，再按指引完成本次任务。
 
-1. 有已有 Workflow 就先 reachai_workflow_working_copy 读工作副本；没有就 reachai_workflow_create_draft 新建（先用 reachai_workflows_search 确认没有同名）。
-2. 用 reachai_workflow_node_types 和 reachai_business_methods_list 选节点和能力。
-3. 每次改动先 reachai_workflow_preview_patch 预览，再 reachai_workflow_save_patch 保存（用刚读到的 revision）。
-4. reachai_workflow_validate_release 校验通过后，用 reachai_workflow_trial_read_only 只读试运行一次。
-5. 把流程图用文字讲给我听，我同意后再 reachai_workflow_request_publish 申请发布。
-
-${PLATFORM_RULES}`,
+任务：用一句话建一个 Workflow
+上下文：projectCode="{{projectCode}}"，workflowKey="{{workflowKey}}"
+我的需求：<请在这里补充真实需求>`,
+  examples: [
+    {
+      title: '低库存商品汇总',
+      description: '帮我建一个流程，查询低于安全库存的商品，按仓库汇总库存与缺口。',
+    },
+    {
+      title: '销售订单统计',
+      description: '帮我统计本月各客户的订单数和销售金额，列出销售额前 10 名。',
+    },
+    {
+      title: '描述自己的流程',
+      description: '帮我创建或调整一个 Workflow，实现「在这里写下你的需求」。',
+    },
+  ],
 }
 
 export default scenario

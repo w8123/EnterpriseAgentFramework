@@ -35,7 +35,7 @@
 
 ## 让你的 AI 帮你接
 
-上面每一步都可以交给你自己的 Codex 或 Claude Code 做。ReachAI 在项目接入工作台、Workflow、MCP 服务等页面都有「交给我的 AI」按钮，点一下复制提示词，粘贴给 AI，它会读平台给的接入教程、改你的代码、回平台核对结果。见 [交给我的 AI](ai-tool-handoff.md)。
+上面每一步都可以交给你自己的 Codex 或 Claude Code 做。ReachAI 在项目接入工作台、Workflow、MCP 服务等页面都有「交给我的 AI」按钮，点开查看接入引导、参考示例或具体任务的交接说明。连好后把真实需求告诉 AI，它会读平台给的接入教程、改你的代码、回平台核对结果。见 [交给我的 AI](ai-tool-handoff.md)。
 
 已经接入的系统，想再开放更多业务方法，可以 [用 AI 改造业务能力](retrofit.md)。
 

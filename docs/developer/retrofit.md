@@ -10,7 +10,7 @@
 
 - 业务系统已经用 SDK 接入，见 [接入第一个业务系统](connect-project.md)。
 - 你的 Codex / Claude Code 能打开业务系统的代码仓库。
-- 用「AI 工具接入」连接平台；也可以在「交给我的 AI」弹窗中按提示连接，见 [交给我的 AI](ai-tool-handoff.md)。
+- 用「AI 工具接入」连接平台；也可以从「交给我的 AI」弹窗跳转到接入页，见 [交给我的 AI](ai-tool-handoff.md)。
 
 ## 第 1 步：写一句目标
 

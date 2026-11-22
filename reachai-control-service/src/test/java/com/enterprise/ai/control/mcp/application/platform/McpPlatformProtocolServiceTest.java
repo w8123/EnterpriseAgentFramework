@@ -45,6 +45,33 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class McpPlatformProtocolServiceTest {
+    @Test void guideToolDiscoversTopicsAndReadsInstructionsWithoutGrantingWritePermission() {
+        var fixture = fixture();
+        var integration = new McpPlatformIntegrationService(null, null, null, null, null, new com.fasterxml.jackson.databind.ObjectMapper());
+        org.springframework.test.util.ReflectionTestUtils.setField(fixture.service, "integration", integration);
+        var reader = identity("platform:read");
+        var tool = fixture.service.visibleTools(reader).stream()
+                .filter(item -> "reachai_integration_guide".equals(item.get("name"))).findFirst().orElseThrow();
+        assertEquals(List.of(), ((Map<?, ?>) tool.get("inputSchema")).get("required"));
+        assertEquals(true, ((Map<?, ?>) tool.get("annotations")).get("readOnlyHint"));
+        var catalog = fixture.service.callTool(reader, "reachai_integration_guide", Map.of());
+        assertTrue(catalog.success());
+        assertTrue(catalog.output().toString().contains("workflow-draft"));
+        var guide = fixture.service.callTool(reader, "reachai_integration_guide", Map.of("topic", "workflow-draft", "projectCode", "orders"));
+        assertTrue(guide.success());
+        assertTrue(guide.output().toString().contains("reachai_workflow_preview_patch"));
+        assertThrows(McpDomainException.class, () -> fixture.service.callTool(reader, "reachai_workflow_create_draft", Map.of("name", "草稿")));
+        assertFalse(fixture.service.callTool(reader, "reachai_integration_guide", Map.of("topic", "../secrets")).success());
+        var names = fixture.service.visibleTools(identity("*")).stream().map(item -> item.get("name")).toList();
+        var pattern = java.util.regex.Pattern.compile("\\breachai_[a-z][a-z0-9_]+\\b");
+        for (String topic : McpPlatformIntegrationService.GUIDE_TOPICS.keySet()) {
+            if (topic.startsWith("sdk-") || topic.startsWith("embed-")) continue;
+            String markdown = (String) ((Map<?, ?>) integration.guide(topic, "orders").getBody()).get("markdown");
+            var matcher = pattern.matcher(markdown);
+            while (matcher.find()) assertTrue(names.contains(matcher.group()), topic + " names unknown tool " + matcher.group());
+        }
+    }
+
     @Test void onboardingToolsDispatchWithTheConnectionAndExposeApprovalRequirement() {
         var fixture = fixture();
         var enrollment = mock(McpPlatformOnboardingEnrollmentService.class);

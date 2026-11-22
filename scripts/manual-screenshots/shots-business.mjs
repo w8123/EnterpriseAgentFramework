@@ -119,7 +119,6 @@ export const businessShots = [
     },
   },
   portalShot('business-portal-setup', '个人页：接入与体验', null),
-  portalShot('business-portal-prompts', '个人页：提示词库', '提示词库'),
   portalShot('business-portal-capabilities', '个人页：我能办的事', '我能办的事', null, 760),
   portalShot('business-portal-credentials', '个人页：访问凭据', '访问凭据', null, 520),
   portalShot('business-portal-records', '个人页：任务记录', '任务记录'),

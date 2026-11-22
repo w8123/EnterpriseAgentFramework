@@ -129,6 +129,8 @@ export interface InstallPromptInput {
   /** Platform connections keep the secret in an environment variable instead of the snippet. */
   secretVariable?: string
   secret?: string
+  /** 平台连接的 AI 按需读取服务端操作指引。 */
+  platformGuides?: boolean
 }
 
 /**
@@ -159,5 +161,8 @@ export function buildInstallPrompt(input: InstallPromptInput) {
     ? `${step}. 在客户端中重新连接 MCP 服务，确认能加载工具列表，再发起一次有权限的查询以验证连接。`
     : `${step}. 重新加载 MCP 配置，列出 reachai 提供的工具，确认能看到它们后告诉我「已接好」，并用一两句话说说你现在能帮我做什么。`)
   lines.push('', '注意：上面的内容包含我的个人密钥，不要上传到代码仓库，也不要发给任何人。按平台列出的能力和影响范围操作；需要审核的操作先提交审核，批准后才执行。')
+  if (input.platformGuides) {
+    lines.push('', '后续执行 ReachAI 平台任务前，调用 reachai_integration_guide 获取操作指引：先省略 topic 读取目录，再按我的目标读取对应主题。无需让我查找或复制技术模板。')
+  }
   return lines.join('\n')
 }
